@@ -1,14 +1,30 @@
 import type {
-  ExportSourceResponse,
   ExportRenderResponse,
+  ExportSourceResponse,
   PiBindingResponse,
+  PiBindRequest,
   PiCatalogSearchRequest,
   PiCatalogSearchResponse,
+  PiModelReadResponse,
+  PiOverrideFieldValue,
+  PiRefreshCommitRequest,
   PiRefreshPreviewResponse,
-} from "@/features/models/export/exportTypes";
+  PiRenderRequest,
+} from "@/lib/types";
 import { request } from "./request";
 
-export type { ExportSourceResponse, ExportRenderResponse };
+/**
+ * Single-model Pi management read: model identity, one catalog evidence
+ * block, live exact-candidate evidence, and the persisted binding — no
+ * targets, pricing, digest, or credential.
+ */
+export function fetchModelPi(
+  modelConfigId: number,
+): Promise<PiModelReadResponse> {
+  return request<PiModelReadResponse>(`/api/models/${modelConfigId}/pi`, {
+    cache: "no-store",
+  });
+}
 
 export function fetchModelExportSource(
   signal?: AbortSignal,
@@ -17,21 +33,6 @@ export function fetchModelExportSource(
     cache: "no-store",
     signal,
   });
-}
-
-export interface PiRenderRequest {
-  expected_source_digest: string;
-  model_config_ids: number[];
-  base_url: string;
-  provider_id: string;
-  credential: {
-    include: boolean;
-    api_key?: string;
-  };
-  selections: Record<
-    number,
-    { provider_id: string; model_id: string; api: string }
-  >;
 }
 
 /**
@@ -51,16 +52,6 @@ export function renderModelExport(
   });
 }
 
-export interface PiBindRequest {
-  provider_id?: string;
-  catalog_model_id?: string;
-  expected_catalog_revision: string;
-  /** Prism full model id the operator confirmed this bind against. */
-  expected_prism_model_id: string;
-  /** Final Pi API the operator confirmed this bind against. */
-  expected_pi_api: string;
-}
-
 /**
  * Runs one bounded pi.dev directory model-id search through Prism's backend.
  * The browser never contacts pi.dev: this returns the same trusted catalog
@@ -69,12 +60,14 @@ export interface PiBindRequest {
 export function searchModelPiCatalog(
   modelConfigId: number,
   body: PiCatalogSearchRequest,
+  signal?: AbortSignal,
 ): Promise<PiCatalogSearchResponse> {
   return request<PiCatalogSearchResponse>(
     `/api/models/${modelConfigId}/pi/search`,
     {
       method: "POST",
       cache: "no-store",
+      signal,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     },
@@ -109,13 +102,7 @@ export function refreshModelPiPreview(
 
 export function refreshModelPiCommit(
   modelConfigId: number,
-  expected: {
-    provider_id: string;
-    catalog_model_id: string;
-    api: string;
-    binding_updated_at: string;
-    catalog_revision: string;
-  },
+  expected: PiRefreshCommitRequest,
 ): Promise<PiBindingResponse> {
   return request<PiBindingResponse>(
     `/api/models/${modelConfigId}/pi/refresh/commit`,
@@ -123,25 +110,10 @@ export function refreshModelPiCommit(
       method: "POST",
       cache: "no-store",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        expected_provider_id: expected.provider_id,
-        expected_catalog_model_id: expected.catalog_model_id,
-        expected_api: expected.api,
-        expected_binding_updated_at: expected.binding_updated_at,
-        expected_catalog_revision: expected.catalog_revision,
-      }),
+      body: JSON.stringify(expected),
     },
   );
 }
-
-export type PiOverrideFieldValue =
-  | string
-  | boolean
-  | number
-  | string[]
-  | Record<string, string | null>
-  | Record<string, unknown>
-  | null;
 
 export function putModelPiOverride(
   modelConfigId: number,

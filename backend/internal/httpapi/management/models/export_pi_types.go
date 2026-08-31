@@ -9,60 +9,10 @@ import (
 
 // Pi export wires - static routes without platform param, Pi-only.
 
-type piCatalogWire struct {
-	Revision       string `json:"revision,omitempty"`
-	Status         string `json:"status"` // fresh|stale|unavailable
-	MinimumVersion string `json:"minimum_version,omitempty"`
-	ETag           string `json:"etag,omitempty"`
-}
-
-type piCandidateWire struct {
-	ProviderID       string             `json:"provider_id"`
-	ModelID          string             `json:"model_id"`
-	API              string             `json:"api"`
-	Name             *string            `json:"name,omitempty"`
-	Reasoning        *bool              `json:"reasoning,omitempty"`
-	Input            []string           `json:"input,omitempty"`
-	ContextWindow    *int64             `json:"context_window,omitempty"`
-	MaxTokens        *int64             `json:"max_tokens,omitempty"`
-	ThinkingLevelMap map[string]*string `json:"thinking_level_map,omitempty"`
-	Compat           map[string]any     `json:"compat,omitempty"`
-	DroppedFields    []string           `json:"dropped_fields,omitempty"`
-}
-
 type piSelectedWire struct {
 	ProviderID string `json:"provider_id"`
 	ModelID    string `json:"model_id"`
 	API        string `json:"api"`
-}
-
-// piExportIdentityWire is the export identity a bind decision must be read
-// against. It is always Prism's own authoritative truth: the exported model
-// `id` is the Prism model_id, the exported `api` is Prism's own mapping, and
-// the exported file's provider key comes from operator input at render time.
-// A pi.dev directory coordinate can never replace any of these three.
-type piExportIdentityWire struct {
-	ModelConfigID    int    `json:"model_config_id"`
-	ModelID          string `json:"model_id"`
-	API              string `json:"api"`
-	ProviderIDSource string `json:"provider_id_source"`
-}
-
-// piCatalogSearchResponse is one bounded pi.dev directory model-id search.
-// `Selected` is a permanent false: the search never chooses, preselects, or
-// ranks a winner, it only publishes evidence for an explicit operator choice.
-type piCatalogSearchResponse struct {
-	Query          string               `json:"query"`
-	API            string               `json:"api"`
-	Limit          int                  `json:"limit"`
-	Total          int                  `json:"total"`
-	Returned       int                  `json:"returned"`
-	Truncated      bool                 `json:"truncated"`
-	Selected       bool                 `json:"selected"`
-	Catalog        piCatalogWire        `json:"catalog"`
-	FetchedAt      time.Time            `json:"fetched_at"`
-	ExportIdentity piExportIdentityWire `json:"export_identity"`
-	Results        []piCandidateWire    `json:"results"`
 }
 
 type piSourceModelRow struct {

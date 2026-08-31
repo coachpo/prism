@@ -54,3 +54,24 @@ func loadModelForCatalog(ctx context.Context, tx pgx.Tx, profileID, modelConfigI
 	}
 	return record, nil
 }
+
+// lockModelForCatalog is the write-phase counterpart. Every models.dev
+// binding mutation acquires this model-row lock before it attempts to lock the
+// optional binding row, which serializes first-bind inserts and keeps one
+// global lock order across bind, refresh, override, clear, and unbind.
+func lockModelForCatalog(ctx context.Context, tx pgx.Tx, profileID, modelConfigID int) (modelRecord, error) {
+	record, found, err := loadModelRecord(ctx, tx, profileID, modelConfigID, true)
+	if err != nil {
+		return modelRecord{}, err
+	}
+	if !found {
+		return modelRecord{}, &domainError{StatusCode: http.StatusNotFound, Detail: "Model configuration not found"}
+	}
+	return record, nil
+}
+
+func (s *Service) observeCatalogWriteModelLocked(modelConfigID int) {
+	if s.catalogWriteModelLocked != nil {
+		s.catalogWriteModelLocked(modelConfigID)
+	}
+}

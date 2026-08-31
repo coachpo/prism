@@ -348,9 +348,9 @@ func TestModelExportSourceAndRenderContracts(t *testing.T) {
 	// A retained models.dev binding remains usable by its own model-detail
 	// surface but is not a Pi-export metadata source.
 	modelsDevPreview := requestJSONStatus[map[string]any](t, harness, http.MethodPost, fmt.Sprintf("/api/models/%d/catalog/match-preview", modelConfigID), map[string]any{}, nil, http.StatusOK)
-	requestJSONStatus[map[string]any](t, harness, http.MethodPost, fmt.Sprintf("/api/models/%d/catalog/bind", modelConfigID), map[string]any{
+	requestJSONStatus[map[string]any](t, harness, http.MethodPost, fmt.Sprintf("/api/models/%d/catalog/bind", modelConfigID), catalogBindBody("gpt-export", map[string]any{
 		"expected_catalog_revision": modelsDevPreview["catalog_revision"],
-	}, nil, http.StatusOK)
+	}), nil, http.StatusOK)
 
 	source, sourceHeaders := exportRequestWithHeaders(t, harness, http.MethodGet, "/api/models/exports/pi/source", nil, http.StatusOK)
 	if source["source_digest"] != digestBeforeModelsDevBind {
@@ -1115,6 +1115,16 @@ func TestModelExportPiCatalogSearchContract(t *testing.T) {
 	if got := int(payload["limit"].(float64)); got != 20 {
 		t.Fatalf("default page bound = %d, want 20", got)
 	}
+	if got := int(payload["offset"].(float64)); got != 0 {
+		t.Fatalf("default offset = %d, want 0", got)
+	}
+	catalogEvidence := asMap(t, payload["catalog"])
+	if revision, ok := catalogEvidence["revision"].(string); !ok || !strings.HasPrefix(revision, "sha256-") {
+		t.Fatalf("search must publish the trusted body-SHA revision: %+v", catalogEvidence)
+	}
+	if payload["fetched_at"] == nil || payload["checked_at"] == nil {
+		t.Fatalf("search must publish both fetch and revalidation stamps: %+v", payload)
+	}
 	identity := asMap(t, payload["export_identity"])
 	if identity["model_id"] != "gpt-export" || identity["api"] != "openai-responses" {
 		t.Fatalf("export identity must stay Prism-authored: %+v", identity)
@@ -1153,13 +1163,36 @@ func TestModelExportPiCatalogSearchContract(t *testing.T) {
 		}
 	}
 
-	for _, body := range []map[string]any{{}, {"model_id_query": "   "}, {"model_id_query": strings.Repeat("g", 201)}} {
+	for _, body := range []map[string]any{{}, {"model_id_query": "   "}, {"model_id_query": strings.Repeat("g", 201)}, {"model_id_query": "gpt", "offset": -1}} {
 		response := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/pi/search", modelConfigID), body, nil)
 		assertStatus(t, response, http.StatusUnprocessableEntity)
 		_ = response.Body.Close()
 	}
 	if after := exportFetchSource(t, harness)["source_digest"].(string); after != baselineDigest {
 		t.Fatalf("directory search must never write binding state: digest %s -> %s", baselineDigest, after)
+	}
+
+	// Offset paging windows the same ranked hit set: page two must not repeat
+	// page one, and an offset at total returns an empty page without error.
+	total := int(payload["total"].(float64))
+	if total > 1 {
+		pageTwo := exportPiSearchOrFail(t, harness, modelConfigID, map[string]any{
+			"model_id_query": "GPT-EXPORT", "limit": 1, "offset": 1,
+		})
+		if int(pageTwo["offset"].(float64)) != 1 || int(pageTwo["total"].(float64)) != total {
+			t.Fatalf("offset page must echo its window and the full total: %+v", pageTwo)
+		}
+		firstID := asMap(t, payload["results"].([]any)[0])["model_id"]
+		secondID := asMap(t, pageTwo["results"].([]any)[0])["model_id"]
+		if firstID == secondID {
+			t.Fatalf("offset=1 must skip the first ranked hit: %v vs %v", firstID, secondID)
+		}
+	}
+	beyond := exportPiSearchOrFail(t, harness, modelConfigID, map[string]any{
+		"model_id_query": "GPT-EXPORT", "limit": 5, "offset": total,
+	})
+	if len(beyond["results"].([]any)) != 0 || int(beyond["returned"].(float64)) != 0 {
+		t.Fatalf("offset at total must return an empty page: %+v", beyond)
 	}
 }
 

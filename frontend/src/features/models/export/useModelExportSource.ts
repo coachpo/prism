@@ -1,21 +1,12 @@
 import { useCallback, useMemo, useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 
+import { api } from "@/lib/api";
+import type { ExportSourceModelRow } from "@/lib/types";
 import {
-  bindModelPi,
-  clearModelPiOverride,
-  fetchModelExportSource,
-  putModelPiOverride,
-  refreshModelPiCommit,
-  refreshModelPiPreview,
-  searchModelPiCatalog,
-  unbindModelPi,
-  type PiOverrideFieldValue,
-} from "@/lib/api/modelExport";
-import type {
-  ExportSourceModelRow,
-  PiRefreshPreviewResponse,
-} from "./exportTypes";
+  piViewFromExportRow,
+  type PiCatalogModelView,
+} from "@/features/models/catalog/pi/usePiBindingController";
 
 type ModelExportMetadataFilter = "all" | "complete" | "incomplete";
 
@@ -35,6 +26,15 @@ export function isModelExportSourceReconciliationError(
   return error instanceof ModelExportSourceReconciliationError;
 }
 
+/**
+ * Host adapter for the export page: it owns only the authoritative source
+ * query, batch selection, filters, and per-row Pi views for the shared
+ * binding dialogs. Every Pi mutation and the paged directory search live in
+ * the shared {@link PiBindingController}; after each successful mutation the
+ * controller calls this host's `reconcile()` — the whole source snapshot is
+ * re-read authoritatively and the operator's selection is intersected with
+ * what stays selectable. No single-model GETs are issued per row (no N+1).
+ */
 export function useModelExportSource() {
   const [searchText, setSearchText] = useState("");
   const [familyFilter, setFamilyFilter] = useState("all");
@@ -45,7 +45,7 @@ export function useModelExportSource() {
   const sourceQuery = useQuery({
     queryKey: ["model-export-source"],
     queryFn: ({ signal }: { signal?: AbortSignal }) =>
-      fetchModelExportSource(signal),
+      api.modelExport.fetchModelExportSource(signal),
     gcTime: 0,
     staleTime: 0,
     refetchOnMount: "always",
@@ -178,95 +178,36 @@ export function useModelExportSource() {
     }
   }, [refetchSource]);
 
-  const bindMutation = useMutation({
-    mutationFn: (input: {
-      modelConfigId: number;
-      providerId?: string;
-      catalogModelId?: string;
-      expectedCatalogRevision: string;
-      expectedPrismModelId: string;
-      expectedPiApi: string;
-    }) =>
-      bindModelPi(input.modelConfigId, {
-        provider_id: input.providerId,
-        catalog_model_id: input.catalogModelId,
-        expected_catalog_revision: input.expectedCatalogRevision,
-        expected_prism_model_id: input.expectedPrismModelId,
-        expected_pi_api: input.expectedPiApi,
+  /** Row adapter for the shared Pi binding controller/dialogs. */
+  const piViewFor = useCallback(
+    (row: ExportSourceModelRow): PiCatalogModelView =>
+      piViewFromExportRow({
+        model_config_id: row.model_config_id,
+        model_id: row.model_id,
+        pi_api: row.pi_api,
+        pi_candidates: row.pi_candidates,
+        pi_selected: row.pi_selected ?? null,
+        pi_binding_prism_model_id: row.pi_binding_prism_model_id,
+        pi_binding_source: row.pi_binding_source ?? null,
+        pi_binding_override: row.pi_binding_override ?? null,
+        pi_binding_effective: row.pi_binding_effective ?? null,
+        pi_binding_status: row.pi_binding_status,
+        pi_binding_renderable: row.pi_binding_renderable,
+        sourceCatalogRevision: catalog?.revision ?? "",
+        sourceCatalogFresh: catalog?.status === "fresh",
       }),
-    onSuccess: reconcileSource,
-  });
-
-  // Directory discovery is a separate, explicitly-triggered read. It is never
-  // auto-run on an operator's behalf and never auto-selects a result.
-  const catalogSearchMutation = useMutation({
-    mutationFn: (input: {
-      modelConfigId: number;
-      query: string;
-      limit?: number;
-    }) =>
-      searchModelPiCatalog(input.modelConfigId, {
-        model_id_query: input.query,
-        ...(input.limit === undefined ? {} : { limit: input.limit }),
-      }),
-  });
-
-  const refreshPreviewMutation = useMutation<
-    PiRefreshPreviewResponse,
-    unknown,
-    { modelConfigId: number }
-  >({
-    mutationFn: (input) => refreshModelPiPreview(input.modelConfigId),
-  });
-
-  const refreshCommitMutation = useMutation({
-    mutationFn: (input: {
-      modelConfigId: number;
-      expected: {
-        provider_id: string;
-        catalog_model_id: string;
-        api: string;
-        binding_updated_at: string;
-        catalog_revision: string;
-      };
-    }) => refreshModelPiCommit(input.modelConfigId, input.expected),
-    onSuccess: reconcileSource,
-  });
-
-  const overrideMutation = useMutation({
-    mutationFn: (input: {
-      modelConfigId: number;
-      fields: Record<string, PiOverrideFieldValue>;
-    }) => putModelPiOverride(input.modelConfigId, input.fields),
-    onSuccess: reconcileSource,
-  });
-
-  const clearOverrideMutation = useMutation({
-    mutationFn: (input: { modelConfigId: number }) =>
-      clearModelPiOverride(input.modelConfigId),
-    onSuccess: reconcileSource,
-  });
-
-  const unbindMutation = useMutation({
-    mutationFn: (input: { modelConfigId: number }) =>
-      unbindModelPi(input.modelConfigId),
-    onSuccess: reconcileSource,
-  });
+    [catalog],
+  );
 
   return {
     batchClearVisible,
     batchSelectVisible,
-    bindMutation,
     catalog,
-    catalogSearchMutation,
-    clearOverrideMutation,
     familyFilter,
     metadataFilter,
     models,
-    overrideMutation,
+    piViewFor,
     priceCompleteOnly,
-    refreshCommitMutation,
-    refreshPreviewMutation,
     selectedCount: selectedIds.size,
     selectedIds,
     selectedModels,
@@ -278,9 +219,9 @@ export function useModelExportSource() {
     sourceQuery,
     sourceActionsBlocked: sourceQuery.isFetching || sourceQuery.isError,
     toggleModel,
-    unbindMutation,
     visibleModels,
     searchText,
+    reconcileSource,
   };
 }
 

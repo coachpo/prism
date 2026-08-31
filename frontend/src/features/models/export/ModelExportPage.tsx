@@ -11,6 +11,7 @@ import { ExportResultSheet } from "./ExportResultSheet";
 import { ModelExportDestinationPanel } from "./ModelExportDestinationPanel";
 import { ModelExportSelectionPanel } from "./ModelExportSelectionPanel";
 import { ModelExportSourcePanel } from "./ModelExportSourcePanel";
+import { usePiBindingController } from "@/features/models/catalog/pi/usePiBindingController";
 import { useModelExportRender } from "./useModelExportRender";
 import { useModelExportSource } from "./useModelExportSource";
 
@@ -18,6 +19,13 @@ export function ModelExportPage() {
   const { messages } = useLocale();
   const copy = messages.modelExportPage;
   const source = useModelExportSource();
+  // The shared Pi binding controller: mutations always reconcile through the
+  // host's authoritative source re-read; dialogs stay inert while the source
+  // read is unavailable.
+  const piController = usePiBindingController({
+    reconcile: source.reconcileSource,
+    actionsBlocked: source.sourceActionsBlocked,
+  });
   const render = useModelExportRender({
     refetchSource: source.sourceQuery.refetch,
     renderFailedMessage: copy.renderFailed,
@@ -54,7 +62,10 @@ export function ModelExportPage() {
         />
 
         <ModelExportSelectionPanel sourceState={source} />
-        <ModelExportSourcePanel sourceState={source} />
+        <ModelExportSourcePanel
+          controller={piController}
+          sourceState={source}
+        />
 
         {render.renderStale && !render.keyDialogOpen && (
           <OperatorCallout intent="danger" description={copy.sourceDrifted} />

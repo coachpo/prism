@@ -15,6 +15,8 @@ types/
 ├── retention-jobs.ts          # Retention preflight, job, and impact contracts
 ├── currency-migration.ts      # Costing and currency migration contracts
 ├── loadbalance.ts
+├── model-catalog.ts        # models.dev catalog metadata, CAS requests, candidates snapshot evidence
+├── model-export.ts         # Pi-only export/bind/search/refresh/override + single-model Pi read contracts
 ├── model-stats.ts
 ├── request-logs.ts       # Requests/Audit request-log contracts; BIGINT/micros are JSON numbers
 ├── routing.ts
@@ -28,6 +30,7 @@ types/
 ## WHERE TO LOOK
 
 - Public barrel: `../types.ts`
+- `model-export.ts` mirrors `backend/internal/httpapi/management/models/{export_pi_types,export_pi_binding_types,pi_catalog_types}.go`: every Pi wire type (source/render, bind/search/refresh/override, single-model read) is exported from here, and feature code imports it via `@/lib/types` — never from `@/lib/api/modelExport` and never from a feature-local barrel. The models.dev and pi.dev contracts stay in separate modules and are never merged into one weak union.
 - Auth/session surfaces: `auth.ts`
 - Terminal Target, routing, vendor, and model stats contracts: `target-compatibility.ts`, `routing.ts`, `vendor.ts`, `model-stats.ts`
 - `model-stats.ts` mirrors the composite three-scope model-metrics response, including caliber, samples, nullable trusted cost, and dataset coverage.

@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { getEffectiveBackendOrigin } from "@/features/runtime-self-test/effectiveOrigin";
-import { renderModelExport } from "@/lib/api/modelExport";
-import type { ExportRenderResponse, ExportSourceResponse } from "./exportTypes";
+import { api } from "@/lib/api";
+import type { ExportRenderResponse, ExportSourceResponse } from "@/lib/types";
 import type { KeyDecision } from "./ExportKeyDialog";
 
 const DEFAULT_PROVIDER_ID = "prism";
@@ -70,8 +70,7 @@ export function useModelExportRender({
     for (const id of selectedIds) {
       const model = source.models.find((m) => m.model_config_id === id);
       if (!model) return true;
-      if (!model.pi_selected || !model.pi_binding_renderable)
-        return true;
+      if (!model.pi_selected || !model.pi_binding_renderable) return true;
     }
     return false;
   }, [selectedIds, source]);
@@ -136,7 +135,9 @@ export function useModelExportRender({
       setRenderError(null);
       setRenderStale(false);
       try {
-        const response = await renderModelExport(buildRenderRequest(decision));
+        const response = await api.modelExport.renderModelExport(
+          buildRenderRequest(decision),
+        );
         setRenderResult(response);
       } catch (error) {
         const detail = error as {

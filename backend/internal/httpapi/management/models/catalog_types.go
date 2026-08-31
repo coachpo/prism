@@ -73,16 +73,40 @@ type modelCatalogRefreshPreviewResponse struct {
 	Changes         []modelCatalogFieldChange `json:"changes"`
 	CatalogRevision string                    `json:"catalog_revision"`
 	FetchedAt       time.Time                 `json:"fetched_at"`
+	// BindingUpdatedAt is the local binding CAS token the preview was read
+	// against. A commit must echo it back in expected_binding_updated_at, so
+	// a rebind/override between preview and commit fails instead of letting
+	// the commit clobber the newer local facts.
+	BindingUpdatedAt time.Time `json:"binding_updated_at"`
 }
 
 type modelCatalogRefreshCommitRequest struct {
-	ExpectedCatalogRevision string `json:"expected_catalog_revision"`
+	ExpectedProviderID       string    `json:"expected_provider_id"`
+	ExpectedCatalogModelID   string    `json:"expected_catalog_model_id"`
+	ExpectedBindingUpdatedAt time.Time `json:"expected_binding_updated_at"`
+	ExpectedCatalogRevision  string    `json:"expected_catalog_revision"`
 }
 
 type modelCatalogBindRequest struct {
-	ProviderID              string `json:"provider_id"`
-	CatalogModelID          string `json:"catalog_model_id"`
+	ProviderID     string `json:"provider_id"`
+	CatalogModelID string `json:"catalog_model_id"`
+	// ExpectedCatalogRevision is the models.dev ETag the operator confirmed.
 	ExpectedCatalogRevision string `json:"expected_catalog_revision"`
+	// ExpectedPrismModelID/ExpectedAPIFamily are the Prism identity the
+	// operator confirmed the bind against. The write transaction re-verifies
+	// both under the model row lock, so a rename or family edit between
+	// preview and bind rejects with 409 instead of mislabelling metadata.
+	ExpectedPrismModelID string `json:"expected_prism_model_id"`
+	ExpectedAPIFamily    string `json:"expected_api_family"`
+}
+
+// modelCatalogUnbindRequest carries the binding snapshot the operator saw.
+// Unbind deletes only when the persisted coordinate and updated_at still
+// match; a concurrent rebind/refresh keeps the newer row and returns 409.
+type modelCatalogUnbindRequest struct {
+	ExpectedProviderID       string    `json:"expected_provider_id"`
+	ExpectedCatalogModelID   string    `json:"expected_catalog_model_id"`
+	ExpectedBindingUpdatedAt time.Time `json:"expected_binding_updated_at"`
 }
 
 type modelCatalogCandidatesResponse struct {
@@ -92,6 +116,12 @@ type modelCatalogCandidatesResponse struct {
 	Offset int                   `json:"offset"`
 	Scope  string                `json:"scope"`
 	Query  string                `json:"query,omitempty"`
+	// CatalogRevision/FetchedAt are the snapshot the page was computed from.
+	// They publish models.dev revision evidence per page without claiming a
+	// freshness state: this endpoint returns an already-validated snapshot,
+	// and cold-fetch failure is a typed error, not a fake enum.
+	CatalogRevision string     `json:"catalog_revision"`
+	FetchedAt       *time.Time `json:"fetched_at,omitempty"`
 }
 
 type modelCatalogMatchPreviewResponse struct {

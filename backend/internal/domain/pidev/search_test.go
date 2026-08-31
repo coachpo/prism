@@ -39,7 +39,7 @@ func coordinateIDs(models []*Model) []string {
 func TestSearchModelIDsIsCaseInsensitiveLiteralModelIdOnly(t *testing.T) {
 	catalog := searchFixtureCatalog(t)
 
-	upper, total := catalog.SearchModelIDs("GPT-MINI", APIOpenAIResponses, 0)
+	upper, total := catalog.SearchModelIDs("GPT-MINI", APIOpenAIResponses, 0, 0)
 	if total != 4 {
 		t.Fatalf("case-insensitive search total = %d, want 4 (%v)", total, coordinateIDs(upper))
 	}
@@ -47,24 +47,24 @@ func TestSearchModelIDsIsCaseInsensitiveLiteralModelIdOnly(t *testing.T) {
 		t.Fatalf("exact tier must hold both case variants first, got %v", got)
 	}
 
-	if page, total := catalog.SearchModelIDs("alpha-provider", APIOpenAIResponses, 0); total != 0 || len(page) != 0 {
+	if page, total := catalog.SearchModelIDs("alpha-provider", APIOpenAIResponses, 0, 0); total != 0 || len(page) != 0 {
 		t.Fatalf("provider-id query must not match: total=%d page=%v", total, coordinateIDs(page))
 	}
-	if page, total := catalog.SearchModelIDs("Named", APIOpenAIResponses, 0); total != 0 || len(page) != 0 {
+	if page, total := catalog.SearchModelIDs("Named", APIOpenAIResponses, 0, 0); total != 0 || len(page) != 0 {
 		t.Fatalf("display-name query must not match: total=%d page=%v", total, coordinateIDs(page))
 	}
-	if page, total := catalog.SearchModelIDs("mini-gpt", APIOpenAIResponses, 0); total != 0 || len(page) != 0 {
+	if page, total := catalog.SearchModelIDs("mini-gpt", APIOpenAIResponses, 0, 0); total != 0 || len(page) != 0 {
 		t.Fatalf("reordered query must not fuzzy-match: total=%d page=%v", total, coordinateIDs(page))
 	}
-	if page, total := catalog.SearchModelIDs("gpt*mini", APIOpenAIResponses, 0); total != 0 || len(page) != 0 {
+	if page, total := catalog.SearchModelIDs("gpt*mini", APIOpenAIResponses, 0, 0); total != 0 || len(page) != 0 {
 		t.Fatalf("wildcard query must not match: total=%d page=%v", total, coordinateIDs(page))
 	}
 	for _, query := range []string{"", "   ", "\t\n"} {
-		if page, total := catalog.SearchModelIDs(query, APIOpenAIResponses, 0); total != 0 || len(page) != 0 {
+		if page, total := catalog.SearchModelIDs(query, APIOpenAIResponses, 0, 0); total != 0 || len(page) != 0 {
 			t.Fatalf("blank query %q must return nothing: total=%d page=%v", query, total, coordinateIDs(page))
 		}
 	}
-	if page, total := catalog.SearchModelIDs("gpt-mini", "", 0); total != 0 || len(page) != 0 {
+	if page, total := catalog.SearchModelIDs("gpt-mini", "", 0, 0); total != 0 || len(page) != 0 {
 		t.Fatalf("empty expected API must return nothing: total=%d page=%v", total, coordinateIDs(page))
 	}
 }
@@ -72,7 +72,7 @@ func TestSearchModelIDsIsCaseInsensitiveLiteralModelIdOnly(t *testing.T) {
 func TestSearchModelIDsNeverCrossesPiAPI(t *testing.T) {
 	catalog := searchFixtureCatalog(t)
 
-	responses, total := catalog.SearchModelIDs("gpt-mini", APIOpenAIResponses, 0)
+	responses, total := catalog.SearchModelIDs("gpt-mini", APIOpenAIResponses, 0, 0)
 	if total != 4 {
 		t.Fatalf("responses search total = %d, want 4: %v", total, coordinateIDs(responses))
 	}
@@ -81,15 +81,15 @@ func TestSearchModelIDsNeverCrossesPiAPI(t *testing.T) {
 			t.Fatalf("cross-API hit %s/%s api=%s", model.ProviderID, model.ModelID, model.API)
 		}
 	}
-	completions, total := catalog.SearchModelIDs("gpt-mini", APIOpenAICompletions, 0)
+	completions, total := catalog.SearchModelIDs("gpt-mini", APIOpenAICompletions, 0, 0)
 	if total != 1 || completions[0].ProviderID != "alpha-provider" || completions[0].ModelID != "gpt-mini" {
 		t.Fatalf("completions search = %v (total %d), want only alpha-provider/gpt-mini", coordinateIDs(completions), total)
 	}
-	anthropic, total := catalog.SearchModelIDs("gpt-mini", APIAnthropicMessages, 0)
+	anthropic, total := catalog.SearchModelIDs("gpt-mini", APIAnthropicMessages, 0, 0)
 	if total != 1 || anthropic[0].ModelID != "gpt-mini-anthropic" {
 		t.Fatalf("anthropic search = %v (total %d), want only gpt-mini-anthropic", coordinateIDs(anthropic), total)
 	}
-	if gemini, total := catalog.SearchModelIDs("gpt-mini", APIGoogleGenerative, 0); total != 0 {
+	if gemini, total := catalog.SearchModelIDs("gpt-mini", APIGoogleGenerative, 0, 0); total != 0 {
 		t.Fatalf("gemini search must be empty, got %v (total %d)", coordinateIDs(gemini), total)
 	}
 }
@@ -97,7 +97,7 @@ func TestSearchModelIDsNeverCrossesPiAPI(t *testing.T) {
 func TestSearchModelIDsRanksExactThenPrefixThenSubstringStably(t *testing.T) {
 	catalog := searchFixtureCatalog(t)
 
-	page, total := catalog.SearchModelIDs("gpt-mini", APIOpenAIResponses, 0)
+	page, total := catalog.SearchModelIDs("gpt-mini", APIOpenAIResponses, 0, 0)
 	if total != 4 {
 		t.Fatalf("total = %d, want 4", total)
 	}
@@ -129,7 +129,7 @@ func TestSearchModelIDsIsBoundedByDefaultTwentyAndMaxHundred(t *testing.T) {
 	}
 	catalog := &Catalog{Providers: providers}
 
-	defaultPage, total := catalog.SearchModelIDs("gpt-target", APIOpenAIResponses, 0)
+	defaultPage, total := catalog.SearchModelIDs("gpt-target", APIOpenAIResponses, 0, 0)
 	if total != 181 {
 		t.Fatalf("total = %d, want all 181 matches counted", total)
 	}
@@ -143,13 +143,74 @@ func TestSearchModelIDsIsBoundedByDefaultTwentyAndMaxHundred(t *testing.T) {
 		t.Fatalf("prefix tier must precede substring tier, got %s", defaultPage[1].ModelID)
 	}
 
-	if page, _ := catalog.SearchModelIDs("gpt-target", APIOpenAIResponses, 500); len(page) != SearchMaxLimit {
+	if page, _ := catalog.SearchModelIDs("gpt-target", APIOpenAIResponses, 500, 0); len(page) != SearchMaxLimit {
 		t.Fatalf("oversized limit = %d, want clamp to %d", len(page), SearchMaxLimit)
 	}
-	if page, _ := catalog.SearchModelIDs("gpt-target", APIOpenAIResponses, -5); len(page) != SearchDefaultLimit {
+	if page, _ := catalog.SearchModelIDs("gpt-target", APIOpenAIResponses, -5, 0); len(page) != SearchDefaultLimit {
 		t.Fatalf("negative limit must fall back to the default page, got %d", len(page))
 	}
-	if page, _ := catalog.SearchModelIDs("gpt-target", APIOpenAIResponses, 5); len(page) != 5 {
+	if page, _ := catalog.SearchModelIDs("gpt-target", APIOpenAIResponses, 5, 0); len(page) != 5 {
 		t.Fatalf("explicit limit ignored, got %d", len(page))
+	}
+}
+
+func TestSearchModelIDsOffsetWindowsTheRankedSet(t *testing.T) {
+	catalog := searchFixtureCatalog(t)
+
+	// The ranked order is stable, so offset windows are deterministic pages
+	// over the same hit set, never a second ranking.
+	first, total := catalog.SearchModelIDs("gpt-mini", APIOpenAIResponses, 2, 0)
+	second, secondTotal := catalog.SearchModelIDs("gpt-mini", APIOpenAIResponses, 2, 2)
+	beyond, beyondTotal := catalog.SearchModelIDs("gpt-mini", APIOpenAIResponses, 2, 4)
+	if total != 4 || secondTotal != 4 || beyondTotal != 4 {
+		t.Fatalf("offset must not change the total: %d/%d/%d", total, secondTotal, beyondTotal)
+	}
+	full, _ := catalog.SearchModelIDs("gpt-mini", APIOpenAIResponses, 20, 0)
+	tiled := append(append([]string{}, coordinateIDs(first)...), coordinateIDs(second)...)
+	if strings.Join(tiled, ",") != strings.Join(coordinateIDs(full), ",") {
+		t.Fatalf("offset pages must tile the ranked set: %v + %v vs %v", coordinateIDs(first), coordinateIDs(second), coordinateIDs(full))
+	}
+	if len(beyond) != 0 {
+		t.Fatalf("offset at total must return an empty page, got %v", coordinateIDs(beyond))
+	}
+	// A negative offset is the caller's validation error; the domain layer
+	// degrades it to the first page rather than panicking or wrapping.
+	negative, negativeTotal := catalog.SearchModelIDs("gpt-mini", APIOpenAIResponses, 2, -1)
+	if negativeTotal != 4 || len(negative) != 2 || negative[0].ModelID != full[0].ModelID {
+		t.Fatalf("negative offset must degrade to the first page: %v", coordinateIDs(negative))
+	}
+}
+
+func TestSearchModelIDsSameAPIHitsShareOneRankingAcrossWindows(t *testing.T) {
+	const providerID = "bulk"
+	entries := make([]string, 0, 60)
+	for index := 0; index < 50; index++ {
+		entries = append(entries, fmt.Sprintf(`"bulk-gpt-%03d": {"id": "bulk-gpt-%03d", "api": "openai-responses", "provider": "bulk"}`, index, index))
+	}
+	entries = append(entries, `"bulk-gpt": {"id": "bulk-gpt", "api": "openai-responses", "provider": "bulk"}`)
+	providers, err := parseCatalog([]byte(`{"` + providerID + `":{` + strings.Join(entries, ",") + `}}`))
+	if err != nil {
+		t.Fatalf("parse bulk catalog: %v", err)
+	}
+	catalog := &Catalog{Providers: providers}
+
+	pageOne, total := catalog.SearchModelIDs("bulk-gpt", APIOpenAIResponses, 20, 0)
+	pageTwo, pageTwoTotal := catalog.SearchModelIDs("bulk-gpt", APIOpenAIResponses, 20, 20)
+	if total != 51 || pageTwoTotal != 51 {
+		t.Fatalf("total must count the whole same-API hit set: %d/%d", total, pageTwoTotal)
+	}
+	if len(pageOne) != 20 || len(pageTwo) != 20 {
+		t.Fatalf("page sizes drifted: %d/%d", len(pageOne), len(pageTwo))
+	}
+	seen := map[string]bool{}
+	for _, model := range append(append([]*Model{}, pageOne...), pageTwo...) {
+		key := model.ProviderID + "/" + model.ModelID
+		if seen[key] {
+			t.Fatalf("offset pages must not repeat %s", key)
+		}
+		seen[key] = true
+	}
+	if !seen["bulk/bulk-gpt"] {
+		t.Fatalf("exact match must appear on the first page: %v", coordinateIDs(pageOne))
 	}
 }

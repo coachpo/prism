@@ -14,6 +14,11 @@ function loadApi() {
   return load(path.join(frontendDir, "src/lib/api/modelExport.ts"));
 }
 
+function loadPublicApi() {
+  const { load } = createTsModuleLoader({ rootDir: frontendDir });
+  return load(path.join(frontendDir, "src/lib/api.ts"));
+}
+
 function normalizeFetchInit(init) {
   if (!init) return {};
   const headers = init.headers ?? {};
@@ -22,6 +27,7 @@ function normalizeFetchInit(init) {
     cache: init.cache,
     headers,
     body: typeof init.body === "string" ? JSON.parse(init.body) : init.body,
+    signal: init.signal,
   };
 }
 
@@ -59,6 +65,41 @@ test("model export client fetches source from the Pi static route", async () => 
     assert.equal(requests[0].init.cache, "no-store");
     assert.equal(response.source_digest.length, 64);
     assert.equal(response.target_version, "0.84.3");
+  } finally {
+    restore();
+  }
+});
+
+test("public api exposes the complete modelExport namespace", async () => {
+  const publicApi = await loadPublicApi();
+  assert.equal(typeof publicApi.api.modelExport.fetchModelPi, "function");
+  assert.equal(typeof publicApi.api.modelExport.searchModelPiCatalog, "function");
+  assert.equal(typeof publicApi.api.modelExport.unbindModelPi, "function");
+});
+
+test("single-model Pi read uses the literal no-store management route", async () => {
+  const { requests, restore } = stubFetch({
+    model: {
+      model_config_id: 7,
+      model_id: "codex/gpt-x",
+      api_family: "openai",
+      pi_api: "openai-responses",
+    },
+    catalog: { status: "unavailable" },
+    candidate_status: "catalog_unavailable",
+    candidates: [],
+    binding_status: "unbound",
+    binding_renderable: false,
+    binding: { bound: false, source: null, override: null, effective: null },
+  });
+  try {
+    const api = await loadApi();
+    const response = await api.fetchModelPi(7);
+    assert.ok(requests[0].url.endsWith("/api/models/7/pi"));
+    assert.equal(requests[0].init.method, undefined);
+    assert.equal(requests[0].init.cache, "no-store");
+    assert.equal(response.model.model_id, "codex/gpt-x");
+    assert.equal(response.catalog.status, "unavailable");
   } finally {
     restore();
   }
@@ -166,12 +207,14 @@ test("directory search is a no-store backend POST that never selects", async () 
     query: "GPT-X",
     api: "openai-responses",
     limit: 20,
+    offset: 20,
     total: 1,
     returned: 1,
     truncated: false,
     selected: false,
     catalog: { status: "fresh", revision: "sha256-" + "c".repeat(64) },
     fetched_at: "2026-08-30T00:00:00Z",
+    checked_at: "2026-08-30T00:01:00Z",
     export_identity: {
       model_config_id: 7,
       model_id: "codex/gpt-x",
@@ -189,14 +232,25 @@ test("directory search is a no-store backend POST that never selects", async () 
   });
   try {
     const api = await loadApi();
+    const controller = new AbortController();
     const response = await api.searchModelPiCatalog(7, {
       model_id_query: "GPT-X",
-    });
+      limit: 20,
+      offset: 20,
+    }, controller.signal);
     assert.equal(requests[0].init.method, "POST");
     assert.equal(requests[0].init.cache, "no-store");
     assert.ok(requests[0].url.endsWith("/api/models/7/pi/search"));
     assert.ok(!/pi\.dev/i.test(requests[0].url));
-    assert.deepEqual(requests[0].init.body, { model_id_query: "GPT-X" });
+    assert.deepEqual(requests[0].init.body, {
+      model_id_query: "GPT-X",
+      limit: 20,
+      offset: 20,
+    });
+    assert.ok(requests[0].init.signal instanceof AbortSignal);
+    assert.equal(requests[0].init.body.signal, undefined);
+    assert.equal(response.offset, 20);
+    assert.equal(response.checked_at, "2026-08-30T00:01:00Z");
     assert.equal(response.selected, false);
     assert.equal(response.results.length, 1);
     assert.equal(response.export_identity.model_id, "codex/gpt-x");
@@ -250,11 +304,11 @@ test("model export refresh preview and commit hit their own routes", async () =>
   try {
     const api = await loadApi();
     await api.refreshModelPiCommit(7, {
-      provider_id: "openai",
-      catalog_model_id: "gpt-x",
-      api: "openai-responses",
-      binding_updated_at: "2026-01-01T00:00:00Z",
-      catalog_revision: "sha256-" + "b".repeat(64),
+      expected_provider_id: "openai",
+      expected_catalog_model_id: "gpt-x",
+      expected_api: "openai-responses",
+      expected_binding_updated_at: "2026-01-01T00:00:00Z",
+      expected_catalog_revision: "sha256-" + "b".repeat(64),
     });
     assert.equal(commit.requests[0].init.method, "POST");
     assert.ok(

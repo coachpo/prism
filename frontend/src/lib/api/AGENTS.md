@@ -1,15 +1,18 @@
 # FRONTEND API CLIENT KNOWLEDGE BASE
 
 ## OVERVIEW
+
 `lib/api/` is the typed `/api/*` client split behind `../api.ts`. It owns shared request and auth plumbing in `request.ts`, profile-scope route matching in `profileScope.ts`, then groups endpoints by auth/settings, management CRUD, observability, config-rule, audit, loadbalance, and settings surfaces.
 
 ## STRUCTURE
+
 ```text
 api/
 ├── request.ts        # API base, query serialization, credentials, X-Profile-Id injection, refresh retry, ApiError
 ├── profileScope.ts   # Management-route matcher for pinned Default-profile headers
 ├── authSettings.ts   # Auth bootstrap/session/login/logout, settings.auth, and proxy keys
-├── models.ts         # Model CRUD, access targets, model connections, and catalog routes
+├── models.ts         # Model CRUD, access targets, model connections, and models.dev catalog routes (typed CAS bind/refresh/override/unbind payloads)
+├── modelExport.ts    # Pi-only export/render/search/binding client; types imported from lib/types, exposed as api.modelExport
 ├── loadbalanceStrategies.ts # Loadbalance strategy CRUD, defaults, impact, and preview
 ├── endpoints.ts      # Endpoint CRUD, verification, references, and orphan cleanup
 ├── connections.ts    # Shared connection reference reads
@@ -31,6 +34,7 @@ api/
 ```
 
 ## WHERE TO LOOK
+
 - Public import surface over these modules: `../api.ts`
 - Shared request rules, query serialization, cookie credentials, `ApiError`, auth-refresh retry, and pinned `X-Profile-Id: 1` injection for Default-profile management routes: `request.ts`
 - Route allowlist for management calls that should receive `X-Profile-Id`: `profileScope.ts`; drift tests assert it against `../../../backend/internal/platform/http/management_route_contract.json`
@@ -49,6 +53,7 @@ api/
 - Runtime operation paths `/v1` and `/v1beta` stay outside this client split; launcher/Vite proxying passes them through and backend runtime owns allowlist enforcement.
 
 ## CONVENTIONS
+
 - For UI/UX, frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation changes, follow `frontend/DESIGN.md`: use `@/shared/design-system` before `@/components/ui`, preserve the Google Admin Console / Material Design 3 operator direction, use semantic tokens, operator surface classes, density variables, and required operator components, keep route state and API calls out of design-system components, and avoid adding compatibility wrappers under `@/components`.
 - Do not add decorative gradients, blur blobs, heavy shadows, marketing hero layouts, raw Tailwind status colors, page-local color blends, or ad hoc dark-mode overrides outside the `frontend/DESIGN.md` contract.
 - For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
@@ -58,6 +63,7 @@ api/
 - Keep grouped endpoint surfaces in their existing modules instead of expanding `api.ts` into a second implementation layer.
 - Keep model payload normalization in `models.ts` aligned with server-shaped CRUD and access-target fields.
 - Keep auth/settings nesting in `authSettings.ts` and `api.settings` aligned with the backend route structure.
+- `modelExport.ts` is the only Pi export/binding transport module: every function targets the literal routes (`GET /api/models/exports/pi/source`, `POST /api/models/exports/pi/render`, `GET|POST|PUT|DELETE /api/models/{id}/pi...`), all calls are `cache: no-store`, and all wire types come from `../types/model-export`. The public boundary is `api.modelExport` on `../api.ts`; feature code never deep-imports this file, and `lib/` never imports from `features/`. `refreshModelPiCommit` takes the typed `PiRefreshCommitRequest` (the `expected_*` wire shape) directly, mirroring the models.dev `refreshCommit` contract.
 - Keep observability-side query building centralized through `buildQuery()` and typed param objects, including config-rule clients consumed by settings surfaces.
 - Import statistics through the public `stats` export from `../api.ts` when a caller needs the standalone stats helper; use `api.stats` when staying on the grouped facade.
 - Keep runtime-route pass-through out of this client split; `api/request.ts` only governs `/api/*` requests.
@@ -65,9 +71,11 @@ api/
 - Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
 
 ## LLM UPSTREAM MATRIX
+
 - When work touches LLM upstream request or response logic, evaluate streaming and non-streaming coverage across operation shapes, not just provider families: OpenAI Chat Completions (`/v1/chat/completions`) and Responses (`/v1/responses`), Gemini, and Anthropic.
 
 ## ANTI-PATTERNS
+
 - Do not call `fetch()` directly for Prism backend requests when this client layer already owns credentials and error handling.
 - Do not inject `X-Profile-Id` or maintain a second profile-scope route list from pages, hooks, or provider code outside `request.ts` and `profileScope.ts`.
 - Do not split one endpoint family across multiple client modules without a real backend-boundary change.

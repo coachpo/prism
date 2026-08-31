@@ -2,7 +2,7 @@ import {
   OperatorInsetPanel,
   OperatorMissingValue,
 } from "@/shared/design-system";
-import type { PiCandidateWire } from "./exportTypes";
+import type { PiCandidateWire } from "@/lib/types";
 import { PiDroppedFieldsEvidence } from "./PiDroppedFieldsEvidence";
 
 type Copy = Record<string, string>;

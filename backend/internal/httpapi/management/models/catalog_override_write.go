@@ -41,13 +41,16 @@ func (s *Service) putCatalogOverrideInTransaction(ctx context.Context, r *http.R
 		if profileErr != nil {
 			return modelCatalogResponse{}, profileErr
 		}
-		if _, modelErr := loadModelForCatalog(ctx, tx, profile.ID, modelConfigID); modelErr != nil {
+		if _, modelErr := lockModelForCatalog(ctx, tx, profile.ID, modelConfigID); modelErr != nil {
 			return modelCatalogResponse{}, modelErr
 		}
+		s.observeCatalogWriteModelLocked(modelConfigID)
 		var binding catalogBindingRecord
-		if _, boundErr := loadBoundCatalogBinding(ctx, tx, profile.ID, modelConfigID, &binding); boundErr != nil {
+		if _, boundErr := loadBoundCatalogBindingForUpdate(ctx, tx, profile.ID, modelConfigID, &binding); boundErr != nil {
 			return modelCatalogResponse{}, boundErr
 		}
+		// The operator's edit merges over the locked current row, so two
+		// concurrent sparse overrides of different fields both survive.
 		for _, spec := range overrideFieldSpecs {
 			value, present := values[spec.field]
 			if !present {
@@ -59,9 +62,11 @@ func (s *Service) putCatalogOverrideInTransaction(ctx context.Context, r *http.R
 			}
 			spec.setValue(&binding.Override, value)
 		}
-		binding.UpdatedAt = now
-		if upsertErr := upsertCatalogBinding(ctx, tx, binding, now); upsertErr != nil {
-			return modelCatalogResponse{}, upsertErr
+		updatedAt := nextCatalogBindingUpdatedAt(binding.UpdatedAt, now)
+		// Override-only UPDATE: source columns, revision, and match source
+		// stay exactly as the locked row carries them.
+		if updateErr := updateCatalogBindingOverride(ctx, tx, modelConfigID, binding.Override, updatedAt); updateErr != nil {
+			return modelCatalogResponse{}, updateErr
 		}
 		saved, _, saveErr := loadCatalogBinding(ctx, tx, profile.ID, modelConfigID)
 		if saveErr != nil {
@@ -91,17 +96,17 @@ func (s *Service) clearCatalogOverrideInTransaction(ctx context.Context, r *http
 		if profileErr != nil {
 			return modelCatalogResponse{}, profileErr
 		}
-		if _, modelErr := loadModelForCatalog(ctx, tx, profile.ID, modelConfigID); modelErr != nil {
+		if _, modelErr := lockModelForCatalog(ctx, tx, profile.ID, modelConfigID); modelErr != nil {
 			return modelCatalogResponse{}, modelErr
 		}
+		s.observeCatalogWriteModelLocked(modelConfigID)
 		var binding catalogBindingRecord
-		if _, boundErr := loadBoundCatalogBinding(ctx, tx, profile.ID, modelConfigID, &binding); boundErr != nil {
+		if _, boundErr := loadBoundCatalogBindingForUpdate(ctx, tx, profile.ID, modelConfigID, &binding); boundErr != nil {
 			return modelCatalogResponse{}, boundErr
 		}
-		binding.Override = modelCatalogMetadata{}
-		binding.UpdatedAt = now
-		if upsertErr := upsertCatalogBinding(ctx, tx, binding, now); upsertErr != nil {
-			return modelCatalogResponse{}, upsertErr
+		updatedAt := nextCatalogBindingUpdatedAt(binding.UpdatedAt, now)
+		if updateErr := updateCatalogBindingOverride(ctx, tx, modelConfigID, modelCatalogMetadata{}, updatedAt); updateErr != nil {
+			return modelCatalogResponse{}, updateErr
 		}
 		saved, _, saveErr := loadCatalogBinding(ctx, tx, profile.ID, modelConfigID)
 		if saveErr != nil {

@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  buildPiOverrideFields,
-  type PiOverrideDraft,
-} from "./piOverrideDraft";
+import { buildPiOverrideFields, type PiOverrideDraft } from "./piOverrideDraft";
 
 describe("buildPiOverrideFields", () => {
   it("emits only explicitly changed fields and preserves restore null", () => {

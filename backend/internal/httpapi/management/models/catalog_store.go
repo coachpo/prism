@@ -4,135 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strconv"
-	"strings"
 	"time"
 
-	"github.com/coachpo/prism/backend/internal/domain/modelsdev"
 	"github.com/jackc/pgx/v5"
 )
-
-// modelCatalogMetadata is the storage form of one metadata projection. Every
-// field is independently nullable so "unknown" and explicit values never
-// collapse, and booleans can carry an override of false.
-type modelCatalogMetadata struct {
-	Name             *string
-	Description      *string
-	Family           *string
-	ReleaseDate      *string
-	LastUpdated      *string
-	Knowledge        *string
-	Attachment       *bool
-	Reasoning        *bool
-	ToolCall         *bool
-	StructuredOutput *bool
-	Temperature      *bool
-	ModalitiesInput  []string
-	ModalitiesOutput []string
-	LimitContext     *int64
-	LimitInput       *int64
-	LimitOutput      *int64
-	OpenWeights      *bool
-	Status           *string
-}
-
-func (m modelCatalogMetadata) payload() *modelCatalogMetadataPayload {
-	if m.empty() {
-		return nil
-	}
-	return &modelCatalogMetadataPayload{
-		Name: m.Name, Description: m.Description, Family: m.Family,
-		ReleaseDate: m.ReleaseDate, LastUpdated: m.LastUpdated, Knowledge: m.Knowledge,
-		Attachment: m.Attachment, Reasoning: m.Reasoning, ToolCall: m.ToolCall,
-		StructuredOutput: m.StructuredOutput, Temperature: m.Temperature,
-		ModalitiesInput: cloneStringSlice(m.ModalitiesInput), ModalitiesOutput: cloneStringSlice(m.ModalitiesOutput),
-		LimitContext: copyInt64Ptr(m.LimitContext), LimitInput: copyInt64Ptr(m.LimitInput), LimitOutput: copyInt64Ptr(m.LimitOutput),
-		OpenWeights: m.OpenWeights, Status: m.Status,
-	}
-}
-
-func (m modelCatalogMetadata) empty() bool {
-	return m.Name == nil && m.Description == nil && m.Family == nil &&
-		m.ReleaseDate == nil && m.LastUpdated == nil && m.Knowledge == nil &&
-		m.Attachment == nil && m.Reasoning == nil && m.ToolCall == nil &&
-		m.StructuredOutput == nil && m.Temperature == nil &&
-		m.ModalitiesInput == nil && m.ModalitiesOutput == nil &&
-		m.LimitContext == nil && m.LimitInput == nil && m.LimitOutput == nil &&
-		m.OpenWeights == nil && m.Status == nil
-}
-
-// effective merges the operator's per-field overrides over the source
-// snapshot. Source fields never leak into display_name; the merge result is
-// presentation metadata only.
-func (m modelCatalogMetadata) effective(over modelCatalogMetadata) modelCatalogMetadata {
-	pick := func(source, override *string) *string {
-		if override != nil {
-			return override
-		}
-		return source
-	}
-	pickBool := func(source, override *bool) *bool {
-		if override != nil {
-			return override
-		}
-		return source
-	}
-	pickInt := func(source, override *int64) *int64 {
-		if override != nil {
-			return override
-		}
-		return source
-	}
-	pickList := func(source, override []string) []string {
-		if override != nil {
-			return override
-		}
-		return source
-	}
-	return modelCatalogMetadata{
-		Name: pick(m.Name, over.Name), Description: pick(m.Description, over.Description), Family: pick(m.Family, over.Family),
-		ReleaseDate: pick(m.ReleaseDate, over.ReleaseDate), LastUpdated: pick(m.LastUpdated, over.LastUpdated),
-		Knowledge:  pick(m.Knowledge, over.Knowledge),
-		Attachment: pickBool(m.Attachment, over.Attachment), Reasoning: pickBool(m.Reasoning, over.Reasoning),
-		ToolCall: pickBool(m.ToolCall, over.ToolCall), StructuredOutput: pickBool(m.StructuredOutput, over.StructuredOutput),
-		Temperature:     pickBool(m.Temperature, over.Temperature),
-		ModalitiesInput: pickList(m.ModalitiesInput, over.ModalitiesInput), ModalitiesOutput: pickList(m.ModalitiesOutput, over.ModalitiesOutput),
-		LimitContext: pickInt(m.LimitContext, over.LimitContext), LimitInput: pickInt(m.LimitInput, over.LimitInput), LimitOutput: pickInt(m.LimitOutput, over.LimitOutput),
-		OpenWeights: pickBool(m.OpenWeights, over.OpenWeights), Status: pick(m.Status, over.Status),
-	}
-}
-
-type catalogBindingRecord struct {
-	ModelConfigID   int
-	ProviderID      string
-	CatalogModelID  string
-	MatchSource     string
-	CatalogRevision string
-	FetchedAt       time.Time
-	UpdatedAt       time.Time
-	Source          modelCatalogMetadata
-	Override        modelCatalogMetadata
-}
-
-func (r catalogBindingRecord) response() *modelCatalogResponse {
-	source := r.Source.payload()
-	override := r.Override.payload()
-	effective := r.Source.effective(r.Override).payload()
-	fetchedAt := r.FetchedAt
-	updatedAt := r.UpdatedAt
-	return &modelCatalogResponse{
-		Bound:           true,
-		MatchSource:     r.MatchSource,
-		ProviderID:      r.ProviderID,
-		CatalogModelID:  r.CatalogModelID,
-		CatalogRevision: r.CatalogRevision,
-		FetchedAt:       &fetchedAt,
-		UpdatedAt:       &updatedAt,
-		Source:          source,
-		Override:        override,
-		Effective:       effective,
-	}
-}
 
 // Every column is table-qualified: the read joins model_configs for profile
 // scoping, and both sides carry created_at/updated_at.
@@ -226,12 +101,32 @@ func loadCatalogBinding(ctx context.Context, exec queryExecutor, profileID int, 
 	return record, true, nil
 }
 
-// upsertCatalogBinding writes a full binding row exactly as given: callers
-// are responsible for carrying forward the overrides they intend to keep.
-// Bind flows reuse an existing row's overrides when the offering is unchanged
-// and clear them otherwise; refresh flows never touch them; override writes
-// store the operator's per-field edits.
-func upsertCatalogBinding(ctx context.Context, tx pgx.Tx, record catalogBindingRecord, currentTime time.Time) error {
+// loadCatalogBindingForUpdate reads one binding with SELECT ... FOR UPDATE OF
+// bindings so a concurrent bind/refresh/override serializes behind the lock.
+// Callers must already hold the owning model row lock (model first, then
+// binding, everywhere) so the lock ordering can never deadlock.
+func loadCatalogBindingForUpdate(ctx context.Context, tx pgx.Tx, profileID int, modelConfigID int) (catalogBindingRecord, bool, error) {
+	row := tx.QueryRow(ctx,
+		`SELECT `+catalogBindingSelectColumns+` FROM model_catalog_bindings AS bindings
+		 JOIN model_configs AS configs ON configs.id = bindings.model_config_id
+		 WHERE bindings.model_config_id = $1 AND configs.profile_id = $2
+			 FOR UPDATE OF bindings`,
+		modelConfigID, profileID)
+	record, err := scanCatalogBindingRow(row)
+	if err == pgx.ErrNoRows {
+		return catalogBindingRecord{}, false, nil
+	}
+	if err != nil {
+		return catalogBindingRecord{}, false, fmt.Errorf("lock catalog binding for model %d: %w", modelConfigID, err)
+	}
+	return record, true, nil
+}
+
+// bindCatalogBinding writes the full binding row exactly as given. Only the
+// bind flow uses it, and only while holding both the model row lock and the
+// binding row lock: the same-offering override/match-source carry-forward is
+// read from the locked current row, never from a pre-transaction snapshot.
+func bindCatalogBinding(ctx context.Context, tx pgx.Tx, record catalogBindingRecord, updatedAt time.Time) error {
 	override := record.Override
 	matchSource := record.MatchSource
 	_, err := tx.Exec(ctx, `
@@ -310,139 +205,91 @@ func upsertCatalogBinding(ctx context.Context, tx pgx.Tx, record catalogBindingR
 		override.Attachment, override.Reasoning, override.ToolCall, override.StructuredOutput, override.Temperature,
 		encodeModalityColumn(override.ModalitiesInput), encodeModalityColumn(override.ModalitiesOutput), override.LimitContext, override.LimitInput, override.LimitOutput,
 		override.OpenWeights, override.Status,
-		currentTime,
+		updatedAt,
 		matchSource,
 		override.Name, override.Description, override.Family, override.ReleaseDate, override.LastUpdated, override.Knowledge,
 		override.Attachment, override.Reasoning, override.ToolCall, override.StructuredOutput, override.Temperature,
 		encodeModalityColumn(override.ModalitiesInput), encodeModalityColumn(override.ModalitiesOutput), override.LimitContext, override.LimitInput, override.LimitOutput,
 		override.OpenWeights, override.Status,
-		currentTime,
+		updatedAt,
 	)
 	if err != nil {
-		return fmt.Errorf("upsert catalog binding for model %d: %w", record.ModelConfigID, err)
+		return fmt.Errorf("bind catalog binding for model %d: %w", record.ModelConfigID, err)
 	}
 	return nil
 }
 
-// catalogMetadataFromModel projects a validated catalog entry into the
-// storage shape. Values are copied verbatim from the parsed document.
-func catalogMetadataFromModel(model *modelsdev.Model) modelCatalogMetadata {
-	return modelCatalogMetadata{
-		Name: stringPointer(model.Name), Description: cloneStringPointer(model.Description), Family: cloneStringPointer(model.Family),
-		ReleaseDate: cloneStringPointer(model.ReleaseDate), LastUpdated: cloneStringPointer(model.LastUpdated), Knowledge: cloneStringPointer(model.Knowledge),
-		Attachment: model.Attachment, Reasoning: model.Reasoning, ToolCall: model.ToolCall,
-		StructuredOutput: model.StructuredOutput, Temperature: model.Temperature,
-		ModalitiesInput: append([]string(nil), model.ModalitiesInput...), ModalitiesOutput: append([]string(nil), model.ModalitiesOutput...),
-		LimitContext: model.Limit.Context, LimitInput: model.Limit.Input, LimitOutput: model.Limit.Output,
-		OpenWeights: model.OpenWeights, Status: model.Status,
+// updateCatalogBindingSource rewrites only the catalog-sourced columns: the
+// five source_* projection groups, the revision, and the fetch stamp. Override
+// columns are never touched, so a refresh can no longer restore an operator's
+// override from a pre-transaction snapshot.
+func updateCatalogBindingSource(ctx context.Context, tx pgx.Tx, modelConfigID int, source modelCatalogMetadata, revision string, fetchedAt, updatedAt time.Time) error {
+	_, err := tx.Exec(ctx, `
+		UPDATE model_catalog_bindings SET
+			source_name = $2, source_description = $3, source_family = $4, source_release_date = $5, source_last_updated = $6, source_knowledge = $7,
+			source_attachment = $8, source_reasoning = $9, source_tool_call = $10, source_structured_output = $11, source_temperature = $12,
+			source_modalities_input = $13::jsonb, source_modalities_output = $14::jsonb, source_limit_context = $15, source_limit_input = $16, source_limit_output = $17,
+			source_open_weights = $18, source_status = $19,
+			catalog_revision = $20, fetched_at = $21, updated_at = $22
+		WHERE model_config_id = $1`,
+		modelConfigID,
+		source.Name, source.Description, source.Family, source.ReleaseDate, source.LastUpdated, source.Knowledge,
+		source.Attachment, source.Reasoning, source.ToolCall, source.StructuredOutput, source.Temperature,
+		encodeModalityColumn(source.ModalitiesInput), encodeModalityColumn(source.ModalitiesOutput), source.LimitContext, source.LimitInput, source.LimitOutput,
+		source.OpenWeights, source.Status,
+		revision, fetchedAt, updatedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("refresh catalog binding source for model %d: %w", modelConfigID, err)
 	}
+	return nil
 }
 
-func stringPointer(value string) *string { return &value }
-
-func copyInt64Ptr(value *int64) *int64 {
-	if value == nil {
-		return nil
+// updateCatalogBindingOverride rewrites only the override_* columns plus the
+// CAS token. The operator's edit merges over the locked current row, so two
+// concurrent sparse overrides of different fields both survive.
+func updateCatalogBindingOverride(ctx context.Context, tx pgx.Tx, modelConfigID int, override modelCatalogMetadata, updatedAt time.Time) error {
+	_, err := tx.Exec(ctx, `
+		UPDATE model_catalog_bindings SET
+			override_name = $2, override_description = $3, override_family = $4, override_release_date = $5, override_last_updated = $6, override_knowledge = $7,
+			override_attachment = $8, override_reasoning = $9, override_tool_call = $10, override_structured_output = $11, override_temperature = $12,
+			override_modalities_input = $13::jsonb, override_modalities_output = $14::jsonb, override_limit_context = $15, override_limit_input = $16, override_limit_output = $17,
+			override_open_weights = $18, override_status = $19,
+			updated_at = $20
+		WHERE model_config_id = $1`,
+		modelConfigID,
+		override.Name, override.Description, override.Family, override.ReleaseDate, override.LastUpdated, override.Knowledge,
+		override.Attachment, override.Reasoning, override.ToolCall, override.StructuredOutput, override.Temperature,
+		encodeModalityColumn(override.ModalitiesInput), encodeModalityColumn(override.ModalitiesOutput), override.LimitContext, override.LimitInput, override.LimitOutput,
+		override.OpenWeights, override.Status,
+		updatedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("write catalog binding override for model %d: %w", modelConfigID, err)
 	}
-	copied := *value
-	return &copied
+	return nil
 }
 
-func cloneStringSlice(values []string) []string {
-	if values == nil {
-		return nil
+func deleteCatalogBinding(ctx context.Context, tx pgx.Tx, modelConfigID int) error {
+	_, err := tx.Exec(ctx, `DELETE FROM model_catalog_bindings WHERE model_config_id = $1`, modelConfigID)
+	if err != nil {
+		return fmt.Errorf("unbind catalog binding for model %d: %w", modelConfigID, err)
 	}
-	return append([]string(nil), values...)
+	return nil
 }
 
-// catalogFieldOrder fixes the stable diff order of refresh previews.
-var catalogFieldOrder = []struct {
-	field   string
-	get     func(m modelCatalogMetadata) *string
-	set     func(*modelCatalogMetadata, *string)
-	boolGet func(m modelCatalogMetadata) *bool
-	boolSet func(*modelCatalogMetadata, *bool)
-	intGet  func(m modelCatalogMetadata) *int64
-	intSet  func(*modelCatalogMetadata, *int64)
-	listGet func(m modelCatalogMetadata) []string
-	listSet func(*modelCatalogMetadata, []string)
-}{
-	{field: "name", get: func(m modelCatalogMetadata) *string { return m.Name }, set: func(m *modelCatalogMetadata, v *string) { m.Name = v }},
-	{field: "description", get: func(m modelCatalogMetadata) *string { return m.Description }, set: func(m *modelCatalogMetadata, v *string) { m.Description = v }},
-	{field: "family", get: func(m modelCatalogMetadata) *string { return m.Family }, set: func(m *modelCatalogMetadata, v *string) { m.Family = v }},
-	{field: "release_date", get: func(m modelCatalogMetadata) *string { return m.ReleaseDate }, set: func(m *modelCatalogMetadata, v *string) { m.ReleaseDate = v }},
-	{field: "last_updated", get: func(m modelCatalogMetadata) *string { return m.LastUpdated }, set: func(m *modelCatalogMetadata, v *string) { m.LastUpdated = v }},
-	{field: "knowledge", get: func(m modelCatalogMetadata) *string { return m.Knowledge }, set: func(m *modelCatalogMetadata, v *string) { m.Knowledge = v }},
-	{field: "attachment", boolGet: func(m modelCatalogMetadata) *bool { return m.Attachment }, boolSet: func(m *modelCatalogMetadata, v *bool) { m.Attachment = v }},
-	{field: "reasoning", boolGet: func(m modelCatalogMetadata) *bool { return m.Reasoning }, boolSet: func(m *modelCatalogMetadata, v *bool) { m.Reasoning = v }},
-	{field: "tool_call", boolGet: func(m modelCatalogMetadata) *bool { return m.ToolCall }, boolSet: func(m *modelCatalogMetadata, v *bool) { m.ToolCall = v }},
-	{field: "structured_output", boolGet: func(m modelCatalogMetadata) *bool { return m.StructuredOutput }, boolSet: func(m *modelCatalogMetadata, v *bool) { m.StructuredOutput = v }},
-	{field: "temperature", boolGet: func(m modelCatalogMetadata) *bool { return m.Temperature }, boolSet: func(m *modelCatalogMetadata, v *bool) { m.Temperature = v }},
-	{field: "modalities_input", listGet: func(m modelCatalogMetadata) []string { return m.ModalitiesInput }, listSet: func(m *modelCatalogMetadata, v []string) { m.ModalitiesInput = v }},
-	{field: "modalities_output", listGet: func(m modelCatalogMetadata) []string { return m.ModalitiesOutput }, listSet: func(m *modelCatalogMetadata, v []string) { m.ModalitiesOutput = v }},
-	{field: "limit_context", intGet: func(m modelCatalogMetadata) *int64 { return m.LimitContext }, intSet: func(m *modelCatalogMetadata, v *int64) { m.LimitContext = v }},
-	{field: "limit_input", intGet: func(m modelCatalogMetadata) *int64 { return m.LimitInput }, intSet: func(m *modelCatalogMetadata, v *int64) { m.LimitInput = v }},
-	{field: "limit_output", intGet: func(m modelCatalogMetadata) *int64 { return m.LimitOutput }, intSet: func(m *modelCatalogMetadata, v *int64) { m.LimitOutput = v }},
-	{field: "open_weights", boolGet: func(m modelCatalogMetadata) *bool { return m.OpenWeights }, boolSet: func(m *modelCatalogMetadata, v *bool) { m.OpenWeights = v }},
-	{field: "status", get: func(m modelCatalogMetadata) *string { return m.Status }, set: func(m *modelCatalogMetadata, v *string) { m.Status = v }},
-}
-
-// diffCatalogSource compares two metadata projections field by field in the
-// stable order. Values render as their canonical strings so booleans, lists,
-// and numbers diff uniformly.
-func diffCatalogSource(current, next modelCatalogMetadata) ([]modelCatalogFieldChange, bool) {
-	changes := make([]modelCatalogFieldChange, 0)
-	renderString := func(value *string) *string { return value }
-	renderBool := func(value *bool) *string {
-		if value == nil {
-			return nil
-		}
-		rendered := strconvFormatBool(*value)
-		return &rendered
+// nextCatalogBindingUpdatedAt is the models.dev binding CAS token helper.
+// pgx encodes PostgreSQL timestamps at microsecond precision; comparing the
+// exact storable values keeps a later nanosecond in the same microsecond from
+// collapsing back onto the previous token, and the +1µs floor makes every
+// write advance the token even under a fixed test clock or two writes in one
+// clock tick. This helper is independent of the Pi binding's own token helper;
+// the two sources must not share identity or naming.
+func nextCatalogBindingUpdatedAt(previous, proposed time.Time) time.Time {
+	proposed = proposed.UTC().Truncate(time.Microsecond)
+	previous = previous.UTC().Truncate(time.Microsecond)
+	if previous.IsZero() || proposed.After(previous) {
+		return proposed
 	}
-	renderInt := func(value *int64) *string {
-		if value == nil {
-			return nil
-		}
-		rendered := strconv.FormatInt(*value, 10)
-		return &rendered
-	}
-	renderList := func(value []string) *string {
-		if value == nil {
-			return nil
-		}
-		rendered := "[" + strings.Join(value, ",") + "]"
-		return &rendered
-	}
-	for _, descriptor := range catalogFieldOrder {
-		var currentValue, nextValue *string
-		switch {
-		case descriptor.get != nil:
-			currentValue, nextValue = renderString(descriptor.get(current)), renderString(descriptor.get(next))
-		case descriptor.boolGet != nil:
-			currentValue, nextValue = renderBool(descriptor.boolGet(current)), renderBool(descriptor.boolGet(next))
-		case descriptor.intGet != nil:
-			currentValue, nextValue = renderInt(descriptor.intGet(current)), renderInt(descriptor.intGet(next))
-		case descriptor.listGet != nil:
-			currentValue, nextValue = renderList(descriptor.listGet(current)), renderList(descriptor.listGet(next))
-		}
-		switch {
-		case currentValue == nil && nextValue == nil:
-			continue
-		case currentValue == nil:
-			changes = append(changes, modelCatalogFieldChange{Field: descriptor.field, Current: nil, Next: nextValue, Kind: "added"})
-		case nextValue == nil:
-			changes = append(changes, modelCatalogFieldChange{Field: descriptor.field, Current: currentValue, Next: nil, Kind: "removed"})
-		case *currentValue != *nextValue:
-			changes = append(changes, modelCatalogFieldChange{Field: descriptor.field, Current: currentValue, Next: nextValue, Kind: "changed"})
-		}
-	}
-	return changes, len(changes) > 0
-}
-
-func strconvFormatBool(value bool) string {
-	if value {
-		return "true"
-	}
-	return "false"
+	return previous.Add(time.Microsecond)
 }

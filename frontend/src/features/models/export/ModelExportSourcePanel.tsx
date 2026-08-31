@@ -7,13 +7,16 @@ import {
   OperatorStalenessBadge,
 } from "@/shared/design-system";
 import { useTimezone } from "@/hooks/useTimezone";
-import type { ExportSourceResponse } from "./exportTypes";
+import type { ExportSourceResponse } from "@/lib/types";
 import { ModelExportModelTable } from "./ModelExportModelTable";
+import type { PiBindingController } from "@/features/models/catalog/pi/usePiBindingController";
 import type { ModelExportSourceState } from "./useModelExportSource";
 
 export function ModelExportSourcePanel({
+  controller,
   sourceState,
 }: {
+  controller: PiBindingController;
   sourceState: ModelExportSourceState;
 }) {
   const { messages } = useLocale();
@@ -54,6 +57,7 @@ export function ModelExportSourcePanel({
       ) : null}
       {source && (
         <ModelExportModelTable
+          controller={controller}
           visibleModels={visibleModels}
           selectedIds={selectedIds}
           onToggle={toggleModel}
@@ -87,9 +91,7 @@ export function ModelExportSourcePanel({
               </dd>
             </div>
             <div>
-              <dt className="text-muted-foreground">
-                {copy.riskUnbound}
-              </dt>
+              <dt className="text-muted-foreground">{copy.riskUnbound}</dt>
               <dd
                 className="font-mono text-base tabular-nums"
                 data-testid="export-risk-unbound-count"
@@ -108,9 +110,7 @@ export function ModelExportSourcePanel({
           <dl className="grid gap-2 text-xs sm:grid-cols-[auto_1fr]">
             <dt className="text-muted-foreground">{copy.targetVersionLabel}</dt>
             <dd className="font-mono">{source.target_version}</dd>
-            <dt className="text-muted-foreground">
-              {copy.catalogStatusLabel}
-            </dt>
+            <dt className="text-muted-foreground">{copy.catalogStatusLabel}</dt>
             <dd className="font-mono">
               {catalogStatusLabel(copy, source.catalog.status)}{" "}
               {source.catalog.revision

@@ -65,11 +65,13 @@ func catalogAssertCount(t *testing.T, harness *contractHarness, query string, wa
 
 // catalogBind binds a model to explicit offering coordinates so a test can
 // exercise the model-detail preview path, which resolves the offering from the
-// persisted binding instead of the request.
+// persisted binding instead of the request. The bind carries the Prism
+// identity assertion the CAS re-verifies under the model row lock.
 func catalogBind(t *testing.T, harness *contractHarness, modelConfigID int, providerID, modelID, revision string) {
 	t.Helper()
 	requestJSONStatus[map[string]any](t, harness, http.MethodPost, fmt.Sprintf("/api/models/%d/catalog/bind", modelConfigID), map[string]any{
 		"provider_id": providerID, "catalog_model_id": modelID, "expected_catalog_revision": revision,
+		"expected_prism_model_id": modelID, "expected_api_family": "openai",
 	}, nil, http.StatusOK)
 }
 

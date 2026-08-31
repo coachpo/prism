@@ -20,7 +20,7 @@ shared/
 - Server validation extraction and field-error formatting: `forms/serverValidation.ts`
 - Pure operational-table sorting/page calculations: `table/operationalTableState.ts`
 - Operational table chrome: `table/operationalTable.tsx`
-- Async/append pagination state and controls: `table/paginationStates.ts`, `table/paginationControls.tsx`
+- Async/append pagination state and controls: `table/paginationStates.ts`, `table/paginationControls.tsx`; source-qualified candidate generation/evidence ownership: `table/useAppendCandidatePager.ts`
 - Rewrite table helper exports: `table/rewriteTable.ts`
 - Reusable operator design-system components: `design-system/AGENTS.md`
 - Consumers in feature routes and seam tests: `../features/`, `../test/`, `../../tests/lib/`
@@ -31,6 +31,7 @@ shared/
 - Keep this directory framework-level and cross-route. Feature-only schemas, payload builders, and mutation hooks belong beside their route feature.
 - Keep Default-profile query scope explicit in shared query keys. Global control surfaces should use global scope helpers, and accepted-but-ignored `X-Profile-Id` compatibility headers must not enter cache keys.
 - Keep server validation helpers shape-preserving so backend field paths remain visible to route forms.
+- Keep `useAppendCandidatePager` source-agnostic: rows, revision, and adapter evidence commit under one key/generation; feature adapters own DTOs, copy, query submission, and selection policy.
 - Keep `index.ts` as the public barrel; avoid deep imports from feature code unless a helper intentionally stays private.
 
 ## ANTI-PATTERNS

@@ -62,12 +62,15 @@ func (m *Model) MatchTier(lowerQuery string) (SearchTier, bool) {
 //   - ordering is exact, then prefix, then substring, then provider id, then
 //     model id, all compared byte-wise on the original case-sensitive values.
 //     The order is total and independent of map iteration;
+//   - ranking always runs over the whole same-API hit set before the offset
+//     window is cut, so page contents never depend on the window itself;
 //   - nothing is selected. The caller receives a page of equally-unselected
 //     hits and must obtain an explicit operator choice before binding.
 //
 // An empty or whitespace-only query, an empty expectedAPI, and a nil catalog
-// all return no hits rather than an unfiltered listing.
-func (c *Catalog) SearchModelIDs(query, expectedAPI string, limit int) ([]*Model, int) {
+// all return no hits rather than an unfiltered listing. A negative offset is
+// normalized to the first page; HTTP callers reject it before this layer.
+func (c *Catalog) SearchModelIDs(query, expectedAPI string, limit, offset int) ([]*Model, int) {
 	if c == nil || expectedAPI == "" {
 		return nil, 0
 	}
@@ -80,6 +83,9 @@ func (c *Catalog) SearchModelIDs(query, expectedAPI string, limit int) ([]*Model
 	}
 	if limit > SearchMaxLimit {
 		limit = SearchMaxLimit
+	}
+	if offset < 0 {
+		offset = 0
 	}
 
 	type hit struct {
@@ -121,8 +127,16 @@ func (c *Catalog) SearchModelIDs(query, expectedAPI string, limit int) ([]*Model
 		}
 		return a.model.ModelID < b.model.ModelID
 	})
-	if total > limit {
-		hits = hits[:limit]
+	// The window is cut only after the full ranking, so page contents never
+	// depend on the requested offset.
+	if offset >= total {
+		hits = nil
+	} else {
+		end := offset + limit
+		if end > total {
+			end = total
+		}
+		hits = hits[offset:end]
 	}
 	page := make([]*Model, 0, len(hits))
 	for _, item := range hits {

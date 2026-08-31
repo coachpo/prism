@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import type { ExportRenderResponse } from "./exportTypes";
+import type { ExportRenderResponse } from "@/lib/types";
 
 const EXPORT_FILE_NAME = "prism-pi-models.json";
 const EXPORT_MIME_TYPE = "application/json;charset=utf-8";

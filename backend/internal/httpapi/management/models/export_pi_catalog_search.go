@@ -66,6 +66,10 @@ func (s *Service) handleSearchPiCatalog(w http.ResponseWriter, r *http.Request) 
 	case limit > pidev.SearchMaxLimit:
 		limit = pidev.SearchMaxLimit
 	}
+	if requestBody.Offset < 0 {
+		writeDomainError(w, r, s.corsSnapshot(), newPiDomainError(http.StatusUnprocessableEntity, "offset must be a non-negative whole number", map[string]any{"field": "offset"}))
+		return
+	}
 
 	record, expectedAPI, err := s.loadModelForPi(r.Context(), r, modelConfigID)
 	if err != nil {
@@ -78,14 +82,15 @@ func (s *Service) handleSearchPiCatalog(w http.ResponseWriter, r *http.Request) 
 		writeDomainError(w, r, s.corsSnapshot(), newPiDomainError(http.StatusServiceUnavailable, "pi_catalog_unavailable: no fetched or last-known-good pi.dev catalog is available to search", nil))
 		return
 	}
-	page, total := catalog.SearchModelIDs(query, expectedAPI, limit)
+	page, total := catalog.SearchModelIDs(query, expectedAPI, limit, requestBody.Offset)
 	responseutil.WriteJSON(w, http.StatusOK, piCatalogSearchResponse{
 		Query:     query,
 		API:       expectedAPI,
 		Limit:     limit,
+		Offset:    requestBody.Offset,
 		Total:     total,
 		Returned:  len(page),
-		Truncated: total > len(page),
+		Truncated: requestBody.Offset+len(page) < total,
 		Selected:  false,
 		Catalog: piCatalogWire{
 			Revision:       catalog.Revision,
@@ -94,6 +99,10 @@ func (s *Service) handleSearchPiCatalog(w http.ResponseWriter, r *http.Request) 
 			ETag:           catalog.ETag,
 		},
 		FetchedAt: catalog.FetchedAt,
+		// CheckedAt is when this revision was last revalidated (304 included);
+		// FetchedAt is when the content was originally fetched. Keeping both
+		// visible stops a revalidation from looking like a fresh download.
+		CheckedAt: catalog.CheckedAt,
 		ExportIdentity: piExportIdentityWire{
 			ModelConfigID:    record.ID,
 			ModelID:          record.ModelID,

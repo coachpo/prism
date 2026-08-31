@@ -1,10 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { RefreshCw } from "lucide-react";
-
 import { Button } from "@/components/ui/button";
+import { CatalogCandidatePicker } from "@/features/models/catalog/CatalogCandidatePicker";
 import { formatApiFamily } from "@/components/apiFamilyPresentation";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Field,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+} from "@/components/ui/field";
 import {
   Select,
   SelectContent,
@@ -22,17 +27,10 @@ import type {
 } from "@/lib/types";
 import {
   OperatorCallout,
-  OperatorEmptyState,
-  OperatorErrorState,
   OperatorInsetPanel,
   OperatorLoadingState,
-  OperatorRetryButton,
   OperatorStatusBadge,
 } from "@/shared/design-system";
-import {
-  LoadMoreControl,
-  PaginationLiveStatus,
-} from "@/shared/table/paginationControls";
 import { useCatalogCandidates } from "@/pages/model-detail/useCatalogCandidates";
 
 import type { CatalogPricingSource } from "./useCatalogPricingImport";
@@ -65,7 +63,6 @@ export function CatalogOfferingDiscovery({
 }) {
   const { messages } = useLocale();
   const copy = messages.modelCatalog;
-  const tableCopy = messages.operationalTable;
 
   const [modelId, setModelId] = useState<string>("");
   const [match, setMatch] = useState<ModelCatalogMatchPreviewResponse | null>(
@@ -140,6 +137,12 @@ export function CatalogOfferingDiscovery({
     needsManualChoice ? (selectedModel?.id ?? null) : null,
     query.trim(),
   );
+
+  useEffect(() => {
+    if (!candidates.revisionRolledOver) return;
+    setPickedKey(null);
+    onResolved(null);
+  }, [candidates.revisionRolledOver, onResolved]);
 
   const pickCandidate = (candidate: CatalogCandidate) => {
     const key = `${candidate.provider_id}/${candidate.model_id}`;
@@ -225,87 +228,67 @@ export function CatalogOfferingDiscovery({
 
       {needsManualChoice ? (
         <div className="flex flex-col gap-2">
-          <Label htmlFor="catalog-import-candidates">
-            {copy.candidateSearchLabel}
-          </Label>
-          <Input
-            id="catalog-import-candidates"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder={copy.candidateSearchPlaceholder}
-          />
-          {candidates.phase === "loading" ? (
-            <OperatorLoadingState title={copy.catalogCandidatesLoading} />
-          ) : candidates.phase === "error" ? (
-            <OperatorErrorState
-              title={copy.catalogCandidatesFailed}
-              description={candidates.error}
-              action={
-                <OperatorRetryButton onClick={candidates.onRetry}>
-                  <RefreshCw data-icon="inline-start" />
-                  {copy.catalogCandidatesRetry}
-                </OperatorRetryButton>
-              }
-            />
-          ) : (
-            <>
-              <ul
-                className="flex max-h-48 min-w-0 flex-col gap-1 overflow-y-auto text-sm"
-                aria-busy={candidates.appending || undefined}
-              >
-                {candidates.items.map((candidate) => {
-                  const key = `${candidate.provider_id}/${candidate.model_id}`;
-                  return (
-                    <li key={key}>
-                      <button
-                        type="button"
-                        className="min-h-7 w-full truncate rounded px-1 py-0.5 text-left hover:bg-muted data-[picked=true]:bg-primary-soft"
-                        aria-pressed={pickedKey === key}
-                        data-picked={pickedKey === key}
-                        data-testid={`catalog-candidate-${candidate.provider_id}-${candidate.model_id}`}
-                        onClick={() => pickCandidate(candidate)}
-                      >
-                        <span className="font-mono text-xs">
-                          {candidate.provider_id}/{candidate.model_id}
-                        </span>
-                        <span className="ml-2 text-muted-foreground">
-                          {candidate.name}
-                        </span>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-              {candidates.items.length === 0 ? (
-                <OperatorEmptyState
-                  title={copy.catalogNoCandidates}
-                  description={copy.candidateEmptyDescription}
-                  className="py-4"
-                />
-              ) : (
-                <LoadMoreControl
-                  testId="catalog-candidate-load-more"
-                  pending={candidates.appending}
-                  error={candidates.appendError}
-                  hasMore={candidates.hasMore}
-                  labels={{
-                    loadMore: copy.loadMoreCandidates,
-                    loading: tableCopy.loadingMore,
-                    retry: tableCopy.retryLoadMore,
-                  }}
-                  onLoadMore={candidates.onLoadMore}
-                />
-              )}
-              <PaginationLiveStatus
-                message={
-                  candidates.appending ? copy.loadingMoreCandidates : null
-                }
+          <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor="catalog-import-candidates">
+                {copy.candidateSearchLabel}
+              </FieldLabel>
+              <Input
+                id="catalog-import-candidates"
+                value={query}
+                onChange={(event) => {
+                  setQuery(event.target.value);
+                  setPickedKey(null);
+                  onResolved(null);
+                }}
+                placeholder={copy.candidateSearchPlaceholder}
               />
-              <p className="text-xs text-muted-foreground">
-                {copy.candidateCount(candidates.items.length, candidates.total)}
-              </p>
-            </>
-          )}
+              <FieldDescription>{copy.candidateSearchHint}</FieldDescription>
+            </Field>
+          </FieldGroup>
+          <CatalogCandidatePicker
+            pager={candidates}
+            itemKey={(candidate) =>
+              `${candidate.provider_id}/${candidate.model_id}`
+            }
+            renderCandidate={(candidate) => (
+              <span className="flex min-w-0 items-baseline gap-2">
+                <span className="truncate font-mono text-xs">
+                  {candidate.provider_id}/{candidate.model_id}
+                </span>
+                <span className="truncate text-sm text-muted-foreground">
+                  {candidate.name}
+                </span>
+              </span>
+            )}
+            selectedKey={pickedKey}
+            onSelect={(key) => {
+              setPickedKey(key);
+              const picked = candidates.items.find(
+                (candidate) =>
+                  `${candidate.provider_id}/${candidate.model_id}` === key,
+              );
+              if (picked) pickCandidate(picked);
+              else onResolved(null);
+            }}
+            testIdPrefix="catalog-candidate"
+            labels={{
+              loading: copy.catalogCandidatesLoading,
+              loadFailed: copy.catalogCandidatesFailed,
+              retry: copy.catalogCandidatesRetry,
+              empty: copy.catalogNoCandidates,
+              emptyDescription: copy.candidateEmptyDescription,
+              loadMore: copy.loadMoreCandidates,
+              loadingMore: copy.loadingMoreCandidates,
+              retryLoadMore: copy.candidateRetry,
+              count: copy.candidateCount,
+              liveLoading: copy.loadingMoreCandidates,
+              revisionRollover: copy.revisionRolloverNotice,
+              revisionRolloverAcknowledge:
+                copy.revisionRolloverAcknowledge,
+              listboxLabel: copy.candidateSearchLabel,
+            }}
+          />
         </div>
       ) : null}
     </OperatorInsetPanel>

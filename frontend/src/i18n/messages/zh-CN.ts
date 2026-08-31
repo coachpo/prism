@@ -2167,10 +2167,54 @@ export const zhCNMessages = {
     targetRemove: (name: MessageArg) => `删除目标 ${name}`,
     unlimited: "无限制",
   },
+  externalCatalog: {
+    // 模型详情"外部目录来源"联邦 section：section 外壳与两个来源 panel 的
+    // 共享文案。来源专属文案留在各自命名空间（modelCatalog / modelExportPage）。
+    sectionTitle: "外部目录来源",
+    sectionDescription:
+      "models.dev 元信息与 pi.dev 模板来源各自独立读取与操作；一个来源失败不影响另一个来源，也不影响模型与路由配置。",
+    modelsDevPanelTitle: "models.dev 元信息与价格来源",
+    modelsDevPanelDescription:
+      "models.dev 目录坐标、绑定元信息与人工覆盖；价格导入仍由 Terminal Target 行发起。",
+    piDevPanelTitle: "pi.dev Pi 模板来源",
+    piDevPanelDescription:
+      "pi.dev 目录坐标、冻结绑定与导出模板证据；渲染始终使用冻结绑定，不读取实时目录。",
+    readLoadingTitle: "正在读取 pi.dev 单模型目录证据…",
+    readRefreshing:
+      "正在权威重读 pi.dev；当前展示保留的上次成功结果，写操作暂时禁用。",
+    readFailedTitle: "pi.dev 目录读取失败",
+    readStaleBadgeLabel: "单模型管理读取已过时",
+    readStaleLastSuccessLabel: "上次成功读取：",
+    prismModelIdLabel: "Prism model_id",
+    finalPiApiLabel: "最终 Pi API",
+    finalPiApiAbsent: "（无 Pi 文本 API 映射）",
+    piCoordinateLabel: "pi.dev 目录坐标",
+    piDirectoryApiLabel: "pi.dev 目录 Pi API",
+    bindIdentityLabel: "绑定时 Prism model_id",
+    bindingIdentityAbsent: "（绑定身份快照缺失）",
+    bindingIntegrityError:
+      "冻结绑定缺少目录坐标、目录 Pi API 或绑定时 Prism model_id，无法可靠判断同名/跨目录或渲染能力。",
+    bindingRevisionLabel: "绑定目录修订",
+    fetchedAtLabel: "绑定抓取时间",
+    updatedAtLabel: "绑定更新时间",
+    catalogRevisionLabel: "实时目录修订",
+    catalogFetchedAtLabel: "实时目录抓取时间",
+    catalogCheckedAtLabel: "实时目录检查时间",
+    bindingSourceEvidenceTitle: "冻结来源值",
+    bindingOverrideEvidenceTitle: "人工覆盖值",
+    bindingEffectiveEvidenceTitle: "最终生效值",
+    catalogUnavailableBadge: "目录不可用",
+    catalogStaleNote:
+      "pi.dev 目录当前为 last-known-good（stale）：证据仅供查看，绑定/刷新需要重新取得 fresh 证据。",
+    catalogUnavailableNote:
+      "pi.dev 目录当前不可用：live 候选证据暂缺；是否可渲染仅由下方真实绑定状态决定。",
+    catalogUnavailableBoundNote:
+      "pi.dev 目录当前不可用：live 候选证据暂缺；当前冻结绑定仍兼容并可用于渲染。",
+  },
   modelCatalog: {
     // models.dev 目录元信息卡。来源快照 + 人工覆盖 + 生效值全部只作用于
     // 管理面展示；刷新只替换来源值，人工覆盖与人工价格修订默认保留。
-    cardTitle: "目录元信息",
+    cardTitle: "models.dev 元信息与价格来源",
     cardDescription:
       "来自 models.dev 官方目录的模型元信息。仅用于管理面参考，不参与路由与运行时行为。",
     stateUnbound: "未绑定",
@@ -2178,7 +2222,7 @@ export const zhCNMessages = {
     stateUnique: "自动匹配",
     hasOverridesBadge: "存在人工覆盖",
     unboundHint:
-      "尚未绑定目录条目。唯一精确匹配会自动进入可提交预览；跨提供方歧义的模型 ID 需要显式选择提供方与模型 ID。",
+      "尚未绑定 models.dev 目录条目。唯一精确匹配会自动进入可提交预览；歧义时需要显式选择 models.dev 目录 Provider 与 model_id。",
     fetchedAtLabel: "抓取时间",
     overrideMarker: "已覆盖",
     valueAbsent: "（未提供）",
@@ -2186,7 +2230,34 @@ export const zhCNMessages = {
     rebindAction: "重新绑定",
     bindAction: "绑定目录",
     overrideAction: "编辑覆盖",
+    bindingActionsLabel: "models.dev 绑定操作",
+    matchSourceUnknown: "匹配来源未知",
     loadingText: "正在读取官方目录…",
+    readLoadingTitle: "正在读取 models.dev 目录绑定…",
+    readRefreshing: "正在权威重读 models.dev；当前展示保留的上次成功结果，写操作暂时禁用。",
+    readFailedTitle: "models.dev 目录读取失败",
+    readRetry: "重试读取",
+    previewFailedTitle: "目录预览读取失败",
+    staleBadgeLabel: "目录数据已过时",
+    staleBadgeReason: (lastSuccess: MessageArg) =>
+      `显示的是 ${lastSuccess} 的上次成功读取；重新读取失败，可重试。`,
+    // 解绑必须携带操作员确认过的绑定快照；快照过期返回 409 并要求权威重读。
+    unbindAction: "解绑目录",
+    unbindConfirmTitle: "解绑 models.dev 目录绑定",
+    unbindConfirmDescription:
+      "删除绑定行只影响目录元信息展示，不改变模型身份、路由或价格模板。解绑携带你确认时的绑定快照；若绑定已被并发修改，会以 409 拒绝并要求重新读取。",
+    unbindConflictToast: "绑定已发生变化，请以最新读取结果为准后重试。",
+    unbindConfirm: "解绑目录",
+    unbinding: "正在解绑…",
+    bindingSnapshotIncomplete:
+      "绑定快照缺少目录坐标或 updated_at，无法安全解绑；请重新读取后再操作。",
+    bindStaleConflictToast:
+      "绑定在你确认后发生了变化（已 409 拒绝写入），已重新读取最新状态。",
+    coordinateLabel: "models.dev 目录坐标",
+    revisionLabel: "目录修订",
+    revisionRolloverNotice:
+      "目录证据已变化（catalog revision 更新），候选列表已撤回并从第一页重新读取。",
+    revisionRolloverAcknowledge: "知道了",
 
     bindDialogTitle: "绑定 models.dev 目录",
     bindDialogDescription:
@@ -2197,11 +2268,13 @@ export const zhCNMessages = {
     noMatch: "没有找到精确匹配的模型 ID",
     explicitBindHint: "请从候选中选择或直接填写提供方与模型 ID 后手动绑定。",
     manualBindTitle: "手动绑定",
-    providerLabel: "提供方 ID",
-    modelIdLabel: "模型 ID",
+    providerLabel: "models.dev 目录 Provider",
+    modelIdLabel: "models.dev 目录 model_id",
     bindExplicitAction: "按填写的坐标绑定",
     candidateSearchLabel: "搜索候选",
     candidateSearchPlaceholder: "输入模型 ID、名称或提供方关键词",
+    candidateSearchHint:
+      "按 models.dev 目录 model_id、名称或 Provider 搜索；候选不会自动选中。",
     candidateCount: (shown: MessageArg, total: MessageArg) =>
       `显示 ${shown} / 共 ${total} 条候选`,
     candidateLoading: "正在加载候选…",
@@ -4116,12 +4189,14 @@ export const zhCNMessages = {
     candidateStatusSingle: "单个默认候选",
     candidateStatusMultiple: "多个默认候选",
     candidateStatusCatalogUnavailable: "目录不可用",
+    candidateStatusUnknown: "候选状态未知",
     // Directory-source wording: this provider is the pi.dev origin of a
     // template, never the exported file's provider key.
-    catalogProviderLabel: "目录 Provider",
+    catalogProviderLabel: "pi.dev 目录 Provider",
     bindingStatusBound: "已绑定",
     bindingStatusDrifted: "绑定已漂移",
     bindingStatusUnbound: "未绑定",
+    bindingStatusUnknown: "绑定状态未知",
     bindingNotRenderable:
       "绑定时冻结的 Prism 模型 ID 或最终 Pi API 与当前模型不一致，需重新绑定。",
     droppedFieldsLabel: "已丢弃的不安全目录字段",
@@ -4130,8 +4205,11 @@ export const zhCNMessages = {
     bindSourceAction: "绑定来源",
     changeSourceAction: "更换来源",
     bindingActionsLabel: "绑定操作",
-    boundIdentityLabel: "绑定时 Prism ID",
-    currentBindingIdentityLabel: "当前绑定的 Prism ID",
+    boundIdentityLabel: "绑定时 Prism model_id",
+    currentBindingIdentityLabel: "当前绑定的 Prism model_id",
+    bindingIdentityAbsent: "（绑定身份快照缺失）",
+    bindingIdentityIntegrityError:
+      "绑定时 Prism model_id 快照缺失；不能用当前 model_id 代替，需重新绑定以恢复完整证据。",
     boundCrossDirectoryLabel: "跨目录绑定",
     noPiApiCannotBind:
       "该模型的 API 家族与接受格式没有 Pi 文本 API 映射，无法绑定目录来源。",
@@ -4158,8 +4236,8 @@ export const zhCNMessages = {
       "默认层仍按完整 model_id 大小写敏感且最终 Pi API 相等匹配；目录搜索层只按 model_id 做大小写不敏感的字面匹配。两层都不会自动选中任何项，确认前必须看到完整证据。",
     sourceDialogConfirmAction: "应用绑定",
     exportIdentityTitle: "最终导出身份（由 Prism 决定）",
-    exportIdentityModelLabel: "导出模型 id",
-    exportIdentityApiLabel: "导出 Pi API",
+    exportIdentityModelLabel: "Prism model_id",
+    exportIdentityApiLabel: "最终 Pi API",
     exportIdentityApiUnknown: "无法确定",
     exportIdentityProviderLabel: "导出 Provider 键名",
     exportIdentityProviderHint: "由你在“导出目标”中输入",
@@ -4174,6 +4252,8 @@ export const zhCNMessages = {
     directorySearchHint:
       "仅搜索目录 model_id，大小写不敏感的字面包含；不搜索 provider、名称或其他字段，也不做模糊匹配。默认返回 20 条，最多 100 条，结果不会自动选中。",
     directorySearchAction: "搜索目录",
+    directorySearchLoading: "正在搜索 pi.dev 目录…",
+    directorySearchRetry: "重新搜索",
     directorySearchFailed: "目录搜索失败",
     directorySearchQueryRequired: "请输入要搜索的目录 model_id 片段。",
     directorySearchEmpty: "没有同最终 Pi API 的目录命中项。",
@@ -4184,10 +4264,16 @@ export const zhCNMessages = {
       "结果已截断；请缩小片段后重新搜索，再确认要绑定的坐标。",
     directorySearchStaleReadOnly:
       "这次搜索只返回 last-known-good 目录证据，可查看但不能用于绑定；请重新搜索取得 fresh 证据。",
+    directorySearchRollover:
+      "pi.dev 目录修订已变化，旧候选和选择已撤回，并从第一页重新读取。",
+    directorySearchRolloverAcknowledge: "知道了",
+    loadMoreCandidates: "加载更多候选",
+    loadingMoreCandidates: "正在加载更多候选…",
+    retryLoadMore: "重试加载",
     directorySearchEvidenceChanged:
       "搜索证据对应的 Prism 模型身份或 source revision 已变化；请刷新导出源并重新搜索。",
     chosenCoordinateTitle: "已选目录坐标",
-    catalogApiLabel: "目录 Pi API",
+    catalogApiLabel: "pi.dev 目录 Pi API",
     chosenSameDirectory: "与当前 Prism 模型 id 同名。",
     chosenCrossDirectory:
       "这是跨目录绑定：导出的模型 id 与 Pi API 仍由 Prism 决定，目录 model_id 只决定模板来源。",
@@ -4209,6 +4295,9 @@ export const zhCNMessages = {
     refreshDialogDescription:
       "对比当前绑定坐标在 pi.dev 目录中的最新字段，仅替换来源字段，不影响手动覆盖。",
     refreshLoadingPreview: "正在获取最新目录数据...",
+    refreshPreviewFailed: "刷新预览读取失败",
+    refreshPreviewRetry: "重试刷新预览",
+    refreshCommitFailed: "刷新提交失败",
     refreshNoChanges: "目录数据未发生变化。",
     refreshFieldAbsent: "（无）",
     refreshCommitAction: "应用刷新",
@@ -4223,6 +4312,7 @@ export const zhCNMessages = {
     overrideMaxTokensLabel: "最大输出 tokens",
     overrideThinkingLevelMapLabel: "思考等级映射",
     overrideCompatLabel: "Pi compat",
+    unknownFieldLabel: "未知字段",
     overrideSourceValueLabel: "绑定来源",
     overrideCurrentValueLabel: "当前覆盖",
     overrideEffectiveValueLabel: "最终生效",

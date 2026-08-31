@@ -4,13 +4,15 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "@/i18n/LocaleProvider";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import type { ExportRenderResponse, ExportSourceResponse } from "./exportTypes";
+import type { ExportRenderResponse, ExportSourceResponse } from "@/lib/types";
 import { ModelExportPage } from "./ModelExportPage";
 import {
   bindModelPi,
   clearModelPiOverride,
   fetchModelExportSource,
   putModelPiOverride,
+  refreshModelPiPreview,
+  refreshModelPiCommit,
   renderModelExport,
   searchModelPiCatalog,
   unbindModelPi,
@@ -172,12 +174,14 @@ vi.mock("@/lib/api/modelExport", () => ({
       query: "gpt",
       api: "openai-responses",
       limit: 20,
+      offset: 0,
       total: 0,
       returned: 0,
       truncated: false,
       selected: false,
       catalog: { status: "fresh", revision: "rev-1" },
       fetched_at: "2026-08-30T00:00:00Z",
+      checked_at: "2026-08-30T00:00:00Z",
       export_identity: {
         model_config_id: 3,
         model_id: "gpt-x",
@@ -263,7 +267,7 @@ describe("ModelExportPage Pi-only", () => {
     expect(screen.getAllByText("a".repeat(64)).length).toBeGreaterThan(0);
     expect(screen.getByText("openai/gpt-x (openai-responses)")).toBeVisible();
     expect(screen.getByText(/compat\.openRouterRouting/)).toBeVisible();
-    expect(screen.getByText(/绑定时 Prism ID/)).toBeVisible();
+    expect(screen.getByText(/绑定时 Prism model_id/)).toBeVisible();
     expect(
       screen.getByText(/pi\.dev 来源包含不安全或不受支持的字段/),
     ).toBeVisible();
@@ -272,7 +276,9 @@ describe("ModelExportPage Pi-only", () => {
     await user.click(screen.getByRole("menuitem", { name: "更换来源" }));
     expect(
       within(screen.getByRole("dialog")).getByText(
-        (_, element) => element?.tagName === "P" && element.textContent?.includes("当前绑定的 Prism ID") === true,
+        (_, element) =>
+          element?.tagName === "P" &&
+          element.textContent?.includes("当前绑定的 Prism model_id") === true,
       ),
     ).toBeVisible();
   });
@@ -313,8 +319,7 @@ describe("ModelExportPage Pi-only", () => {
     expect(apply).toBeEnabled();
     expect(
       within(screen.getByRole("dialog")).getByText(
-        (_, element) =>
-          element?.textContent === "已丢弃的不安全目录字段: 无",
+        (_, element) => element?.textContent === "已丢弃的不安全目录字段: 无",
       ),
     ).toBeVisible();
     await user.click(apply);
@@ -354,12 +359,14 @@ describe("ModelExportPage Pi-only", () => {
         query: "GPT-X",
         api: "openai-responses",
         limit: 20,
+        offset: 0,
         total: 1,
         returned: 1,
         truncated: false,
         selected: false,
         catalog: { status: "fresh", revision: "rev-2" },
         fetched_at: "2026-08-30T00:00:00Z",
+        checked_at: "2026-08-30T00:00:00Z",
         export_identity: {
           model_config_id: 3,
           model_id: "codex/gpt-x",
@@ -405,7 +412,9 @@ describe("ModelExportPage Pi-only", () => {
     await waitFor(() =>
       expect(searchModelPiCatalog).toHaveBeenCalledWith(3, {
         model_id_query: "GPT-X",
-      }),
+        limit: 20,
+        offset: 0,
+      }, expect.any(AbortSignal)),
     );
     expect(searchInput).not.toHaveAttribute("aria-invalid", "true");
     expect(screen.getByText("目录搜索失败")).toBeVisible();
@@ -416,20 +425,16 @@ describe("ModelExportPage Pi-only", () => {
 
     expect(screen.getByRole("button", { name: "应用绑定" })).toBeDisabled();
 
-    await user.click(
-      screen.getByRole("combobox", { name: "选择目录搜索结果" }),
-    );
-    const searchOption = screen.getByRole("option", {
-      name: /openai\/gpt-x \(openai-responses\)GPT X/,
+    const searchOption = await screen.findByRole("option", {
+      name: /openai\/gpt-x.*openai-responses/,
     });
     expect(searchOption).toHaveTextContent("GPT X");
-    expect(searchOption).toHaveTextContent("上下文窗口（tokens）: 200000");
     await user.click(searchOption);
 
     expect(screen.getByText("已选目录坐标")).toBeVisible();
     expect(
       within(screen.getByRole("dialog")).getAllByText(
-        "openai/gpt-x (openai-responses)",
+        "openai/gpt-x",
       ).length,
     ).toBeGreaterThan(0);
     expect(screen.getByText(/跨目录绑定/)).toBeVisible();
@@ -474,12 +479,14 @@ describe("ModelExportPage Pi-only", () => {
       query: "gpt-x",
       api: "openai-responses",
       limit: 20,
+      offset: 0,
       total: 1,
       returned: 1,
       truncated: false,
       selected: false,
       catalog: { status: "stale", revision: "rev-1" },
       fetched_at: "2026-08-30T00:00:00Z",
+      checked_at: "2026-08-30T00:00:00Z",
       export_identity: {
         model_config_id: 3,
         model_id: "codex/gpt-x",
@@ -505,14 +512,11 @@ describe("ModelExportPage Pi-only", () => {
     );
     await user.click(screen.getByRole("button", { name: "搜索目录" }));
     await user.click(
-      await screen.findByRole("combobox", { name: "选择目录搜索结果" }),
-    );
-    await user.click(
-      screen.getByRole("option", { name: /openai\/gpt-x/ }),
+      await screen.findByRole("option", { name: /openai\/gpt-x/ }),
     );
     expect(
-      await screen.findByText(/last-known-good 目录证据/),
-    ).toBeVisible();
+      (await screen.findAllByText(/last-known-good 目录证据/)).length,
+    ).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "应用绑定" })).toBeDisabled();
     expect(bindModelPi).not.toHaveBeenCalled();
 
@@ -572,7 +576,22 @@ describe("ModelExportPage Pi-only", () => {
       "data-disabled",
     );
     await user.keyboard("{Escape}");
-    expect(within(boundRow).getByText(/绑定时 Prism ID/)).toBeVisible();
+    expect(within(boundRow).getByText(/绑定时 Prism model_id/)).toBeVisible();
+  });
+
+  it("does not fabricate a missing bind-time identity from the current model id", async () => {
+    const fixture = sourceFixture();
+    const bound = { ...fixture.models[0] };
+    delete bound.pi_binding_prism_model_id;
+    fixture.models = [bound];
+    vi.mocked(fetchModelExportSource).mockResolvedValue(fixture);
+    renderPage();
+
+    const row = await screen.findByTestId("export-row-3");
+    expect(within(row).getByText("（绑定身份快照缺失）")).toBeVisible();
+    expect(
+      within(row).getByText(/不能用当前 model_id 代替/),
+    ).toBeVisible();
   });
 
   it("requires an explicit coordinate choice for identical multi-candidate templates", async () => {
@@ -622,8 +641,8 @@ describe("ModelExportPage Pi-only", () => {
 
     const apply = screen.getByRole("button", { name: "应用绑定" });
     expect(apply).toBeDisabled();
-    await user.click(screen.getByRole("combobox", { name: "选择候选来源" }));
-    await user.click(
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "选择候选来源" }),
       screen.getByRole("option", {
         name: "qwen-token-plan-cn/qwen3.8-flash (openai-completions)",
       }),
@@ -653,6 +672,8 @@ describe("ModelExportPage Pi-only", () => {
     expect(screen.getByText("输入模态")).toBeVisible();
     expect(screen.getByText("思考等级映射")).toBeVisible();
     expect(screen.getByText("Pi compat")).toBeVisible();
+    expect(screen.getAllByText(/绑定来源: GPT X/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/绑定来源: 200000/).length).toBeGreaterThan(0);
     const save = screen.getByRole("button", { name: "保存覆盖" });
     expect(save).toBeDisabled();
 
@@ -672,6 +693,61 @@ describe("ModelExportPage Pi-only", () => {
         name: "Renamed by operator",
       }),
     );
+  });
+
+  it("shows the real refresh-preview failure inline and retries", async () => {
+    const user = userEvent.setup();
+    vi.mocked(refreshModelPiPreview)
+      .mockRejectedValueOnce(new Error("preview transport failed"))
+      .mockResolvedValueOnce({
+        bound: true,
+        provider_id: "openai",
+        catalog_model_id: "gpt-x",
+        api: "openai-responses",
+        changed: false,
+        changes: [],
+        catalog_revision: "rev-1",
+        binding_updated_at: "2026-08-31T00:00:00Z",
+        fetched_at: "2026-08-31T00:00:00Z",
+      });
+    renderPage();
+    const row = await screen.findByTestId("export-row-3");
+    await openBindingMenu(user, row);
+    await user.click(screen.getByRole("menuitem", { name: "刷新" }));
+
+    expect(await screen.findByText("preview transport failed")).toBeVisible();
+    expect(screen.queryByText("正在获取最新目录数据...")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "重试刷新预览" }));
+    expect(await screen.findByText("目录数据未发生变化。")).toBeVisible();
+  });
+
+  it("keeps a refresh commit failure distinct from preview failure", async () => {
+    const user = userEvent.setup();
+    vi.mocked(refreshModelPiPreview).mockResolvedValueOnce({
+      bound: true,
+      provider_id: "openai",
+      catalog_model_id: "gpt-x",
+      api: "openai-responses",
+      changed: false,
+      changes: [],
+      catalog_revision: "rev-1",
+      binding_updated_at: "2026-08-31T00:00:00Z",
+      fetched_at: "2026-08-31T00:00:00Z",
+    });
+    vi.mocked(refreshModelPiCommit).mockRejectedValueOnce(
+      new Error("pi_binding_stale"),
+    );
+    renderPage();
+    const row = await screen.findByTestId("export-row-3");
+    await openBindingMenu(user, row);
+    await user.click(screen.getByRole("menuitem", { name: "刷新" }));
+    await screen.findByText("目录数据未发生变化。");
+    await user.click(screen.getByRole("button", { name: "应用刷新" }));
+
+    expect(await screen.findByText("刷新提交失败")).toBeVisible();
+    expect(screen.getByText("pi_binding_stale")).toBeVisible();
+    expect(screen.queryByText("刷新预览读取失败")).toBeNull();
+    expect(screen.getByText("目录数据未发生变化。")).toBeVisible();
   });
 
   it("requires an explicit candidate choice when rebinding a bound row", async () => {
@@ -700,8 +776,8 @@ describe("ModelExportPage Pi-only", () => {
 
     const apply = screen.getByRole("button", { name: "应用绑定" });
     expect(apply).toBeDisabled();
-    await user.click(screen.getByRole("combobox", { name: "选择候选来源" }));
-    await user.click(
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "选择候选来源" }),
       screen.getByRole("option", {
         name: "openrouter/gpt-x (openai-responses)",
       }),

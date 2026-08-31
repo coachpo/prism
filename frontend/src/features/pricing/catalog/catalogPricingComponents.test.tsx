@@ -209,6 +209,8 @@ function resetHappyPath() {
     limit: 20,
     offset: 0,
     scope: "family",
+    catalog_revision: '"catalog-rev-9"',
+    fetched_at: "2026-08-25T12:00:00Z",
   });
   catalogPreviewMock.mockResolvedValue(previewResponse());
   catalogCommitMock.mockResolvedValue({
@@ -230,10 +232,7 @@ async function renderDiscovery(models = [prismModel()]) {
   const onResolved = vi.fn();
   render(
     <LocaleProvider>
-      <CatalogOfferingDiscovery
-        models={models}
-        onResolved={onResolved}
-      />
+      <CatalogOfferingDiscovery models={models} onResolved={onResolved} />
     </LocaleProvider>,
   );
   return { onResolved };
@@ -334,6 +333,8 @@ describe("catalog offering discovery", () => {
         limit: 20,
         offset: 0,
         scope: "family",
+        catalog_revision: '"catalog-rev-9"',
+        fetched_at: "2026-08-25T12:00:00Z",
       });
     await renderDiscovery();
 
@@ -347,11 +348,9 @@ describe("catalog offering discovery", () => {
       screen.queryByText("没有匹配的候选条目，请调整关键词。"),
     ).not.toBeInTheDocument();
 
-    await userEvent.click(
-      screen.getByRole("button", { name: "重新读取候选" }),
-    );
+    await userEvent.click(screen.getByRole("button", { name: "重新读取候选" }));
     expect(
-      await screen.findByTestId("catalog-candidate-codex-gpt-5.6-luna"),
+      await screen.findByRole("option", { name: /codex\/gpt-5\.6-luna/ }),
     ).toBeInTheDocument();
   });
 });
@@ -812,7 +811,9 @@ describe("catalog pricing dialog commit gates", () => {
     });
     expect(await screen.findByText("codex/model-b")).toBeInTheDocument();
     await waitFor(() => expect(submit).toBeDisabled());
-    expect(screen.getByTestId("catalog-pricing-confirm-drift")).not.toBeChecked();
+    expect(
+      screen.getByTestId("catalog-pricing-confirm-drift"),
+    ).not.toBeChecked();
     expect(screen.getByTestId("catalog-pricing-blockers")).toHaveTextContent(
       "需先勾选人工改动确认才能提交",
     );

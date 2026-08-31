@@ -25,6 +25,7 @@ func TestPrivateNoStoreRoutePolicyIsExact(t *testing.T) {
 	}{
 		{method: http.MethodGet, path: "/api/models/exports/pi/source"},
 		{method: http.MethodPost, path: "/api/models/exports/pi/render"},
+		{method: http.MethodGet, path: "/api/models/7/pi"},
 		{method: http.MethodPost, path: "/api/models/7/pi/bind"},
 		{method: http.MethodPost, path: "/api/models/7/pi/search"},
 		{method: http.MethodPost, path: "/api/models/7/pi/refresh/preview"},
@@ -32,6 +33,18 @@ func TestPrivateNoStoreRoutePolicyIsExact(t *testing.T) {
 		{method: http.MethodPut, path: "/api/models/7/pi/override"},
 		{method: http.MethodDelete, path: "/api/models/7/pi/override"},
 		{method: http.MethodDelete, path: "/api/models/7/pi"},
+		// models.dev catalog binding evidence is private too: the same binding
+		// coordinates and catalog revisions must never become cacheable.
+		{method: http.MethodGet, path: "/api/models/7"},
+		{method: http.MethodGet, path: "/api/models/7/catalog"},
+		{method: http.MethodGet, path: "/api/models/7/catalog/candidates"},
+		{method: http.MethodPost, path: "/api/models/7/catalog/match-preview"},
+		{method: http.MethodPost, path: "/api/models/7/catalog/bind"},
+		{method: http.MethodPost, path: "/api/models/7/catalog/refresh/preview"},
+		{method: http.MethodPost, path: "/api/models/7/catalog/refresh/commit"},
+		{method: http.MethodPut, path: "/api/models/7/catalog/override"},
+		{method: http.MethodDelete, path: "/api/models/7/catalog/override"},
+		{method: http.MethodDelete, path: "/api/models/7/catalog"},
 		{method: http.MethodPost, path: "/api/pricing-templates/catalog/preview"},
 		{method: http.MethodPost, path: "/api/pricing-templates/catalog/commit"},
 	}
@@ -52,7 +65,6 @@ func TestPrivateNoStoreRoutePolicyIsExact(t *testing.T) {
 		path   string
 	}{
 		{method: http.MethodGet, path: "/api/models"},
-		{method: http.MethodPut, path: "/api/models/7/catalog/override"},
 		{method: http.MethodPatch, path: "/api/models/7/pi/override"},
 		{method: http.MethodPost, path: "/api/models/exports/pi/resolve"},
 		{method: http.MethodPost, path: "/api/models/exports/pi/render/extra"},
@@ -190,16 +202,16 @@ func TestPrivateNoStoreHeadersSurviveManagementMiddlewareRejections(t *testing.T
 		})
 	}
 
+	// The catalog override route now legitimately carries binding evidence,
+	// so a media-type rejection there must still produce the private headers.
 	request := httptest.NewRequest(http.MethodPut, "/api/models/7/catalog/override", strings.NewReader(`{}`))
 	request.Header.Set("Content-Type", "text/plain")
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusUnsupportedMediaType {
-		t.Fatalf("unrelated route status = %d, want %d", response.Code, http.StatusUnsupportedMediaType)
+		t.Fatalf("catalog override route status = %d, want %d", response.Code, http.StatusUnsupportedMediaType)
 	}
-	if got := response.Header().Get("Cache-Control"); got != "" {
-		t.Fatalf("unrelated route cache policy = %q, want empty", got)
-	}
+	assertPrivateNoStoreHeaders(t, response.Header())
 }
 
 func exercisePrivateNoStoreMiddleware(method string, path string) *httptest.ResponseRecorder {

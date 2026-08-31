@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -23,6 +24,7 @@ import {
 import { useLocale } from "@/i18n/useLocale";
 import { models as modelsApi } from "@/lib/api/models";
 import type { ModelCatalogResponse } from "@/lib/types";
+import { OperatorCallout } from "@/shared/design-system";
 import {
   CATALOG_FIELD_KINDS,
   CATALOG_FIELD_ORDER,
@@ -39,6 +41,7 @@ import {
 type CatalogActionRunner = (
   action: () => Promise<unknown>,
   done?: () => void,
+  onError?: (message: string) => void,
 ) => Promise<void>;
 
 export function CatalogOverrideDialog({
@@ -58,6 +61,7 @@ export function CatalogOverrideDialog({
   const copy = messages.modelCatalog;
   const [draft, setDraft] = useState<CatalogOverrideDraft>({});
   const [clearAll, setClearAll] = useState(false);
+  const [mutationError, setMutationError] = useState<string | null>(null);
   const result = useMemo(() => buildCatalogOverridePatch(draft), [draft]);
   const hasErrors = Object.keys(result.errors).length > 0;
 
@@ -89,8 +93,13 @@ export function CatalogOverrideDialog({
     setDraft((current) => ({ ...current, [key]: { mode: "value", raw } }));
   };
 
+  async function runMutation(action: () => Promise<unknown>) {
+    setMutationError(null);
+    await runAction(action, onClose, setMutationError);
+  }
+
   return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
+    <Dialog open onOpenChange={(open) => !open && !busy && onClose()}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>{copy.overrideDialogTitle}</DialogTitle>
@@ -130,15 +139,17 @@ export function CatalogOverrideDialog({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="unchanged">
-                      {copy.overrideModeUnchanged}
-                    </SelectItem>
-                    <SelectItem value="value">
-                      {copy.overrideModeValue}
-                    </SelectItem>
-                    <SelectItem value="restore">
-                      {copy.overrideModeRestore}
-                    </SelectItem>
+                    <SelectGroup>
+                      <SelectItem value="unchanged">
+                        {copy.overrideModeUnchanged}
+                      </SelectItem>
+                      <SelectItem value="value">
+                        {copy.overrideModeValue}
+                      </SelectItem>
+                      <SelectItem value="restore">
+                        {copy.overrideModeRestore}
+                      </SelectItem>
+                    </SelectGroup>
                   </SelectContent>
                 </Select>
                 <div className="flex min-w-0 flex-col gap-1">
@@ -152,12 +163,14 @@ export function CatalogOverrideDialog({
                           <SelectValue placeholder={copy.overrideBooleanPlaceholder} />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="true">
-                            {copy.overrideBooleanTrue}
-                          </SelectItem>
-                          <SelectItem value="false">
-                            {copy.overrideBooleanFalse}
-                          </SelectItem>
+                          <SelectGroup>
+                            <SelectItem value="true">
+                              {copy.overrideBooleanTrue}
+                            </SelectItem>
+                            <SelectItem value="false">
+                              {copy.overrideBooleanFalse}
+                            </SelectItem>
+                          </SelectGroup>
                         </SelectContent>
                       </Select>
                     ) : kind === "status" ? (
@@ -169,9 +182,11 @@ export function CatalogOverrideDialog({
                           <SelectValue placeholder={copy.overrideStatusPlaceholder} />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="alpha">alpha</SelectItem>
-                          <SelectItem value="beta">beta</SelectItem>
-                          <SelectItem value="deprecated">deprecated</SelectItem>
+                          <SelectGroup>
+                            <SelectItem value="alpha">alpha</SelectItem>
+                            <SelectItem value="beta">beta</SelectItem>
+                            <SelectItem value="deprecated">deprecated</SelectItem>
+                          </SelectGroup>
                         </SelectContent>
                       </Select>
                     ) : (
@@ -219,9 +234,12 @@ export function CatalogOverrideDialog({
           <p className="text-xs text-muted-foreground">
             {copy.overrideDisplayNameNote}
           </p>
+          {mutationError ? (
+            <OperatorCallout intent="danger" description={mutationError} />
+          ) : null}
         </DialogBody>
         <DialogFooter>
-          <Button type="button" variant="outline" onClick={onClose}>
+          <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
             {messages.settingsDialogs.cancel}
           </Button>
           {catalog?.bound && (
@@ -230,9 +248,8 @@ export function CatalogOverrideDialog({
               variant="destructive"
               disabled={busy}
               onClick={() =>
-                runAction(
-                  () => modelsApi.catalog.clearOverride(modelConfigId),
-                  onClose,
+                void runMutation(() =>
+                  modelsApi.catalog.clearOverride(modelConfigId),
                 )
               }
             >
@@ -248,17 +265,15 @@ export function CatalogOverrideDialog({
             }
             onClick={() =>
               clearAll
-                ? runAction(
-                    () => modelsApi.catalog.clearOverride(modelConfigId),
-                    onClose,
+                ? void runMutation(() =>
+                    modelsApi.catalog.clearOverride(modelConfigId),
                   )
-                : runAction(
+                : void runMutation(
                     () =>
                       modelsApi.catalog.putOverride(
                         modelConfigId,
                         result.patch,
                       ),
-                    onClose,
                   )
             }
           >

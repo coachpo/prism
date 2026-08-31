@@ -34,8 +34,14 @@ func (s *Service) handleBindModelCatalog(w http.ResponseWriter, r *http.Request)
 	providerID := strings.TrimSpace(requestBody.ProviderID)
 	catalogModelID := strings.TrimSpace(requestBody.CatalogModelID)
 	expectedRevision := strings.TrimSpace(requestBody.ExpectedCatalogRevision)
+	expectedModelID := strings.TrimSpace(requestBody.ExpectedPrismModelID)
+	expectedAPIFamily := strings.TrimSpace(requestBody.ExpectedAPIFamily)
 	if expectedRevision == "" {
 		s.writeCatalogDomainError(w, r, newCatalogDomainError(http.StatusUnprocessableEntity, "expected_catalog_revision is required so stale previews cannot commit", map[string]any{"field": "expected_catalog_revision"}))
+		return
+	}
+	if expectedModelID == "" || expectedAPIFamily == "" {
+		s.writeCatalogDomainError(w, r, newCatalogDomainError(http.StatusUnprocessableEntity, "expected_prism_model_id and expected_api_family are required so a concurrent model edit cannot mislabel metadata", map[string]any{"field": "expected_prism_model_id"}))
 		return
 	}
 	if (providerID == "") != (catalogModelID == "") {
@@ -85,12 +91,36 @@ func (s *Service) handleBindModelCatalog(w http.ResponseWriter, r *http.Request)
 
 	sourceMetadata := catalogMetadataFromCoordinates(catalog, providerID, catalogModelID)
 	now := s.nowUTC()
-	response, err := s.bindModelCatalogInTransaction(r.Context(), r, modelConfigID, providerID, catalogModelID, matchSource, catalog, sourceMetadata, now)
+	response, err := s.bindModelCatalogInTransaction(r.Context(), r, modelConfigID, catalogModelBindInput{
+		ProviderID:           providerID,
+		CatalogModelID:       catalogModelID,
+		MatchSource:          matchSource,
+		ExpectedPrismModelID: expectedModelID,
+		ExpectedAPIFamily:    expectedAPIFamily,
+		Catalog:              catalog,
+		SourceMetadata:       sourceMetadata,
+		Now:                  now,
+	})
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	responseutil.WriteJSON(w, http.StatusOK, response)
+}
+
+// catalogModelBindInput carries everything the bind write phase needs. The
+// catalog has already been fetched, revision-checked, and matched before the
+// transaction begins; the transaction only re-verifies Prism identity and
+// serializes against concurrent binding writes.
+type catalogModelBindInput struct {
+	ProviderID           string
+	CatalogModelID       string
+	MatchSource          string
+	ExpectedPrismModelID string
+	ExpectedAPIFamily    string
+	Catalog              *modelsdev.Catalog
+	SourceMetadata       modelCatalogMetadata
+	Now                  time.Time
 }
 
 func (s *Service) loadCatalogModelIdentity(ctx context.Context, r *http.Request, modelConfigID int) (catalogModelIdentity, error) {
@@ -111,43 +141,57 @@ func (s *Service) loadCatalogModelIdentity(ctx context.Context, r *http.Request,
 }
 
 // bindModelCatalogInTransaction is the only database write phase of a bind.
-// The catalog has already been fetched and matched before this transaction
-// begins; this function never performs remote I/O.
-func (s *Service) bindModelCatalogInTransaction(ctx context.Context, r *http.Request, modelConfigID int, providerID, catalogModelID, matchSource string, catalog *modelsdev.Catalog, sourceMetadata modelCatalogMetadata, now time.Time) (modelCatalogResponse, error) {
+// It never performs remote I/O. Lock ordering is model row first, binding row
+// second, on every models.dev write path, so two concurrent writers can never
+// deadlock; a first bind with no existing row serializes on the model lock.
+func (s *Service) bindModelCatalogInTransaction(ctx context.Context, r *http.Request, modelConfigID int, input catalogModelBindInput) (modelCatalogResponse, error) {
 	return pgxutil.InTxValue(ctx, s.pool, "model", func(tx pgx.Tx) (modelCatalogResponse, error) {
 		profile, profileErr := resolveEffectiveProfile(ctx, tx, r)
 		if profileErr != nil {
 			return modelCatalogResponse{}, profileErr
 		}
-		if _, loadErr := loadModelForCatalog(ctx, tx, profile.ID, modelConfigID); loadErr != nil {
+		model, loadErr := lockModelForCatalog(ctx, tx, profile.ID, modelConfigID)
+		if loadErr != nil {
 			return modelCatalogResponse{}, loadErr
 		}
-		existing, _, loadBindingErr := loadCatalogBinding(ctx, tx, profile.ID, modelConfigID)
+		s.observeCatalogWriteModelLocked(modelConfigID)
+		if model.ModelID != input.ExpectedPrismModelID || model.APIFamily != input.ExpectedAPIFamily {
+			return modelCatalogResponse{}, newCatalogDomainError(http.StatusConflict, "models_dev_model_changed: the Prism model changed after the preview; re-read and confirm again", map[string]any{
+				"expected_prism_model_id": input.ExpectedPrismModelID,
+				"current_prism_model_id":  model.ModelID,
+				"expected_api_family":     input.ExpectedAPIFamily,
+				"current_api_family":      model.APIFamily,
+			})
+		}
+		existing, _, loadBindingErr := loadCatalogBindingForUpdate(ctx, tx, profile.ID, modelConfigID)
 		if loadBindingErr != nil {
 			return modelCatalogResponse{}, loadBindingErr
 		}
-		sameOffering := existing.ProviderID == providerID && existing.CatalogModelID == catalogModelID
 		record := catalogBindingRecord{
 			ModelConfigID:   modelConfigID,
-			ProviderID:      providerID,
-			CatalogModelID:  catalogModelID,
-			MatchSource:     matchSource,
-			CatalogRevision: catalog.ETag,
-			FetchedAt:       catalog.FetchedAt,
-			UpdatedAt:       now,
-			Source:          sourceMetadata,
-			Override:        existing.Override,
+			ProviderID:      input.ProviderID,
+			CatalogModelID:  input.CatalogModelID,
+			MatchSource:     input.MatchSource,
+			CatalogRevision: input.Catalog.ETag,
+			FetchedAt:       input.Catalog.FetchedAt,
+			Source:          input.SourceMetadata,
 		}
 		// Rebinding to a different offering invalidates prior overrides: they
 		// described another provider's metadata. Same-offering rebinds keep
-		// both overrides and the original match_source.
-		if !sameOffering {
-			record.Override = modelCatalogMetadata{}
-		} else if existing.MatchSource != "" {
-			record.MatchSource = existing.MatchSource
+		// both overrides and the original match_source — read from the locked
+		// current row, never from a pre-transaction snapshot.
+		sameOffering := existing.bound() &&
+			existing.ProviderID == input.ProviderID &&
+			existing.CatalogModelID == input.CatalogModelID
+		if sameOffering {
+			record.Override = existing.Override
+			if existing.MatchSource != "" {
+				record.MatchSource = existing.MatchSource
+			}
 		}
-		if upsertErr := upsertCatalogBinding(ctx, tx, record, now); upsertErr != nil {
-			return modelCatalogResponse{}, upsertErr
+		updatedAt := nextCatalogBindingUpdatedAt(existing.UpdatedAt, input.Now)
+		if bindErr := bindCatalogBinding(ctx, tx, record, updatedAt); bindErr != nil {
+			return modelCatalogResponse{}, bindErr
 		}
 		saved, _, saveErr := loadCatalogBinding(ctx, tx, profile.ID, modelConfigID)
 		if saveErr != nil {

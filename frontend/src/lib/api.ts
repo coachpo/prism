@@ -12,6 +12,7 @@ import { stats } from "./api/stats";
 import { settingsAudit } from "./api/settingsAudit";
 import { settingsCosting } from "./api/settingsCosting";
 import { settingsRetention } from "./api/settingsRetention";
+import * as modelExportClient from "./api/modelExport";
 
 export { ApiError, getApiProfileId };
 export { stats } from "./api/observability";
@@ -25,6 +26,9 @@ export const api = {
   loadbalance,
   loadbalanceStrategies,
   models,
+  // Pi export/binding client: every Pi wire type lives in
+  // `lib/types/model-export`, so `lib` never imports from `features/`.
+  modelExport: modelExportClient,
   pricingTemplates,
   settings: {
     ...settings,

@@ -32,7 +32,6 @@ import {
   OperatorDestructiveDialog,
   OperatorInsetPanel,
 } from "@/shared/design-system";
-import type { ExportSourceModelRow } from "./exportTypes";
 import {
   buildPiOverrideFields,
   formatPiBindingMetadataValue,
@@ -43,10 +42,10 @@ import {
   type PiOverrideDraftError,
   type PiOverrideField,
 } from "./piOverrideDraft";
-import {
-  isModelExportSourceReconciliationError,
-  type ModelExportSourceState,
-} from "./useModelExportSource";
+import type {
+  PiBindingController,
+  PiCatalogModelView,
+} from "./usePiBindingController";
 
 type Copy = Record<string, string>;
 
@@ -70,29 +69,21 @@ const ERROR_LABEL_KEYS: Record<PiOverrideDraftError, string> = {
   thinking_map_invalid: "overrideThinkingMapInvalid",
 };
 
-function apiErrorDetail(error: unknown, copy: Copy): string {
-  if (isModelExportSourceReconciliationError(error)) {
-    return copy.sourceReconciliationFailed;
-  }
-  return error instanceof Error ? error.message : String(error);
-}
-
 function valueOrAbsent(value: string | null, copy: Copy): string {
   return value ?? copy.overrideValueAbsent;
 }
 
 export function PiBindingOverrideDialog({
   copy,
-  model,
+  view,
   onClose,
-  sourceState,
+  controller,
 }: {
   copy: Copy;
-  model: ExportSourceModelRow;
+  view: PiCatalogModelView;
   onClose: () => void;
-  sourceState: ModelExportSourceState;
+  controller: PiBindingController;
 }) {
-  const { clearOverrideMutation, overrideMutation } = sourceState;
   const [draft, setDraft] = useState<PiOverrideDraft>({});
   const [saveError, setSaveError] = useState<string | null>(null);
   const [clearAllError, setClearAllError] = useState<string | null>(null);
@@ -100,7 +91,8 @@ export function PiBindingOverrideDialog({
   const result = useMemo(() => buildPiOverrideFields(draft), [draft]);
   const hasErrors = Object.keys(result.errors).length > 0;
   const hasChanges = Object.keys(result.fields).length > 0;
-  const busy = overrideMutation.isPending || clearOverrideMutation.isPending;
+  const busy = controller.mutationPending;
+  const blocked = controller.actionsBlocked;
 
   function setMode(
     field: PiOverrideField,
@@ -114,9 +106,9 @@ export function PiBindingOverrideDialog({
       }
       if (mode === "restore") return { ...current, [field]: { mode } };
       const seedMetadata =
-        piBindingMetadataValue(model.pi_binding_override, field) !== undefined
-          ? model.pi_binding_override
-          : model.pi_binding_effective;
+        piBindingMetadataValue(view.bindingOverride, field) !== undefined
+          ? view.bindingOverride
+          : view.bindingEffective;
       return {
         ...current,
         [field]: {
@@ -135,26 +127,24 @@ export function PiBindingOverrideDialog({
     if (!hasChanges || hasErrors) return;
     setSaveError(null);
     try {
-      await overrideMutation.mutateAsync({
-        modelConfigId: model.model_config_id,
+      await controller.putOverride({
+        modelConfigId: view.modelConfigId,
         fields: result.fields,
       });
       onClose();
     } catch (cause) {
-      setSaveError(apiErrorDetail(cause, copy));
+      setSaveError(cause instanceof Error ? cause.message : String(cause));
     }
   }
 
   async function handleRestoreAll() {
     setClearAllError(null);
     try {
-      await clearOverrideMutation.mutateAsync({
-        modelConfigId: model.model_config_id,
-      });
+      await controller.clearOverride(view.modelConfigId);
       setClearAllOpen(false);
       onClose();
     } catch (cause) {
-      setClearAllError(apiErrorDetail(cause, copy));
+      setClearAllError(cause instanceof Error ? cause.message : String(cause));
     }
   }
 
@@ -189,7 +179,7 @@ export function PiBindingOverrideDialog({
                         {copy.overrideSourceValueLabel}:{" "}
                         {valueOrAbsent(
                           formatPiBindingMetadataValue(
-                            model.pi_binding_source,
+                            view.bindingSource,
                             field,
                           ),
                           copy,
@@ -199,7 +189,7 @@ export function PiBindingOverrideDialog({
                         {copy.overrideCurrentValueLabel}:{" "}
                         {valueOrAbsent(
                           formatPiBindingMetadataValue(
-                            model.pi_binding_override,
+                            view.bindingOverride,
                             field,
                           ),
                           copy,
@@ -209,7 +199,7 @@ export function PiBindingOverrideDialog({
                         {copy.overrideEffectiveValueLabel}:{" "}
                         {valueOrAbsent(
                           formatPiBindingMetadataValue(
-                            model.pi_binding_effective,
+                            view.bindingEffective,
                             field,
                           ),
                           copy,
@@ -224,7 +214,7 @@ export function PiBindingOverrideDialog({
                           </FieldLabel>
                           <Select
                             value={mode}
-                            disabled={sourceState.sourceActionsBlocked}
+                            disabled={blocked}
                             onValueChange={(value) =>
                               setMode(
                                 field,
@@ -255,7 +245,7 @@ export function PiBindingOverrideDialog({
                         </div>
                         <PiOverrideValueEditor
                           copy={copy}
-                          disabled={sourceState.sourceActionsBlocked}
+                          disabled={blocked}
                           errorId={validationError ? errorId : undefined}
                           field={field}
                           invalid={Boolean(validationError)}
@@ -277,7 +267,7 @@ export function PiBindingOverrideDialog({
             </FieldGroup>
             {saveError ? (
               <OperatorCallout intent="danger" description={saveError} />
-            ) : sourceState.sourceQuery.isError ? (
+            ) : blocked ? (
               <OperatorCallout
                 intent="danger"
                 description={copy.sourceActionsBlocked}
@@ -294,26 +284,15 @@ export function PiBindingOverrideDialog({
                 setClearAllError(null);
                 setClearAllOpen(true);
               }}
-              disabled={
-                busy ||
-                !model.pi_binding_override ||
-                sourceState.sourceActionsBlocked
-              }
+              disabled={busy || !view.bindingOverride || blocked}
             >
               {copy.overrideRestoreAll}
             </Button>
             <Button
               onClick={() => void handleSave()}
-              disabled={
-                busy ||
-                !hasChanges ||
-                hasErrors ||
-                sourceState.sourceActionsBlocked
-              }
+              disabled={busy || !hasChanges || hasErrors || blocked}
             >
-              {overrideMutation.isPending ? (
-                <Spinner data-icon="inline-start" />
-              ) : null}
+              {busy ? <Spinner data-icon="inline-start" /> : null}
               {copy.overrideSave}
             </Button>
           </DialogFooter>
@@ -323,16 +302,16 @@ export function PiBindingOverrideDialog({
       <OperatorDestructiveDialog
         open={clearAllOpen}
         onOpenChange={(open) => {
-          if (!clearOverrideMutation.isPending) setClearAllOpen(open);
+          if (!controller.mutationPending) setClearAllOpen(open);
         }}
         title={copy.overrideClearAllTitle}
         description={copy.overrideClearAllDescription}
         cancelLabel={copy.cancel}
         confirmLabel={copy.overrideClearAllConfirm}
         confirmingLabel={copy.overrideClearing}
-        confirming={clearOverrideMutation.isPending}
-        confirmDisabled={sourceState.sourceActionsBlocked}
-        cancelDisabled={clearOverrideMutation.isPending}
+        confirming={controller.mutationPending}
+        confirmDisabled={blocked}
+        cancelDisabled={controller.mutationPending}
         confirmTestId="pi-clear-overrides-confirm"
         onCancel={() => setClearAllOpen(false)}
         onConfirm={handleRestoreAll}
@@ -343,7 +322,7 @@ export function PiBindingOverrideDialog({
         />
         {clearAllError ? (
           <OperatorCallout intent="danger" description={clearAllError} />
-        ) : sourceState.sourceQuery.isError ? (
+        ) : blocked ? (
           <OperatorCallout
             intent="danger"
             description={copy.sourceActionsBlocked}
@@ -430,7 +409,9 @@ function PiOverrideValueEditor({
           : undefined
       }
       disabled={disabled}
-      placeholder={field === "input" ? copy.overrideInputPlaceholder : undefined}
+      placeholder={
+        field === "input" ? copy.overrideInputPlaceholder : undefined
+      }
       value={raw}
       onChange={(event) => onChange(event.target.value)}
     />

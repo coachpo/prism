@@ -15,10 +15,12 @@ import { AccessTargetsEditor } from "@/pages/models/AccessTargetsEditor";
 import { ModelDialog } from "@/pages/models/ModelDialog";
 import { ConnectionDialog } from "@/pages/model-detail/ConnectionDialog";
 import { CopyTerminalTargetDialog } from "@/pages/model-detail/CopyTerminalTargetDialog";
-import { CatalogMetadataCard } from "@/pages/model-detail/CatalogMetadataCard";
+import { ExternalCatalogSourcesSection } from "./ExternalCatalogSourcesSection";
+import { useModelDetailPiSource } from "./useModelDetailPiSource";
 import { CatalogPricingDialog } from "@/features/pricing/catalog";
 import { clearSharedReferenceData } from "@/lib/referenceData";
 import { useModelCatalog } from "@/pages/model-detail/useModelCatalog";
+import { usePiBindingController } from "@/features/models/catalog/pi/usePiBindingController";
 import type { Connection } from "@/lib/types";
 import type { ModelConfigListItem } from "@/lib/types";
 import { toast } from "sonner";
@@ -218,9 +220,15 @@ export function ModelDetailFeaturePage({
   const [copyTarget, setCopyTarget] = useState<Connection | null>(null);
   const [pricingTarget, setPricingTarget] = useState<Connection | null>(null);
   // revision=0 matches the page's bootstrap cadence; refresh() drives catalog
-  // re-reads after bind/refresh/override mutations.
-  const { catalog: modelCatalog, refresh: refreshModelCatalog } =
-    useModelCatalog(parsedModelConfigId, 0);
+  // re-reads after bind/refresh/override mutations. The full view (loading,
+  // failed, stale, last-good) flows into the models.dev panel so a failed
+  // read never masquerades as "unbound".
+  const modelCatalogView = useModelCatalog(parsedModelConfigId, 0);
+  const piSource = useModelDetailPiSource(parsedModelConfigId ?? null);
+  const piController = usePiBindingController({
+    reconcile: piSource.reconcile,
+    actionsBlocked: piSource.actionsBlocked,
+  });
   // The breadcrumb leaf must name the model, not say "配置". Until the model
   // loads this stays null and the shell falls back to the id.
   usePublishBreadcrumbEntity(data.model?.display_name || data.model?.model_id);
@@ -229,7 +237,11 @@ export function ModelDetailFeaturePage({
       ? "final_execution"
       : "ingress";
   const modelMetricRows = useMemo(
-    () => (data.model ? [data.model as unknown as ModelConfigListItem] : []),
+    () =>
+      // SAFETY: the detail response is a superset of the list-item shape the
+      // 24h metrics hook reads (id/model_id/display_name and the metric
+      // counters); no list-only fields are accessed below.
+      data.model ? ([data.model] as unknown as ModelConfigListItem[]) : [],
     [data.model],
   );
   const roleMetrics = useModelMetrics24h(modelMetricRows);
@@ -343,10 +355,27 @@ export function ModelDetailFeaturePage({
         scope={metricsScope}
       />
 
-      <CatalogMetadataCard
+      <ExternalCatalogSourcesSection
         modelConfigId={parsedModelConfigId ?? 0}
-        catalog={modelCatalog}
-        onChanged={refreshModelCatalog}
+        prismModelId={model.model_id}
+        apiFamily={model.api_family}
+        catalogView={modelCatalogView}
+        piController={piController}
+        piRead={piSource.read}
+        piReadFailed={piSource.readFailed}
+        piReadStale={piSource.readStale}
+        piReadError={piSource.readError}
+        piLastSuccessfulAt={piSource.lastSuccessfulAt}
+        piActionsBlocked={piSource.actionsBlocked}
+        piView={piSource.piView}
+        onPiRetry={() => {
+          void piSource.reconcile().catch(() => {
+            // The panel renders the authoritative error surface.
+          });
+        }}
+        piReadPending={piSource.readPending}
+        piReadRefreshing={piSource.readRefreshing}
+        onCatalogChanged={modelCatalogView.refresh}
       />
 
       <AccessTargetsEditor
@@ -434,9 +463,7 @@ export function ModelDetailFeaturePage({
                 "Failed to refresh model detail after catalog pricing commit",
                 error,
               );
-              toast.error(
-                messages.modelCatalog.pricingPostCommitRefreshFailed,
-              );
+              toast.error(messages.modelCatalog.pricingPostCommitRefreshFailed);
             });
           }}
         />

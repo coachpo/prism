@@ -256,4 +256,8 @@ type piCatalogSearchRequest struct {
 	ModelIDQuery string `json:"model_id_query"`
 	// Limit is an optional page bound; it defaults to 20 and clamps to 100.
 	Limit int `json:"limit,omitempty"`
+	// Offset skips the first N ranked hits of the same revision window.
+	// Negative offsets are a request validation error; the ranking itself is
+	// computed over the whole hit set before the window is cut.
+	Offset int `json:"offset,omitempty"`
 }

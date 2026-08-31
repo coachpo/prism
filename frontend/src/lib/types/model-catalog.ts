@@ -86,6 +86,26 @@ export interface ModelCatalogRefreshPreviewResponse {
  changes: CatalogFieldChange[];
  catalog_revision: string;
  fetched_at: string;
+ /**
+  * Local binding CAS token the preview was read against. The commit must echo
+  * it back in expected_binding_updated_at so a rebind/override between preview
+  * and commit rejects with 409 instead of clobbering the newer local facts.
+  */
+ binding_updated_at: string;
+}
+
+export interface ModelCatalogRefreshCommitRequest {
+ expected_provider_id: string;
+ expected_catalog_model_id: string;
+ expected_binding_updated_at: string;
+ expected_catalog_revision: string;
+}
+
+/** The binding snapshot an unbind must confirm, mirrored from the read. */
+export interface ModelCatalogUnbindRequest {
+ expected_provider_id: string;
+ expected_catalog_model_id: string;
+ expected_binding_updated_at: string;
 }
 
 export interface ModelCatalogCandidatesResponse {
@@ -95,12 +115,18 @@ export interface ModelCatalogCandidatesResponse {
  offset: number;
  scope: string;
  query?: string;
+ /** Snapshot the page was computed from; never a fabricated freshness enum. */
+ catalog_revision: string;
+ fetched_at?: string;
 }
 
 export interface CatalogBindingRequest {
  provider_id?: string;
  catalog_model_id?: string;
  expected_catalog_revision: string;
+ /** Prism identity the operator confirmed; re-verified under the model row lock. */
+ expected_prism_model_id: string;
+ expected_api_family: string;
 }
 
 // Source-linked pricing import payloads mirroring

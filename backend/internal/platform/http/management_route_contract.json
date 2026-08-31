@@ -809,7 +809,8 @@
   {
     "route_pattern": "/api/models/{model_config_id}/pi",
     "methods": [
-      "DELETE"
+      "DELETE",
+      "GET"
     ],
     "profile_scoped": true,
     "invalidates_auth": false,

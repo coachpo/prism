@@ -1,6 +1,8 @@
 import type {
   CatalogBindingRequest,
   CatalogOverridePatch,
+  ModelCatalogRefreshCommitRequest,
+  ModelCatalogUnbindRequest,
   Connection,
   ModelCatalogCandidatesResponse,
   ModelCatalogMatchPreviewResponse,
@@ -342,14 +344,15 @@ export const models = {
           body: JSON.stringify({}),
         },
       ),
-    refreshCommit: (modelConfigId: number, expectedCatalogRevision: string) =>
+    refreshCommit: (
+      modelConfigId: number,
+      expected: ModelCatalogRefreshCommitRequest,
+    ) =>
       request<ModelCatalogResponse>(
         `/api/models/${modelConfigId}/catalog/refresh/commit`,
         {
           method: "POST",
-          body: JSON.stringify({
-            expected_catalog_revision: expectedCatalogRevision,
-          }),
+          body: JSON.stringify(expected),
         },
       ),
     putOverride: (modelConfigId: number, patch: CatalogOverridePatch) =>
@@ -367,9 +370,11 @@ export const models = {
           method: "DELETE",
         },
       ),
-    unbind: (modelConfigId: number) =>
+    unbind: (modelConfigId: number, expected: ModelCatalogUnbindRequest) =>
       request<ModelCatalogResponse>(`/api/models/${modelConfigId}/catalog`, {
         method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(expected),
       }),
     candidates: (
       modelConfigId: number,
@@ -378,13 +383,16 @@ export const models = {
         scope?: "family" | "all";
         limit?: number;
         offset?: number;
+        signal?: AbortSignal;
       },
     ) => {
+      const { signal, ...queryParams } = params ?? {};
       const query = buildQuery(
-        params as Record<string, string | number | undefined> | undefined,
+        queryParams as Record<string, string | number | undefined> | undefined,
       );
       return request<ModelCatalogCandidatesResponse>(
         `/api/models/${modelConfigId}/catalog/candidates${query ? `?${query}` : ""}`,
+        signal ? { signal } : undefined,
       );
     },
   },

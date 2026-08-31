@@ -37,15 +37,8 @@ function catalogCandidate(prefix: string, index: number) {
   };
 }
 
-function candidatePage(
-  prefix: string,
-  request: CandidateRequest,
-  total = 47,
-) {
-  const length = Math.max(
-    0,
-    Math.min(request.limit, total - request.offset),
-  );
+function candidatePage(prefix: string, request: CandidateRequest, total = 47) {
+  const length = Math.max(0, Math.min(request.limit, total - request.offset));
   return {
     items: Array.from({ length }, (_, index) =>
       catalogCandidate(prefix, request.offset + index),
@@ -133,7 +126,9 @@ function connection(id: number, name: string) {
 
 const connectionA = connection(15, "Primary Chat");
 
-function accessTargets(connectionSnapshot: Record<string, unknown> = connectionA) {
+function accessTargets(
+  connectionSnapshot: Record<string, unknown> = connectionA,
+) {
   return [
     {
       id: 91,
@@ -292,10 +287,7 @@ function catalogPricingTemplate(providerID: string, catalogModelID: string) {
   };
 }
 
-async function mockCatalogRoutes(
-  page: Page,
-  options: CatalogMockOptions = {},
-) {
+async function mockCatalogRoutes(page: Page, options: CatalogMockOptions = {}) {
   const state = {
     bound: false,
     // "unique_match" drives the automatic branch; "no_match" forces the
@@ -305,10 +297,12 @@ async function mockCatalogRoutes(
     models: [] as unknown[],
     pricingTemplates: [] as unknown[],
     bindRequests: [] as unknown[],
+    unbindRequests: [] as unknown[],
     candidateRequests: [] as CandidateRequest[],
     commitRequests: [] as unknown[],
     previewRequests: [] as unknown[],
     modelDetailReads: 0,
+    catalogReads: 0,
     modelConnectionReads: 0,
   };
 
@@ -418,7 +412,13 @@ async function mockCatalogRoutes(
     if (catalogMatch) {
       const sub = catalogMatch[3];
       if (!sub && request.method() === "GET") {
+        state.catalogReads += 1;
         return fulfillJson(state.bound ? boundCatalog() : unboundCatalog());
+      }
+      if (!sub && request.method() === "DELETE") {
+        state.unbindRequests.push(request.postDataJSON());
+        state.bound = false;
+        return fulfillJson(unboundCatalog());
       }
       if (sub === "candidates" && request.method() === "GET") {
         const candidateRequest: CandidateRequest = {
@@ -482,6 +482,34 @@ async function mockCatalogRoutes(
         state.bound = true;
         return fulfillJson(boundCatalog());
       }
+    }
+    if (pathname === "/api/models/7/pi" && request.method() === "GET") {
+      return fulfillJson({
+        model: {
+          model_config_id: 7,
+          model_id: "detail-openai",
+          api_family: "openai",
+          pi_api: "openai-responses",
+        },
+        catalog: {
+          status: "fresh",
+          revision: "sha256-e2e",
+          minimum_version: "0.84.3",
+          etag: "etag-e2e",
+          fetched_at: timestamp,
+          checked_at: timestamp,
+        },
+        candidate_status: "not_in_catalog",
+        candidates: [],
+        binding_status: "unbound",
+        binding_renderable: false,
+        binding: {
+          bound: false,
+          source: null,
+          override: null,
+          effective: null,
+        },
+      });
     }
     if (pathname === "/api/models/7" && request.method() === "GET") {
       state.modelDetailReads += 1;
@@ -617,7 +645,7 @@ async function mockCatalogRoutes(
 test("model catalog binds via unique match and renders metadata", async ({
   page,
 }) => {
-  await mockCatalogRoutes(page);
+  const state = await mockCatalogRoutes(page);
 
   await page.goto("/models/7");
   await page
@@ -626,7 +654,7 @@ test("model catalog binds via unique match and renders metadata", async ({
 
   // Unbound state stays visible and honest. The hint paragraph is the
   // unambiguous anchor: the badge text is a substring of it.
-  await expect(page.getByText(/尚未绑定目录条目/)).toBeVisible();
+  await expect(page.getByText(/尚未绑定 models\.dev 目录条目/)).toBeVisible();
   await expect(page.getByText("未绑定").first()).toBeVisible();
 
   // Bind flow: unique exact match enters a committable preview.
@@ -639,6 +667,22 @@ test("model catalog binds via unique match and renders metadata", async ({
   await expect(page.getByText("自动匹配")).toBeVisible();
   await expect(page.getByText("openai / gpt-long")).toBeVisible();
   await expect(page.getByText("GPT Long")).toBeVisible();
+
+  // Unbind carries the exact displayed snapshot and then authoritatively
+  // re-reads instead of optimistically fabricating an unbound card.
+  const readsBeforeUnbind = state.catalogReads;
+  await page.getByRole("button", { name: "models.dev 绑定操作" }).click();
+  await page.getByRole("menuitem", { name: "解绑目录" }).click();
+  await page.getByTestId("models-dev-unbind-confirm").click();
+  expect(state.unbindRequests).toEqual([
+    {
+      expected_provider_id: "openai",
+      expected_catalog_model_id: "gpt-long",
+      expected_binding_updated_at: timestamp,
+    },
+  ]);
+  await expect.poll(() => state.catalogReads).toBeGreaterThan(readsBeforeUnbind);
+  await expect(page.getByText(/尚未绑定 models\.dev 目录条目/)).toBeVisible();
 });
 
 test("catalog candidate pager appends all pages and selects a later candidate", async ({
@@ -675,13 +719,11 @@ test("catalog candidate pager appends all pages and selects a later candidate", 
   expect(state.candidateRequests[2]?.offset).toBe(40);
   await expect(loadMore).toHaveCount(0);
 
-  await dialog
-    .getByRole("button", { name: /openai\/paged-46/ })
-    .click();
-  await expect(
-    dialog.getByRole("textbox", { name: "提供方 ID" }),
-  ).toHaveValue("openai");
-  await expect(dialog.getByRole("textbox", { name: "模型 ID" })).toHaveValue(
+  await dialog.getByRole("option", { name: /openai\/paged-46/ }).click();
+  await expect(dialog.getByRole("textbox", { name: "models.dev 目录 Provider" })).toHaveValue(
+    "openai",
+  );
+  await expect(dialog.getByRole("textbox", { name: "models.dev 目录 model_id" })).toHaveValue(
     "paged-46",
   );
 });
@@ -691,8 +733,6 @@ test("catalog candidate pager isolates stale reads and retries failures", async 
 }) => {
   const appendRetryGate = deferred();
   const appendRetryStarted = deferred();
-  const alphaFirstReplaceGate = deferred();
-  const alphaFirstReplaceStarted = deferred();
   const alphaOldAppendGate = deferred();
   const alphaOldAppendStarted = deferred();
   const alphaNewAppendGate = deferred();
@@ -720,14 +760,16 @@ test("catalog candidate pager isolates stale reads and retries failures", async 
         return { body: candidatePage("base", request) };
       }
       if (key === "alpha|0") {
-        if (attempt === 1) {
-          alphaFirstReplaceStarted.resolve();
-          await alphaFirstReplaceGate.promise;
-          return { body: candidatePage("alpha-old", request) };
-        }
+        // Replace reads are superseded by generation ownership; the transport
+        // abort makes holding gates here moot, so every attempt answers
+        // immediately and the discard is asserted on the rendered list.
         return {
           body: candidatePage(
-            attempt === 2 ? "alpha-new" : "alpha-newer",
+            attempt === 1
+              ? "alpha-old"
+              : attempt === 2
+                ? "alpha-new"
+                : "alpha-newer",
             request,
           ),
         };
@@ -771,25 +813,21 @@ test("catalog candidate pager isolates stale reads and retries failures", async 
 
   const search = dialog.getByRole("textbox", { name: "搜索候选" });
   await search.fill("alpha");
-  await alphaFirstReplaceStarted.promise;
+  // Attempt 1 answers immediately; its page paints first.
+  await expect(
+    dialog.getByRole("option", { name: /openai\/alpha-old-00/ }),
+  ).toBeVisible();
+
+  // A→B→A where B never settles: the settle-token generation bump still
+  // commits a fresh alpha read, and the stale alpha-old page is discarded —
+  // it never mixes back into the list.
   await search.fill("beta");
   await search.fill("alpha");
   await expect(
-    dialog.getByRole("button", { name: /openai\/alpha-new-00/ }),
+    dialog.getByRole("option", { name: /openai\/alpha-new-00/ }),
   ).toBeVisible();
-
-  const staleReplaceResponse = page.waitForResponse((response) => {
-    const url = new URL(response.url());
-    return (
-      url.pathname === "/api/models/7/catalog/candidates" &&
-      url.searchParams.get("q") === "alpha" &&
-      url.searchParams.get("offset") === "0"
-    );
-  });
-  alphaFirstReplaceGate.resolve();
-  await staleReplaceResponse;
   await expect(
-    dialog.getByRole("button", { name: /openai\/alpha-old-00/ }),
+    dialog.getByRole("option", { name: /openai\/alpha-old-00/ }),
   ).toHaveCount(0);
 
   await loadMore.click();
@@ -797,7 +835,7 @@ test("catalog candidate pager isolates stale reads and retries failures", async 
   await search.fill("beta");
   await search.fill("alpha");
   await expect(
-    dialog.getByRole("button", { name: /openai\/alpha-newer-00/ }),
+    dialog.getByRole("option", { name: /openai\/alpha-newer-00/ }),
   ).toBeVisible();
   await loadMore.click();
   await alphaNewAppendStarted.promise;
@@ -815,13 +853,13 @@ test("catalog candidate pager isolates stale reads and retries failures", async 
   expect(counts.get("alpha|20")).toBe(2);
   await expect(dialog.getByText("显示 20 / 共 47 条候选")).toBeVisible();
   await expect(
-    dialog.getByRole("button", { name: /openai\/alpha-old-append-20/ }),
+    dialog.getByRole("option", { name: /openai\/alpha-old-append-20/ }),
   ).toHaveCount(0);
 
   alphaNewAppendGate.resolve();
   await expect(dialog.getByText("显示 40 / 共 47 条候选")).toBeVisible();
   await expect(
-    dialog.getByRole("button", { name: /openai\/alpha-new-append-20/ }),
+    dialog.getByRole("option", { name: /openai\/alpha-new-append-20/ }),
   ).toBeVisible();
   expect(
     state.candidateRequests
@@ -1009,12 +1047,12 @@ test("pricing page requires a human pick when nothing matches exactly", async ({
   await expect(dialog.getByTestId("catalog-pricing-preview")).toHaveCount(0);
   await expect(page.getByTestId("catalog-pricing-submit")).toBeDisabled();
 
-  await dialog.getByLabel(/搜索候选/).fill("pricing");
+  await dialog.getByRole("textbox", { name: /搜索候选/ }).fill("pricing");
   await expect(dialog.getByText("显示 20 / 共 25 条候选")).toBeVisible();
   await dialog.getByTestId("catalog-candidate-load-more").click();
   await expect(dialog.getByText("显示 25 / 共 25 条候选")).toBeVisible();
   expect(state.candidateRequests.at(-1)?.offset).toBe(20);
-  await page.getByTestId("catalog-candidate-openai-pricing-24").click();
+  await dialog.getByRole("option", { name: /openai\/pricing-24/ }).click();
 
   // Only the explicit pick opens the preview, and it previews with no target.
   await expect(dialog.getByTestId("catalog-pricing-preview")).toBeVisible();

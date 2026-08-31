@@ -20,13 +20,13 @@ model-detail/
 ├── CopyTerminalTargetDialog.tsx
 ├── ModelCostCards.tsx
 ├── RouteReadinessCard.tsx
-├── CatalogMetadataCard.tsx       # models.dev metadata card shell and workflow composition
-├── CatalogBindDialog.tsx         # Management-only match preview, candidate search, and bind workflow
-├── useCatalogCandidates.ts       # Shared models.dev candidate pager used by model binding and pricing import
-├── CatalogRefreshDialog.tsx      # Management-only refresh diff preview and ETag commit
+├── CatalogBindDialog.tsx         # Management-only match preview, candidate search (shared picker), CAS bind payload
+├── useCatalogCandidates.ts       # models.dev adapter over the shared append pager (debounce, family|all scope, revision mapping)
+├── CatalogRefreshDialog.tsx      # Management-only refresh diff preview and full CAS commit
 ├── CatalogOverrideDialog.tsx     # Per-field/manual override workflow
 ├── catalogMetadataPresentation.ts # Stable catalog field order, labels, and effective-value projection
-├── useModelCatalog.ts            # Settled-record catalog read hook
+├── useModelCatalog.ts            # Settled-record catalog read hook (loading/failed/last-good/stale)
+
 ├── classifyOpenAICoverage.ts
 ├── customRequestParameters.ts
 ├── modelDetailMetricsAndPaths.ts
@@ -72,10 +72,11 @@ model-detail/
 - For UI/UX, frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation changes, follow `frontend/DESIGN.md`: use `@/shared/design-system` before `@/components/ui`, preserve the Google Admin Console / Material Design 3 operator direction, use semantic tokens, operator surface classes, density variables, and required operator components, keep route state and API calls out of design-system components, and avoid adding compatibility wrappers under `@/components`.
 - Do not add decorative gradients, blur blobs, heavy shadows, marketing hero layouts, raw Tailwind status colors, page-local color blends, or ad hoc dark-mode overrides outside the `frontend/DESIGN.md` contract.
 - Keep model CRUD form state in `../models/modelFormState.ts`, mixed draft/order mutation rules in `../models/accessTargetFormState.ts`, and access-target ownership/options/summary projection in `modelAccessTargetProjection.ts`; access-target editor rendering belongs in `../models/AccessTargetsEditor.tsx`. Pricing selection options and mounted summaries display the localized kind label, while card/window authoring remains on the Pricing route.
-- The Terminal Target source-linked price action does **not** own a dialog here. It mounts the shared `@/features/pricing/catalog` `CatalogPricingDialog` with a `bound_model` source, preselecting and locking the current target. This leaf keeps only the models.dev metadata card, bind, refresh, and override workflows.
+- Catalog reads stay honest: `useModelCatalog` distinguishes first-read loading, read failure (with or without last-good data), and settled success while retaining same-model last-good data across a failed re-read. `@/features/models/detail/ModelsDevCatalogPanel` renders `OperatorLoadingState` for a first read, `OperatorErrorState`+retry for a failed first read (never a fabricated 未绑定), last-good metadata under exactly one `OperatorStalenessBadge` for a failed re-read, and the unbound conclusion only for a successful `bound:false`. Timestamps render through `useTimezone`; all mutations stay disabled while the read is unknown/stale. Bind payloads carry `expected_prism_model_id`/`expected_api_family`, refresh commits carry the full coordinate/token/revision CAS chain, unbind carries the displayed coordinate/token snapshot, and candidate paging is delegated to `CatalogCandidatePicker` over `useAppendCandidatePager` (this hook keeps only the models.dev debounce, scope policy, and revision mapping).
+- The Terminal Target source-linked price action does **not** own a dialog here. It mounts the shared `@/features/pricing/catalog` `CatalogPricingDialog` with a `bound_model` source, preselecting and locking the current target. `CatalogPricingDialog` remains the only pricing dialog in this leaf. `@/features/models/detail/ModelsDevCatalogPanel.tsx` owns the federated panel shell and unbind confirmation, while this leaf owns `useModelCatalog`, the models.dev candidate adapter, and the bind/refresh/override dialogs.
 - Keep connection collection patch/resequence separate from access-target projection. `useModelDetailConnectionMutations.ts` composes the explicit connection submit, lifecycle, reconciliation, and target-mutation owners.
 - Parse raw connection drafts and map local/server field errors before connection API mutation; create/update/delete and collection reconciliation remain in the mutation owners.
-- Catalog metadata is a management-only projection. `CatalogMetadataCard.tsx` owns shell/effective rendering and the shared action lock; bind, refresh-diff, and override API workflows live in their named dialogs and never affect runtime compatibility.
+- Catalog metadata is a management-only projection. `@/features/models/detail/ModelsDevCatalogPanel.tsx` owns the inset shell, effective rendering, action lock, and destructive unbind confirmation; bind, refresh-diff, and override API workflows live in their named dialogs and never affect runtime compatibility.
 - Catalog override drafts are metadata-catalog driven across all backend fields and preserve missing, explicit null restore, and explicit values including empty strings.
 - Keep the custom request parameters editor draft as raw text and validate with `customRequestParameters.ts`; never bypass client validation with the raw string, and map server 422 field envelopes back to the editor instead of toasts.
 - Do not duplicate default form factories or redirect-target logic outside their named form/connection owners.

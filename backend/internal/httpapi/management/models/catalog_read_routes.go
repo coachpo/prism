@@ -87,9 +87,17 @@ func (s *Service) handleGetCatalogCandidates(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	items, total := modelsdev.SearchCandidates(catalog, apiFamily, query, scope, limit, offset)
-	responseutil.WriteJSON(w, http.StatusOK, modelCatalogCandidatesResponse{
+	candidatesResponse := modelCatalogCandidatesResponse{
 		Items: items, Total: total, Limit: limit, Offset: offset, Scope: scope, Query: query,
-	})
+		// Every page publishes the snapshot it was computed from, so the
+		// operator can see which catalog evidence a candidate list carries.
+		CatalogRevision: catalog.ETag,
+	}
+	if !catalog.FetchedAt.IsZero() {
+		fetchedAt := catalog.FetchedAt
+		candidatesResponse.FetchedAt = &fetchedAt
+	}
+	responseutil.WriteJSON(w, http.StatusOK, candidatesResponse)
 }
 
 func (s *Service) handleMatchCatalogPreview(w http.ResponseWriter, r *http.Request) {

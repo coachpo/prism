@@ -1,5 +1,5 @@
-import type { PiOverrideFieldValue } from "@/lib/api/modelExport";
-import type { PiBindingMetadataWire } from "./exportTypes";
+import type { PiOverrideFieldValue } from "@/lib/types";
+import type { PiBindingMetadataWire } from "@/lib/types";
 
 export const PI_OVERRIDE_FIELD_ORDER = [
   "name",
@@ -45,7 +45,9 @@ const THINKING_LEVELS = new Set([
   "max",
 ]);
 
-function parseObject(raw: string): Record<string, unknown> | PiOverrideDraftError {
+function parseObject(
+  raw: string,
+): Record<string, unknown> | PiOverrideDraftError {
   let value: unknown;
   try {
     value = JSON.parse(raw) as unknown;
@@ -62,10 +64,7 @@ type ParsedValue =
   | { value: PiOverrideFieldValue }
   | { error: PiOverrideDraftError };
 
-function parseValue(
-  field: PiOverrideField,
-  raw: string,
-): ParsedValue {
+function parseValue(field: PiOverrideField, raw: string): ParsedValue {
   switch (field) {
     case "name":
       return raw.length > 0 ? { value: raw } : { error: "name_required" };
@@ -75,9 +74,8 @@ function parseValue(
       }
       return { value: raw === "true" };
     case "input": {
-      const values = raw.trim() === ""
-        ? []
-        : raw.split(",").map((item) => item.trim());
+      const values =
+        raw.trim() === "" ? [] : raw.split(",").map((item) => item.trim());
       if (values.some((value) => value !== "text" && value !== "image")) {
         return { error: "input_invalid" };
       }

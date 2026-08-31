@@ -12,20 +12,23 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import {
+  Field,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+} from "@/components/ui/field";
 import { useLocale } from "@/i18n/useLocale";
 import { models as modelsApi } from "@/lib/api/models";
 import type { CatalogCandidate } from "@/lib/types";
+import { CatalogCandidatePicker } from "@/features/models/catalog/CatalogCandidatePicker";
 import {
-  OperatorEmptyState,
   OperatorErrorState,
+  OperatorCallout,
+  OperatorInsetPanel,
   OperatorLoadingState,
   OperatorRetryButton,
 } from "@/shared/design-system";
-import {
-  LoadMoreControl,
-  PaginationLiveStatus,
-} from "@/shared/table/paginationControls";
 import { useCatalogCandidates } from "./useCatalogCandidates";
 
 interface CatalogMatchPreview {
@@ -41,17 +44,35 @@ interface CatalogMatchPreview {
 type CatalogActionRunner = (
   action: () => Promise<unknown>,
   done?: () => void,
+  onError?: (message: string) => void,
 ) => Promise<void>;
 
+/**
+ * models.dev bind/rebind dialog. The preview read gets a first-class
+ * error+retry surface: while the dialog is open a failed read only produces
+ * inline feedback, never a fabricated match or a silent empty state.
+ *
+ * Candidate paging (replace/append/retry/dedupe/rollover) goes through the
+ * shared {@link CatalogCandidatePicker} on top of the shared pager; this
+ * dialog owns only the manual-coordinate form and the bind payload.
+ *
+ * Every bind payload carries the Prism identity (model_id + api_family) the
+ * operator confirmed plus the catalog revision; the backend re-verifies all
+ * of it under the model row lock, so a concurrent rename rejects with 409.
+ */
 export function CatalogBindDialog({
   isOpen,
   modelConfigId,
+  prismModelId,
+  apiFamily,
   busy,
   onClose,
   runAction,
 }: {
   isOpen: boolean;
   modelConfigId: number;
+  prismModelId: string;
+  apiFamily: string;
   busy: boolean;
   onClose: () => void;
   runAction: CatalogActionRunner;
@@ -62,9 +83,16 @@ export function CatalogBindDialog({
   const [preview, setPreview] = useState<CatalogMatchPreview | null>(null);
   const [loading, setLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const [mutationError, setMutationError] = useState<string | null>(null);
   const [manualProvider, setManualProvider] = useState("");
   const [manualModel, setManualModel] = useState("");
   const [candidateQuery, setCandidateQuery] = useState("");
+  const [selectedCandidateKey, setSelectedCandidateKey] = useState<
+    string | null
+  >(null);
+  const [selectedCandidateRevision, setSelectedCandidateRevision] = useState<
+    string | null
+  >(null);
   const candidates = useCatalogCandidates(modelConfigId, candidateQuery);
 
   const loadPreview = useCallback(async () => {
@@ -84,10 +112,16 @@ export function CatalogBindDialog({
     void loadPreview();
   }, [loadPreview]);
 
+  useEffect(() => {
+    if (!candidates.revisionRolledOver) return;
+    setSelectedCandidateKey(null);
+    setSelectedCandidateRevision(null);
+  }, [candidates.revisionRolledOver]);
+
   const uniqueMatch = preview?.committable ? preview : null;
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+    <Dialog open={isOpen} onOpenChange={(open) => !open && !busy && onClose()}>
       <DialogContent className="max-w-xl">
         <DialogHeader>
           <DialogTitle>{copy.bindDialogTitle}</DialogTitle>
@@ -95,202 +129,212 @@ export function CatalogBindDialog({
         </DialogHeader>
         <DialogBody className="flex flex-col gap-[var(--density-inline-gap)]">
           {loading && (
-            <p className="text-sm text-muted-foreground">{copy.loadingText}</p>
+            <OperatorLoadingState
+              testId="catalog-bind-preview-loading"
+              title={copy.readLoadingTitle}
+              className="py-3"
+            />
           )}
-          {previewError && (
-            <p className="text-sm text-destructive" role="alert">
-              {previewError}
-            </p>
+          {previewError && !loading && (
+            <OperatorErrorState
+              testId="catalog-bind-preview-error"
+              title={copy.previewFailedTitle}
+              description={previewError}
+              action={
+                <OperatorRetryButton onClick={() => void loadPreview()}>
+                  <RefreshCw data-icon="inline-start" />
+                  {copy.readRetry}
+                </OperatorRetryButton>
+              }
+            />
           )}
           {uniqueMatch && (
-            <div className="rounded-md border p-3">
-              <p className="text-sm font-medium">{copy.uniqueMatchFound}</p>
+            <OperatorInsetPanel title={copy.uniqueMatchFound}>
               <p className="font-mono text-sm text-muted-foreground">
                 {uniqueMatch.provider_id} / {uniqueMatch.catalog_model_id}
               </p>
               <Button
                 type="button"
                 size="sm"
-                className="mt-2"
                 disabled={busy}
-                onClick={() =>
-                  runAction(
+                onClick={() => {
+                  setMutationError(null);
+                  void runAction(
                     () =>
                       modelsApi.catalog.bind(modelConfigId, {
                         expected_catalog_revision: uniqueMatch.catalog_revision,
+                        expected_prism_model_id: prismModelId,
+                        expected_api_family: apiFamily,
                       }),
                     onClose,
-                  )
-                }
+                    setMutationError,
+                  );
+                }}
               >
                 {copy.applyUniqueMatch}
               </Button>
-            </div>
+            </OperatorInsetPanel>
           )}
           {preview && !uniqueMatch && !loading && (
-            <div className="rounded-md border border-warning-foreground/40 bg-warning-background/30 p-3">
-              <p className="text-sm font-medium">
-                {preview.reason === "ambiguous"
+            <OperatorCallout
+              intent="warning"
+              title={
+                preview.reason === "ambiguous"
                   ? copy.ambiguousMatch
-                  : copy.noMatch}
-              </p>
-              <ul className="mt-1 list-inside list-disc text-xs text-muted-foreground">
-                {preview.candidates.slice(0, 5).map((candidate) => (
-                  <li
-                    key={candidate.provider_id + "/" + candidate.model_id}
-                    className="font-mono"
-                  >
-                    {candidate.provider_id} / {candidate.model_id}
-                  </li>
-                ))}
-              </ul>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {copy.explicitBindHint}
-              </p>
-            </div>
+                  : copy.noMatch
+              }
+            >
+              <div className="flex flex-col gap-1">
+                <ul className="list-inside list-disc text-xs">
+                  {preview.candidates.slice(0, 5).map((candidate) => (
+                    <li
+                      key={candidate.provider_id + "/" + candidate.model_id}
+                      className="font-mono"
+                    >
+                      {candidate.provider_id} / {candidate.model_id}
+                    </li>
+                  ))}
+                </ul>
+                <p className="text-xs">{copy.explicitBindHint}</p>
+              </div>
+            </OperatorCallout>
           )}
 
-          <div className="flex flex-col gap-2 rounded-md border p-3">
-            <p className="text-sm font-medium">{copy.manualBindTitle}</p>
-            <div className="grid grid-cols-2 gap-2">
-              <div className="flex flex-col gap-1">
-                <Label htmlFor="catalog-bind-provider">
+          <OperatorInsetPanel title={copy.manualBindTitle}>
+            <FieldGroup className="grid grid-cols-2 gap-2">
+              <Field>
+                <FieldLabel htmlFor="catalog-bind-provider">
                   {copy.providerLabel}
-                </Label>
+                </FieldLabel>
                 <Input
                   id="catalog-bind-provider"
                   value={manualProvider}
-                  onChange={(event) =>
-                    setManualProvider(event.target.value.trim())
-                  }
+                  onChange={(event) => {
+                    setManualProvider(event.target.value.trim());
+                    setSelectedCandidateKey(null);
+                    setSelectedCandidateRevision(null);
+                  }}
                   placeholder="openai"
                 />
-              </div>
-              <div className="flex flex-col gap-1">
-                <Label htmlFor="catalog-bind-model">{copy.modelIdLabel}</Label>
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="catalog-bind-model">
+                  {copy.modelIdLabel}
+                </FieldLabel>
                 <Input
                   id="catalog-bind-model"
                   value={manualModel}
-                  onChange={(event) =>
-                    setManualModel(event.target.value.trim())
-                  }
+                  onChange={(event) => {
+                    setManualModel(event.target.value.trim());
+                    setSelectedCandidateKey(null);
+                    setSelectedCandidateRevision(null);
+                  }}
                   placeholder="gpt-4o"
                 />
-              </div>
-            </div>
+              </Field>
+            </FieldGroup>
             <Button
               type="button"
               size="sm"
               disabled={busy || !preview || !manualProvider || !manualModel}
-              onClick={() =>
-                preview &&
-                runAction(
+              onClick={() => {
+                if (!preview) return;
+                setMutationError(null);
+                void runAction(
                   () =>
                     modelsApi.catalog.bind(modelConfigId, {
                       provider_id: manualProvider,
                       catalog_model_id: manualModel,
-                      expected_catalog_revision: preview.catalog_revision,
+                      expected_catalog_revision:
+                        selectedCandidateRevision ?? preview.catalog_revision,
+                      expected_prism_model_id: prismModelId,
+                      expected_api_family: apiFamily,
                     }),
                   onClose,
-                )
-              }
+                  setMutationError,
+                );
+              }}
             >
               {copy.bindExplicitAction}
             </Button>
-          </div>
+          </OperatorInsetPanel>
 
           <div className="flex flex-col gap-2">
-            <Label htmlFor="catalog-candidate-search">
-              {copy.candidateSearchLabel}
-            </Label>
-            <Input
-              id="catalog-candidate-search"
-              value={candidateQuery}
-              onChange={(event) => setCandidateQuery(event.target.value)}
-              placeholder={copy.candidateSearchPlaceholder}
-            />
-            {candidates.phase === "loading" ? (
-              <OperatorLoadingState
-                title={copy.candidateLoading}
-                className="py-3"
-              />
-            ) : candidates.phase === "error" ? (
-              // 替换读取失败时候选集未知，不能降级成“没有匹配”的空结果。
-              <OperatorErrorState
-                testId="catalog-candidate-error"
-                title={copy.candidateLoadFailed}
-                description={candidates.error}
-                action={
-                  <OperatorRetryButton onClick={candidates.onRetry}>
-                    <RefreshCw data-icon="inline-start" />
-                    {copy.candidateRetry}
-                  </OperatorRetryButton>
-                }
-              />
-            ) : (
-              <>
-                <ul
-                  className="max-h-40 overflow-y-auto text-sm"
-                  aria-busy={candidates.appending || undefined}
-                >
-                  {candidates.items.map((candidate) => (
-                    <li key={candidate.provider_id + "/" + candidate.model_id}>
-                      <button
-                        type="button"
-                        className="w-full truncate rounded px-1 py-0.5 text-left hover:bg-muted"
-                        onClick={() => {
-                          setManualProvider(candidate.provider_id);
-                          setManualModel(candidate.model_id);
-                        }}
-                      >
-                        <span className="font-mono">
-                          {candidate.provider_id}/{candidate.model_id}
-                        </span>
-                        <span className="ml-2 text-muted-foreground">
-                          {candidate.name}
-                        </span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-                {candidates.items.length === 0 ? (
-                  <OperatorEmptyState
-                    testId="catalog-candidate-empty"
-                    title={copy.candidateEmpty}
-                    description={copy.candidateEmptyDescription}
-                    className="py-4"
-                  />
-                ) : (
-                  <LoadMoreControl
-                    testId="catalog-candidate-load-more"
-                    pending={candidates.appending}
-                    error={candidates.appendError}
-                    hasMore={candidates.hasMore}
-                    labels={{
-                      loadMore: copy.loadMoreCandidates,
-                      loading: tableCopy.loadingMore,
-                      retry: tableCopy.retryLoadMore,
-                    }}
-                    onLoadMore={candidates.onLoadMore}
-                  />
-                )}
-                <PaginationLiveStatus
-                  message={
-                    candidates.appending ? copy.loadingMoreCandidates : null
-                  }
+            <FieldGroup>
+              <Field>
+                <FieldLabel htmlFor="catalog-candidate-search">
+                  {copy.candidateSearchLabel}
+                </FieldLabel>
+                <Input
+                  id="catalog-candidate-search"
+                  value={candidateQuery}
+                  onChange={(event) => {
+                    setCandidateQuery(event.target.value);
+                    setSelectedCandidateKey(null);
+                    setSelectedCandidateRevision(null);
+                  }}
+                  placeholder={copy.candidateSearchPlaceholder}
                 />
-                <p className="text-xs text-muted-foreground">
-                  {copy.candidateCount(
-                    candidates.items.length,
-                    candidates.total,
-                  )}
-                </p>
-              </>
-            )}
+                <FieldDescription>{copy.candidateSearchHint}</FieldDescription>
+              </Field>
+            </FieldGroup>
+            <CatalogCandidatePicker
+              pager={candidates}
+              itemKey={(candidate) =>
+                `${candidate.provider_id}/${candidate.model_id}`
+              }
+              renderCandidate={(candidate) => (
+                <span className="flex min-w-0 items-baseline gap-2">
+                  <span className="truncate font-mono text-sm">
+                    {candidate.provider_id}/{candidate.model_id}
+                  </span>
+                  <span className="truncate text-sm text-muted-foreground">
+                    {candidate.name}
+                  </span>
+                </span>
+              )}
+              selectedKey={selectedCandidateKey}
+              onSelect={(key) => {
+                setSelectedCandidateKey(key);
+                setSelectedCandidateRevision(
+                  key
+                    ? (candidates.revision?.replace(/^models\.dev:/, "") ?? null)
+                    : null,
+                );
+                const picked = candidates.items.find(
+                  (candidate) =>
+                    `${candidate.provider_id}/${candidate.model_id}` === key,
+                );
+                if (picked) {
+                  setManualProvider(picked.provider_id);
+                  setManualModel(picked.model_id);
+                }
+              }}
+              disabled={busy}
+              testIdPrefix="catalog-candidate"
+              labels={{
+                loading: copy.candidateLoading,
+                loadFailed: copy.candidateLoadFailed,
+                retry: copy.candidateRetry,
+                empty: copy.candidateEmpty,
+                loadMore: copy.loadMoreCandidates,
+                loadingMore: tableCopy.loadingMore,
+                retryLoadMore: tableCopy.retryLoadMore,
+                count: copy.candidateCount,
+                liveLoading: copy.loadingMoreCandidates,
+                revisionRollover: copy.revisionRolloverNotice,
+                revisionRolloverAcknowledge:
+                  copy.revisionRolloverAcknowledge,
+                listboxLabel: copy.candidateSearchLabel,
+              }}
+            />
           </div>
+          {mutationError ? (
+            <OperatorCallout intent="danger" description={mutationError} />
+          ) : null}
         </DialogBody>
         <DialogFooter>
-          <Button type="button" variant="outline" onClick={onClose}>
+          <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
             {messages.settingsDialogs.cancel}
           </Button>
         </DialogFooter>

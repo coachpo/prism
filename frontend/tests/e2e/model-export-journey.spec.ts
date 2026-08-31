@@ -235,7 +235,8 @@ async function installExportRoutes(page: Page) {
 test("export journey: bind an uncatalogued Prism id through directory search, then generate", async ({
   page,
 }) => {
-  const { outbound, pageErrors, unexpectedApi } = await installExportRoutes(page);
+  const { outbound, pageErrors, unexpectedApi } =
+    await installExportRoutes(page);
   await page.goto("/route/models/export");
   const row = page.getByTestId("export-row-3");
   await row.waitFor({ timeout: 15000 });
@@ -275,18 +276,20 @@ test("export journey: bind an uncatalogued Prism id through directory search, th
   await sourceDialog.getByRole("button", { name: "搜索目录" }).click();
   expect((await searchRequestPromise).postDataJSON()).toEqual({
     model_id_query: "gpt-x",
+    limit: 20,
+    offset: 0,
   });
   await expect(apply).toBeDisabled();
-  const results = sourceDialog.getByRole("combobox", {
-    name: "选择目录搜索结果",
-  });
-  await results.click();
-  const option = page
+  // Pre-selection options carry the coordinate and name; the full seven-field
+  // evidence renders after the explicit choice (PiCandidateEvidence).
+  const option = sourceDialog
     .getByRole("option")
     .filter({ hasText: "alias-provider/gpt-x-alias" });
-  await expect(option).toContainText("上下文窗口（tokens）: 200000");
   await option.click();
   await expect(sourceDialog.getByText("已选目录坐标")).toBeVisible();
+  // Evidence renders as separate label/value nodes (dt/dd).
+  await expect(sourceDialog.getByText("上下文窗口（tokens）")).toBeVisible();
+  await expect(sourceDialog.getByText("200000")).toBeVisible();
   await expect(sourceDialog.getByText("目录 Provider")).toBeVisible();
   await expect(sourceDialog.getByText(/跨目录绑定/)).toBeVisible();
   await expect(apply).toBeEnabled();

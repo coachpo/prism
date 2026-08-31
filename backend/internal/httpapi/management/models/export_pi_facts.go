@@ -24,7 +24,8 @@ type piExportFactsInput struct {
 // independently: a bound coordinate stays the render authority even when the
 // live catalog fetch fails or no longer lists it, and drift between the two
 // is surfaced as pi_binding_status=bound_drifted rather than silently
-// re-selecting anything.
+// re-selecting anything. The status/match helpers live in
+// pi_catalog_projection.go and are shared with the single-model Pi read.
 func buildPiSourceFacts(input piExportFactsInput) (modelexport.SourceFacts, map[int]modelexport.PiTemplate, error) {
 	facts := modelexport.SourceFacts{
 		TargetVersion: modelexport.PiTargetVersion,
@@ -100,53 +101,6 @@ func buildPiSourceFacts(input piExportFactsInput) (modelexport.SourceFacts, map[
 		facts.Models = append(facts.Models, fact)
 	}
 	return facts, templates, nil
-}
-
-// piBindingMatchesModel is the non-negotiable persisted-binding health gate.
-// It compares the binding against the Prism identity snapshot frozen at bind
-// time, never against the directory model id: an explicit cross-directory bind
-// is meant to survive a directory id that differs from the Prism id, while a
-// later Prism model-id or accepted-format edit must never leave the old
-// coordinate render-authoritative.
-func piBindingMatchesModel(binding piBindingRecord, modelID, expectedAPI string) bool {
-	return binding.ProviderID != "" && binding.CatalogModelID != "" && binding.PrismModelIDAtBind != "" &&
-		binding.PrismModelIDAtBind == modelID && expectedAPI != "" && binding.API == expectedAPI
-}
-
-func piCandidateStatus(catalog *pidev.Catalog, expectedAPI, modelID string, liveCandidates []*pidev.Model) string {
-	if catalog == nil {
-		return "catalog_unavailable"
-	}
-	if expectedAPI == "" {
-		return "api_mismatch"
-	}
-	switch len(liveCandidates) {
-	case 0:
-		return piZeroCandidateStatus(catalog, modelID)
-	case 1:
-		return "single"
-	default:
-		return "multiple"
-	}
-}
-
-// piBindingStatus reports whether a persisted binding still matches live
-// catalog evidence. It stays "bound" (benefit of the doubt) whenever the
-// live fetch itself is unavailable: drift is only ever asserted from
-// positive evidence, never from an absent check.
-func piBindingStatus(catalog *pidev.Catalog, catalogStatus string, binding piBindingRecord) string {
-	if catalog == nil || catalogStatus != "fresh" {
-		return "bound"
-	}
-	model, found := catalog.Find(binding.ProviderID, binding.CatalogModelID)
-	if !found || model.API != binding.API {
-		return "bound_drifted"
-	}
-	_, sourceChanged := diffPiBindingSource(binding.Source, piBindingMetadataFromModel(model))
-	if sourceChanged || renderPiDroppedFields(binding.DroppedFields) != renderPiDroppedFields(model.DroppedFields) {
-		return "bound_drifted"
-	}
-	return "bound"
 }
 
 func catalogRevision(c *pidev.Catalog) string {

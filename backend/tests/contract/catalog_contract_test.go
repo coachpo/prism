@@ -136,8 +136,15 @@ func catalogAssertErrorContains(t *testing.T, response *http.Response, wantStatu
 	}
 }
 
-func newCatalogContractHarness(t *testing.T) *contractHarness {
+func newCatalogContractHarness(t *testing.T, modelLockedObservers ...func(int)) *contractHarness {
 	t.Helper()
+	if len(modelLockedObservers) > 1 {
+		t.Fatal("catalog contract harness accepts at most one model-locked observer")
+	}
+	var modelLockedObserver func(int)
+	if len(modelLockedObservers) == 1 {
+		modelLockedObserver = modelLockedObservers[0]
+	}
 	catalogServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("ETag", `"catalog-contract-1"`)
 		w.Header().Set("Content-Type", "application/json")
@@ -163,7 +170,7 @@ func newCatalogContractHarness(t *testing.T) *contractHarness {
 				t.Fatalf("build connections service: %v", connectionsErr)
 			}
 			t.Cleanup(connectionsService.Close)
-			modelsService, modelsErr := managementmodels.NewService(settings, managementmodels.Options{Pool: pool, Catalog: catalogClient})
+			modelsService, modelsErr := managementmodels.NewService(settings, managementmodels.Options{Pool: pool, Catalog: catalogClient, CatalogWriteModelLocked: modelLockedObserver})
 			if modelsErr != nil {
 				t.Fatalf("build models service: %v", modelsErr)
 			}
@@ -191,6 +198,39 @@ func catalogCreateOpenAIModel(t *testing.T, harness *contractHarness, strategyID
 	return requestJSONStatus[map[string]any](t, harness, http.MethodPost, "/api/models", body, nil, http.StatusCreated)["model"].(map[string]any)
 }
 
+// catalogBindBody carries the Prism identity every bind must confirm: the
+// write transaction re-verifies both fields under the model row lock.
+func catalogBindBody(prismModelID string, overrides map[string]any) map[string]any {
+	payload := map[string]any{
+		"expected_prism_model_id": prismModelID,
+		"expected_api_family":     "openai",
+	}
+	for key, value := range overrides {
+		payload[key] = value
+	}
+	return payload
+}
+
+// catalogRefreshCommitBody echoes the preview's coordinate and updated_at
+// token plus the catalog revision the preview was read against.
+func catalogRefreshCommitBody(preview map[string]any, revision string) map[string]any {
+	return map[string]any{
+		"expected_provider_id":        preview["provider_id"],
+		"expected_catalog_model_id":   preview["catalog_model_id"],
+		"expected_binding_updated_at": preview["binding_updated_at"],
+		"expected_catalog_revision":   revision,
+	}
+}
+
+// catalogUnbindBody carries the binding snapshot the operator confirmed.
+func catalogUnbindBody(bound map[string]any) map[string]any {
+	return map[string]any{
+		"expected_provider_id":        bound["provider_id"],
+		"expected_catalog_model_id":   bound["catalog_model_id"],
+		"expected_binding_updated_at": bound["updated_at"],
+	}
+}
+
 func TestModelCatalogBindingAndOverrideContracts(t *testing.T) {
 	harness := newCatalogContractHarness(t)
 	profileID := modelLoadDefaultProfileID(t, harness)
@@ -212,14 +252,20 @@ func TestModelCatalogBindingAndOverrideContracts(t *testing.T) {
 	}
 	wrongMethod := modelResponse(t, harness, profileID, http.MethodGet, catalogPath+"/match-preview", nil)
 	assertStatus(t, wrongMethod, http.StatusMethodNotAllowed)
+	revision := matchPreview["catalog_revision"].(string)
 	candidates := requestJSONStatus[map[string]any](t, harness, http.MethodGet, catalogPath+"/candidates?scope=all&limit=20", nil, nil, http.StatusOK)
 	if jsonInt(t, candidates["total"]) < 1 || len(candidates["items"].([]any)) < 1 {
 		t.Fatalf("catalog candidates must remain available: %+v", candidates)
 	}
-	revision := matchPreview["catalog_revision"].(string)
+	// Every candidate page publishes the snapshot revision it was computed
+	// from; this endpoint returns an already-validated snapshot, so it
+	// deliberately does not fabricate a fresh/stale enum.
+	if candidates["catalog_revision"] != revision || candidates["fetched_at"] == nil {
+		t.Fatalf("candidate page must carry snapshot revision evidence: %+v", candidates)
+	}
 
 	// Bind without coordinates applies the unique match; display_name stays nil.
-	bound := requestJSONStatus[map[string]any](t, harness, http.MethodPost, catalogPath+"/bind", map[string]any{"expected_catalog_revision": revision}, nil, http.StatusOK)
+	bound := requestJSONStatus[map[string]any](t, harness, http.MethodPost, catalogPath+"/bind", catalogBindBody("gpt-contract", map[string]any{"expected_catalog_revision": revision}), nil, http.StatusOK)
 	if bound["bound"] != true || bound["match_source"] != "unique_match" || bound["provider_id"] != "openai" || bound["catalog_model_id"] != "gpt-contract" {
 		t.Fatalf("unexpected bound payload %+v", bound)
 	}
@@ -256,7 +302,7 @@ func TestModelCatalogBindingAndOverrideContracts(t *testing.T) {
 	ambiguousPreview := requestJSONStatus[map[string]any](t, harness, http.MethodPost, "/api/models/"+fmt.Sprint(modelConfigID)+"/catalog/match-preview", nil, nil, http.StatusOK)
 
 	manualBody := func(overrides map[string]any) map[string]any {
-		payload := map[string]any{"provider_id": "azure", "catalog_model_id": "shared-model", "expected_catalog_revision": revision}
+		payload := catalogBindBody("gpt-contract", map[string]any{"provider_id": "azure", "catalog_model_id": "shared-model", "expected_catalog_revision": revision})
 		for key, value := range overrides {
 			payload[key] = value
 		}
@@ -298,7 +344,13 @@ func TestModelCatalogBindingAndOverrideContracts(t *testing.T) {
 		t.Fatalf("unoverridden fields must fall through to source: %+v", effectiveAfterOverride)
 	}
 
-	refreshed := requestJSONStatus[map[string]any](t, harness, http.MethodPost, catalogPath+"/refresh/commit", map[string]any{"expected_catalog_revision": revision}, nil, http.StatusOK)
+	// Refresh preview publishes the local CAS snapshot; the commit must echo
+	// coordinate, token, and revision back or it cannot land.
+	refreshPreview := requestJSONStatus[map[string]any](t, harness, http.MethodPost, catalogPath+"/refresh/preview", map[string]any{}, nil, http.StatusOK)
+	if refreshPreview["binding_updated_at"] == nil || refreshPreview["provider_id"] != "azure" || refreshPreview["catalog_model_id"] != "shared-model" {
+		t.Fatalf("refresh preview must publish the binding CAS snapshot: %+v", refreshPreview)
+	}
+	refreshed := requestJSONStatus[map[string]any](t, harness, http.MethodPost, catalogPath+"/refresh/commit", catalogRefreshCommitBody(refreshPreview, revision), nil, http.StatusOK)
 	if refreshed["override"] == nil || refreshed["override"].(map[string]any)["name"] != "Operator Name" {
 		t.Fatalf("refresh must preserve manual overrides: %+v", refreshed)
 	}
@@ -318,9 +370,19 @@ func TestModelCatalogBindingAndOverrideContracts(t *testing.T) {
 	}
 
 	// Unbind returns to the unbound shape without touching runtime identity.
-	unboundAgain := requestJSONStatus[map[string]any](t, harness, http.MethodDelete, catalogPath, nil, nil, http.StatusOK)
+	// The delete carries the binding snapshot the operator saw; without it the
+	// request rejects before touching the row, and the same snapshot stays
+	// idempotent once the row is already gone.
+	boundBeforeUnbind := requestJSONStatus[map[string]any](t, harness, http.MethodGet, catalogPath, nil, nil, http.StatusOK)
+	missingSnapshot := modelResponse(t, harness, profileID, http.MethodDelete, catalogPath, nil)
+	catalogAssertErrorContains(t, missingSnapshot, http.StatusUnprocessableEntity, "unbind requires the binding coordinate")
+	unboundAgain := requestJSONStatus[map[string]any](t, harness, http.MethodDelete, catalogPath, catalogUnbindBody(boundBeforeUnbind), nil, http.StatusOK)
 	if unboundAgain["bound"] != false {
 		t.Fatalf("unbind must return an unbound payload: %+v", unboundAgain)
+	}
+	unboundTwice := requestJSONStatus[map[string]any](t, harness, http.MethodDelete, catalogPath, catalogUnbindBody(boundBeforeUnbind), nil, http.StatusOK)
+	if unboundTwice["bound"] != false {
+		t.Fatalf("repeat unbind must stay idempotent: %+v", unboundTwice)
 	}
 	assertCountQuery(t, harness, `SELECT COUNT(*) FROM model_catalog_bindings WHERE model_config_id = $1`, modelConfigID, 0)
 	if strings.Contains(ambiguousPreview["reason"].(string), "unique") && ambiguousPreview["committable"] != true {
@@ -338,7 +400,7 @@ func TestCatalogPricingImportAtomicAssignmentContracts(t *testing.T) {
 
 	matchPreview := requestJSONStatus[map[string]any](t, harness, http.MethodPost, catalogPath+"/match-preview", map[string]any{}, nil, http.StatusOK)
 	revision := matchPreview["catalog_revision"].(string)
-	requestJSONStatus[map[string]any](t, harness, http.MethodPost, catalogPath+"/bind", map[string]any{"expected_catalog_revision": revision}, nil, http.StatusOK)
+	requestJSONStatus[map[string]any](t, harness, http.MethodPost, catalogPath+"/bind", catalogBindBody("gpt-long", map[string]any{"expected_catalog_revision": revision}), nil, http.StatusOK)
 
 	terminalTarget := requestJSONStatus[map[string]any](t, harness, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", modelConfigID), map[string]any{
 		"endpoint_create":        map[string]any{"name": "Catalog Endpoint", "base_url": "https://catalog.example/v1", "api_key": "sk-catalog"},
@@ -492,7 +554,7 @@ func TestCatalogPricingImportAtomicAssignmentContracts(t *testing.T) {
 	// Incompatible prices stay zero-write with a stable reason.
 	audioModel := catalogCreateOpenAIModel(t, harness, strategyID, "gpt-audio")
 	audioModelID := jsonInt(t, audioModel["id"])
-	audioBind := requestJSONStatus[map[string]any](t, harness, http.MethodPost, fmt.Sprintf("/api/models/%d/catalog/bind", audioModelID), map[string]any{"provider_id": "openai", "catalog_model_id": "gpt-audio", "expected_catalog_revision": revision}, nil, http.StatusOK)
+	audioBind := requestJSONStatus[map[string]any](t, harness, http.MethodPost, fmt.Sprintf("/api/models/%d/catalog/bind", audioModelID), catalogBindBody("gpt-audio", map[string]any{"provider_id": "openai", "catalog_model_id": "gpt-audio", "expected_catalog_revision": revision}), nil, http.StatusOK)
 	if audioBind["bound"] != true {
 		t.Fatalf("audio model must bind: %+v", audioBind)
 	}
@@ -530,9 +592,9 @@ func TestCatalogPricingImportAtomicAssignmentContracts(t *testing.T) {
 	// before creating a revision or changing any requested target assignment.
 	schemaEdgeModel := catalogCreateOpenAIModel(t, harness, strategyID, "schema-edge")
 	schemaEdgeModelID := jsonInt(t, schemaEdgeModel["id"])
-	schemaEdgeBind := requestJSONStatus[map[string]any](t, harness, http.MethodPost, fmt.Sprintf("/api/models/%d/catalog/bind", schemaEdgeModelID), map[string]any{
+	schemaEdgeBind := requestJSONStatus[map[string]any](t, harness, http.MethodPost, fmt.Sprintf("/api/models/%d/catalog/bind", schemaEdgeModelID), catalogBindBody("schema-edge", map[string]any{
 		"provider_id": "chutes", "catalog_model_id": "schema-edge", "expected_catalog_revision": revision,
-	}, nil, http.StatusOK)
+	}), nil, http.StatusOK)
 	if schemaEdgeBind["bound"] != true {
 		t.Fatalf("schema-edge model must bind: %+v", schemaEdgeBind)
 	}

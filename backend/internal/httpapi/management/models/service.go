@@ -33,17 +33,23 @@ type Options struct {
 	Catalog *modelsdev.Client
 	// PiCatalog serves the pi.dev structured directory (https://pi.dev/api/models).
 	PiCatalog *pidev.Client
+	// CatalogWriteModelLocked is an optional stage observer used by deterministic
+	// concurrency verification after a write acquires the model row and before it
+	// reads the binding. Production wiring leaves it nil; observers may coordinate
+	// tests through channels but must not access the transaction or perform I/O.
+	CatalogWriteModelLocked func(modelConfigID int)
 }
 
 type Service struct {
-	pool                  *pgxpool.Pool
-	ownsPool              bool
-	now                   func() time.Time
-	corsOriginProvider    platformcors.OriginProvider
-	terminalTargetCreator TerminalTargetCreator
-	secretEncryptionKey   string
-	catalog               *modelsdev.Client
-	piCatalog             *pidev.Client
+	pool                    *pgxpool.Pool
+	ownsPool                bool
+	now                     func() time.Time
+	corsOriginProvider      platformcors.OriginProvider
+	terminalTargetCreator   TerminalTargetCreator
+	secretEncryptionKey     string
+	catalog                 *modelsdev.Client
+	piCatalog               *pidev.Client
+	catalogWriteModelLocked func(int)
 }
 
 // TerminalTargetCreator is implemented by the connections management service
@@ -86,7 +92,7 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 		corsOriginProvider = platformcors.NewStaticOriginProvider(settings.CORSAllowedOriginsList())
 	}
 
-	return &Service{pool: pool, ownsPool: ownsPool, now: now, corsOriginProvider: corsOriginProvider, secretEncryptionKey: settings.SecretEncryptionKey, catalog: options.Catalog, piCatalog: options.PiCatalog}, nil
+	return &Service{pool: pool, ownsPool: ownsPool, now: now, corsOriginProvider: corsOriginProvider, secretEncryptionKey: settings.SecretEncryptionKey, catalog: options.Catalog, piCatalog: options.PiCatalog, catalogWriteModelLocked: options.CatalogWriteModelLocked}, nil
 }
 
 func (s *Service) Close() {
@@ -118,24 +124,25 @@ func (s *Service) MountManagementRoutes(api chi.Router) {
 	api.Patch("/models/{model_config_id}/targets/{target_id}", s.handleUpdateModelTarget)
 	api.Patch("/models/{model_config_id}/targets/{target_id}/position", s.handleMoveModelTargetPosition)
 	api.Delete("/models/{model_config_id}/targets/{target_id}", s.handleDeleteModelTarget)
-	api.Get("/models/{model_config_id}/catalog", s.handleGetModelCatalog)
-	api.Get("/models/{model_config_id}/catalog/candidates", s.handleGetCatalogCandidates)
-	api.Post("/models/{model_config_id}/catalog/match-preview", s.handleMatchCatalogPreview)
-	api.Post("/models/{model_config_id}/catalog/bind", s.handleBindModelCatalog)
-	api.Post("/models/{model_config_id}/catalog/refresh/preview", s.handleRefreshCatalogPreview)
-	api.Post("/models/{model_config_id}/catalog/refresh/commit", s.handleRefreshCatalogCommit)
-	api.Put("/models/{model_config_id}/catalog/override", s.handlePutCatalogOverride)
-	api.Delete("/models/{model_config_id}/catalog/override", s.handleClearCatalogOverride)
-	api.Delete("/models/{model_config_id}/catalog", s.handleUnbindModelCatalog)
-	api.Get("/models/exports/pi/source", piPrivateNoStore(s.handleGetPiExportSource))
-	api.Post("/models/exports/pi/render", piPrivateNoStore(s.handlePostPiExportRender))
-	api.Post("/models/{model_config_id}/pi/bind", piPrivateNoStore(s.handleBindModelPi))
-	api.Post("/models/{model_config_id}/pi/search", piPrivateNoStore(s.handleSearchPiCatalog))
-	api.Post("/models/{model_config_id}/pi/refresh/preview", piPrivateNoStore(s.handleRefreshPiPreview))
-	api.Post("/models/{model_config_id}/pi/refresh/commit", piPrivateNoStore(s.handleRefreshPiCommit))
-	api.Put("/models/{model_config_id}/pi/override", piPrivateNoStore(s.handlePutPiOverride))
-	api.Delete("/models/{model_config_id}/pi/override", piPrivateNoStore(s.handleClearPiOverride))
-	api.Delete("/models/{model_config_id}/pi", piPrivateNoStore(s.handleUnbindModelPi))
+	api.Get("/models/{model_config_id}/catalog", privateNoStore(s.handleGetModelCatalog))
+	api.Get("/models/{model_config_id}/catalog/candidates", privateNoStore(s.handleGetCatalogCandidates))
+	api.Post("/models/{model_config_id}/catalog/match-preview", privateNoStore(s.handleMatchCatalogPreview))
+	api.Post("/models/{model_config_id}/catalog/bind", privateNoStore(s.handleBindModelCatalog))
+	api.Post("/models/{model_config_id}/catalog/refresh/preview", privateNoStore(s.handleRefreshCatalogPreview))
+	api.Post("/models/{model_config_id}/catalog/refresh/commit", privateNoStore(s.handleRefreshCatalogCommit))
+	api.Put("/models/{model_config_id}/catalog/override", privateNoStore(s.handlePutCatalogOverride))
+	api.Delete("/models/{model_config_id}/catalog/override", privateNoStore(s.handleClearCatalogOverride))
+	api.Delete("/models/{model_config_id}/catalog", privateNoStore(s.handleUnbindModelCatalog))
+	api.Get("/models/exports/pi/source", privateNoStore(s.handleGetPiExportSource))
+	api.Post("/models/exports/pi/render", privateNoStore(s.handlePostPiExportRender))
+	api.Post("/models/{model_config_id}/pi/bind", privateNoStore(s.handleBindModelPi))
+	api.Get("/models/{model_config_id}/pi", privateNoStore(s.handleGetModelPi))
+	api.Post("/models/{model_config_id}/pi/search", privateNoStore(s.handleSearchPiCatalog))
+	api.Post("/models/{model_config_id}/pi/refresh/preview", privateNoStore(s.handleRefreshPiPreview))
+	api.Post("/models/{model_config_id}/pi/refresh/commit", privateNoStore(s.handleRefreshPiCommit))
+	api.Put("/models/{model_config_id}/pi/override", privateNoStore(s.handlePutPiOverride))
+	api.Delete("/models/{model_config_id}/pi/override", privateNoStore(s.handleClearPiOverride))
+	api.Delete("/models/{model_config_id}/pi", privateNoStore(s.handleUnbindModelPi))
 	api.Get("/models/{model_config_id}", s.handleGetModel)
 	api.Post("/models", s.handleCreateModel)
 	api.Put("/models/{model_config_id}", s.handleUpdateModel)
@@ -146,7 +153,11 @@ func (s *Service) MountManagementRoutes(api chi.Router) {
 	api.Get("/models/route-witnesses", s.handleGetRouteWitnesses)
 }
 
-func piPrivateNoStore(next http.HandlerFunc) http.HandlerFunc {
+// privateNoStore marks a handler whose responses carry catalog binding
+// evidence (models.dev or pi.dev) or export credentials. Every such response
+// — success or error — must be private and non-cacheable; the route specs
+// declare the same contract so middleware rejections get the headers too.
+func privateNoStore(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		responseutil.SetPrivateNoStoreHeaders(w)
 		next(w, r)
