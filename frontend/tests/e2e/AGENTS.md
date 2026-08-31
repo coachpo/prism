@@ -19,6 +19,7 @@ e2e/
 ├── narrow-accessibility-evidence.spec.ts
 ├── request-log-streaming-payloads.spec.ts
 ├── terminal-target-custom-request-parameters.spec.ts
+├── model-detail-catalog-fixtures.ts # Honest unbound/unavailable external-catalog reads for unrelated detail journeys
 ├── spending-report-fixtures.ts   # Shared ingress SpendingReport/query contract fixture
 ├── capture-a11y-evidence.mjs      # Accessibility evidence capture (not a journey spec)
 ├── capture-endpoint-evidence.mjs  # Endpoint evidence capture (not a journey spec)
@@ -32,6 +33,7 @@ e2e/
 - Playwright config and server target: `../../playwright.config.ts`
 - Shared dashboard/statistics fixture builders: `dashboard-aggregate-fixtures.ts`
 - Shared model-detail Spending response and exact ingress-query assertion: `spending-report-fixtures.ts`
+- Shared model-detail external-catalog non-scenario reads: `model-detail-catalog-fixtures.ts`
 - Auth journey: `auth-session-lifecycle.spec.ts`
 - Load-balance recovery journey: `loadbalance-strategies-recovery.spec.ts`
 - models.dev catalog binding and source-linked price-import journeys: `model-catalog-pricing.spec.ts` (mocked `/api/models/{id}/catalog*`, `/api/models/{id}/pi`, and `/api/pricing-templates/catalog/*`; binding candidate pagination covers `20 → 40 → total` and selects candidates through the shared listbox options, delayed replace/append isolation and same-offset retry, model detail binds then unbinds with the displayed coordinate/`updated_at` snapshot and authoritatively re-reads, and catalog price commit keeps the current target locked; `/route/pricing` covers unique match with no target, paged explicit candidate selection, and target-set re-preview)

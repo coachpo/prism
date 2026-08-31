@@ -3,6 +3,10 @@ import {
   createEmptyIngressSpendingReport,
   expectIngressSpendingRequest,
 } from "./spending-report-fixtures";
+import {
+  createUnavailablePiModelRead,
+  createUnboundModelsDevCatalog,
+} from "./model-detail-catalog-fixtures";
 
 const timestamp = "2026-08-08T12:00:00Z";
 const saveButton = /Save|保存/;
@@ -181,6 +185,17 @@ async function mockModelDetailRoutes(
         operation_coverage: [],
         configuration_warnings: [],
       });
+    }
+    if (pathname === "/api/models/5/catalog" && request.method() === "GET") {
+      return fulfillJson(createUnboundModelsDevCatalog());
+    }
+    if (pathname === "/api/models/5/pi" && request.method() === "GET") {
+      return fulfillJson(
+        createUnavailablePiModelRead({
+          modelConfigId: 5,
+          modelId: "router-model",
+        }),
+      );
     }
     if (pathname === "/api/models/5/connections" && request.method() === "GET") {
       return fulfillJson([updatedConnection]);

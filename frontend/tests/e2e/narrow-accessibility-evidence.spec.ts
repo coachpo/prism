@@ -1,5 +1,9 @@
 import { expect, test } from "@playwright/test";
 import { mockPrismRoutes } from "./request-log-dedicated-audit-fixtures";
+import {
+  createUnavailablePiModelRead,
+  createUnboundModelsDevCatalog,
+} from "./model-detail-catalog-fixtures";
 
 /**
  * Narrow viewport + keyboard accessibility evidence (Observe SPEC OB-34..41):
@@ -655,6 +659,15 @@ test("connection dialog visual evidence at 1440x900 and 390x844", async ({
       return fulfillJson([connection]);
     if (pathname === "/api/models/5/targets")
       return fulfillJson(modelDetail.access_targets);
+    if (pathname === "/api/models/5/catalog" && request.method() === "GET")
+      return fulfillJson(createUnboundModelsDevCatalog());
+    if (pathname === "/api/models/5/pi" && request.method() === "GET")
+      return fulfillJson(
+        createUnavailablePiModelRead({
+          modelConfigId: 5,
+          modelId: "router-model",
+        }),
+      );
     if (pathname === "/api/models/5" && request.method() === "GET")
       return fulfillJson(modelDetail);
     if (pathname === "/api/models" && request.method() === "GET")

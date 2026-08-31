@@ -3,6 +3,10 @@ import {
   createEmptyIngressSpendingReport,
   expectIngressSpendingRequest,
 } from "./spending-report-fixtures";
+import {
+  createUnavailablePiModelRead,
+  createUnboundModelsDevCatalog,
+} from "./model-detail-catalog-fixtures";
 
 const timestamp = "2026-04-27T12:00:00Z";
 const newModelButton = /New Model|新建模型/;
@@ -805,6 +809,17 @@ export async function mockModelDetailRoutes(page: Page) {
     if (pathname === "/api/models/7/routing-diagnostics") {
       return fulfillJson(createDetailDiagnostics());
     }
+    if (pathname === "/api/models/7/catalog" && request.method() === "GET") {
+      return fulfillJson(createUnboundModelsDevCatalog());
+    }
+    if (pathname === "/api/models/7/pi" && request.method() === "GET") {
+      return fulfillJson(
+        createUnavailablePiModelRead({
+          modelConfigId: 7,
+          modelId: "detail-openai",
+        }),
+      );
+    }
     if (pathname === "/api/loadbalance/current-state") {
       return fulfillJson({
         generated_at: detailTimestamp,
@@ -1000,6 +1015,28 @@ async function mockLinkedModelPairRoutes(page: Page) {
     }
     if (pathname === "/api/models/17/routing-diagnostics") {
       return fulfillJson({ ...createDetailDiagnostics(), model_config_id: 17 });
+    }
+    if (pathname === "/api/models/16/catalog" && request.method() === "GET") {
+      return fulfillJson(createUnboundModelsDevCatalog());
+    }
+    if (pathname === "/api/models/17/catalog" && request.method() === "GET") {
+      return fulfillJson(createUnboundModelsDevCatalog());
+    }
+    if (pathname === "/api/models/16/pi" && request.method() === "GET") {
+      return fulfillJson(
+        createUnavailablePiModelRead({
+          modelConfigId: 16,
+          modelId: "detail-alpha",
+        }),
+      );
+    }
+    if (pathname === "/api/models/17/pi" && request.method() === "GET") {
+      return fulfillJson(
+        createUnavailablePiModelRead({
+          modelConfigId: 17,
+          modelId: "detail-beta",
+        }),
+      );
     }
     if (pathname === "/api/loadbalance/current-state") {
       return fulfillJson({
