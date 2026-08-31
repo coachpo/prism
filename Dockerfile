@@ -1,4 +1,4 @@
-FROM golang:1.26.6-bookworm AS backend-builder
+FROM golang:1.27.0-bookworm AS backend-builder
 
 WORKDIR /app/backend
 
@@ -9,7 +9,7 @@ COPY backend/cmd ./cmd
 COPY backend/internal ./internal
 RUN CGO_ENABLED=0 go build -o /out/prism-backend ./cmd/prism-backend
 
-FROM node:24-alpine AS frontend-builder
+FROM node:26-alpine AS frontend-builder
 
 WORKDIR /src/frontend
 
