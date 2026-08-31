@@ -39,6 +39,7 @@ node_modules/
 .claude/
 .superpowers
 .pi/
+.steward/
 
 # Binary
 backend/prism-backend
