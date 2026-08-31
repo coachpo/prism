@@ -258,6 +258,12 @@ func assertStreamHookResidency(t *testing.T, operation RuntimeOperation, provide
 	if selected.MergeUsage == nil {
 		t.Fatalf("expected stream usage merger for %s", operation.Name)
 	}
+	if wantKind == operationResponseKindTextGeneration && selected.CollectOutputEvent == nil {
+		t.Fatalf("expected visible-output collector for text stream operation %s", operation.Name)
+	}
+	if wantKind != operationResponseKindTextGeneration && selected.CollectOutputEvent != nil {
+		t.Fatalf("expected non-text stream operation %s to omit visible-output collector", operation.Name)
+	}
 }
 
 func assertAllRuntimeOperationsCoveredByHookResidency(t *testing.T, seen map[string]struct{}) {

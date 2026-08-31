@@ -53,6 +53,7 @@ func TestRuntimeLaunchedFailureTelemetrySeparatesOrdinaryTransportFromBudget(t *
 			}
 		}
 		assertC1NoWinnerUsage(t, envelope.UsageEvent, selectedID, 2, "transport_error")
+		assertC1FailureOutputRateEvidence(t, envelope)
 		assertC1NoWinnerAccounting(t, envelope)
 		if !envelope.UsageEvent.FailoverOccurred || envelope.UsageEvent.RoutingEvidenceComplete == nil || !*envelope.UsageEvent.RoutingEvidenceComplete {
 			t.Fatalf("expected complete failover evidence, got %+v", envelope.UsageEvent)
@@ -94,6 +95,7 @@ func TestRuntimeLaunchedFailureTelemetrySeparatesOrdinaryTransportFromBudget(t *
 		assertC1AttemptIdentity(t, envelope.RequestLogs[0], "target-01", selectedID, 1_000, selectedID)
 		assertC1AttemptIdentity(t, envelope.RequestLogs[len(envelope.RequestLogs)-1], "target-64", selectedID+63, 1_063, selectedID)
 		assertC1NoWinnerUsage(t, envelope.UsageEvent, selectedID, MaxLaunchedUpstreamAttempts, runtimeAttemptBudgetExhaustedErrorCode)
+		assertC1FailureOutputRateEvidence(t, envelope)
 		assertC1NoWinnerAccounting(t, envelope)
 	})
 }
@@ -368,5 +370,29 @@ func assertC1ZeroLaunchEnvelope(t *testing.T, envelope runtimeTelemetryEnvelope,
 	}
 	if usage.FinalAttemptNumber != nil || usage.FinalAttemptTrigger != nil || usage.FinalTargetEntryTrigger != nil {
 		t.Fatalf("zero-launch usage must keep final attempt fields null, got %+v", usage)
+	}
+	assertC1FailureOutputRateEvidence(t, envelope)
+}
+
+func assertC1FailureOutputRateEvidence(t *testing.T, envelope runtimeTelemetryEnvelope) {
+	t.Helper()
+	if len(envelope.RequestLogs) == 0 {
+		t.Fatal("expected a final request-log row for failure output-rate evidence")
+	}
+	for index := 0; index+1 < len(envelope.RequestLogs); index++ {
+		if envelope.RequestLogs[index].OutputRateState != "" || envelope.RequestLogs[index].OutputRateReason != nil {
+			t.Fatalf("intermediate attempt %d must not carry per-request output-rate evidence: %+v", index+1, envelope.RequestLogs[index])
+		}
+	}
+	final := envelope.RequestLogs[len(envelope.RequestLogs)-1]
+	if final.OutputRateState != "not_applicable" || final.OutputRateReason == nil || *final.OutputRateReason != "not_applicable_non_stream" {
+		t.Fatalf("expected current failure final row to be known non-stream evidence, got %q/%v", final.OutputRateState, final.OutputRateReason)
+	}
+	usage := envelope.UsageEvent
+	if usage.OutputRateState != final.OutputRateState || !optionalStringEqual(usage.OutputRateReason, final.OutputRateReason) {
+		t.Fatalf("expected identical failure output-rate evidence on both tables, got request=%q/%v usage=%q/%v", final.OutputRateState, final.OutputRateReason, usage.OutputRateState, usage.OutputRateReason)
+	}
+	if final.OutputDeliveryEventCount != nil || final.OutputDeliverySpanMS != nil || usage.OutputDeliveryEventCount != nil || usage.OutputDeliverySpanMS != nil {
+		t.Fatalf("not-applicable failure evidence must not carry delivery facts: request=%v/%v usage=%v/%v", final.OutputDeliveryEventCount, final.OutputDeliverySpanMS, usage.OutputDeliveryEventCount, usage.OutputDeliverySpanMS)
 	}
 }

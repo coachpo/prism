@@ -48,6 +48,16 @@ func nullableStringArg(value *string) any {
 	return *value
 }
 
+// emptyStringToNil projects an unset writer state onto SQL NULL: legacy
+// request-log rows keep null evidence columns, and evidence-aware producers
+// always carry a non-empty state.
+func emptyStringToNil(value string) *string {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	return stringPtr(value)
+}
+
 // nullableBytesArg binds a captured audit body to its bytea column. The bytes
 // must reach the driver as []byte: a Go string is sent in text format, which
 // PostgreSQL then parses as a bytea input literal, so a body containing a

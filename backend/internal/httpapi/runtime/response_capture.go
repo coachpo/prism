@@ -40,6 +40,11 @@ type runtimeResponseCapture struct {
 	StreamOutcome            string
 	StreamErrorKind          *string
 	StreamErrorDetail        *string
+	// OutputDelivery is the persisted output-rate measurability verdict for
+	// this response. Stream captures classify from observed visible-output
+	// evidence; non-stream captures classify from the delivery mode and
+	// operation kind.
+	OutputDelivery outputDeliveryMeasurement
 }
 
 func (capture runtimeResponseCapture) extractedUsage() responseUsage {
@@ -53,6 +58,12 @@ func (capture runtimeResponseCapture) extractedUsage() responseUsage {
 }
 
 func proxyNonEventResponseAndCaptureUsage(hooks operationResponseHooks, dst io.Writer, src io.Reader, contentType string, now func() time.Time, captureAuditBody bool) (runtimeResponseCapture, error) {
+	capture, err := proxyNonEventResponseAndCaptureWithUsage(hooks, dst, src, contentType, now, captureAuditBody)
+	capture.OutputDelivery = classifyOutputDelivery(hooks.Kind, capture.StreamOutcome, capture.extractedUsage(), outputDeliveryEvidence{})
+	return capture, err
+}
+
+func proxyNonEventResponseAndCaptureWithUsage(hooks operationResponseHooks, dst io.Writer, src io.Reader, contentType string, now func() time.Time, captureAuditBody bool) (runtimeResponseCapture, error) {
 	if !responseMayContainJSONUsage(contentType) {
 		auditBuffer, auditWriter := newBoundedAuditWriter(captureAuditBody)
 		writers := []io.Writer{dst}
@@ -96,6 +107,7 @@ func proxyNonEventResponseAndCaptureWithoutUsage(hooks operationResponseHooks, d
 	_, err := io.Copy(io.MultiWriter(writers...), src)
 	completedAt := now()
 	capture := runtimeResponseCapture{CompletedAt: &completedAt, StreamOutcome: runtimeStreamOutcomeNotStreaming}
+	capture.OutputDelivery = classifyOutputDelivery(hooks.Kind, capture.StreamOutcome, responseUsage{}, outputDeliveryEvidence{})
 	if captureAuditBody {
 		capture.AuditBody, capture.AuditBodyObserved, capture.AuditBodyStored, capture.AuditBodyTruncated = auditBuffer.snapshot()
 	}

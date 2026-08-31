@@ -62,6 +62,7 @@ func normalizeRuntimeTelemetryEnvelopeTimestamps(envelope runtimeTelemetryEnvelo
 	if strings.TrimSpace(envelope.UsageEvent.CurrencyAttribution) == "" {
 		envelope.UsageEvent.CurrencyAttribution = runtimeUsageCurrencyAttributionLegacyUnknown
 	}
+	normalizeRuntimeOutputRateEvidence(&envelope)
 	if len(envelope.AccountingAttempts) > 0 {
 		for index := range envelope.AccountingAttempts {
 			if createdAt, ok := requestCreatedAtByAttempt[envelope.AccountingAttempts[index].AttemptNumber]; ok {
@@ -127,12 +128,13 @@ func insertRequestLogsAndUsageEventTx(ctx context.Context, tx pgx.Tx, requestLog
 				pricing_template_id_used, pricing_template_name_snapshot, pricing_template_revision_id_used, reporting_currency_epoch,
 				request_path, created_at, caller_user_agent, upstream_user_agent,
 				completion_duration_ms, ttft_ms, stream_outcome, stream_error_kind,
+				output_rate_state, output_rate_reason, output_delivery_event_count, output_delivery_span_ms,
 				audit_enabled_at_request, audit_capture_bodies_at_request,
 				request_generation_params, request_generation_params_status, upstream_operation_name, operation_translation_mode, upstream_request_path,
 				proxy_api_key_auth_enforced_at_request, pricing_version_effective_at,
 				pricing_template_kind, pricing_selection_state, pricing_card_role, pricing_selector_threshold_tokens, pricing_selector_basis_tokens,
 			pricing_schedule_decided_at, pricing_schedule_timezone, pricing_schedule_local_weekday, pricing_schedule_local_minute, pricing_schedule_digest
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, CASE WHEN $14::bigint IS NOT NULL AND $15::varchar IS NOT NULL THEN 'identified' WHEN $14::bigint IS NULL AND $15::varchar IS NULL THEN 'none' ELSE 'unknown' END, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57, $58, $59, $60, $61, $62, $63, $64, $65, $66, $67, $68, $69, $70, $71, $72, $73, $74, $75, $76, $77, $78, $79, $80, $81, $82, $83, $84, $85, $86, $87, $88, $89, $90, $91, $92, $93, $94, $95, $96, $97, $98, $99, $100, $101, $102, $103) RETURNING id`,
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, CASE WHEN $14::bigint IS NOT NULL AND $15::varchar IS NOT NULL THEN 'identified' WHEN $14::bigint IS NULL AND $15::varchar IS NULL THEN 'none' ELSE 'unknown' END, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57, $58, $59, $60, $61, $62, $63, $64, $65, $66, $67, $68, $69, $70, $71, $72, $73, $74, $75, $76, $77, $78, $79, $80, $81, $82, $83, $84, $85, $86, $87, $88, $89, $90, $91, $92, $93, $94, $95, $96, $97, $98, $99, $100, $101, $102, $103, $104, $105, $106, $107) RETURNING id`,
 			requestLog.ProfileID,
 			requestLog.ModelID,
 			nullableStringArg(requestLog.ResolvedTargetModelID),
@@ -217,6 +219,10 @@ func insertRequestLogsAndUsageEventTx(ctx context.Context, tx pgx.Tx, requestLog
 			nullableIntArg(requestLog.TTFTMS),
 			requestLog.StreamOutcome,
 			nullableStringArg(requestLog.StreamErrorKind),
+			nullableStringArg(emptyStringToNil(requestLog.OutputRateState)),
+			nullableStringArg(requestLog.OutputRateReason),
+			nullableIntArg(requestLog.OutputDeliveryEventCount),
+			nullableIntArg(requestLog.OutputDeliverySpanMS),
 			requestLog.AuditEnabledAtRequest,
 			requestLog.AuditCaptureBodiesAtRequest,
 			nullableJSONArg(requestLog.RequestGenerationParams),
@@ -261,6 +267,7 @@ func insertRequestLogsAndUsageEventTx(ctx context.Context, tx pgx.Tx, requestLog
 			fx_rate_used, fx_rate_source, pricing_snapshot_unit, pricing_snapshot_input, pricing_snapshot_output,
 			pricing_snapshot_cache_read_input, pricing_snapshot_cache_creation_input, pricing_snapshot_reasoning, pricing_config_version_used,
 			attempt_count, request_path, created_at, response_time_ms, completion_duration_ms, ttft_ms, stream_outcome, stream_error_kind,
+			output_rate_state, output_rate_reason, output_delivery_event_count, output_delivery_span_ms,
 			pricing_status, unpriced_reason, pricing_resolution_kind, missing_price_components, pricing_evidence_trust,
 			pricing_template_id_used, pricing_template_name_snapshot, pricing_template_revision_id_used, reporting_currency_epoch,
 			expected_request_log_row_count, final_attempt_number, final_attempt_trigger, final_target_entry_trigger,
@@ -270,7 +277,7 @@ func insertRequestLogsAndUsageEventTx(ctx context.Context, tx pgx.Tx, requestLog
 			proxy_api_key_auth_enforced_at_request, currency_attribution, pricing_version_effective_at,
 			pricing_template_kind, pricing_selection_state, pricing_card_role, pricing_selector_threshold_tokens, pricing_selector_basis_tokens,
 			pricing_schedule_decided_at, pricing_schedule_timezone, pricing_schedule_local_weekday, pricing_schedule_local_minute, pricing_schedule_digest
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57, $58, $59, $60, $61, $62, $63, $64, $65, $66, CASE WHEN $66::bigint IS NOT NULL AND $10::varchar IS NOT NULL THEN 'identified' WHEN $66::bigint IS NULL AND $10::varchar IS NULL THEN 'none' ELSE 'unknown' END, $67, $68, $69, $70, $71, $72, $73, $74, $75, $76, $77, $78, $79, $80, $81, $82, $83)`,
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57, $58, $59, $60, $61, $62, $63, $64, $65, $66, $67, $68, $69, $70, CASE WHEN $70::bigint IS NOT NULL AND $10::varchar IS NOT NULL THEN 'identified' WHEN $70::bigint IS NULL AND $10::varchar IS NULL THEN 'none' ELSE 'unknown' END, $71, $72, $73, $74, $75, $76, $77, $78, $79, $80, $81, $82, $83, $84, $85, $86, $87)`,
 
 		usageEvent.ProfileID,
 		usageEvent.IngressRequestID,
@@ -317,6 +324,10 @@ func insertRequestLogsAndUsageEventTx(ctx context.Context, tx pgx.Tx, requestLog
 		nullableIntArg(usageEvent.TTFTMS),
 		usageEvent.StreamOutcome,
 		nullableStringArg(usageEvent.StreamErrorKind),
+		nullableStringArg(emptyStringToNil(usageEvent.OutputRateState)),
+		nullableStringArg(usageEvent.OutputRateReason),
+		nullableIntArg(usageEvent.OutputDeliveryEventCount),
+		nullableIntArg(usageEvent.OutputDeliverySpanMS),
 		usageEvent.PricingStatus,
 		nullableStringArg(usageEvent.UnpricedReason),
 		nullableStringArg(usageEvent.PricingResolutionKind),

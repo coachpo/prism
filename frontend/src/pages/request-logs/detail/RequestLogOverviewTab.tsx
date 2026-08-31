@@ -12,6 +12,7 @@ import type {
   PricingProjection,
 } from "@/lib/types/request-logs";
 import {
+  describeTokenRateMissing,
   formatCost,
   formatTokenRate,
   formatTokens,
@@ -36,10 +37,7 @@ import {
   SectionCard,
   SummaryStat,
 } from "./requestLogDetailShared";
-import {
-  getStatusIntent,
-  getStatusTone,
-} from "./requestLogStatus";
+import { getStatusIntent, getStatusTone } from "./requestLogStatus";
 import { copyRequestLogText } from "./requestLogClipboard";
 import { resolveRequestAuditCaptureMode } from "../requestLogAuditState";
 import {
@@ -130,11 +128,16 @@ function requestAttemptTriggerLabel(
   copy: ReturnType<typeof useLocale>["messages"]["requestLogs"],
 ) {
   switch (value) {
-    case "initial": return copy.attemptTriggerInitial;
-    case "retry_same_target": return copy.attemptTriggerRetrySameTarget;
-    case "hedge": return copy.attemptTriggerHedge;
-    case "failover": return copy.attemptTriggerFailover;
-    default: return copy.attemptTriggerUnavailable;
+    case "initial":
+      return copy.attemptTriggerInitial;
+    case "retry_same_target":
+      return copy.attemptTriggerRetrySameTarget;
+    case "hedge":
+      return copy.attemptTriggerHedge;
+    case "failover":
+      return copy.attemptTriggerFailover;
+    default:
+      return copy.attemptTriggerUnavailable;
   }
 }
 
@@ -364,7 +367,9 @@ export function RequestLogOverviewTab({
                   {messages.requestLogs.attemptTargetModel}:{" "}
                   {finalTargetLabel ?? finalTargetModelId ?? (
                     <OperatorMissingValue
-                      reason={messages.requestLogs.attemptTargetEvidenceUnavailable}
+                      reason={
+                        messages.requestLogs.attemptTargetEvidenceUnavailable
+                      }
                     />
                   )}
                 </p>
@@ -396,11 +401,22 @@ export function RequestLogOverviewTab({
               />
               <SummaryStat
                 label={messages.requestLogs.tokenRate}
-                value={formatTokenRate(
-                  usage.output_tokens,
-                  summary.ttft_ms,
-                  summary.completion_duration_ms,
-                )}
+                value={
+                  summary.output_rate_state === "measured" ? (
+                    formatTokenRate(
+                      summary.output_rate_tps,
+                      summary.output_rate_state,
+                    )
+                  ) : (
+                    <OperatorMissingValue
+                      reason={describeTokenRateMissing({
+                        rateTps: summary.output_rate_tps,
+                        state: summary.output_rate_state,
+                        reason: summary.output_rate_reason,
+                      })}
+                    />
+                  )
+                }
                 valueClassName="font-mono"
               />
               <SummaryStat
@@ -537,15 +553,18 @@ export function RequestLogOverviewTab({
               <DetailRow label={messages.requestLogs.attemptTargetModel}>
                 {finalTargetModelId === null ? (
                   <OperatorMissingValue
-                    reason={messages.requestLogs.attemptTargetEvidenceUnavailable}
+                    reason={
+                      messages.requestLogs.attemptTargetEvidenceUnavailable
+                    }
                   />
                 ) : (
                   <div className="flex flex-col gap-1">
                     <p>{finalTargetLabel ?? finalTargetModelId}</p>
-                    {finalTargetLabel && finalTargetLabel !== finalTargetModelId ? (
-                    <p className="font-mono text-[11px] text-muted-foreground whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
-                      {finalTargetModelId}
-                    </p>
+                    {finalTargetLabel &&
+                    finalTargetLabel !== finalTargetModelId ? (
+                      <p className="font-mono text-[11px] text-muted-foreground whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+                        {finalTargetModelId}
+                      </p>
                     ) : null}
                   </div>
                 )}

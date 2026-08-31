@@ -142,6 +142,9 @@ type RequestLogDetailSummary struct {
 	LegacyDurationMS         *int      `json:"legacy_duration_ms"`
 	TTFTMS                   *int      `json:"ttft_ms"`
 	CompletionDurationMS     *int      `json:"completion_duration_ms"`
+	OutputRateTPS            *float64  `json:"output_rate_tps"`
+	OutputRateState          string    `json:"output_rate_state"`
+	OutputRateReason         *string   `json:"output_rate_reason"`
 	IsStream                 bool      `json:"is_stream"`
 	StreamOutcome            string    `json:"stream_outcome"`
 	StreamErrorKind          *string   `json:"stream_error_kind"`
@@ -234,6 +237,9 @@ type requestLogDetailRow struct {
 	LegacyDurationMS                  *int
 	TTFTMS                            *int
 	CompletionDurationMS              *int
+	OutputRateState                   string
+	OutputRateReason                  *string
+	OutputDeliverySpanMS              *int
 	IsStream                          bool
 	StreamOutcome                     string
 	StreamErrorKind                   *string
@@ -383,6 +389,9 @@ func GetRequestLogDetail(ctx context.Context, exec queryExecutor, profileID int,
 			LegacyDurationMS:         row.LegacyDurationMS,
 			TTFTMS:                   row.TTFTMS,
 			CompletionDurationMS:     row.CompletionDurationMS,
+			OutputRateTPS:            OutputRateTPSFromEvidence(intValue(row.OutputTokens), row.OutputTokens != nil, row.OutputRateState, row.OutputDeliverySpanMS),
+			OutputRateState:          row.OutputRateState,
+			OutputRateReason:         row.OutputRateReason,
 			IsStream:                 row.IsStream,
 			StreamOutcome:            row.StreamOutcome,
 			StreamErrorKind:          row.StreamErrorKind,
@@ -727,7 +736,7 @@ func loadRequestLogDetailRow(ctx context.Context, exec queryExecutor, profileID 
 		ctx,
 		`SELECT profile_id, id, created_at, model_id, resolved_target_model_id, api_family, row_kind,
 		 upstream_status_code, gateway_status_code, legacy_status_code, attempt_duration_ms, legacy_duration_ms,
-		 ttft_ms, completion_duration_ms, is_stream, stream_outcome, stream_error_kind,
+		 ttft_ms, completion_duration_ms, output_rate_state, output_rate_reason, output_delivery_span_ms, is_stream, stream_outcome, stream_error_kind,
 		 attempt_number, attempt_trigger, attempt_result, is_winner,
 		 operation_name, upstream_operation_name, operation_translation_mode, request_path, upstream_request_path,
 			 ingress_request_id, provider_correlation_id, proxy_api_key_id_snapshot, proxy_api_key_name_snapshot,
@@ -773,6 +782,9 @@ func scanRequestLogDetailRow(scanner interface{ Scan(...any) error }) (requestLo
 	var resolvedTargetModelID sql.NullString
 	var upstreamStatusCode, gatewayStatusCode, legacyStatusCode sql.NullInt64
 	var attemptDurationMS, legacyDurationMS, ttftMS, completionDurationMS, attemptNumber sql.NullInt32
+	var outputRateState sql.NullString
+	var outputRateReason sql.NullString
+	var outputDeliverySpanMS sql.NullInt32
 	var streamOutcome, streamErrorKind, attemptTrigger, attemptResult sql.NullString
 	var isWinner sql.NullBool
 	var operationName, upstreamOperationName, operationTranslationMode, upstreamRequestPath, ingressRequestID sql.NullString
@@ -808,7 +820,7 @@ func scanRequestLogDetailRow(scanner interface{ Scan(...any) error }) (requestLo
 	if err := scanner.Scan(
 		&item.ProfileID, &item.ID, &item.CreatedAt, &item.ModelID, &resolvedTargetModelID, &item.APIFamily, &item.RowKind,
 		&upstreamStatusCode, &gatewayStatusCode, &legacyStatusCode, &attemptDurationMS, &legacyDurationMS,
-		&ttftMS, &completionDurationMS, &item.IsStream, &streamOutcome, &streamErrorKind,
+		&ttftMS, &completionDurationMS, &outputRateState, &outputRateReason, &outputDeliverySpanMS, &item.IsStream, &streamOutcome, &streamErrorKind,
 		&attemptNumber, &attemptTrigger, &attemptResult, &isWinner,
 		&operationName, &upstreamOperationName, &operationTranslationMode, &item.RequestPath, &upstreamRequestPath,
 		&ingressRequestID, &providerCorrelationID, &proxyAPIKeyID, &proxyAPIKeyNameSnapshot, &proxyAPIKeyAttributionState, &proxyAPIKeyAuthEnforced,
@@ -845,6 +857,9 @@ func scanRequestLogDetailRow(scanner interface{ Scan(...any) error }) (requestLo
 	item.LegacyDurationMS = nullableInt32(legacyDurationMS)
 	item.TTFTMS = nullableInt32(ttftMS)
 	item.CompletionDurationMS = nullableInt32(completionDurationMS)
+	item.OutputRateState = NormalizeOutputRateState(stringValue(nullableString(outputRateState)))
+	item.OutputRateReason = nullableString(outputRateReason)
+	item.OutputDeliverySpanMS = nullableInt32(outputDeliverySpanMS)
 	item.StreamOutcome = normalizeRequestLogStreamOutcome(nullableString(streamOutcome), item.IsStream, item.CompletionDurationMS)
 	item.StreamErrorKind = normalizeOptionalString(nullableString(streamErrorKind))
 	item.AttemptNumber = nullableInt32(attemptNumber)

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	statsdomain "github.com/coachpo/prism/backend/internal/domain/stats"
 	gatewaycore "github.com/coachpo/prism/backend/internal/gateway/core"
 	"github.com/coachpo/prism/backend/internal/httpapi/requestcontext"
 )
@@ -26,6 +27,7 @@ type runtimeTelemetryPricingTimingContext struct {
 	usageSource          gatewaycore.UsageSource
 	streamErrorKind      *string
 	streamErrorDetail    *string
+	outputDelivery       outputDeliveryMeasurement
 }
 
 type runtimeTelemetryEnvelopeContext struct {
@@ -95,6 +97,17 @@ func (s *Service) buildRuntimeTelemetryPricingTimingContext(plan requestPlan, re
 	isStream := runtimeStreamOutcomeIsStreaming(streamOutcome)
 	ttftMS, completionDurationMS := runtimeResponseTiming(startedAt, requestCompletedAt, isStream, responseCapture)
 	successFlag := result.Response.StatusCode >= 200 && result.Response.StatusCode <= 299
+	outputDelivery := responseCapture.OutputDelivery
+	if !successFlag && outputDelivery.State == statsdomain.OutputRateStateMeasured {
+		// A syntactically completed error SSE can still contain deltas, usage,
+		// and a terminal marker. It is not a successful generation sample, so
+		// demote the otherwise measurable delivery while retaining its facts.
+		outputDelivery = unmeasurableOutputDelivery(
+			statsdomain.OutputRateReasonUnmeasurableNonSuccessStatus,
+			outputDelivery.EventCount,
+			outputDelivery.SpanMS,
+		)
+	}
 	reportCurrencyCode := runtimeOptionalTrimmedString(plan.ReportCurrencySnapshot.Code)
 	reportCurrencySymbol := runtimeOptionalTrimmedString(plan.ReportCurrencySnapshot.Symbol)
 	pricingResult := buildRuntimePricingProvenance(plan.ReportCurrencySnapshot, result.Connection.PricingTemplateSnapshot)
@@ -122,6 +135,7 @@ func (s *Service) buildRuntimeTelemetryPricingTimingContext(plan requestPlan, re
 		usageSource:          runtimeUsageSourceFromCapture(responseCapture, usage, streamOutcome),
 		streamErrorKind:      responseCapture.StreamErrorKind,
 		streamErrorDetail:    responseCapture.StreamErrorDetail,
+		outputDelivery:       outputDelivery,
 	}
 }
 

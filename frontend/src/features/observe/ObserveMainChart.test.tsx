@@ -280,7 +280,7 @@ describe("ObserveMainChart series table", () => {
 
   // The last-bucket table must carry the honest states, not just the number:
   // a measured value (including a genuine zero) renders as the value, an
-  // unsampled bucket reads 无样本, and an unusable cache basis reads its own
+  // unsampled bucket reads 无可测速率, and an unusable cache basis reads its own
   // state instead of collapsing into a fabricated percentage.
   it("shows the last-bucket output-rate value with its sample count", async () => {
     await renderTable("output_rate");
@@ -294,7 +294,7 @@ describe("ObserveMainChart series table", () => {
     expect(screen.getByText("480 / 500")).toBeInTheDocument();
   });
 
-  it("marks an unsampled last bucket as 无样本, never 0 tok/s", async () => {
+  it("marks an unsampled last bucket as 无可测速率, never 0 tok/s", async () => {
     const unsampled = [
       point(BUCKETS[0], {
         output_rate_sample_count: 0,
@@ -479,7 +479,7 @@ describe("ObserveMainChart honest chart states", () => {
       },
     ]);
     expect(screen.getByText("样本 500 / 请求 1,000")).toBeInTheDocument();
-    expect(screen.getByText(/部分覆盖/)).toBeInTheDocument();
+    expect(screen.getByText(/部分可测/)).toBeInTheDocument();
     output.unmount();
 
     renderChart("cache_read_share", [

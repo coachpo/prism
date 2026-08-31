@@ -66,10 +66,18 @@ type requestLogInsert struct {
 	StreamOutcome                     string
 	StreamErrorKind                   *string
 	StreamErrorDetail                 *string
-	AuditEnabledAtRequest             bool
-	AuditCaptureBodiesAtRequest       bool
-	RequestGenerationParams           *requestGenerationParams
-	RequestGenerationParamsStatus     *string
+
+	// Output-rate evidence (written once per request on the final attempt
+	// row; intermediate rows keep NULL evidence).
+	OutputRateState          string
+	OutputRateReason         *string
+	OutputDeliveryEventCount *int
+	OutputDeliverySpanMS     *int
+
+	AuditEnabledAtRequest         bool
+	AuditCaptureBodiesAtRequest   bool
+	RequestGenerationParams       *requestGenerationParams
+	RequestGenerationParamsStatus *string
 
 	// Pricing cost-trust v2 (Pricing SPEC §6.4).
 	PricingStatus                  string
@@ -172,6 +180,13 @@ type usageEventInsert struct {
 	TTFTMS                            *int
 	StreamOutcome                     string
 	StreamErrorKind                   *string
+
+	// Output-rate evidence: the finalized measurability verdict shared with
+	// the final attempt row of request_logs.
+	OutputRateState          string
+	OutputRateReason         *string
+	OutputDeliveryEventCount *int
+	OutputDeliverySpanMS     *int
 
 	// Pricing cost-trust v2 (Pricing SPEC §6.4).
 	PricingStatus                  string

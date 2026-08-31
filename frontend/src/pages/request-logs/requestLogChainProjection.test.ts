@@ -26,11 +26,30 @@ function chain(id: string, rowIds: string[]): ChainIngressItem {
 describe("request-log chain projection", () => {
   it("keeps chain row projection and append dedupe keyed by request-log id", () => {
     const response = {
-      items: [chain("ingress-1", ["101", "102"])],
+      items: [
+        {
+          ...chain("ingress-1", ["101", "102"]),
+          finalized_summary: {
+            request_log_id: "102",
+            output_rate_tps: 80,
+            output_rate_state: "measured",
+            output_rate_reason: null,
+          },
+        },
+      ],
     } as ChainResponse;
 
     const projected = flattenChainItems(response);
     expect(projected.map((row) => row.request_log_id)).toEqual(["101", "102"]);
+    expect(projected[0]).toMatchObject({
+      output_rate_tps: null,
+      output_rate_state: "not_applicable",
+    });
+    expect(projected[1]).toMatchObject({
+      output_rate_tps: 80,
+      output_rate_state: "measured",
+      output_rate_reason: null,
+    });
     expect(
       appendUniqueRequestItems([item("101")], [item("101"), item("103")]).map(
         (row) => row.request_log_id,

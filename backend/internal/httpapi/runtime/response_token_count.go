@@ -12,7 +12,7 @@ import (
 
 func proxyNonEventTokenCountResponseAndCaptureUsage(hooks operationResponseHooks, dst io.Writer, src io.Reader, contentType string, now func() time.Time, captureAuditBody bool) (runtimeResponseCapture, error) {
 	if !responseMayContainJSONUsage(contentType) {
-		return proxyNonEventResponseAndCaptureWithoutUsage(operationResponseHooks{}, dst, src, contentType, now, captureAuditBody)
+		return proxyNonEventResponseAndCaptureWithoutUsage(hooks, dst, src, contentType, now, captureAuditBody)
 	}
 	bodyBuffer := &bytes.Buffer{}
 	auditBuffer, auditWriter := newBoundedAuditWriter(captureAuditBody)
@@ -28,6 +28,12 @@ func proxyNonEventTokenCountResponseAndCaptureUsage(hooks operationResponseHooks
 		Usage:         usage,
 		CompletedAt:   &completedAt,
 		StreamOutcome: runtimeStreamOutcomeNotStreaming,
+		OutputDelivery: classifyOutputDelivery(
+			hooks.Kind,
+			runtimeStreamOutcomeNotStreaming,
+			usage,
+			outputDeliveryEvidence{},
+		),
 	}
 	if captureAuditBody {
 		capture.AuditBody, capture.AuditBodyObserved, capture.AuditBodyStored, capture.AuditBodyTruncated = auditBuffer.snapshot()

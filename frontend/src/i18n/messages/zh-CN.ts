@@ -3803,19 +3803,48 @@ export const zhCNMessages = {
     // 输出速率与缓存读取：七指标口径与诚实空值语义。
     outputRateEmptyTitle: "窗口内没有输出速率样本",
     outputRateEmptyDescription:
-      "所选窗口内没有任何同时具备输出令牌、首字时延与正向流式时长的请求，因此没有可绘制的输出速率。",
+      "所选窗口内没有任何具备可测渐进交付证据的请求，因此没有可绘制的输出速率。",
     cacheShareEmptyTitle: "窗口内没有可比的缓存读取数据",
     cacheShareEmptyDescription:
       "所选窗口内没有任何具备可比缓存分量的请求，因此没有可绘制的缓存读取占比。",
     cacheShareNoDenominatorTitle: "窗口内缓存占比分母为零",
     outputRateSamplesHint: (samples: MessageArg, requests: MessageArg) =>
       `样本 ${samples} / 请求 ${requests}`,
-    partialCoverage: "部分覆盖",
+    outputRatePartial: "部分可测",
     outputRatePartialReason:
-      "仅部分请求计入输出速率样本（需要输出令牌、首字时延与正向流式时长）。",
+      "仅部分请求计入输出速率样本（需要已完成的渐进可见文本或工具输出交付证据）。",
+    outputRateStateUnmeasuredHint: (
+      unmeasured: MessageArg,
+      requests: MessageArg,
+    ) =>
+      `${unmeasured} / ${requests} 个请求没有可测速率（非流式、Images、失败或证据不足）。`,
+    outputRateReasonIncompleteStream:
+      "流式响应未正常完成（中断、上游错误或缺少终止事件），无法给出可信速率。",
+    outputRateReasonMissingOutputUsage:
+      "上游未回报输出令牌用量，缺少速率分子。",
+    outputRateReasonNoOutputEvents:
+      "未观测到任何可见文本或工具输出事件，无法度量渐进交付。",
+    outputRateReasonSingleOutputEvent:
+      "仅观测到一个输出事件，没有可度量的交付跨度。",
+    outputRateReasonSpanBelowThreshold:
+      "输出事件集中在过短的时间跨度内交付（疑似上游缓冲后突发），不适合按渐进速率解读。",
+    outputRateReasonReasoningUnaligned:
+      "观测到推理（reasoning）输出，但上游未单独回报其令牌数，无法与可见输出交付跨度对齐。",
+    outputRateReasonNonSuccessStatus:
+      "上游返回了非成功状态；该响应不作为成功生成的输出速率样本。",
+    outputRateReasonNotApplicableNonStream:
+      "非流式响应没有渐进交付过程，输出速率不适用。",
+    outputRateReasonNotApplicableImageOperation:
+      "图像操作不参与文本输出速率度量。",
+    outputRateReasonNotApplicableNonTextOperation:
+      "该操作不产生文本输出令牌，输出速率不适用。",
+    outputRateReasonUnknownLegacy:
+      "历史请求未记录输出交付证据，无法判定可测性。",
+    outputRateReasonUnknownInconsistent:
+      "持久化的输出交付证据不一致，已保守地排除该速率。",
     cacheBasisCoverageHint: (comparable: MessageArg, requests: MessageArg) =>
       `可比 ${comparable} / 请求 ${requests}`,
-    noSampleShort: "无样本",
+    noSampleShort: "无可测速率",
     noSampleReason: "该时间桶没有可测的输出速率样本。",
     noComparableShort: "无可比",
     bucketNoComparableReason: "该时间桶没有可比的缓存分量。",

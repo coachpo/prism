@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { parsePageSearch, stateToSearch } from "@/pages/request-logs/queryParams";
+import {
+  parsePageSearch,
+  stateToSearch,
+} from "@/pages/request-logs/queryParams";
 import { getColumns } from "@/pages/request-logs/columns";
 import type { RequestLogListItem } from "@/lib/types";
 import { getStaticMessages } from "@/i18n/staticMessages";
@@ -7,6 +10,9 @@ import { rowValue } from "@/pages/request-logs/requestLogsCsv";
 
 function makeRow(overrides: Partial<RequestLogListItem>): RequestLogListItem {
   return {
+    output_rate_tps: null,
+    output_rate_state: "unknown",
+    output_rate_reason: null,
     request_log_id: "101",
     row_kind: "upstream",
     ingress_request_id: "ingress-101",
@@ -74,7 +80,9 @@ describe("request-logs CSV export carries proxy key identity", () => {
   it("CSV header includes the proxy key column and exported rows carry key identity", () => {
     const messages = getStaticMessages();
     const columns = getColumns();
-    const proxyColumn = columns.find((column) => column.key === "proxy_api_key");
+    const proxyColumn = columns.find(
+      (column) => column.key === "proxy_api_key",
+    );
     expect(proxyColumn).toBeTruthy();
     expect(proxyColumn?.label).toBe(messages.requestLogs.proxyKey);
   });
@@ -84,12 +92,22 @@ describe("request-logs CSV export carries proxy key identity", () => {
     const identified = rowValue(makeRow({}), "proxy_api_key");
     expect(identified).toBe("production-client");
     const none = rowValue(
-      makeRow({ proxy_api_key_id: null, proxy_api_key_name_snapshot: null, proxy_api_key_attribution_state: "none", proxy_api_key_auth_enforced_at_request: false }),
+      makeRow({
+        proxy_api_key_id: null,
+        proxy_api_key_name_snapshot: null,
+        proxy_api_key_attribution_state: "none",
+        proxy_api_key_auth_enforced_at_request: false,
+      }),
       "proxy_api_key",
     );
     expect(none).toBe(messages.requestLogs.noIdentifiedProxyKey);
     const unknown = rowValue(
-      makeRow({ proxy_api_key_id: null, proxy_api_key_name_snapshot: null, proxy_api_key_attribution_state: "unknown", proxy_api_key_auth_enforced_at_request: null }),
+      makeRow({
+        proxy_api_key_id: null,
+        proxy_api_key_name_snapshot: null,
+        proxy_api_key_attribution_state: "unknown",
+        proxy_api_key_auth_enforced_at_request: null,
+      }),
       "proxy_api_key",
     );
     expect(unknown).toBe(messages.requestLogs.proxyKeyAttributionUnknown);
@@ -98,7 +116,12 @@ describe("request-logs CSV export carries proxy key identity", () => {
 
 describe("proxy_api_key_id and view URL round-trip", () => {
   it("parses, serializes and round-trips the ordinary filter and chain view", () => {
-    const parsed = parsePageSearch({ proxy_api_key_id: "42", view: "ingress_chains", time_range: "7d", limit: 100 });
+    const parsed = parsePageSearch({
+      proxy_api_key_id: "42",
+      view: "ingress_chains",
+      time_range: "7d",
+      limit: 100,
+    });
     expect(parsed.proxy_api_key_id).toBe("42");
     expect(parsed.view).toBe("ingress_chains");
     expect(parsed.time_range).toBe("7d");

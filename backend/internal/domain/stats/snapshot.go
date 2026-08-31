@@ -56,6 +56,8 @@ type snapshotEvent struct {
 	ResponseTimeMS           *int
 	TTFTMS                   *int
 	CompletionDurationMS     *int
+	OutputRateState          string
+	OutputDeliverySpanMS     *int
 	HasOutputTokens          bool
 	TotalCostMicros          int64
 	HasKnownCost             bool
@@ -248,6 +250,8 @@ func buildSnapshotEvents(records []usageEventRecord) []snapshotEvent {
 			ResponseTimeMS:        record.ResponseTimeMS,
 			TTFTMS:                record.TTFTMS,
 			CompletionDurationMS:  record.CompletionDurationMS,
+			OutputRateState:       record.OutputRateState,
+			OutputDeliverySpanMS:  record.OutputDeliverySpanMS,
 			HasOutputTokens:       record.HasOutputTokens,
 			TotalCostMicros:       totalCostMicros,
 			HasKnownCost:          record.TrustedKnownCost() && record.HasTotalCostUserCurrencyMicros,
@@ -576,7 +580,7 @@ func buildUsageEndpointStatistics(events []snapshotEvent) []UsageEndpointStatist
 		if event.TTFTMS != nil {
 			group.ttftValues = append(group.ttftValues, *event.TTFTMS)
 		}
-		if outputRate := requestOutputRateTPS(event.OutputTokens, event.HasOutputTokens, event.TTFTMS, event.CompletionDurationMS); outputRate != nil {
+		if outputRate := requestOutputRateTPS(event.OutputTokens, event.HasOutputTokens, event.OutputRateState, event.OutputDeliverySpanMS); outputRate != nil {
 			group.outputRateSum += *outputRate
 			group.eligibleOutputRates++
 		}
@@ -639,7 +643,7 @@ func buildUsageModelStatistics(events []snapshotEvent) []UsageModelStatistic {
 		if event.TTFTMS != nil {
 			group.ttftValues = append(group.ttftValues, *event.TTFTMS)
 		}
-		if outputRate := requestOutputRateTPS(event.OutputTokens, event.HasOutputTokens, event.TTFTMS, event.CompletionDurationMS); outputRate != nil {
+		if outputRate := requestOutputRateTPS(event.OutputTokens, event.HasOutputTokens, event.OutputRateState, event.OutputDeliverySpanMS); outputRate != nil {
 			group.outputRateSum += *outputRate
 			group.eligibleOutputRates++
 		}

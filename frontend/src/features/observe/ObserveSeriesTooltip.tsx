@@ -150,7 +150,7 @@ function OutputRateDetails({ point }: { point: SeriesPoint }) {
       </span>
       {bucketOutputRatePartialCoverage(point) ? (
         <OperatorClippedBadge
-          label={copy.partialCoverage}
+          label={copy.outputRatePartial}
           reason={copy.outputRatePartialReason}
         />
       ) : null}

@@ -22,12 +22,17 @@ END`
 const usageWindowPredicate = `profile_id = $1 AND created_at >= $2 AND created_at < $3`
 
 // outputRateTPSSQL is the single per-request output-rate expression shared by
-// the Window KPI and every usage-series bucket. It intentionally does not add
-// an outcome filter: measurability is exactly the three non-null fields plus a
-// positive post-TTFT duration.
-const outputRateTPSSQL = `CASE WHEN output_tokens IS NOT NULL AND ttft_ms IS NOT NULL AND completion_duration_ms IS NOT NULL
-	          AND completion_duration_ms - ttft_ms > 0
-	     THEN output_tokens * 1000.0 / (completion_duration_ms - ttft_ms) END`
+// the Window KPI and every usage-series bucket. It reads only measured
+// evidence: the writer-recorded visible-output delivery span and the
+// output-token numerator, both guarded by the persisted state, so buffered
+// bursts, non-streaming responses, Images, failures, and historical rows
+// (state NULL reads unknown) can never enter an average. The > 0 guard keeps
+// the division safe if the delivery-span policy ever changes; a measured zero
+// stays a genuine zero.
+const outputRateTPSSQL = `CASE WHEN output_rate_state = 'measured'
+	          AND output_tokens IS NOT NULL AND output_tokens >= 0
+	          AND output_delivery_span_ms IS NOT NULL AND output_delivery_span_ms > 0
+	     THEN output_tokens * 1000.0 / output_delivery_span_ms END`
 
 func stringPointer(value string) *string {
 	resolved := value

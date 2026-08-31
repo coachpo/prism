@@ -14,10 +14,13 @@ func TestProjectScopedUsageEvidencePreservesSamplesAndMissingValues(t *testing.T
 			ReasoningTokens: 0, HasReasoningTokens: true,
 			CacheBasisEligible: true,
 			OutputRateTPS:      &rate,
+			OutputRateState:    OutputRateStateMeasured,
 		},
 		{
 			OutputTokens: 0, HasOutputTokens: true,
 			CacheCreationInputTokens: 5, HasCacheCreationInputTokens: true,
+			OutputRateState:  OutputRateStateUnmeasurable,
+			OutputRateReason: stringPointer(OutputRateReasonUnmeasurableSingleOutputEvent),
 		},
 	})
 
@@ -42,6 +45,12 @@ func TestProjectScopedUsageEvidencePreservesSamplesAndMissingValues(t *testing.T
 	if result.OutputRateSampleCount != 1 || result.AvgOutputRateTPS == nil || *result.AvgOutputRateTPS != rate {
 		t.Fatalf("unexpected output-rate projection: %+v", result)
 	}
+	if result.OutputRateStateCounts.Measured != 1 || result.OutputRateStateCounts.Unmeasurable != 1 || result.OutputRateStateCounts.NotApplicable != 0 || result.OutputRateStateCounts.Unknown != 0 {
+		t.Fatalf("unexpected scoped output-rate census: %+v", result.OutputRateStateCounts)
+	}
+	if result.OutputRateReasonCounts[OutputRateReasonUnmeasurableSingleOutputEvent] != 1 {
+		t.Fatalf("unexpected scoped output-rate reasons: %+v", result.OutputRateReasonCounts)
+	}
 	if result.CacheBasisRequestCount != 1 || result.CacheBasisInputTokens == nil || *result.CacheBasisInputTokens != 10 || result.CacheBasisCacheReadTokens == nil || *result.CacheBasisCacheReadTokens != 3 {
 		t.Fatalf("unexpected cache-basis projection: %+v", result)
 	}
@@ -60,6 +69,9 @@ func TestProjectScopedUsageEvidenceLeavesNoSamplesNull(t *testing.T) {
 	if result.AvgOutputRateTPS != nil || result.OutputRateSampleCount != 0 {
 		t.Fatalf("missing output-rate evidence must stay null with zero samples: %+v", result)
 	}
+	if result.OutputRateStateCounts.Unknown != 1 || result.OutputRateReasonCounts == nil || len(result.OutputRateReasonCounts) != 0 {
+		t.Fatalf("missing scoped evidence must report one unknown and an empty reason map: %+v", result)
+	}
 	if result.CacheBasisRequestCount != 0 || result.CacheBasisInputTokens != nil || result.CacheBasisCacheReadTokens != nil || result.CacheBasisCacheCreationTokens != nil {
 		t.Fatalf("missing cache-basis evidence must stay null with zero samples: %+v", result)
 	}
@@ -69,7 +81,7 @@ func TestProjectScopedUsageEvidenceLeavesNoSamplesNull(t *testing.T) {
 	projectScopedUsageEvidence(&measuredZero, []scopedStatObservation{{
 		HasInputTokens: true, HasOutputTokens: true, HasTotalTokens: true,
 		HasCacheReadInputTokens: true, HasCacheCreationInputTokens: true, HasReasoningTokens: true,
-		CacheBasisEligible: true, OutputRateTPS: &zeroRate,
+		CacheBasisEligible: true, OutputRateTPS: &zeroRate, OutputRateState: OutputRateStateMeasured,
 	}})
 	if measuredZero.InputTokens == nil || *measuredZero.InputTokens != 0 || measuredZero.OutputTokens == nil || *measuredZero.OutputTokens != 0 || measuredZero.TotalTokens == nil || *measuredZero.TotalTokens != 0 {
 		t.Fatalf("measured zero token totals must stay non-null: %+v", measuredZero)
@@ -79,6 +91,9 @@ func TestProjectScopedUsageEvidenceLeavesNoSamplesNull(t *testing.T) {
 	}
 	if measuredZero.AvgOutputRateTPS == nil || *measuredZero.AvgOutputRateTPS != 0 || measuredZero.OutputRateSampleCount != 1 {
 		t.Fatalf("measured zero output rate must stay distinguishable from missing: %+v", measuredZero)
+	}
+	if measuredZero.OutputRateStateCounts.Measured != 1 || measuredZero.OutputRateStateCounts.Unknown != 0 {
+		t.Fatalf("measured zero census is inconsistent: %+v", measuredZero.OutputRateStateCounts)
 	}
 	if measuredZero.CacheBasisRequestCount != 1 || measuredZero.CacheBasisInputTokens == nil || measuredZero.CacheBasisCacheReadTokens == nil || measuredZero.CacheBasisCacheCreationTokens == nil {
 		t.Fatalf("measured zero cache basis must stay distinguishable from missing: %+v", measuredZero)

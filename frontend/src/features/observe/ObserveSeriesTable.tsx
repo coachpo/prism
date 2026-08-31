@@ -238,7 +238,7 @@ function OutputRateCell({ point }: { point: SeriesPoint | undefined }) {
       {`${rate.tps.toFixed(1)} ${copy.metricUnit("output_rate")}`}
       {bucketOutputRatePartialCoverage(point) ? (
         <OperatorClippedBadge
-          label={copy.partialCoverage}
+          label={copy.outputRatePartial}
           reason={copy.outputRatePartialReason}
         />
       ) : null}

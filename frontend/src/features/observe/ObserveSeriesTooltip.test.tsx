@@ -76,16 +76,16 @@ describe("ObserveSeriesTooltip", () => {
     renderTooltip("output_rate", point(), 0);
     expect(screen.getByText("0.0 tok/s")).toBeInTheDocument();
     expect(screen.getByText("样本 1 / 请求 2")).toBeInTheDocument();
-    expect(screen.getByText(/部分覆盖/)).toBeInTheDocument();
+    expect(screen.getByText(/部分可测/)).toBeInTheDocument();
   });
 
-  it("keeps an unsampled bucket in the tooltip as 无样本", () => {
+  it("keeps an unsampled bucket in the tooltip as 无可测速率", () => {
     renderTooltip(
       "output_rate",
       point({ output_rate_sample_count: 0, avg_output_rate_tps: null }),
       null,
     );
-    expect(screen.getByText("无样本")).toBeInTheDocument();
+    expect(screen.getByText("无可测速率")).toBeInTheDocument();
     expect(screen.getByText("样本 0 / 请求 2")).toBeInTheDocument();
   });
 

@@ -4314,6 +4314,10 @@ Telemetry rows have immutable profile attribution captured at request start. Cap
 | upstream_user_agent | TEXT | NULLABLE | User-Agent sent upstream |
 | completion_duration_ms | INTEGER | NULLABLE | Completion duration after first token/byte when available |
 | ttft_ms | INTEGER | NULLABLE | Time to first token/byte when available |
+| output_rate_state | VARCHAR(20) | NULLABLE | Output-rate evidence state on the final attempt row: `measured`, `unmeasurable`, `not_applicable`, or `unknown`; NULL on intermediate attempt rows and pre-000030 history |
+| output_rate_reason | VARCHAR(64) | NULLABLE | Why the state holds; NULL only for `measured` |
+| output_delivery_event_count | INTEGER | NULLABLE | Observed visible text/tool-output events (measured/unmeasurable rows only) |
+| output_delivery_span_ms | INTEGER | NULLABLE | First-to-last visible-output delivery span in ms (measured/unmeasurable rows only) |
 | audit_enabled_at_request | BOOLEAN | NOT NULL, DEFAULT FALSE | Request-time audit enablement snapshot |
 | audit_capture_bodies_at_request | BOOLEAN | NOT NULL, DEFAULT FALSE | Request-time body-capture snapshot |
 | request_generation_params | JSONB | NULLABLE | Captured request-generation parameter summary |
@@ -4329,6 +4333,7 @@ Request-log semantics:
 - Unsupported or wrong-method requests rejected by the operation registry write no request log, audit log, usage event, or telemetry-outbox row.
 - The new writer never writes the legacy `status_code`/`response_time_ms`/`billable_flag`/`priced_flag` columns; those remain nullable projections for pre-v2 rows only.
 - `ingress_request_id` groups the rows created by one incoming runtime request.
+- Output-rate evidence (000030) is written once per request on the final attempt row: the runtime classifies progressive visible text/tool-output delivery (strict per-operation allowlists for OpenAI Chat/Responses, Anthropic, and Gemini; usage, terminal, control, reasoning, and image payloads never count) and persists the same `output_rate_state`, `output_rate_reason`, `output_delivery_event_count`, and `output_delivery_span_ms` verdict to the final attempt row and the usage event. A rate is measured only for completed streams with at least two visible output events whose first-to-last span reaches 50ms, a usable output-token numerator, and no reasoning-token misalignment; non-streaming text, Images, non-text operations, incomplete streams, and insufficient evidence are `unmeasurable`/`not_applicable` with a reason. Every read surface derives tok/s only from `state=measured` rows as `output_tokens * 1000.0 / output_delivery_span_ms` and averages measured samples with equal weight; historical rows (evidence NULL) and legacy v2/provisional outbox payloads materialize as `unknown` and never enter an average. The thresholds are writer policy, never schema constraints.
 - `attempt_number` preserves retry/failover ordering within that group.
 - `model_id` records the requested model ID while `resolved_target_model_id` records the final target model ID selected for that attempt.
 - `operation_name` is nullable in the schema for compatibility, but materialized rows for registered operations, including synthetic failures, carry a non-empty canonical operation name. Registry rejection creates no row and therefore has no persisted operation name.
@@ -4430,6 +4435,10 @@ Usage-event rows are the finalized source for the unified statistics snapshot. T
 | response_time_ms | INTEGER | NULLABLE | Final attempt latency in ms |
 | completion_duration_ms | INTEGER | NULLABLE | Completion duration after first token/byte when available |
 | ttft_ms | INTEGER | NULLABLE | Time to first token/byte when available |
+| output_rate_state | VARCHAR(20) | NULLABLE | Output-rate evidence state: `measured`, `unmeasurable`, `not_applicable`, or `unknown`; NULL on pre-000030 history and legacy outbox rows read as `unknown` |
+| output_rate_reason | VARCHAR(64) | NULLABLE | Why the state holds; NULL only for `measured` |
+| output_delivery_event_count | INTEGER | NULLABLE | Observed visible text/tool-output events (measured/unmeasurable rows only) |
+| output_delivery_span_ms | INTEGER | NULLABLE | First-to-last visible-output delivery span in ms (measured/unmeasurable rows only) |
 | stream_outcome | VARCHAR(50) | NOT NULL, DEFAULT `not_streaming` | Finalized stream classification copied from the contributing request-log attempt |
 | stream_error_kind | VARCHAR(50) | NULLABLE | Finalized stream diagnostic kind without detail text |
 | created_at | TIMESTAMPTZ | NOT NULL, part of PK `(created_at, id)` | Event timestamp and partition key |
@@ -4439,6 +4448,7 @@ Usage-event semantics:
 - One row captures the finalized usage event for each materialized telemetry envelope and feeds the statistics snapshot.
 - `ingress_request_id` preserves the stable request-group identifier shared with the attempt-level `request_logs` rows for the same incoming runtime request.
 - `operation_name` is nullable in the schema for compatibility, but registered-operation envelopes materialize a non-empty canonical operation name. Operation-registry rejection creates no usage event.
+- Output-rate evidence mirrors the final attempt row's verdict (000030): the same state, reason, event count, and delivery span are written to both tables, legacy outbox rows without evidence fields normalize to `unknown` with reason `unknown_missing_evidence` instead of quarantining, and statistics consumers average only `state=measured` rows.
 - `proxy_api_key_name_snapshot` preserves display intent even if the key name later changes.
 - Runtime label capture uses the endpoint name, then base URL, then `Endpoint N`, then `Unknown Endpoint`. Synthetic failures use `Unknown Endpoint`.
 - `endpoint_label_snapshot` preserves the endpoint display label used by usage snapshots, spending, and Top Endpoints, even if the endpoint is later renamed or deleted. Public stats payloads expose this stored value as `endpoint_label`.
