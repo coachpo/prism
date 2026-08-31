@@ -16,6 +16,7 @@ import { LocaleProvider } from "@/i18n/LocaleProvider";
 import { models as modelsApi } from "@/lib/api/models";
 import type { ModelCatalogResponse } from "@/lib/types";
 import { ModelsDevCatalogPanel } from "@/features/models/detail/ModelsDevCatalogPanel";
+import { CatalogOverrideDialog } from "@/pages/model-detail/CatalogOverrideDialog";
 import {
   useModelCatalog,
   type ModelCatalogView,
@@ -393,6 +394,65 @@ describe("ModelsDevCatalogPanel", () => {
     expect(
       screen.queryByRole("button", { name: /models\.dev 绑定操作/ }),
     ).not.toBeInTheDocument();
+  });
+});
+
+describe("CatalogOverrideDialog binding snapshot", () => {
+  it("keeps an open mutation targeted at its opening snapshot after a re-read", async () => {
+    const user = userEvent.setup();
+    const initial = boundCatalog();
+    const rebound = boundCatalog({
+      provider_id: "azure",
+      catalog_model_id: "gpt-new",
+      updated_at: "2026-08-25T12:01:00Z",
+    });
+    vi.mocked(modelsApi.catalog.clearOverride).mockResolvedValue(rebound);
+    const runAction = async (
+      action: () => Promise<unknown>,
+      done?: () => void,
+      onError?: (message: string) => void,
+    ) => {
+      try {
+        await action();
+        done?.();
+      } catch (cause) {
+        onError?.(cause instanceof Error ? cause.message : String(cause));
+      }
+    };
+
+    const rendered = render(
+      <LocaleProvider>
+        <CatalogOverrideDialog
+          modelConfigId={7}
+          catalog={initial}
+          busy={false}
+          onClose={() => {}}
+          runAction={runAction}
+        />
+      </LocaleProvider>,
+    );
+    rendered.rerender(
+      <LocaleProvider>
+        <CatalogOverrideDialog
+          modelConfigId={7}
+          catalog={rebound}
+          busy={false}
+          onClose={() => {}}
+          runAction={runAction}
+        />
+      </LocaleProvider>,
+    );
+    await user.click(
+      screen.getByRole("button", { name: "清除全部覆盖" }),
+    );
+
+    await waitFor(() =>
+      expect(modelsApi.catalog.clearOverride).toHaveBeenCalledWith(7, {
+        expected_provider_id: "openai",
+        expected_catalog_model_id: "gpt-test",
+        expected_binding_updated_at: "2026-08-25T12:00:00Z",
+      }),
+    );
   });
 });
 

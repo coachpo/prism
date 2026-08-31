@@ -64,9 +64,16 @@ export function CatalogOverrideDialog({
   const [mutationError, setMutationError] = useState<string | null>(null);
   const result = useMemo(() => buildCatalogOverridePatch(draft), [draft]);
   const hasErrors = Object.keys(result.errors).length > 0;
-  const providerId = catalog?.provider_id?.trim() ?? "";
-  const catalogModelId = catalog?.catalog_model_id?.trim() ?? "";
-  const bindingUpdatedAt = catalog?.updated_at ?? "";
+  // Freeze the binding the dialog was opened against. A failed mutation
+  // triggers an authoritative parent re-read; keeping this snapshot prevents
+  // the still-open draft from silently retargeting itself to a newly rebound
+  // offering on the operator's next click.
+  const [bindingSnapshot] = useState(() => ({
+    providerId: catalog?.provider_id?.trim() ?? "",
+    catalogModelId: catalog?.catalog_model_id?.trim() ?? "",
+    bindingUpdatedAt: catalog?.updated_at ?? "",
+  }));
+  const { providerId, catalogModelId, bindingUpdatedAt } = bindingSnapshot;
   const writeSnapshotComplete = Boolean(
     catalog?.bound && providerId && catalogModelId,
   );
