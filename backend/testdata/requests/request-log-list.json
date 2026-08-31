@@ -20,7 +20,7 @@
     "requested_to_time": "2026-04-19T12:00:00Z",
     "retention_epoch": "0",
     "retention_generation": "1",
-    "source_revision": "10a8bba470e251cd843f978d97af023741e12bdd3a1a89e28524db672a1b9155",
+    "source_revision": "57d588416c808a771cb7b18606367752aaa5aa93921a4fb06d2d46a9c105f0a5",
     "state": "legacy_unknown"
   },
   "dataset_coverage": {
@@ -34,7 +34,7 @@
       "retention_from_time": null,
       "retention_generation": "1",
       "source": "raw",
-      "source_revision": "10a8bba470e251cd843f978d97af023741e12bdd3a1a89e28524db672a1b9155",
+      "source_revision": "57d588416c808a771cb7b18606367752aaa5aa93921a4fb06d2d46a9c105f0a5",
       "to_time": "2026-04-19T12:00:00Z"
     }
   },
@@ -116,6 +116,9 @@
       "legacy_duration_ms": null,
       "legacy_status_code": null,
       "model_label": "gpt-4o",
+      "output_rate_reason": null,
+      "output_rate_state": "unknown",
+      "output_rate_tps": null,
       "output_tokens": 42,
       "pricing_card_role": null,
       "pricing_evidence_trust": "trusted",
@@ -176,6 +179,9 @@
       "legacy_duration_ms": null,
       "legacy_status_code": null,
       "model_label": "gpt-4o",
+      "output_rate_reason": null,
+      "output_rate_state": "unknown",
+      "output_rate_tps": null,
       "output_tokens": null,
       "pricing_card_role": null,
       "pricing_evidence_trust": "trusted",

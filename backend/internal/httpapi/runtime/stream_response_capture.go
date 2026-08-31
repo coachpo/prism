@@ -78,9 +78,13 @@ type sseCompletedResponseCapture struct {
 	firstPayloadAt    *time.Time
 	completedAt       *time.Time
 	terminalSignal    sseTerminalSignal
+	outputDelivery    outputDeliveryEvidence
 }
 
 func (capture *sseCompletedResponseCapture) runtimeResponseCapture(classification sseStreamClassification) runtimeResponseCapture {
+	// The output-rate verdict is classified here once per response: the
+	// canonicalized usage supplies the numerator evidence and the observed
+	// outputDelivery evidence supplies the delivery facts.
 	outcome := strings.TrimSpace(classification.outcome)
 	if outcome == "" {
 		outcome = runtimeStreamOutcomeUnknown
@@ -101,6 +105,7 @@ func (capture *sseCompletedResponseCapture) runtimeResponseCapture(classificatio
 		StreamOutcome:            outcome,
 		StreamErrorKind:          classification.kind,
 		StreamErrorDetail:        classification.detail,
+		OutputDelivery:           classifyOutputDelivery(capture.streamHooks.Kind, outcome, usage, capture.outputDelivery),
 	}
 }
 
@@ -151,6 +156,13 @@ func (capture *sseCompletedResponseCapture) consumePayload(payloadBytes []byte, 
 		capture.terminalSignal = terminalSignal
 	}
 	capture.streamHooks.mergeUsage(&capture.usage, capture.currentEvent, payload)
+	observation := capture.streamHooks.collectOutputEvent(capture.currentEvent, payload)
+	if observation.ReasoningObserved {
+		capture.outputDelivery.reasoningObserved = true
+	}
+	if observation.VisibleOutput {
+		capture.outputDelivery.observe(observedAt)
+	}
 	if usage := capture.usage.canonicalizedForRuntimeUsage(capture.streamHooks.UsageRule); usage.hasValues() {
 		if usageBody := buildUsageBodyFromResponseUsage(usage); len(usageBody) > 0 {
 			capture.completedResponse = usageBody

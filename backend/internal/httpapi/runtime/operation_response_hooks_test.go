@@ -36,6 +36,14 @@ func TestNonStreamResponseHooksByOperation(t *testing.T) {
 			wantUsage:    generationResponseHookTestUsageWithCacheAndReasoning(7, 2, 16, 2, 5),
 		},
 		{
+			name:         "openai responses input tokens uses token-count parser",
+			requestPath:  "/v1/responses/input_tokens",
+			payload:      `{"input_tokens":19}`,
+			wantProvider: "openai",
+			wantKind:     operationResponseKindTokenCount,
+			wantUsage:    tokenCountResponseHookTestUsage(19),
+		},
+		{
 			name:         "anthropic count tokens uses token-count parser",
 			requestPath:  "/v1/messages/count_tokens",
 			payload:      `{"input_tokens":23,"usage":{"prompt_tokens":999,"completion_tokens":999,"total_tokens":1998}}`,
@@ -74,6 +82,11 @@ func TestNonStreamResponseHooksByOperation(t *testing.T) {
 			if got := capture.extractedUsage(); !reflect.DeepEqual(got, test.wantUsage) {
 				t.Fatalf("expected extracted usage %+v, got %+v", test.wantUsage, got)
 			}
+			wantReason := "not_applicable_non_stream"
+			if test.wantKind == operationResponseKindTokenCount {
+				wantReason = "not_applicable_non_text_operation"
+			}
+			assertOutputDelivery(t, capture, "not_applicable", wantReason, 0, 0)
 		})
 	}
 }

@@ -35,6 +35,7 @@ func (s *Service) buildRuntimeBudgetExhaustionTelemetryEnvelope(plan requestPlan
 	if routeReason == gatewaycore.RouteReasonDirectMatch {
 		routeReason = gatewaycore.RouteReasonPolicyReject
 	}
+	outputDelivery := outputDeliveryForFailure(plan.RuntimeOperation)
 
 	callerRequestID := strings.TrimSpace(runtimeCallerRequestIDFromContext(request.Context()))
 	telemetry := runtimeTelemetryEnvelopeContext{
@@ -47,6 +48,7 @@ func (s *Service) buildRuntimeBudgetExhaustionTelemetryEnvelope(plan requestPlan
 			reportCurrencyCode:   runtimeOptionalTrimmedString(plan.ReportCurrencySnapshot.Code),
 			reportCurrencySymbol: runtimeOptionalTrimmedString(plan.ReportCurrencySnapshot.Symbol),
 			operationName:        strings.TrimSpace(plan.RuntimeOperation.Name),
+			outputDelivery:       outputDelivery,
 		},
 		ingressRequestID:          ingressRequestID,
 		ingressStartedAt:          startedAt.UTC(),
@@ -80,6 +82,8 @@ func (s *Service) buildRuntimeBudgetExhaustionTelemetryEnvelope(plan requestPlan
 			PricingStatus:               runtimePricingStatusIneligible,
 			PricingEvidenceTrust:        runtimePricingEvidenceTrust,
 			StreamOutcome:               runtimeStreamOutcomeNotStreaming,
+			OutputRateState:             outputDelivery.State,
+			OutputRateReason:            outputDelivery.Reason,
 			AuditEnabledAtRequest:       plan.AuditEnabledAtRequest,
 			AuditCaptureBodiesAtRequest: plan.AuditCaptureBodiesAtRequest,
 		}
@@ -140,6 +144,8 @@ func (s *Service) buildRuntimeBudgetExhaustionTelemetryEnvelope(plan requestPlan
 		ResponseTimeMS:             intPtr(responseTimeMS),
 		CompletionDurationMS:       intPtr(responseTimeMS),
 		StreamOutcome:              runtimeStreamOutcomeNotStreaming,
+		OutputRateState:            outputDelivery.State,
+		OutputRateReason:           outputDelivery.Reason,
 		PricingStatus:              runtimePricingStatusIneligible,
 		PricingEvidenceTrust:       runtimePricingEvidenceTrust,
 		CurrencyAttribution:        runtimeUsageCurrencyAttributionIdentified,
@@ -305,6 +311,7 @@ func (s *Service) buildRuntimePlanningFailureTelemetryEnvelope(failure runtimePl
 	requestGenerationSnapshot := failure.RequestGenerationParams.clone()
 	selectedTerminalTargetID := cloneRuntimeIntPointer(failure.SelectedTerminalTargetID)
 	completionDurationMS := intPtr(responseTimeMS)
+	outputDelivery := outputDeliveryForFailure(failure.RuntimeOperation)
 	requestLog := requestLogInsert{
 		ProfileID:                     failure.ProfileID,
 		ModelID:                       failure.RequestedModelID,
@@ -339,6 +346,8 @@ func (s *Service) buildRuntimePlanningFailureTelemetryEnvelope(failure runtimePl
 		CompletionDurationMS:          completionDurationMS,
 		TTFTMS:                        nil,
 		StreamOutcome:                 runtimeStreamOutcomeNotStreaming,
+		OutputRateState:               outputDelivery.State,
+		OutputRateReason:              outputDelivery.Reason,
 		AuditEnabledAtRequest:         failure.AuditEnabledAtRequest,
 		AuditCaptureBodiesAtRequest:   failure.AuditCaptureBodiesAtRequest,
 		RequestGenerationParams:       requestGenerationSnapshot.Params,
@@ -383,6 +392,8 @@ func (s *Service) buildRuntimePlanningFailureTelemetryEnvelope(failure runtimePl
 		TTFTMS:                     nil,
 		StreamOutcome:              runtimeStreamOutcomeNotStreaming,
 		StreamErrorKind:            nil,
+		OutputRateState:            outputDelivery.State,
+		OutputRateReason:           outputDelivery.Reason,
 		PricingStatus:              runtimePricingStatusIneligible,
 		PricingEvidenceTrust:       runtimePricingEvidenceTrust,
 		CurrencyAttribution:        runtimeUsageCurrencyAttributionIdentified,
@@ -424,6 +435,7 @@ func (s *Service) buildRuntimeExecutionFailureTelemetryEnvelope(plan requestPlan
 		routeReason = gatewaycore.RouteReasonPolicyReject
 	}
 	completionDurationMS := intPtr(responseTimeMS)
+	outputDelivery := outputDeliveryForFailure(plan.RuntimeOperation)
 	requestLog := requestLogInsert{
 		ProfileID:                     plan.ProfileID,
 		ModelID:                       plan.RequestedModelID,
@@ -449,6 +461,8 @@ func (s *Service) buildRuntimeExecutionFailureTelemetryEnvelope(plan requestPlan
 		CallerUserAgent:               trimmedStringPointer(request.UserAgent()),
 		CompletionDurationMS:          completionDurationMS,
 		StreamOutcome:                 runtimeStreamOutcomeNotStreaming,
+		OutputRateState:               outputDelivery.State,
+		OutputRateReason:              outputDelivery.Reason,
 		AuditEnabledAtRequest:         plan.AuditEnabledAtRequest,
 		AuditCaptureBodiesAtRequest:   plan.AuditCaptureBodiesAtRequest,
 		RequestGenerationParams:       requestGenerationSnapshot.Params,
@@ -487,6 +501,8 @@ func (s *Service) buildRuntimeExecutionFailureTelemetryEnvelope(plan requestPlan
 		ResponseTimeMS:             intPtr(responseTimeMS),
 		CompletionDurationMS:       completionDurationMS,
 		StreamOutcome:              runtimeStreamOutcomeNotStreaming,
+		OutputRateState:            outputDelivery.State,
+		OutputRateReason:           outputDelivery.Reason,
 		PricingStatus:              runtimePricingStatusIneligible,
 		PricingEvidenceTrust:       runtimePricingEvidenceTrust,
 		CurrencyAttribution:        runtimeUsageCurrencyAttributionIdentified,

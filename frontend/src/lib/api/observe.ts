@@ -111,6 +111,13 @@ export type UsageSummaryResponse = {
   p95_ttft_ms: number | null;
   output_rate_sample_count: number;
   avg_output_rate_tps: number | null;
+  output_rate_state_counts: {
+    measured: number;
+    unmeasurable: number;
+    not_applicable: number;
+    unknown: number;
+  };
+  output_rate_reason_counts: Record<string, number>;
   input_token_sample_count: number;
   output_token_sample_count: number;
   cache_read_input_token_sample_count: number;

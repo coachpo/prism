@@ -366,12 +366,13 @@ func loadTerminalTargetAggregates(ctx context.Context, exec queryExecutor, profi
 		COALESCE(usage_request_events.pricing_status, 'unknown'),
 		COALESCE(usage_request_events.unpriced_reason, ''),
 		final_attempt.attempt_duration_ms,
-		COALESCE(usage_request_events.output_tokens, 0),
+		usage_request_events.output_tokens,
 		COALESCE(usage_request_events.total_tokens, 0),
 		COALESCE(usage_request_events.total_cost_user_currency_micros, 0),
 		usage_request_events.pricing_status,
 		usage_request_events.pricing_evidence_trust,
-		usage_request_events.completion_duration_ms,
+		usage_request_events.output_rate_state,
+		usage_request_events.output_delivery_span_ms,
 		usage_request_events.created_at,
 		usage_request_events.endpoint_id
 		FROM classified AS usage_request_events
@@ -405,15 +406,16 @@ func loadTerminalTargetAggregates(ctx context.Context, exec queryExecutor, profi
 		var pricingStatus string
 		var unpricedReason string
 		var ttftMS sql.NullInt32
-		var outputTokens int
+		var outputTokens sql.NullInt32
 		var totalTokens int
 		var totalCostMicros int64
 		var rawPricingStatus sql.NullString
 		var pricingEvidenceTrust sql.NullString
-		var completionDurationMS sql.NullInt32
+		var outputRateState sql.NullString
+		var outputDeliverySpanMS sql.NullInt32
 		var createdAt time.Time
 		var rowEndpointID sql.NullInt32
-		if err := rows.Scan(&connectionID, &connectionLabel, &statusCode, &successFlag, &streamOutcome, &pricingStatus, &unpricedReason, &ttftMS, &outputTokens, &totalTokens, &totalCostMicros, &rawPricingStatus, &pricingEvidenceTrust, &completionDurationMS, &createdAt, &rowEndpointID); err != nil {
+		if err := rows.Scan(&connectionID, &connectionLabel, &statusCode, &successFlag, &streamOutcome, &pricingStatus, &unpricedReason, &ttftMS, &outputTokens, &totalTokens, &totalCostMicros, &rawPricingStatus, &pricingEvidenceTrust, &outputRateState, &outputDeliverySpanMS, &createdAt, &rowEndpointID); err != nil {
 			return nil, fmt.Errorf("scan terminal-target usage event: %w", err)
 		}
 		aggregate, ok := aggregates[connectionID]
@@ -442,7 +444,10 @@ func loadTerminalTargetAggregates(ctx context.Context, exec queryExecutor, profi
 		if ttftMS.Valid {
 			aggregate.ttftValues = append(aggregate.ttftValues, int(ttftMS.Int32))
 		}
-		if outputRate := requestOutputRateTPS(outputTokens, true, nullableIntPointer(ttftMS), nullableIntPointer(completionDurationMS)); outputRate != nil {
+		// The rate reads only persisted measured evidence (state + delivery
+		// span), never a TTFT/completion derivation and never a cross-source
+		// mix of attempt duration with usage-event duration.
+		if outputRate := requestOutputRateTPS(intValue(nullableInt32(outputTokens)), outputTokens.Valid, NormalizeOutputRateState(stringValue(nullableString(outputRateState))), nullableInt32(outputDeliverySpanMS)); outputRate != nil {
 			aggregate.outputRateSum += *outputRate
 			aggregate.eligibleRates++
 		}

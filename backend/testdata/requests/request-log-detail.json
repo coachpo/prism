@@ -22,8 +22,8 @@
       "retention_from_time": null,
       "retention_generation": "1",
       "source": "raw",
-      "source_revision": "d1d3e737d18ff1ef9b5a53e4596e4c37c05eba8f55b817b5cb62a51c245fae69",
-      "to_time": "2026-08-27T08:45:58.477117518Z"
+      "source_revision": "112e6b6f1be71276a549e9ce6812dce0d12f4a61bdfd7e88910c43cf87a7511c",
+      "to_time": "2026-08-31T08:28:29.963485155Z"
     }
   },
   "endpoint": {
@@ -171,6 +171,9 @@
     "legacy_duration_ms": null,
     "legacy_status_code": null,
     "model_label": "gpt-4o",
+    "output_rate_reason": null,
+    "output_rate_state": "unknown",
+    "output_rate_tps": null,
     "request_log_id": "101",
     "row_kind": "upstream",
     "stream_error_kind": null,

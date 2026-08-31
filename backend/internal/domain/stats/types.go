@@ -209,6 +209,9 @@ type RequestLogListItem struct {
 	LegacyDurationMS              *int      `json:"legacy_duration_ms"`
 	TTFTMS                        *int      `json:"ttft_ms"`
 	CompletionDurationMS          *int      `json:"completion_duration_ms"`
+	OutputRateTPS                 *float64  `json:"output_rate_tps"`
+	OutputRateState               string    `json:"output_rate_state"`
+	OutputRateReason              *string   `json:"output_rate_reason"`
 	IsStream                      bool      `json:"is_stream"`
 	StreamOutcome                 string    `json:"stream_outcome"`
 	StreamErrorKind               *string   `json:"stream_error_kind"`

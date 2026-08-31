@@ -105,6 +105,10 @@ func buildRuntimeUsageEvent(plan requestPlan, result executionResult, request *h
 		TTFTMS:                   telemetry.ttftMS,
 		StreamOutcome:            telemetry.streamOutcome,
 		StreamErrorKind:          telemetry.streamErrorKind,
+		OutputRateState:          telemetry.outputDelivery.State,
+		OutputRateReason:         telemetry.outputDelivery.Reason,
+		OutputDeliveryEventCount: telemetry.outputDelivery.EventCount,
+		OutputDeliverySpanMS:     telemetry.outputDelivery.SpanMS,
 		CurrencyAttribution:      runtimeUsageCurrencyAttributionIdentified,
 	}
 	usageEvent.applyRuntimePricingResult(telemetry.pricingResult)

@@ -25,9 +25,9 @@ func TestObserveUsageSeriesResolvesGroupedEntityLabels(t *testing.T) {
 		if _, err := harness.conn.Exec(context.Background(), `
 			INSERT INTO usage_request_events (profile_id, ingress_request_id, model_id, api_family, operation_name, status_code, success_flag,
 				attempt_count, request_path, endpoint_id, connection_id, endpoint_label_snapshot, pricing_status, pricing_evidence_trust,
-				input_tokens, output_tokens, total_tokens, cache_read_input_tokens, cache_creation_input_tokens, ttft_ms, completion_duration_ms, created_at)
+				input_tokens, output_tokens, total_tokens, cache_read_input_tokens, cache_creation_input_tokens, ttft_ms, completion_duration_ms, output_rate_state, output_delivery_event_count, output_delivery_span_ms, created_at)
 			VALUES ($1, $2, 'label-model', 'openai', 'openai.chat_completions', 200, true, 1, '/v1/chat/completions', $3, $4, 'Retained Endpoint Label', 'ineligible', 'trusted',
-				400, 100, 600, 100, 0, 100, 1100, $5)`,
+				400, 100, 600, 100, 0, 100, 1100, 'measured', 2, 1000, $5)`,
 			profileID, fmt.Sprintf("label-ingress-%d", index), endpointID, connectionID, now.Add(time.Duration(index)*time.Second),
 		); err != nil {
 			t.Fatalf("seed labelled usage row: %v", err)

@@ -9,11 +9,18 @@ import { getStaticMessages } from "@/i18n/staticMessages";
 // Chain envelopes deliberately carry a smaller retained-row shape than the
 // attempts table. This projection is the single boundary that fills the
 // table's honest absent/default fields without moving query state into a view.
-export function flattenChainItems(response: ChainResponse): RequestLogListItem[] {
+export function flattenChainItems(
+  response: ChainResponse,
+): RequestLogListItem[] {
   const rows: RequestLogListItem[] = [];
   const copy = getStaticMessages().requestLogs;
   for (const chain of response.items) {
+    const finalized = chain.finalized_summary;
     for (const row of chain.retained_rows) {
+      const isFinalizedRow =
+        finalized?.request_log_id != null &&
+        finalized.request_log_id === row.request_log_id;
+      const hasFinalizedRowIdentity = finalized?.request_log_id != null;
       const withLabels = row as RequestLogChainRow & {
         model_label?: string;
         attempt_target_model_label?: string | null;
@@ -57,14 +64,28 @@ export function flattenChainItems(response: ChainResponse): RequestLogListItem[]
           row.terminal_target_owner_model_id ?? null,
         ttft_ms: withLabels.ttft_ms ?? null,
         completion_duration_ms: withLabels.completion_duration_ms ?? null,
+        // The finalized summary owns the per-request rate. Project it only onto
+        // its contributing final row; other known intermediate rows are
+        // not-applicable rather than being mislabeled as historical unknown.
+        output_rate_tps: isFinalizedRow ? finalized!.output_rate_tps : null,
+        output_rate_state: isFinalizedRow
+          ? finalized!.output_rate_state
+          : hasFinalizedRowIdentity
+            ? "not_applicable"
+            : "unknown",
+        output_rate_reason: isFinalizedRow
+          ? finalized!.output_rate_reason
+          : null,
         upstream_status_code: row.upstream_status_code,
         gateway_status_code: row.gateway_status_code,
         legacy_status_code: row.legacy_status_code,
         attempt_duration_ms: row.attempt_duration_ms,
         legacy_duration_ms: row.legacy_duration_ms,
         is_stream: row.stream_outcome !== "not_streaming",
-        stream_outcome: row.stream_outcome as RequestLogListItem["stream_outcome"],
-        stream_error_kind: row.stream_error_kind as RequestLogListItem["stream_error_kind"],
+        stream_outcome:
+          row.stream_outcome as RequestLogListItem["stream_outcome"],
+        stream_error_kind:
+          row.stream_error_kind as RequestLogListItem["stream_error_kind"],
         error_source: row.error_source,
         error_code: row.error_code,
         failure_stage: row.failure_stage,

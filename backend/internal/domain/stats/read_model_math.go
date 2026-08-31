@@ -105,16 +105,12 @@ func resolveTimePreset(preset string, fromTime *time.Time, toTime *time.Time, re
 	}
 }
 
-func requestOutputRateTPS(outputTokens int, hasOutputTokens bool, ttftMS *int, completionDurationMS *int) *float64 {
-	if !hasOutputTokens || ttftMS == nil || completionDurationMS == nil {
-		return nil
-	}
-	postTTFT := *completionDurationMS - *ttftMS
-	if postTTFT <= 0 {
-		return nil
-	}
-	resolved := roundFloat((float64(outputTokens)*1000)/float64(postTTFT), 2)
-	return &resolved
+// requestOutputRateTPS derives the authoritative per-request output rate from
+// persisted measured evidence only. See OutputRateTPSFromEvidence: historical
+// rows (state NULL/unknown) and any non-measured verdict return nil and never
+// enter an average.
+func requestOutputRateTPS(outputTokens int, hasOutputTokens bool, state string, deliverySpanMS *int) *float64 {
+	return OutputRateTPSFromEvidence(outputTokens, hasOutputTokens, state, deliverySpanMS)
 }
 
 func bucketFloor(value time.Time, granularity string) time.Time {

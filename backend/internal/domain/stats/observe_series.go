@@ -25,10 +25,10 @@ type SeriesPoint struct {
 	P95TTFTMS               *int    `json:"p95_ttft_ms"`
 	TotalTokens             *int64  `json:"total_tokens"`
 	KnownCostMicros         *string `json:"known_cost_micros"`
-	// Output rate keeps the usage-summary caliber: a per-request tok/s value
-	// only where output tokens, TTFT, and a positive stream duration exist,
-	// averaged per request inside the bucket. A zero sample count leaves the
-	// average null instead of publishing a fabricated zero.
+	// Output rate keeps the usage-summary caliber: only persisted measured
+	// evidence with an output-token numerator and positive visible-delivery
+	// span produces a per-request tok/s value, averaged with equal request
+	// weight inside the bucket. A zero sample count leaves the average null.
 	OutputRateSampleCount int      `json:"output_rate_sample_count"`
 	AvgOutputRateTPS      *float64 `json:"avg_output_rate_tps"`
 	// Cache basis carries the shared eligibility predicate's raw components so

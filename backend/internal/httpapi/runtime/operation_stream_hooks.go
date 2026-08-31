@@ -7,6 +7,12 @@ import (
 
 type operationStreamTerminalClassifier func(string, map[string]any) sseTerminalSignal
 type operationStreamUsageMerger func(runtimeUsageNormalizationRule, *responseUsage, string, map[string]any)
+type operationStreamOutputObservation struct {
+	VisibleOutput     bool
+	ReasoningObserved bool
+}
+
+type operationStreamOutputEventCollector func(event string, payload map[string]any) operationStreamOutputObservation
 
 type operationStreamHooks struct {
 	Provider               string
@@ -15,6 +21,11 @@ type operationStreamHooks struct {
 	CompleteOnDoneSentinel bool
 	ClassifyTerminalSignal operationStreamTerminalClassifier
 	MergeUsage             operationStreamUsageMerger
+	// CollectOutputEvent is the operation's strict output classifier. Visible
+	// text/tool increments qualify as delivery evidence; reasoning is tracked
+	// separately so providers that do not split reasoning usage can fail closed.
+	// Usage, terminal, control, and image payloads never qualify.
+	CollectOutputEvent operationStreamOutputEventCollector
 }
 
 var operationStreamHooksByCollectionID = map[string]operationStreamHooks{
@@ -24,6 +35,7 @@ var operationStreamHooksByCollectionID = map[string]operationStreamHooks{
 		UsageRule:              runtimeUsageRuleOpenAIChatCompletions,
 		CompleteOnDoneSentinel: true,
 		MergeUsage:             mergeOpenAIChatCompletionsStreamUsage,
+		CollectOutputEvent:     collectOpenAIChatCompletionsOutputEvent,
 	},
 	"openai.responses": {
 		Provider:               "openai",
@@ -31,6 +43,7 @@ var operationStreamHooksByCollectionID = map[string]operationStreamHooks{
 		UsageRule:              runtimeUsageRuleOpenAIResponses,
 		ClassifyTerminalSignal: classifyOpenAIResponsesStreamTerminal,
 		MergeUsage:             mergeOpenAIResponsesStreamUsage,
+		CollectOutputEvent:     collectOpenAIResponsesOutputEvent,
 	},
 	runtimeHookCollectionOpenAIImagesGeneration: {
 		Provider:               "openai",
@@ -52,6 +65,7 @@ var operationStreamHooksByCollectionID = map[string]operationStreamHooks{
 		UsageRule:              runtimeUsageRuleAnthropicMessages,
 		ClassifyTerminalSignal: classifyAnthropicMessagesStreamTerminal,
 		MergeUsage:             mergeAnthropicMessagesStreamUsage,
+		CollectOutputEvent:     collectAnthropicMessagesOutputEvent,
 	},
 	"gemini.stream_generate_content": {
 		Provider:               "gemini",
@@ -59,6 +73,7 @@ var operationStreamHooksByCollectionID = map[string]operationStreamHooks{
 		UsageRule:              runtimeUsageRuleGeminiStreamGenerateContent,
 		ClassifyTerminalSignal: classifyGeminiStreamGenerateContentTerminal,
 		MergeUsage:             mergeGeminiStreamGenerateContentUsage,
+		CollectOutputEvent:     collectGeminiStreamGenerateContentOutputEvent,
 	},
 }
 
@@ -90,6 +105,13 @@ func (hooks operationStreamHooks) mergeUsage(usage *responseUsage, event string,
 		return
 	}
 	hooks.MergeUsage(hooks.UsageRule, usage, event, payload)
+}
+
+func (hooks operationStreamHooks) collectOutputEvent(event string, payload map[string]any) operationStreamOutputObservation {
+	if hooks.CollectOutputEvent == nil {
+		return operationStreamOutputObservation{}
+	}
+	return hooks.CollectOutputEvent(event, payload)
 }
 
 func classifyOpenAIResponsesStreamTerminal(event string, payload map[string]any) sseTerminalSignal {

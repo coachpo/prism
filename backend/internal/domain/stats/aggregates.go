@@ -39,6 +39,8 @@ type scopedStatObservation struct {
 	PricingStatus               string
 	TrustedCost                 *int64
 	OutputRateTPS               *float64
+	OutputRateState             string
+	OutputRateReason            *string
 }
 
 type scopedStatAccumulator struct {
@@ -131,7 +133,9 @@ func loadUsageStatObservations(ctx context.Context, exec queryExecutor, params S
 			ReasoningTokens: record.ReasoningTokens, HasReasoningTokens: record.HasReasoningTokens,
 			CacheBasisEligible: record.CacheBasisEligible,
 			PricingStatus:      record.PricingStatus,
-			OutputRateTPS:      requestOutputRateTPS(record.OutputTokens, record.HasOutputTokens, record.TTFTMS, record.CompletionDurationMS),
+			OutputRateTPS:      requestOutputRateTPS(record.OutputTokens, record.HasOutputTokens, record.OutputRateState, record.OutputDeliverySpanMS),
+			OutputRateState:    record.OutputRateState,
+			OutputRateReason:   record.OutputRateReason,
 		}
 		if record.TrustedKnownCost() && record.HasTotalCostUserCurrencyMicros {
 			cost := record.TotalCostUserCurrencyMicros
@@ -204,6 +208,7 @@ func loadAttemptStatObservations(ctx context.Context, exec queryExecutor, params
 	}
 	rows, err := exec.Query(ctx, `SELECT ingress_request_id, model_id, resolved_target_model_id, api_family, endpoint_id, connection_id, attempt_trigger, attempt_result, attempt_duration_ms,
 		input_tokens, output_tokens, total_tokens, cache_read_input_tokens, cache_creation_input_tokens, reasoning_tokens, ttft_ms, completion_duration_ms,
+		output_rate_state, output_rate_reason, output_delivery_span_ms,
 		`+cacheBasisEligibleSQL+` AS cache_basis_eligible
 		FROM request_logs WHERE `+strings.Join(clauses, " AND ")+` ORDER BY created_at ASC, id ASC`, args...)
 	if err != nil {
@@ -216,9 +221,12 @@ func loadAttemptStatObservations(ctx context.Context, exec queryExecutor, params
 		var target sql.NullString
 		var endpointID, connectionID, duration, inputTokens, outputTokens, totalTokens sql.NullInt32
 		var cacheReadInputTokens, cacheCreationInputTokens, reasoningTokens, ttftMS, completionMS sql.NullInt32
+		var outputRateState sql.NullString
+		var outputRateReason sql.NullString
+		var outputDeliverySpanMS sql.NullInt32
 		var cacheBasisEligible bool
 		var trigger, result sql.NullString
-		if err := rows.Scan(&ingress, &modelID, &target, &apiFamily, &endpointID, &connectionID, &trigger, &result, &duration, &inputTokens, &outputTokens, &totalTokens, &cacheReadInputTokens, &cacheCreationInputTokens, &reasoningTokens, &ttftMS, &completionMS, &cacheBasisEligible); err != nil {
+		if err := rows.Scan(&ingress, &modelID, &target, &apiFamily, &endpointID, &connectionID, &trigger, &result, &duration, &inputTokens, &outputTokens, &totalTokens, &cacheReadInputTokens, &cacheCreationInputTokens, &reasoningTokens, &ttftMS, &completionMS, &outputRateState, &outputRateReason, &outputDeliverySpanMS, &cacheBasisEligible); err != nil {
 			return nil, err
 		}
 		resultValue := stringValue(nullableString(result))
@@ -236,7 +244,9 @@ func loadAttemptStatObservations(ctx context.Context, exec queryExecutor, params
 			CacheCreationInputTokens: intValue(nullableInt32(cacheCreationInputTokens)), HasCacheCreationInputTokens: cacheCreationInputTokens.Valid,
 			ReasoningTokens: intValue(nullableInt32(reasoningTokens)), HasReasoningTokens: reasoningTokens.Valid,
 			CacheBasisEligible: cacheBasisEligible,
-			OutputRateTPS:      requestOutputRateTPS(intValue(nullableInt32(outputTokens)), outputTokens.Valid, nullableInt32(ttftMS), nullableInt32(completionMS)),
+			OutputRateTPS:      requestOutputRateTPS(intValue(nullableInt32(outputTokens)), outputTokens.Valid, NormalizeOutputRateState(stringValue(nullableString(outputRateState))), nullableInt32(outputDeliverySpanMS)),
+			OutputRateState:    NormalizeOutputRateState(stringValue(nullableString(outputRateState))),
+			OutputRateReason:   nullableString(outputRateReason),
 		}
 		items = append(items, item)
 	}

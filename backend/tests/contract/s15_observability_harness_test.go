@@ -257,13 +257,18 @@ type usageEventSeed struct {
 	ReasoningTokens                         *int
 	ResponseTimeMS, TTFTMS                  *int
 	CompletionDurationMS                    *int
-	EndpointLabelSnapshot                   *string
-	ProxyAPIKeyNameSnapshot                 *string
-	UnpricedReason                          *string
-	BillableFlag, PricedFlag                *bool
-	TotalCostUserCurrencyMicros             *int64
-	RequestPath                             string
-	CreatedAt                               time.Time
+	// Output-rate evidence: when state is set the fixture row is a measured
+	// sample; otherwise the row keeps NULL evidence and reads as unknown.
+	OutputRateState             string
+	OutputDeliveryEventCount    *int
+	OutputDeliverySpanMS        *int
+	EndpointLabelSnapshot       *string
+	ProxyAPIKeyNameSnapshot     *string
+	UnpricedReason              *string
+	BillableFlag, PricedFlag    *bool
+	TotalCostUserCurrencyMicros *int64
+	RequestPath                 string
+	CreatedAt                   time.Time
 }
 
 type auditLogSeed struct {
@@ -289,7 +294,7 @@ func insertUsageEvent(t *testing.T, harness *contractHarness, seed usageEventSee
 	}
 	if _, err := harness.conn.Exec(
 		context.Background(),
-		`INSERT INTO usage_request_events (id, profile_id, ingress_request_id, model_id, api_family, endpoint_id, endpoint_label_snapshot, connection_id, proxy_api_key_id_snapshot, proxy_api_key_name_snapshot, proxy_api_key_attribution_state, proxy_api_key_auth_enforced_at_request, status_code, success_flag, input_tokens, output_tokens, total_tokens, cache_read_input_tokens, cache_creation_input_tokens, reasoning_tokens, input_cost_micros, output_cost_micros, cache_read_input_cost_micros, cache_creation_input_cost_micros, reasoning_cost_micros, total_cost_original_micros, total_cost_user_currency_micros, attempt_count, request_path, created_at, response_time_ms, completion_duration_ms, ttft_ms, pricing_status, pricing_evidence_trust, unpriced_reason, pricing_resolution_kind) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37)`,
+		`INSERT INTO usage_request_events (id, profile_id, ingress_request_id, model_id, api_family, endpoint_id, endpoint_label_snapshot, connection_id, proxy_api_key_id_snapshot, proxy_api_key_name_snapshot, proxy_api_key_attribution_state, proxy_api_key_auth_enforced_at_request, status_code, success_flag, input_tokens, output_tokens, total_tokens, cache_read_input_tokens, cache_creation_input_tokens, reasoning_tokens, input_cost_micros, output_cost_micros, cache_read_input_cost_micros, cache_creation_input_cost_micros, reasoning_cost_micros, total_cost_original_micros, total_cost_user_currency_micros, attempt_count, request_path, created_at, response_time_ms, completion_duration_ms, ttft_ms, output_rate_state, output_delivery_event_count, output_delivery_span_ms, pricing_status, pricing_evidence_trust, unpriced_reason, pricing_resolution_kind) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40)`,
 		seed.ID,
 		seed.ProfileID,
 		seed.IngressRequestID,
@@ -323,6 +328,9 @@ func insertUsageEvent(t *testing.T, harness *contractHarness, seed usageEventSee
 		nullableTestInt(seed.ResponseTimeMS),
 		nullableTestInt(seed.CompletionDurationMS),
 		nullableTestInt(seed.TTFTMS),
+		nullableTestStringIfSet(seed.OutputRateState),
+		nullableTestInt(seed.OutputDeliveryEventCount),
+		nullableTestInt(seed.OutputDeliverySpanMS),
 		usageEventPricingStatus(seed),
 		usageEventPricingTrust(seed),
 		usageEventUnpricedReason(seed),
@@ -507,6 +515,10 @@ func dropS15RequestLogPartition(t *testing.T, harness *contractHarness, createdA
 	t.Helper()
 	day := utcContractPartitionDay(createdAt)
 	partitionName := fmt.Sprintf("request_logs_p%s", day.Format("20060102"))
+	// SAFETY: DDL identifiers cannot be query parameters. The only dynamic
+	// piece is the partition name assembled from a formatted date and quoted
+	// through quoteIdentifier, which neutralizes quotes; no caller input
+	// reaches this statement.
 	if _, err := harness.conn.Exec(context.Background(), fmt.Sprintf(`DROP TABLE IF EXISTS public.%s`, quoteIdentifier(partitionName))); err != nil {
 		t.Fatalf("drop request log partition %s: %v", partitionName, err)
 	}
@@ -588,6 +600,15 @@ func nullableTestStringBytes(value *string) any {
 	return []byte(*value)
 }
 
+// nullableTestStringIfSet maps an empty fixture string to SQL NULL so an
+// unset output-rate evidence state keeps the evidence columns NULL.
+func nullableTestStringIfSet(value string) any {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	return value
+}
+
 func mustDecodeBase64String(t *testing.T, value any) string {
 	t.Helper()
 	encoded, ok := value.(string)
@@ -599,13 +620,6 @@ func mustDecodeBase64String(t *testing.T, value any) string {
 		t.Fatalf("decode base64 body: %v", err)
 	}
 	return string(decoded)
-}
-
-func nullableTestBool(value *bool) any {
-	if value == nil {
-		return nil
-	}
-	return *value
 }
 
 func nullableTestTime(value *time.Time) any {

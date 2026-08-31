@@ -60,6 +60,9 @@ export interface RequestLogListItem {
   terminal_target_owner_model_id: string | null;
   ttft_ms: number | null;
   completion_duration_ms: number | null;
+  output_rate_tps: number | null;
+  output_rate_state: "measured" | "unmeasurable" | "not_applicable" | "unknown";
+  output_rate_reason: string | null;
   upstream_status_code: number | null;
   gateway_status_code: number | null;
   legacy_status_code: number | null;
@@ -166,8 +169,17 @@ export interface StatsRequestParams {
   error_text?: string;
   pricing_status?: "priced" | "unpriced" | "ineligible" | "unknown";
   unpriced_reason?: RepeatableRequestFilter<string>;
-  pricing_card_role?: "standard" | "tier_base" | "tier_above" | "peak" | "offpeak";
-  pricing_selection_state?: "not_evaluated" | "not_applicable" | "selected" | "unresolved";
+  pricing_card_role?:
+    | "standard"
+    | "tier_base"
+    | "tier_above"
+    | "peak"
+    | "offpeak";
+  pricing_selection_state?:
+    | "not_evaluated"
+    | "not_applicable"
+    | "selected"
+    | "unresolved";
   from_time?: string;
   to_time?: string;
   endpoint_id?: RepeatableRequestFilter<number | string>;
@@ -332,6 +344,8 @@ export interface FinalizedSummary {
   endpoint: { id: number; label: string } | null;
   ttft_ms: number | null;
   output_rate_tps: number | null;
+  output_rate_state: "measured" | "unmeasurable" | "not_applicable" | "unknown";
+  output_rate_reason: string | null;
   total_tokens: number | null;
   total_cost_user_currency_micros: number | null;
   report_currency_code: string | null;
@@ -543,6 +557,13 @@ export interface RequestLogDetail {
     stream_error_kind: string | null;
     ttft_ms: number | null;
     completion_duration_ms: number | null;
+    output_rate_tps: number | null;
+    output_rate_state:
+      | "measured"
+      | "unmeasurable"
+      | "not_applicable"
+      | "unknown";
+    output_rate_reason: string | null;
     attempt_number: number | null;
     attempt_trigger: AttemptTrigger | null;
     attempt_result: AttemptResult | null;

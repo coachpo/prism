@@ -50,6 +50,9 @@ type usageEventRecord struct {
 	ResponseTimeMS                 *int
 	TTFTMS                         *int
 	CompletionDurationMS           *int
+	OutputRateState                string
+	OutputRateReason               *string
+	OutputDeliverySpanMS           *int
 	CurrentModelLabel              *string
 	CurrentEndpointName            *string
 	CurrentEndpointBaseURL         *string
@@ -108,7 +111,7 @@ func loadUsageEventRecords(ctx context.Context, exec queryExecutor, profileID in
 		args = append(args, *connectionID)
 		clauses = append(clauses, fmt.Sprintf("usage_request_events.connection_id = $%d", len(args)))
 	}
-	rows, err := exec.Query(ctx, `SELECT usage_request_events.id, usage_request_events.created_at, usage_request_events.profile_id, usage_request_events.ingress_request_id, usage_request_events.model_id, usage_request_events.resolved_target_model_id, usage_request_events.api_family, usage_request_events.endpoint_id, usage_request_events.endpoint_label_snapshot, usage_request_events.connection_id, usage_request_events.proxy_api_key_id_snapshot, usage_request_events.proxy_api_key_name_snapshot, usage_request_events.status_code, usage_request_events.success_flag, usage_request_events.pricing_status, usage_request_events.pricing_evidence_trust, usage_request_events.unpriced_reason, usage_request_events.input_tokens, usage_request_events.output_tokens, usage_request_events.total_tokens, usage_request_events.cache_read_input_tokens, usage_request_events.cache_creation_input_tokens, usage_request_events.reasoning_tokens, usage_request_events.total_cost_user_currency_micros, usage_request_events.attempt_count, usage_request_events.final_attempt_number, usage_request_events.request_path, usage_request_events.stream_outcome, usage_request_events.response_time_ms, usage_request_events.ttft_ms, usage_request_events.completion_duration_ms, model_configs.display_name, endpoints.name, endpoints.base_url, proxy_api_keys.name, proxy_api_keys.key_prefix,
+	rows, err := exec.Query(ctx, `SELECT usage_request_events.id, usage_request_events.created_at, usage_request_events.profile_id, usage_request_events.ingress_request_id, usage_request_events.model_id, usage_request_events.resolved_target_model_id, usage_request_events.api_family, usage_request_events.endpoint_id, usage_request_events.endpoint_label_snapshot, usage_request_events.connection_id, usage_request_events.proxy_api_key_id_snapshot, usage_request_events.proxy_api_key_name_snapshot, usage_request_events.status_code, usage_request_events.success_flag, usage_request_events.pricing_status, usage_request_events.pricing_evidence_trust, usage_request_events.unpriced_reason, usage_request_events.input_tokens, usage_request_events.output_tokens, usage_request_events.total_tokens, usage_request_events.cache_read_input_tokens, usage_request_events.cache_creation_input_tokens, usage_request_events.reasoning_tokens, usage_request_events.total_cost_user_currency_micros, usage_request_events.attempt_count, usage_request_events.final_attempt_number, usage_request_events.request_path, usage_request_events.stream_outcome, usage_request_events.response_time_ms, usage_request_events.ttft_ms, usage_request_events.completion_duration_ms, usage_request_events.output_rate_state, usage_request_events.output_rate_reason, usage_request_events.output_delivery_span_ms, model_configs.display_name, endpoints.name, endpoints.base_url, proxy_api_keys.name, proxy_api_keys.key_prefix,
 		`+cacheBasisEligibleSQL+` AS cache_basis_eligible
 		 FROM usage_request_events
 		 LEFT JOIN model_configs ON model_configs.profile_id = usage_request_events.profile_id AND model_configs.model_id = usage_request_events.model_id
@@ -156,13 +159,16 @@ func scanUsageEventRecord(scanner interface{ Scan(...any) error }) (usageEventRe
 	var responseTimeMS sql.NullInt32
 	var ttftMS sql.NullInt32
 	var completionDurationMS sql.NullInt32
+	var outputRateState sql.NullString
+	var outputRateReason sql.NullString
+	var outputDeliverySpanMS sql.NullInt32
 	var currentModelLabel sql.NullString
 	var currentEndpointName sql.NullString
 	var currentEndpointBaseURL sql.NullString
 	var currentProxyAPIKeyName sql.NullString
 	var currentProxyAPIKeyPrefix sql.NullString
 	item := usageEventRecord{}
-	if err := scanner.Scan(&item.ID, &item.CreatedAt, &item.ProfileID, &item.IngressRequestID, &item.ModelID, &resolvedTargetModelID, &item.APIFamily, &endpointID, &endpointLabelSnapshot, &connectionID, &proxyAPIKeyID, &proxyAPIKeyNameSnapshot, &item.StatusCode, &item.SuccessFlag, &pricingStatus, &pricingEvidenceTrust, &unpricedReason, &inputTokens, &outputTokens, &totalTokens, &cacheReadInputTokens, &cacheCreationInputTokens, &reasoningTokens, &totalCostUserCurrencyMicros, &item.AttemptCount, &finalAttemptNumber, &item.RequestPath, &streamOutcome, &responseTimeMS, &ttftMS, &completionDurationMS, &currentModelLabel, &currentEndpointName, &currentEndpointBaseURL, &currentProxyAPIKeyName, &currentProxyAPIKeyPrefix, &item.CacheBasisEligible); err != nil {
+	if err := scanner.Scan(&item.ID, &item.CreatedAt, &item.ProfileID, &item.IngressRequestID, &item.ModelID, &resolvedTargetModelID, &item.APIFamily, &endpointID, &endpointLabelSnapshot, &connectionID, &proxyAPIKeyID, &proxyAPIKeyNameSnapshot, &item.StatusCode, &item.SuccessFlag, &pricingStatus, &pricingEvidenceTrust, &unpricedReason, &inputTokens, &outputTokens, &totalTokens, &cacheReadInputTokens, &cacheCreationInputTokens, &reasoningTokens, &totalCostUserCurrencyMicros, &item.AttemptCount, &finalAttemptNumber, &item.RequestPath, &streamOutcome, &responseTimeMS, &ttftMS, &completionDurationMS, &outputRateState, &outputRateReason, &outputDeliverySpanMS, &currentModelLabel, &currentEndpointName, &currentEndpointBaseURL, &currentProxyAPIKeyName, &currentProxyAPIKeyPrefix, &item.CacheBasisEligible); err != nil {
 		return usageEventRecord{}, fmt.Errorf("scan usage event: %w", err)
 	}
 	item.CreatedAt = item.CreatedAt.UTC()
@@ -194,6 +200,9 @@ func scanUsageEventRecord(scanner interface{ Scan(...any) error }) (usageEventRe
 	item.ResponseTimeMS = nullableInt32(responseTimeMS)
 	item.TTFTMS = nullableInt32(ttftMS)
 	item.CompletionDurationMS = nullableInt32(completionDurationMS)
+	item.OutputRateState = NormalizeOutputRateState(stringValue(nullableString(outputRateState)))
+	item.OutputRateReason = nullableString(outputRateReason)
+	item.OutputDeliverySpanMS = nullableInt32(outputDeliverySpanMS)
 	item.CurrentModelLabel = nullableString(currentModelLabel)
 	item.CurrentEndpointName = nullableString(currentEndpointName)
 	item.CurrentEndpointBaseURL = nullableString(currentEndpointBaseURL)

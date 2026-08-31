@@ -385,7 +385,7 @@ export function ObserveMainChart({
                   </span>
                   {coverageTotals.partialSamples ? (
                     <OperatorClippedBadge
-                      label={copy.partialCoverage}
+                      label={copy.outputRatePartial}
                       reason={copy.outputRatePartialReason}
                     />
                   ) : null}

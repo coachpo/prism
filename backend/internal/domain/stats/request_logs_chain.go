@@ -109,6 +109,8 @@ type FinalizedSummary struct {
 	Endpoint                          *EndpointRef `json:"endpoint"`
 	TTFTMS                            *int         `json:"ttft_ms"`
 	OutputRateTPS                     *float64     `json:"output_rate_tps"`
+	OutputRateState                   string       `json:"output_rate_state"`
+	OutputRateReason                  *string      `json:"output_rate_reason"`
 	OutputTokens                      *int         `json:"-"`
 	CompletionDurationMS              *int         `json:"-"`
 	TotalTokens                       *int         `json:"total_tokens"`

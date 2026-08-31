@@ -2,10 +2,17 @@ import { ApiFamilyIcon } from "@/components/ApiFamilyIcon";
 import { formatApiFamily } from "@/components/apiFamilyPresentation";
 import { getCurrentLocale } from "@/i18n/format";
 import { getStaticMessages } from "@/i18n/staticMessages";
-import { formatUnpricedReasonLabel, resolveSpendTrustState } from "@/lib/costing";
+import {
+  formatUnpricedReasonLabel,
+  resolveSpendTrustState,
+} from "@/lib/costing";
 import { cn } from "@/lib/utils";
 import type { RequestLogListItem } from "@/lib/types";
-import { OperatorTypeBadge, OperatorValueBadge } from "@/shared/design-system";
+import {
+  OperatorMissingValue,
+  OperatorTypeBadge,
+  OperatorValueBadge,
+} from "@/shared/design-system";
 import { AlertCircle } from "lucide-react";
 import {
   getStreamOutcomeIntent,
@@ -16,6 +23,7 @@ import {
 import { describeUnpricedCause } from "./pricingExplanation";
 import {
   formatCost,
+  describeTokenRateMissing,
   formatTokenRate,
   formatTokens,
   formatTtft,
@@ -98,7 +106,11 @@ function resolveRequestLogSpendTrust(row: RequestLogListItem) {
 
 function renderClientCell(row: RequestLogListItem): React.ReactNode {
   if (!row.user_agent_overridden) {
-    return <span className="block truncate text-xs font-medium">{getSingleClientDisplay(row)}</span>;
+    return (
+      <span className="block truncate text-xs font-medium">
+        {getSingleClientDisplay(row)}
+      </span>
+    );
   }
 
   const callerDisplay = row.caller_client_display ?? "—";
@@ -120,11 +132,21 @@ function renderSpendCell(row: RequestLogListItem): React.ReactNode {
     ? messages.requestLogs.streamUsageUnavailable
     : spendTrust === "unpriced"
       ? messages.spendTrust.unpriced
-      : formatCost(row.total_cost_user_currency_micros, row.report_currency_symbol);
+      : formatCost(
+          row.total_cost_user_currency_micros,
+          row.report_currency_symbol,
+        );
 
   return (
     <div className="flex flex-col items-end gap-1">
-      <span className={cn("text-xs font-mono", spendTrust === "unpriced" ? "font-medium text-destructive" : "font-medium text-foreground")}>
+      <span
+        className={cn(
+          "text-xs font-mono",
+          spendTrust === "unpriced"
+            ? "font-medium text-destructive"
+            : "font-medium text-foreground",
+        )}
+      >
         {value}
       </span>
     </div>
@@ -155,8 +177,12 @@ export function getColumns(): ColumnDef[] {
       grow: 0,
       render: (row, fmt) => (
         <div className="flex items-center gap-2">
-          {(scopedStatus(row) ?? 0) >= 500 && <AlertCircle className="h-3.5 w-3.5 shrink-0 text-destructive" />}
-          <span className="truncate text-xs text-muted-foreground font-mono">{fmt(row.created_at)}</span>
+          {(scopedStatus(row) ?? 0) >= 500 && (
+            <AlertCircle className="h-3.5 w-3.5 shrink-0 text-destructive" />
+          )}
+          <span className="truncate text-xs text-muted-foreground font-mono">
+            {fmt(row.created_at)}
+          </span>
         </div>
       ),
     },
@@ -168,9 +194,15 @@ export function getColumns(): ColumnDef[] {
       align: "center",
       render: (row) => {
         const status = scopedStatus(row);
-        return status === null
-          ? <span className="text-xs text-muted-foreground">—</span>
-          : <OperatorValueBadge label={String(status)} intent={statusIntent(status)} className="px-1.5 py-0 font-mono" />;
+        return status === null ? (
+          <span className="text-xs text-muted-foreground">—</span>
+        ) : (
+          <OperatorValueBadge
+            label={String(status)}
+            intent={statusIntent(status)}
+            className="px-1.5 py-0 font-mono"
+          />
+        );
       },
     },
     {
@@ -181,7 +213,9 @@ export function getColumns(): ColumnDef[] {
       align: "right",
       render: (row) => (
         <span className="text-xs font-mono text-muted-foreground">
-          {rowDurationMs(row) === null ? "—" : `${new Intl.NumberFormat(getCurrentLocale()).format(rowDurationMs(row) ?? 0)}ms`}
+          {rowDurationMs(row) === null
+            ? "—"
+            : `${new Intl.NumberFormat(getCurrentLocale()).format(rowDurationMs(row) ?? 0)}ms`}
         </span>
       ),
     },
@@ -203,11 +237,27 @@ export function getColumns(): ColumnDef[] {
       width: 118,
       grow: 0,
       align: "right",
-      render: (row) => (
-        <span className="text-xs font-mono text-muted-foreground">
-          {formatTokenRate(row.output_tokens, row.ttft_ms, row.completion_duration_ms)}
-        </span>
-      ),
+      render: (row) => {
+        if (
+          row.output_rate_state === "measured" &&
+          row.output_rate_tps !== null
+        ) {
+          return (
+            <span className="text-xs font-mono text-muted-foreground">
+              {formatTokenRate(row.output_rate_tps, row.output_rate_state)}
+            </span>
+          );
+        }
+        return (
+          <OperatorMissingValue
+            reason={describeTokenRateMissing({
+              rateTps: row.output_rate_tps,
+              state: row.output_rate_state,
+              reason: row.output_rate_reason,
+            })}
+          />
+        );
+      },
     },
     {
       key: "requested_model",
@@ -219,7 +269,9 @@ export function getColumns(): ColumnDef[] {
 
         return (
           <div className="min-w-0">
-            <span className="block truncate text-xs font-medium">{requestedModelValue}</span>
+            <span className="block truncate text-xs font-medium">
+              {requestedModelValue}
+            </span>
           </div>
         );
       },
@@ -230,12 +282,15 @@ export function getColumns(): ColumnDef[] {
       width: 190,
       grow: 2,
       render: (row) => {
-        const finalTargetValue = row.attempt_target_model_label ?? row.attempt_target_model_id;
+        const finalTargetValue =
+          row.attempt_target_model_label ?? row.attempt_target_model_id;
 
         return (
           <div className="min-w-0">
             {finalTargetValue ? (
-              <span className="block truncate text-xs font-medium">{finalTargetValue}</span>
+              <span className="block truncate text-xs font-medium">
+                {finalTargetValue}
+              </span>
             ) : (
               <span
                 className="block truncate text-xs text-muted-foreground"
@@ -255,7 +310,9 @@ export function getColumns(): ColumnDef[] {
       grow: 2,
       render: (row) => (
         <div className="min-w-0">
-          <span className="block truncate text-xs font-medium">{row.endpoint_label}</span>
+          <span className="block truncate text-xs font-medium">
+            {row.endpoint_label}
+          </span>
         </div>
       ),
     },
@@ -266,7 +323,10 @@ export function getColumns(): ColumnDef[] {
       grow: 2,
       render: (row) => (
         <span className="block truncate text-xs font-medium">
-          {row.terminal_target_label ?? (row.terminal_target_id === null ? "—" : messages.terminalTargetId(row.terminal_target_id))}
+          {row.terminal_target_label ??
+            (row.terminal_target_id === null
+              ? "—"
+              : messages.terminalTargetId(row.terminal_target_id))}
         </span>
       ),
     },
@@ -287,20 +347,27 @@ export function getColumns(): ColumnDef[] {
         if (attribution === "identified") {
           return (
             <div className="min-w-0">
-              <span className="block truncate text-xs font-medium">{row.proxy_api_key_name_snapshot ?? `#${row.proxy_api_key_id ?? ""}`}</span>
+              <span className="block truncate text-xs font-medium">
+                {row.proxy_api_key_name_snapshot ??
+                  `#${row.proxy_api_key_id ?? ""}`}
+              </span>
             </div>
           );
         }
         if (attribution === "unknown") {
           return (
             <div className="min-w-0">
-              <span className="block truncate text-xs text-muted-foreground">{messages.proxyKeyAttributionUnknown}</span>
+              <span className="block truncate text-xs text-muted-foreground">
+                {messages.proxyKeyAttributionUnknown}
+              </span>
             </div>
           );
         }
         return (
           <div className="min-w-0">
-            <span className="block truncate text-xs text-muted-foreground">{messages.noIdentifiedProxyKey}</span>
+            <span className="block truncate text-xs text-muted-foreground">
+              {messages.noIdentifiedProxyKey}
+            </span>
           </div>
         );
       },
@@ -324,8 +391,14 @@ export function getColumns(): ColumnDef[] {
       render: (row) => (
         <div className="min-w-0">
           <span className="mt-0.5 flex items-center gap-1.5 overflow-hidden text-[11px] text-muted-foreground">
-            <ApiFamilyIcon apiFamily={row.api_family ?? ""} size={13} className="text-muted-foreground" />
-            <span className="truncate">{formatApiFamily(row.api_family ?? "")}</span>
+            <ApiFamilyIcon
+              apiFamily={row.api_family ?? ""}
+              size={13}
+              className="text-muted-foreground"
+            />
+            <span className="truncate">
+              {formatApiFamily(row.api_family ?? "")}
+            </span>
           </span>
         </div>
       ),
@@ -361,7 +434,9 @@ export function getColumns(): ColumnDef[] {
           row.pricing_status === "priced"
             ? copy.priced
             : row.pricing_status === "unpriced"
-              ? (row.unpriced_reason ? formatUnpricedReasonLabel(row.unpriced_reason) : copy.pricingStatusUnpriced)
+              ? row.unpriced_reason
+                ? formatUnpricedReasonLabel(row.unpriced_reason)
+                : copy.pricingStatusUnpriced
               : row.pricing_status === "ineligible"
                 ? copy.ineligible
                 : copy.unknown;

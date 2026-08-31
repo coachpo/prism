@@ -16,9 +16,7 @@ vi.mock("@/hooks/useTimezone", () => ({
   }),
 }));
 
-function attempt(
-  overrides: Partial<RequestLogChainRow>,
-): RequestLogChainRow {
+function attempt(overrides: Partial<RequestLogChainRow>): RequestLogChainRow {
   return {
     request_log_id: "attempt",
     row_kind: "upstream",
@@ -91,6 +89,8 @@ const chain: ChainIngressItem = {
     endpoint: { id: 8, label: "Endpoint C" },
     ttft_ms: 610,
     output_rate_tps: 80,
+    output_rate_state: "measured",
+    output_rate_reason: null,
     total_tokens: 120,
     total_cost_user_currency_micros: 4_000,
     report_currency_code: "USD",
@@ -226,7 +226,9 @@ describe("IngressChainsTable route attribution", () => {
     expect(winner).toHaveTextContent("$0.0040");
 
     for (const leaked of ["initial", "failover", "http_error", "completed"]) {
-      expect(screen.queryByText(leaked, { exact: true })).not.toBeInTheDocument();
+      expect(
+        screen.queryByText(leaked, { exact: true }),
+      ).not.toBeInTheDocument();
     }
   });
 });

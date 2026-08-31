@@ -254,6 +254,10 @@ func applyRuntimeFinalAttemptTelemetry(requestLog *requestLogInsert, telemetry r
 	requestLog.StreamOutcome = telemetry.streamOutcome
 	requestLog.StreamErrorKind = telemetry.streamErrorKind
 	requestLog.StreamErrorDetail = telemetry.streamErrorDetail
+	requestLog.OutputRateState = telemetry.outputDelivery.State
+	requestLog.OutputRateReason = telemetry.outputDelivery.Reason
+	requestLog.OutputDeliveryEventCount = telemetry.outputDelivery.EventCount
+	requestLog.OutputDeliverySpanMS = telemetry.outputDelivery.SpanMS
 	if attempt.success {
 		requestLog.applyRuntimePricingResult(telemetry.pricingResult)
 	}

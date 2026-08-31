@@ -19,9 +19,12 @@ export type BucketOutputRate =
  | { kind: "no_sample" };
 
 /**
- * Output rate keeps the usage-summary caliber: only requests with output
- * tokens, TTFT, and a positive stream duration are samples, averaged per
- * request. Without samples the average is missing — never a zero stand-in.
+ * Output rate keeps the backend-authoritative measured-evidence caliber: only
+ * requests whose persisted evidence is state=measured (completed, progressive
+ * visible text/tool-output delivery with at least two events across at least
+ * 50ms) enter the per-request mean. The backend computes the rate; the UI
+ * never recomputes it. Without samples the average is missing — never a zero
+ * stand-in.
  */
 export function bucketOutputRate(point: SeriesPoint): BucketOutputRate {
  if (

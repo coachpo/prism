@@ -31,6 +31,9 @@ type requestLogListRow struct {
 	LegacyDurationMS               *int
 	TTFTMS                         *int
 	CompletionDurationMS           *int
+	OutputRateTPS                  *float64
+	OutputRateState                string
+	OutputRateReason               *string
 	IsStream                       bool
 	StreamOutcome                  string
 	StreamErrorKind                *string
@@ -177,6 +180,7 @@ func ListRequestLogs(ctx context.Context, exec queryExecutor, params RequestLogL
 		 ingress_request_id, row_kind,
 		 upstream_status_code, gateway_status_code, legacy_status_code, `+scopedRequestLogStatusSQL+` AS scoped_status, attempt_duration_ms, legacy_duration_ms,
 		 ttft_ms, completion_duration_ms, is_stream, stream_outcome, stream_error_kind,
+		 output_rate_state, output_rate_reason, output_delivery_span_ms,
 		 attempt_number, attempt_trigger, attempt_result, is_winner, error_source, error_code, failure_stage,
 		 error_detail, error_detail_redacted, error_detail_truncated, stream_error_detail, stream_error_detail_redacted, stream_error_detail_truncated,
 		 output_tokens, total_tokens, total_cost_user_currency_micros, pricing_status, unpriced_reason, pricing_resolution_kind, pricing_evidence_trust,
@@ -232,6 +236,9 @@ func ListRequestLogs(ctx context.Context, exec queryExecutor, params RequestLogL
 			LegacyDurationMS:              item.LegacyDurationMS,
 			TTFTMS:                        item.TTFTMS,
 			CompletionDurationMS:          item.CompletionDurationMS,
+			OutputRateTPS:                 item.OutputRateTPS,
+			OutputRateState:               item.OutputRateState,
+			OutputRateReason:              item.OutputRateReason,
 			IsStream:                      item.IsStream,
 			StreamOutcome:                 item.StreamOutcome,
 			StreamErrorKind:               item.StreamErrorKind,
@@ -857,6 +864,9 @@ func scanRequestLogListRow(scanner interface{ Scan(...any) error }) (requestLogL
 	var ingressRequestID sql.NullString
 	var ttftMS sql.NullInt32
 	var completionDurationMS sql.NullInt32
+	var outputRateState sql.NullString
+	var outputRateReason sql.NullString
+	var outputDeliverySpanMS sql.NullInt32
 	var streamOutcome sql.NullString
 	var streamErrorKind sql.NullString
 	var attemptNumber sql.NullInt32
@@ -887,6 +897,7 @@ func scanRequestLogListRow(scanner interface{ Scan(...any) error }) (requestLogL
 		&proxyAPIKeyID, &proxyAPIKeyNameSnapshot, &proxyAPIKeyAttributionState, &proxyAPIKeyAuthEnforced, &ingressRequestID, &item.RowKind,
 		&upstreamStatusCode, &gatewayStatusCode, &legacyStatusCode, &scopedStatus, &attemptDurationMS, &legacyDurationMS,
 		&ttftMS, &completionDurationMS, &item.IsStream, &streamOutcome, &streamErrorKind,
+		&outputRateState, &outputRateReason, &outputDeliverySpanMS,
 		&attemptNumber, &attemptTrigger, &attemptResult, &isWinner, &errorSource, &errorCode, &failureStage,
 		&errorDetail, &errorDetailRedacted, &errorDetailTruncated, &streamErrorDetail, &streamErrorDetailRedacted, &streamErrorDetailTruncated,
 		&outputTokens, &totalTokens, &totalCostUserCurrencyMicros, &pricingStatus, &unpricedReason, &pricingResolutionKind, &pricingEvidenceTrust,
@@ -912,6 +923,9 @@ func scanRequestLogListRow(scanner interface{ Scan(...any) error }) (requestLogL
 	item.LegacyDurationMS = nullableInt32(legacyDurationMS)
 	item.TTFTMS = nullableInt32(ttftMS)
 	item.CompletionDurationMS = nullableInt32(completionDurationMS)
+	item.OutputRateState = NormalizeOutputRateState(stringValue(nullableString(outputRateState)))
+	item.OutputRateReason = nullableString(outputRateReason)
+	item.OutputRateTPS = OutputRateTPSFromEvidence(intValue(nullableInt32(outputTokens)), outputTokens.Valid, item.OutputRateState, nullableInt32(outputDeliverySpanMS))
 	item.StreamOutcome = normalizeRequestLogStreamOutcome(nullableString(streamOutcome), item.IsStream, item.CompletionDurationMS)
 	item.StreamErrorKind = normalizeOptionalString(nullableString(streamErrorKind))
 	item.AttemptNumber = nullableInt32(attemptNumber)
@@ -972,6 +986,7 @@ func normalizeRequestLogStreamOutcome(value *string, isStream bool, completionDu
 }
 
 func nullableJSONRawMessage(raw []byte) *json.RawMessage {
+	// Raw JSON columns are round-tripped verbatim; empty bytes mean absent.
 	if len(raw) == 0 {
 		return nil
 	}

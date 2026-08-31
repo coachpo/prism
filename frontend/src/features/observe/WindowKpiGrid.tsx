@@ -1,6 +1,7 @@
 import { useLocale } from "@/i18n/useLocale";
 import type { UsageSummaryResponse } from "@/lib/api/observability";
 import type { FragmentState } from "@/features/observe/useObserveFragments";
+import { unmeasuredOutputRateCount } from "./outputRateCensus";
 import {
   cacheBasisPartialCoverage,
   windowCacheReadShare,
@@ -175,7 +176,14 @@ export function WindowKpiGrid({
               `${data.avg_output_rate_tps.toFixed(1)} tok/s`
             )
           }
-          detail={`${copy.samples}：${formatNumber(data.output_rate_sample_count)}`}
+          detail={`${copy.samples}：${formatNumber(data.output_rate_sample_count)}${
+            unmeasuredOutputRateCount(data) > 0
+              ? ` · ${copy.outputRateStateUnmeasuredHint(
+                  formatNumber(unmeasuredOutputRateCount(data)),
+                  formatNumber(data.request_count),
+                )}`
+              : ""
+          }`}
         />
         <OperatorKpiCard
           label={copy.cacheReadShare}
@@ -226,7 +234,17 @@ export function WindowKpiGrid({
           badges={
             <div className="flex flex-col gap-1">
               <PricingBreakdown pricing={pricing} />
-              {segment?.pricing_card_role_breakdown?.length ? <div className="flex flex-wrap gap-x-2 text-[11px] text-muted-foreground"><span>{copy.pricingCardRoleBreakdown}：</span>{segment.pricing_card_role_breakdown.map((role) => <span key={role.card_role}>{pricingRoleLabel(role.card_role, messages.requestLogs)} <Money micros={role.known_cost_micros} symbol={symbol} /></span>)}</div> : null}
+              {segment?.pricing_card_role_breakdown?.length ? (
+                <div className="flex flex-wrap gap-x-2 text-[11px] text-muted-foreground">
+                  <span>{copy.pricingCardRoleBreakdown}：</span>
+                  {segment.pricing_card_role_breakdown.map((role) => (
+                    <span key={role.card_role}>
+                      {pricingRoleLabel(role.card_role, messages.requestLogs)}{" "}
+                      <Money micros={role.known_cost_micros} symbol={symbol} />
+                    </span>
+                  ))}
+                </div>
+              ) : null}
               <span className="text-[11px] text-muted-foreground">
                 {copy.pricingSelectorUnresolved}：
                 <span className="font-mono text-foreground">
@@ -272,14 +290,23 @@ function Money({
   );
 }
 
-function pricingRoleLabel(role: string, copy: ReturnType<typeof useLocale>["messages"]["requestLogs"]) {
+function pricingRoleLabel(
+  role: string,
+  copy: ReturnType<typeof useLocale>["messages"]["requestLogs"],
+) {
   switch (role) {
-    case "standard": return copy.pricingCardStandard;
-    case "tier_base": return copy.pricingCardTierBase;
-    case "tier_above": return copy.pricingCardTierAbove;
-    case "peak": return copy.pricingCardPeak;
-    case "offpeak": return copy.pricingCardOffpeak;
-    default: return copy.pricingCardRole;
+    case "standard":
+      return copy.pricingCardStandard;
+    case "tier_base":
+      return copy.pricingCardTierBase;
+    case "tier_above":
+      return copy.pricingCardTierAbove;
+    case "peak":
+      return copy.pricingCardPeak;
+    case "offpeak":
+      return copy.pricingCardOffpeak;
+    default:
+      return copy.pricingCardRole;
   }
 }
 

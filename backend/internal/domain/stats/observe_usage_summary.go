@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -31,6 +32,8 @@ type UsageSummaryResult struct {
 	P95TTFTMS                          *int                  `json:"p95_ttft_ms"`
 	OutputRateSampleCount              int                   `json:"output_rate_sample_count"`
 	AvgOutputRateTPS                   *float64              `json:"avg_output_rate_tps"`
+	OutputRateStateCounts              OutputRateStateCounts `json:"output_rate_state_counts"`
+	OutputRateReasonCounts             map[string]int        `json:"output_rate_reason_counts"`
 	InputTokenSampleCount              int                   `json:"input_token_sample_count"`
 	OutputTokenSampleCount             int                   `json:"output_token_sample_count"`
 	CacheReadInputTokenSampleCount     int                   `json:"cache_read_input_token_sample_count"`
@@ -102,6 +105,16 @@ type PricingCardRoleCostBreakdown struct {
 	KnownCostMicros    *string `json:"known_cost_micros"`
 }
 
+// OutputRateStateCounts is the four-state measurability census of one window.
+// Measured equals the output-rate sample count; unknown includes historical
+// rows whose evidence columns are NULL.
+type OutputRateStateCounts struct {
+	Measured      int `json:"measured"`
+	Unmeasurable  int `json:"unmeasurable"`
+	NotApplicable int `json:"not_applicable"`
+	Unknown       int `json:"unknown"`
+}
+
 // cacheBasisEligibleSQL is the single shared eligibility predicate for the
 // cache-read share: both input and cache_read must be measured (null excludes
 // the row, unlike cache_creation which coalesces to zero), operation_name must
@@ -129,6 +142,8 @@ func LoadUsageSummary(ctx context.Context, exec queryExecutor, profileID int, bo
 	}
 	var p50, p95 *float64
 	var avgRate *float64
+	var outputRateUnmeasurable, outputRateNotApplicable, outputRateUnknown int
+	var outputRateReasonsJSON []byte
 	var priced, unpriced, ineligible, unknown, trustedCostSamples int
 	var reasonDisabled, reasonMissingUsage, reasonStreamUsage, reasonMissingData int
 	var segmentsJSON []byte
@@ -142,6 +157,8 @@ WITH classified AS (
 		pricing_selection_state,
 		pricing_card_role,
 		ttft_ms,
+		output_rate_state,
+		output_rate_reason,
 			`+outputRateTPSSQL+` AS output_rate_tps,
 		input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens,
 		reasoning_tokens, total_tokens,
@@ -178,6 +195,14 @@ SELECT
 	(SELECT percentile_cont(0.95) WITHIN GROUP (ORDER BY ttft_ms) FROM classified WHERE outcome_detail = 'completed' AND ttft_ms >= 0),
 	(SELECT COUNT(output_rate_tps) FROM classified)::int,
 	(SELECT AVG(output_rate_tps) FROM classified),
+	(SELECT COUNT(*) FROM classified WHERE output_rate_state = 'unmeasurable')::int,
+	(SELECT COUNT(*) FROM classified WHERE output_rate_state = 'not_applicable')::int,
+	(SELECT COUNT(*) FROM classified WHERE COALESCE(output_rate_state, 'unknown') = 'unknown')::int,
+	(SELECT COALESCE(jsonb_object_agg(reason, count)::text, '{}') FROM (
+		SELECT output_rate_reason AS reason, COUNT(*) AS count FROM classified
+		WHERE output_rate_state IS NOT NULL AND output_rate_state <> 'measured' AND output_rate_reason IS NOT NULL
+		GROUP BY output_rate_reason
+	) AS output_rate_reasons),
 	(SELECT COUNT(input_tokens) FROM classified)::int,
 	(SELECT COUNT(output_tokens) FROM classified)::int,
 	(SELECT COUNT(cache_read_input_tokens) FROM classified)::int,
@@ -220,6 +245,10 @@ SELECT
 		&p95,
 		&result.OutputRateSampleCount,
 		&avgRate,
+		&outputRateUnmeasurable,
+		&outputRateNotApplicable,
+		&outputRateUnknown,
+		&outputRateReasonsJSON,
 		&result.InputTokenSampleCount,
 		&result.OutputTokenSampleCount,
 		&result.CacheReadInputTokenSampleCount,
@@ -256,6 +285,15 @@ SELECT
 	result.P50TTFTMS = roundIntPointer(p50)
 	result.P95TTFTMS = roundIntPointer(p95)
 	result.AvgOutputRateTPS = avgRate
+	// The measured count doubles as the sample count; unknown counts include
+	// historical rows whose evidence columns are NULL.
+	result.OutputRateStateCounts = OutputRateStateCounts{
+		Measured:      result.OutputRateSampleCount,
+		Unmeasurable:  outputRateUnmeasurable,
+		NotApplicable: outputRateNotApplicable,
+		Unknown:       outputRateUnknown,
+	}
+	result.OutputRateReasonCounts = decodeOutputRateReasonCounts(outputRateReasonsJSON)
 	if spanMinutes > 0 {
 		rpm := float64(requestCount) / spanMinutes
 		result.WindowAverageRPM = &rpm
@@ -442,6 +480,7 @@ func projectScopedUsageEvidence(result *UsageSummaryResult, observations []scope
 	var inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, reasoningTokens, totalTokens int64
 	var cacheBasisInputTokens, cacheBasisCacheReadTokens, cacheBasisCacheCreationTokens int64
 	var outputRateSum float64
+	result.OutputRateReasonCounts = map[string]int{}
 	for _, observation := range observations {
 		if observation.HasInputTokens {
 			result.InputTokenSampleCount++
@@ -470,6 +509,22 @@ func projectScopedUsageEvidence(result *UsageSummaryResult, observations []scope
 		if observation.OutputRateTPS != nil {
 			result.OutputRateSampleCount++
 			outputRateSum += *observation.OutputRateTPS
+		}
+		switch NormalizeOutputRateState(observation.OutputRateState) {
+		case OutputRateStateMeasured:
+			if observation.OutputRateTPS == nil {
+				// Malformed measured evidence remains fail-closed on reads.
+				result.OutputRateStateCounts.Unknown++
+			}
+		case OutputRateStateUnmeasurable:
+			result.OutputRateStateCounts.Unmeasurable++
+		case OutputRateStateNotApplicable:
+			result.OutputRateStateCounts.NotApplicable++
+		default:
+			result.OutputRateStateCounts.Unknown++
+		}
+		if reason := strings.TrimSpace(stringValue(observation.OutputRateReason)); reason != "" {
+			result.OutputRateReasonCounts[reason]++
 		}
 		if observation.CacheBasisEligible {
 			result.CacheBasisRequestCount++
@@ -500,6 +555,7 @@ func projectScopedUsageEvidence(result *UsageSummaryResult, observations []scope
 		average := outputRateSum / float64(result.OutputRateSampleCount)
 		result.AvgOutputRateTPS = &average
 	}
+	result.OutputRateStateCounts.Measured = result.OutputRateSampleCount
 	if result.CacheBasisRequestCount > 0 {
 		result.CacheBasisInputTokens = &cacheBasisInputTokens
 		result.CacheBasisCacheReadTokens = &cacheBasisCacheReadTokens
@@ -507,7 +563,7 @@ func projectScopedUsageEvidence(result *UsageSummaryResult, observations []scope
 	}
 }
 
-func loadCostSparkline(ctx context.Context, exec queryExecutor, profileID int, bounds QueryBounds, reportCurrencyCode string, reportCurrencySymbol string) (CostSparkline, error) {
+func loadCostSparkline(ctx context.Context, exec queryExecutor, profileID int, bounds QueryBounds, _ string, _ string) (CostSparkline, error) {
 	sparkline := CostSparkline{Interval: "auto", Points: []CostSparklinePoint{}}
 	rows, err := exec.Query(ctx, `
 WITH classified AS (

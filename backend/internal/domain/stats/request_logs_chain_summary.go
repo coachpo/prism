@@ -60,6 +60,9 @@ const finalizedSummarySelectList = `final_request_log.id,
 		ue.ttft_ms,
 		ue.output_tokens,
 		ue.completion_duration_ms,
+		ue.output_rate_state,
+		ue.output_rate_reason,
+		ue.output_delivery_span_ms,
 		ue.total_tokens,
 		ue.total_cost_user_currency_micros,
 		ue.report_currency_code,
@@ -104,22 +107,25 @@ type rowScanner interface {
 type finalizedSummaryScan struct {
 	summary FinalizedSummary
 	raw     struct {
-		requestLogID       sql.NullInt64
-		resolvedModelID    *string
-		endpointID         *int
-		endpointLabel      *string
-		connectionID       *int
-		terminalTargetName *string
-		configured         sql.NullBool
-		ownerModelID       *string
-		ingressStartedAt   *time.Time
-		ingressCompletedAt *time.Time
-		effectiveAt        *time.Time
-		pricingStatus      string
-		unpricedReason     *string
-		resolutionKind     *string
-		missingComponents  []string
-		trust              string
+		requestLogID         sql.NullInt64
+		resolvedModelID      *string
+		endpointID           *int
+		endpointLabel        *string
+		connectionID         *int
+		terminalTargetName   *string
+		configured           sql.NullBool
+		ownerModelID         *string
+		ingressStartedAt     *time.Time
+		ingressCompletedAt   *time.Time
+		effectiveAt          *time.Time
+		outputRateState      sql.NullString
+		outputRateReason     *string
+		outputDeliverySpanMS *int
+		pricingStatus        string
+		unpricedReason       *string
+		resolutionKind       *string
+		missingComponents    []string
+		trust                string
 	}
 }
 
@@ -145,6 +151,9 @@ func (scan *finalizedSummaryScan) dest() []any {
 		&s.summary.TTFTMS,
 		&s.summary.OutputTokens,
 		&s.summary.CompletionDurationMS,
+		&s.raw.outputRateState,
+		&s.raw.outputRateReason,
+		&s.raw.outputDeliverySpanMS,
 		&s.summary.TotalTokens,
 		&s.summary.TotalCostUserCurrencyMicros,
 		&s.summary.ReportCurrencyCode,
@@ -214,6 +223,12 @@ func (scan *finalizedSummaryScan) assemble() *FinalizedSummary {
 		summary.Endpoint = &EndpointRef{ID: *raw.endpointID, Label: label}
 	}
 	summary.FinalResult = deriveFinalResult(summary.FinalStatusCode, summary.SuccessFlag, summary.StreamOutcome)
+	// The output rate is backend-authoritative measured evidence only:
+	// historical rows (state NULL) project as unknown and never derive a
+	// rate from TTFT/completion timings.
+	summary.OutputRateState = NormalizeOutputRateState(stringValue(nullableString(raw.outputRateState)))
+	summary.OutputRateReason = raw.outputRateReason
+	summary.OutputRateTPS = OutputRateTPSFromEvidence(intValue(summary.OutputTokens), summary.OutputTokens != nil, summary.OutputRateState, raw.outputDeliverySpanMS)
 	summary.FinalPricingStatus = raw.pricingStatus
 	summary.FinalUnpricedReason = raw.unpricedReason
 	summary.FinalPricingResolutionKind = raw.resolutionKind
@@ -222,10 +237,6 @@ func (scan *finalizedSummaryScan) assemble() *FinalizedSummary {
 	summary.IngressStartedAt = utcTimePointer(raw.ingressStartedAt)
 	summary.IngressCompletedAt = utcTimePointer(raw.ingressCompletedAt)
 	summary.PricingVersionEffectiveAt = utcTimePointer(raw.effectiveAt)
-	if summary.OutputTokens != nil && summary.TTFTMS != nil && summary.CompletionDurationMS != nil && *summary.CompletionDurationMS-*summary.TTFTMS > 0 {
-		rate := float64(*summary.OutputTokens) * 1000 / float64(*summary.CompletionDurationMS-*summary.TTFTMS)
-		summary.OutputRateTPS = &rate
-	}
 	legacyCode := ""
 	legacyCodeValid := summary.ReportCurrencyCode != nil
 	if legacyCodeValid {

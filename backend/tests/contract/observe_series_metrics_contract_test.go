@@ -34,7 +34,9 @@ func seriesPointFields(t *testing.T, harness *contractHarness, profileID int, to
 }
 
 // insertSeriesMetricsRow seeds one usage row with explicit operation_name,
-// which the shared cache-basis eligibility predicate requires.
+// which the shared cache-basis eligibility predicate requires. The
+// rateEvidence span seeds the measured output-delivery evidence; a nil span
+// leaves the evidence columns NULL so the row reads as unknown.
 func insertSeriesMetricsRow(t *testing.T, harness *contractHarness, profileID int, id int, createdAt time.Time,
 	outputTokens, ttftMS, completionMS, inputTokens, cacheReadTokens, cacheCreationTokens *int, operationName string) {
 	t.Helper()
@@ -42,15 +44,29 @@ func insertSeriesMetricsRow(t *testing.T, harness *contractHarness, profileID in
 	if _, err := harness.conn.Exec(context.Background(), `
 	INSERT INTO usage_request_events (profile_id, ingress_request_id, model_id, api_family, operation_name, status_code, success_flag,
 		attempt_count, request_path, pricing_status, pricing_evidence_trust,
-		input_tokens, output_tokens, total_tokens, cache_read_input_tokens, cache_creation_input_tokens, ttft_ms, completion_duration_ms, endpoint_label_snapshot, created_at)
+		input_tokens, output_tokens, total_tokens, cache_read_input_tokens, cache_creation_input_tokens, ttft_ms, completion_duration_ms, output_rate_state, output_delivery_event_count, output_delivery_span_ms, endpoint_label_snapshot, created_at)
 	VALUES ($1, $2, 'series-metrics-model', 'openai', $3, 200, true, 1, '/v1/chat/completions', 'ineligible', 'trusted',
-		$4, $5, $6, $7, $8, $9, $10, '', $11)`,
+		$4, $5, $6, $7, $8, $9, $10, CASE WHEN $11::int IS NOT NULL THEN 'measured' END, CASE WHEN $11::int IS NOT NULL THEN 2 END, $11, '', $12)`,
 		profileID, ingressID, operationName,
 		inputTokens, outputTokens, intPointerValue(outputTokens)+intPointerValue(inputTokens)+intPointerValue(cacheReadTokens)+intPointerValue(cacheCreationTokens),
-		cacheReadTokens, cacheCreationTokens, ttftMS, completionMS, createdAt,
+		cacheReadTokens, cacheCreationTokens, ttftMS, completionMS, completionSpanEvidence(ttftMS, completionMS), createdAt,
 	); err != nil {
 		t.Fatalf("insert series metrics row %d: %v", id, err)
 	}
+}
+
+// completionSpanEvidence projects the legacy TTFT/completion pair onto the
+// measured delivery span so the fixture rows keep their historical rate
+// semantics (span = completion - ttft).
+func completionSpanEvidence(ttftMS, completionMS *int) *int {
+	if ttftMS == nil || completionMS == nil {
+		return nil
+	}
+	span := *completionMS - *ttftMS
+	if span <= 0 {
+		return nil
+	}
+	return &span
 }
 
 func intPointerValue(value *int) int {
@@ -58,6 +74,17 @@ func intPointerValue(value *int) int {
 		return 0
 	}
 	return *value
+}
+
+func setSeriesOutputRateVerdict(t *testing.T, harness *contractHarness, profileID int, id int, state string, reason string) {
+	t.Helper()
+	if _, err := harness.conn.Exec(context.Background(), `
+		UPDATE usage_request_events
+		SET output_rate_state = $1, output_rate_reason = $2
+		WHERE profile_id = $3 AND ingress_request_id = $4`,
+		state, reason, profileID, fmt.Sprintf("series-metrics-%d", id)); err != nil {
+		t.Fatalf("set series output-rate verdict %d: %v", id, err)
+	}
 }
 
 func assertJSONFloatNear(t *testing.T, value any, want float64) {
@@ -85,6 +112,14 @@ func TestObserveUsageSeriesAveragesOutputRatePerRequest(t *testing.T) {
 	insertSeriesMetricsRow(t, harness, profileID, 2, now.Add(-time.Second), intPtr(300), intPtr(600), intPtr(2100), intPtr(20), nil, nil, "openai.chat_completions")
 	// Not measurable: no completion duration, excluded from samples entirely.
 	insertSeriesMetricsRow(t, harness, profileID, 3, now.Add(-3*time.Second), intPtr(999), intPtr(50), nil, intPtr(5), nil, nil, "openai.chat_completions")
+	// GLM artifact: the old formula would produce 53,000 tok/s, but persisted
+	// short-span evidence keeps it out of the mean.
+	insertSeriesMetricsRow(t, harness, profileID, 4, now.Add(-4*time.Second), intPtr(53), intPtr(23495), intPtr(23496), intPtr(5), nil, nil, "openai.chat_completions")
+	setSeriesOutputRateVerdict(t, harness, profileID, 4, "unmeasurable", "unmeasurable_output_span_below_threshold")
+	// A non-streaming request is known not-applicable and still counts as a
+	// request without becoming a rate sample.
+	insertSeriesMetricsRow(t, harness, profileID, 5, now.Add(-5*time.Second), intPtr(25), nil, nil, intPtr(5), nil, nil, "openai.chat_completions")
+	setSeriesOutputRateVerdict(t, harness, profileID, 5, "not_applicable", "not_applicable_non_stream")
 
 	contextPayload := modelJSON[map[string]any](t, harness, profileID, http.MethodGet, "/api/stats/query-context?preset=24h", nil, http.StatusOK)
 	token := contextPayload["query_context"].(string)
@@ -95,8 +130,24 @@ func TestObserveUsageSeriesAveragesOutputRatePerRequest(t *testing.T) {
 	}
 	assertJSONFloatNear(t, point["avg_output_rate_tps"], 150.0)
 	// The unmeasured request still counts toward the bucket's request total.
-	if got := jsonInt(t, point["request_count"]); got != 3 {
-		t.Fatalf("expected 3 requests in the bucket, got %+v", point)
+	if got := jsonInt(t, point["request_count"]); got != 5 {
+		t.Fatalf("expected 5 requests in the bucket, got %+v", point)
+	}
+
+	summary := modelJSON[map[string]any](t, harness, profileID, http.MethodGet,
+		"/api/stats/usage-summary?query_context="+token, nil, http.StatusOK)
+	counts := asMap(t, summary["output_rate_state_counts"])
+	for state, want := range map[string]int{"measured": 2, "unmeasurable": 1, "not_applicable": 1, "unknown": 1} {
+		if got := jsonInt(t, counts[state]); got != want {
+			t.Fatalf("expected %s output-rate count %d, got %d in %+v", state, want, got, counts)
+		}
+	}
+	reasons := asMap(t, summary["output_rate_reason_counts"])
+	if got := jsonInt(t, reasons["unmeasurable_output_span_below_threshold"]); got != 1 {
+		t.Fatalf("expected one short-span reason, got %+v", reasons)
+	}
+	if got := jsonInt(t, reasons["not_applicable_non_stream"]); got != 1 {
+		t.Fatalf("expected one non-stream reason, got %+v", reasons)
 	}
 }
 
