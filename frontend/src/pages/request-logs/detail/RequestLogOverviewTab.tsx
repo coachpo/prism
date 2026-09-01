@@ -48,6 +48,7 @@ import {
   shouldShowStreamStatus,
 } from "../streamTelemetry";
 import { RequestLogPricingEvidence } from "./RequestLogPricingEvidence";
+import { UpstreamModelIdValue } from "../UpstreamModelIdValue";
 
 interface RequestLogOverviewTabProps {
   request: RequestLogDetail;
@@ -568,6 +569,17 @@ export function RequestLogOverviewTab({
                     ) : null}
                   </div>
                 )}
+              </DetailRow>
+              <DetailRow label={messages.requestLogs.upstreamModelIdColumn}>
+                <UpstreamModelIdValue
+                  value={summary.upstream_model_id}
+                  missingReason={
+                    summary.row_kind === "upstream"
+                      ? messages.requestLogs.upstreamModelIdMissing
+                      : messages.requestLogs.noUpstreamAttemptTarget
+                  }
+                  className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
+                />
               </DetailRow>
               {request.terminal_target ? (
                 <DetailRow

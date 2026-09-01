@@ -48,6 +48,8 @@ export interface RequestLogListItem {
   model_label: string;
   attempt_target_model_id: string | null;
   attempt_target_model_label: string | null;
+  /** Retained request-time upstream snapshot; null is never inferred. */
+  upstream_model_id: string | null;
   caller_client_display: string | null;
   upstream_client_display: string | null;
   user_agent_overridden: boolean;
@@ -306,6 +308,8 @@ export interface RequestLogChainRow {
   ingress_model_id: string;
   attempt_target_model_id: string | null;
   attempt_target_model_label?: string | null;
+  /** Retained request-time upstream snapshot; null is never inferred. */
+  upstream_model_id: string | null;
   endpoint_id: number | null;
   endpoint_label?: string | null;
   terminal_target_id: number | null;
@@ -335,6 +339,8 @@ export interface FinalizedSummary {
   final_error_code: string | null;
   ingress_model: { id: string; label: string } | null;
   final_target_model: { id: string; label: string } | null;
+  /** Winner usage event's request-time upstream snapshot; null is not inferred. */
+  final_upstream_model_id: string | null;
   terminal_target: {
     id: number;
     label: string;
@@ -545,6 +551,8 @@ export interface RequestLogDetail {
     model_label: string;
     attempt_target_model_id: string | null;
     attempt_target_model_label: string | null;
+    /** Retained request-time upstream snapshot; null is never inferred. */
+    upstream_model_id: string | null;
     api_family: string;
     row_kind: RowKind;
     upstream_status_code: number | null;

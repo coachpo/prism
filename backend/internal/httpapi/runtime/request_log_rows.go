@@ -29,6 +29,7 @@ func buildRuntimeRequestLogRow(plan requestPlan, request *http.Request, telemetr
 		ProfileID:                     plan.ProfileID,
 		ModelID:                       plan.RequestedModelID,
 		ResolvedTargetModelID:         resolvedTargetModelIDForAttempt(plan, attempt.attempt),
+		UpstreamModelID:               upstreamModelIDSnapshot(attempt.attempt.Connection),
 		APIFamily:                     plan.APIFamily,
 		OperationName:                 telemetry.operationName,
 		UpstreamOperationName:         trimmedStringPointer(attempt.attempt.UpstreamOperationName),
@@ -240,6 +241,23 @@ func resolvedTargetModelIDForAttempt(plan requestPlan, attempt executionAttempt)
 		return &trimmed
 	}
 	return plan.ResolvedTargetModelID
+}
+
+// upstreamModelIDSnapshot freezes the request-time upstream model identity of
+// one attempt's actual Terminal Target connection. Nil means the target had
+// no persisted identity (orphan edge, legacy row) — readers must present a
+// reasoned dash instead of inferring one from the live configuration. The
+// attempt's connection is a per-attempt copy, so this value is frozen at
+// request time by construction.
+func upstreamModelIDSnapshot(connection runtimeConnection) *string {
+	if connection.UpstreamModelID == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(*connection.UpstreamModelID)
+	if trimmed == "" {
+		return nil
+	}
+	return &trimmed
 }
 
 func applyRuntimeFinalAttemptTelemetry(requestLog *requestLogInsert, telemetry runtimeTelemetryEnvelopeContext, attempt runtimeTelemetryAttemptContext) {

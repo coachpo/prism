@@ -38,11 +38,16 @@ type OwnerModel struct {
 // owner-scoped Terminal Target inside a caller-owned transaction. Endpoint
 // selection is XOR: exactly one of EndpointID or EndpointCreate must be set.
 type OwnerConnectionCreateInput struct {
-	EndpointID              *int
-	EndpointCreate          *InlineEndpointCreate
-	IsActive                bool
-	Name                    *string
-	AuthType                *string
+	EndpointID     *int
+	EndpointCreate *InlineEndpointCreate
+	IsActive       bool
+	Name           *string
+	AuthType       *string
+	// UpstreamModelID is presence-aware: an explicit JSON null is a 422 (the
+	// identity can never be absent), a provided value is validated (trim only,
+	// non-blank, at most 200 Unicode characters), and omission defaults to the
+	// owner model's current model_id before any write.
+	UpstreamModelID         optionalString
 	CustomHeaders           map[string]string
 	CustomRequestParameters *terminaltarget.CustomRequestParameters
 	RoutingSchedule         RoutingScheduleInput
@@ -65,6 +70,10 @@ type OwnerConnectionCreateInput struct {
 func CreateOwnerConnection(ctx context.Context, tx pgx.Tx, profileID int, owner OwnerModel, secretEncryptionKey string, now func() time.Time, input OwnerConnectionCreateInput) (connectionResponse, int, int, []modelrouting.ConfigurationWarning, error) {
 	if (input.EndpointID == nil) == (input.EndpointCreate == nil) {
 		return connectionResponse{}, 0, 0, nil, &DomainError{StatusCode: http.StatusUnprocessableEntity, Detail: "Exactly one of endpoint_id or endpoint_create is required"}
+	}
+	upstreamModelID, err := resolveUpstreamModelIDCreate(owner.ModelID, input.UpstreamModelID)
+	if err != nil {
+		return connectionResponse{}, 0, 0, nil, err
 	}
 	authType, err := validateAuthType(input.AuthType)
 	if err != nil {
@@ -129,6 +138,7 @@ func CreateOwnerConnection(ctx context.Context, tx pgx.Tx, profileID int, owner 
 		Priority:                position,
 		Name:                    normalizeOptionalString(input.Name),
 		AuthType:                authType,
+		UpstreamModelID:         &upstreamModelID,
 		CustomHeaders:           customHeaders,
 		CustomRequestParameters: input.CustomRequestParameters,
 		RoutingSchedule:         routingSchedulePayloadFromRecord(routingScheduleTimezone, routingWindows),

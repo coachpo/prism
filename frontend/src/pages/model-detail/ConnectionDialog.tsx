@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Field, FieldDescription, FieldError, FieldLabel } from "@/components/ui/field";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Select,
@@ -61,6 +62,7 @@ interface ConnectionDialogProps {
   onOpenChange: (open: boolean) => void;
   apiFamily: ApiFamily | null;
   ownerOpenAIAcceptedFormat?: OpenAITextCapability | null;
+  ownerModelId?: string | null;
   editingConnection: Connection | null;
   lockedEndpointId?: number | null;
   connectionForm: ConnectionDialogForm;
@@ -83,6 +85,8 @@ interface ConnectionDialogProps {
   setCustomRequestParametersError: (
     error: CustomRequestParametersParseError | null,
   ) => void;
+  upstreamModelIdError: string | null;
+  setUpstreamModelIdError: (error: string | null) => void;
   handleConnectionSubmit: (e: FormEvent<HTMLFormElement>) => Promise<void>;
   endpointSourceDefaultName: string | null;
   pricingTemplates: PricingTemplate[];
@@ -166,6 +170,7 @@ export function ConnectionDialog({
   onOpenChange,
   apiFamily,
   ownerOpenAIAcceptedFormat,
+  ownerModelId,
   editingConnection,
   lockedEndpointId,
   connectionForm,
@@ -186,6 +191,8 @@ export function ConnectionDialog({
   setCustomRequestParametersDraft,
   customRequestParametersError,
   setCustomRequestParametersError,
+  upstreamModelIdError,
+  setUpstreamModelIdError,
   handleConnectionSubmit,
   endpointSourceDefaultName,
   pricingTemplates,
@@ -197,6 +204,11 @@ export function ConnectionDialog({
   const copy = messages.modelDetail;
   const isOpenAI = apiFamily === "openai";
   const capabilityLockedToOwner = isOpenAI && ownerOpenAIAcceptedFormat != null;
+  const upstreamModelIdValue = connectionForm.upstream_model_id ?? "";
+  const upstreamModelIdHint =
+    editingConnection && ownerModelId != null && upstreamModelIdValue.trim() !== ownerModelId.trim()
+      ? copy.upstreamModelIdHintDecoupled(ownerModelId ?? "")
+      : copy.upstreamModelIdHint(ownerModelId ?? "");
   const resolvedTextCapability = isOpenAI
     ? (connectionForm.openai_text_capability ?? "responses_only")
     : null;
@@ -266,6 +278,7 @@ export function ConnectionDialog({
       name: source.name ?? null,
       is_active: source.is_active,
       auth_type: source.auth_type ?? null,
+      upstream_model_id: source.upstream_model_id ?? "",
       openai_text_capability: source.openai_text_capability ?? null,
       pricing_template_id: source.pricing_template_id ?? null,
       qps_limit: source.qps_limit ?? null,
@@ -281,6 +294,7 @@ export function ConnectionDialog({
       routingScheduleDraftFromSchedule(source.routing_schedule),
     );
     setCustomRequestParametersError(null);
+    setUpstreamModelIdError(null);
     setHeaderRows(
       Object.entries(source.custom_headers ?? {}).map(([key, value]) => ({
         id: `prefill-header-${key}`,
@@ -627,6 +641,31 @@ export function ConnectionDialog({
                             }
                           />
                         </ConnectionDialogField>
+
+                        <Field data-invalid={upstreamModelIdError != null} className="gap-1.5 md:col-span-2">
+                          <FieldLabel htmlFor="conn-upstream-model-id">{copy.upstreamModelId}</FieldLabel>
+                          <Input
+                            id="conn-upstream-model-id"
+                            name="upstream_model_id"
+                            autoComplete="off"
+                            className="font-mono"
+                            placeholder={copy.upstreamModelIdPlaceholder}
+                            aria-invalid={upstreamModelIdError != null}
+                            value={upstreamModelIdValue}
+                            onChange={(event) => {
+                              setUpstreamModelIdError(null);
+                              updateConnectionForm({
+                                ...connectionForm,
+                                upstream_model_id: event.target.value,
+                              });
+                            }}
+                          />
+                          {upstreamModelIdError ? (
+                            <FieldError>{upstreamModelIdError}</FieldError>
+                          ) : (
+                            <FieldDescription>{upstreamModelIdHint}</FieldDescription>
+                          )}
+                        </Field>
 
                         <OperatorSwitchField
                           label={copy.active}

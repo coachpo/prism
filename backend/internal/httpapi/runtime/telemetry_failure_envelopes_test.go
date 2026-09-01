@@ -159,9 +159,11 @@ func TestRuntimeNormalFailoverAndHedgeTelemetryUseWinnerActualIdentity(t *testin
 			resolvedTarget := "target-c"
 			response := &http.Response{StatusCode: http.StatusOK, Header: make(http.Header)}
 			responseCompletedAt := completedAt
+			resultConnection := attempts[1].Connection
+			resultConnection.UpstreamModelID = stringPtr("must-not-use-result-connection")
 			envelope := service.buildRuntimeTelemetryEnvelope(plan, executionResult{
 				Response:              response,
-				Connection:            attempts[1].Connection,
+				Connection:            resultConnection,
 				ResolvedTargetModelID: &resolvedTarget,
 				AttemptCount:          2,
 				Attempts:              attempts,
@@ -187,6 +189,9 @@ func TestRuntimeNormalFailoverAndHedgeTelemetryUseWinnerActualIdentity(t *testin
 			if usage.ModelID != "entry-a" || usage.ResolvedTargetModelID == nil || *usage.ResolvedTargetModelID != "target-c" {
 				t.Fatalf("expected entry-a -> winner target-c, got requested=%q resolved=%+v", usage.ModelID, usage.ResolvedTargetModelID)
 			}
+			if usage.UpstreamModelID == nil || *usage.UpstreamModelID != "upstream-target-c" {
+				t.Fatalf("expected winner upstream snapshot, got %+v", usage.UpstreamModelID)
+			}
 			if usage.ConnectionID == nil || *usage.ConnectionID != 505 || usage.EndpointID == nil || *usage.EndpointID != 52 {
 				t.Fatalf("expected winner actual identity 505/52, got connection=%+v endpoint=%+v", usage.ConnectionID, usage.EndpointID)
 			}
@@ -203,6 +208,28 @@ func TestRuntimeNormalFailoverAndHedgeTelemetryUseWinnerActualIdentity(t *testin
 				t.Fatal("expected hedge evidence")
 			}
 		})
+	}
+}
+
+func TestRuntimeUsageEventUpstreamIdentityRequiresWinnerOrdinal(t *testing.T) {
+	completedAt := time.Date(2026, time.August, 27, 15, 0, 0, 0, time.UTC)
+	service := &Service{now: func() time.Time { return completedAt }}
+	attempt := c1SuccessfulAttempt(1, attemptTriggerInitial, "target-b", 101, 11, completedAt)
+	response := &http.Response{StatusCode: http.StatusOK, Header: make(http.Header)}
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	envelope := service.buildRuntimeTelemetryEnvelope(c1TelemetryPlan("entry-a", 101), executionResult{
+		Response:     response,
+		Connection:   attempt.Connection,
+		AttemptCount: 1,
+		Attempts:     []executionAttempt{attempt},
+		// Deliberately no WinnerOrdinal: a connection-shaped result must not
+		// manufacture winner-only upstream identity.
+	}, request, completedAt.Add(-time.Second), runtimeResponseCapture{
+		CompletedAt:   &completedAt,
+		StreamOutcome: runtimeStreamOutcomeNotStreaming,
+	})
+	if envelope.UsageEvent.UpstreamModelID != nil {
+		t.Fatalf("zero-winner usage event manufactured upstream identity %+v", envelope.UsageEvent.UpstreamModelID)
 	}
 }
 
@@ -244,9 +271,15 @@ func c1Connection(connectionID, endpointID int) runtimeConnection {
 	}
 }
 
+func c1ConnectionForTarget(connectionID, endpointID int, target string) runtimeConnection {
+	connection := c1Connection(connectionID, endpointID)
+	connection.UpstreamModelID = stringPtr("upstream-" + target)
+	return connection
+}
+
 func c1TransportAttempt(ordinal int, trigger, target string, connectionID, endpointID int, completedAt time.Time) executionAttempt {
 	return executionAttempt{
-		Connection:              c1Connection(connectionID, endpointID),
+		Connection:              c1ConnectionForTarget(connectionID, endpointID, target),
 		ResolvedTargetModelID:   target,
 		StatusCode:              http.StatusBadGateway,
 		ResponseTimeMS:          17,
@@ -268,7 +301,7 @@ func c1TransportAttempt(ordinal int, trigger, target string, connectionID, endpo
 
 func c1HTTPFailureAttempt(ordinal int, trigger, target string, connectionID, endpointID, statusCode int, completedAt time.Time) executionAttempt {
 	return executionAttempt{
-		Connection:              c1Connection(connectionID, endpointID),
+		Connection:              c1ConnectionForTarget(connectionID, endpointID, target),
 		ResolvedTargetModelID:   target,
 		ResponseHeaders:         make(http.Header),
 		StatusCode:              statusCode,
@@ -285,7 +318,7 @@ func c1HTTPFailureAttempt(ordinal int, trigger, target string, connectionID, end
 
 func c1SuccessfulAttempt(ordinal int, trigger, target string, connectionID, endpointID int, completedAt time.Time) executionAttempt {
 	return executionAttempt{
-		Connection:              c1Connection(connectionID, endpointID),
+		Connection:              c1ConnectionForTarget(connectionID, endpointID, target),
 		ResolvedTargetModelID:   target,
 		ResponseHeaders:         make(http.Header),
 		StatusCode:              http.StatusOK,
@@ -304,6 +337,9 @@ func assertC1AttemptIdentity(t *testing.T, row requestLogInsert, target string, 
 	if row.ResolvedTargetModelID == nil || *row.ResolvedTargetModelID != target {
 		t.Fatalf("expected attempt target %q, got %+v", target, row.ResolvedTargetModelID)
 	}
+	if row.UpstreamModelID == nil || *row.UpstreamModelID != "upstream-"+target {
+		t.Fatalf("expected attempt upstream snapshot %q, got %+v", "upstream-"+target, row.UpstreamModelID)
+	}
 	if row.ConnectionID == nil || *row.ConnectionID != connectionID || row.EndpointID == nil || *row.EndpointID != endpointID {
 		t.Fatalf("expected attempt actual identity %d/%d, got connection=%+v endpoint=%+v", connectionID, endpointID, row.ConnectionID, row.EndpointID)
 	}
@@ -314,8 +350,8 @@ func assertC1AttemptIdentity(t *testing.T, row requestLogInsert, target string, 
 
 func assertC1NoWinnerUsage(t *testing.T, usage usageEventInsert, selectedID, attemptCount int, finalErrorCode string) {
 	t.Helper()
-	if usage.ResolvedTargetModelID != nil || usage.ConnectionID != nil || usage.EndpointID != nil {
-		t.Fatalf("no-winner usage must keep actual identity null, got resolved=%+v connection=%+v endpoint=%+v", usage.ResolvedTargetModelID, usage.ConnectionID, usage.EndpointID)
+	if usage.ResolvedTargetModelID != nil || usage.UpstreamModelID != nil || usage.ConnectionID != nil || usage.EndpointID != nil {
+		t.Fatalf("no-winner usage must keep actual identity null, got resolved=%+v upstream=%+v connection=%+v endpoint=%+v", usage.ResolvedTargetModelID, usage.UpstreamModelID, usage.ConnectionID, usage.EndpointID)
 	}
 	if usage.SelectedTerminalTargetID == nil || *usage.SelectedTerminalTargetID != selectedID {
 		t.Fatalf("expected planning-primary %d, got %+v", selectedID, usage.SelectedTerminalTargetID)
@@ -352,11 +388,11 @@ func assertC1ZeroLaunchEnvelope(t *testing.T, envelope runtimeTelemetryEnvelope,
 		t.Fatalf("zero-launch envelope must not create attempt accounting events, got %d", len(envelope.AccountingAttempts))
 	}
 	row := envelope.RequestLogs[0]
-	if row.RowKind != rowKind || row.ResolvedTargetModelID != nil || row.ConnectionID != nil || row.EndpointID != nil {
+	if row.RowKind != rowKind || row.ResolvedTargetModelID != nil || row.UpstreamModelID != nil || row.ConnectionID != nil || row.EndpointID != nil {
 		t.Fatalf("expected identity-free %s diagnostic, got %+v", rowKind, row)
 	}
 	usage := envelope.UsageEvent
-	if usage.AttemptCount != 0 || usage.ResolvedTargetModelID != nil || usage.ConnectionID != nil || usage.EndpointID != nil {
+	if usage.AttemptCount != 0 || usage.ResolvedTargetModelID != nil || usage.UpstreamModelID != nil || usage.ConnectionID != nil || usage.EndpointID != nil {
 		t.Fatalf("zero-launch usage must keep count 0 and actual identity null, got %+v", usage)
 	}
 	if usage.SelectedTerminalTargetID == nil || *usage.SelectedTerminalTargetID != selectedID {

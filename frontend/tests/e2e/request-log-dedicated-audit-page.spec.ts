@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { readFile } from "node:fs/promises";
 
 import {
   copiedText,
@@ -393,6 +394,44 @@ test.describe("dedicated request-log audit page", () => {
     await expect(page).toHaveURL(/\/observe\/requests\?selected_request_id=101&view=attempts$/);
     expect(counters.auditListSearchParams).toEqual([]);
     expect(counters.auditDetailRequests).toEqual([]);
+  });
+
+  test("Requests exposes retained upstream identity and exports the same field", async ({
+    page,
+  }) => {
+    await mockPrismRoutes(page, "full");
+    await page.goto("/observe/requests?view=attempts");
+
+    await page.getByTestId("request-log-column-toggle-trigger").click();
+    const upstreamColumn = page.getByRole("menuitemcheckbox", {
+      name: "上游模型 ID",
+    });
+    await expect(upstreamColumn).toHaveAttribute("aria-checked", "false");
+    await upstreamColumn.click();
+    await expect(upstreamColumn).toHaveAttribute("aria-checked", "true");
+    await page.getByRole("button", { name: "关闭列选择" }).click();
+
+    await page.getByTestId("request-log-row-101").click();
+    const drawer = page.getByTestId("request-log-detail-sheet");
+    await expect(
+      drawer
+        .getByTestId("request-log-overview-grid")
+        .getByText("provider/gpt-4o-mini", { exact: true }),
+    ).toBeVisible();
+    await expect(drawer.getByTestId("final-upstream-model-id")).toContainText(
+      "provider/gpt-4o-mini",
+    );
+    await page.keyboard.press("Escape");
+
+    const [download] = await Promise.all([
+      page.waitForEvent("download"),
+      page.getByTestId("request-logs-export-csv").click(),
+    ]);
+    const downloadPath = await download.path();
+    expect(downloadPath).not.toBeNull();
+    expect(await readFile(downloadPath!, "utf8")).toBe(
+      "attempt_target_model_id,upstream_model_id\ngpt-4o-mini,provider/gpt-4o-mini",
+    );
   });
 });
 

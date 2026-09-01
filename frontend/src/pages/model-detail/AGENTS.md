@@ -8,6 +8,7 @@
 
 - `../models/AccessTargetsEditor.tsx` renders one mixed Model Target/Terminal Target list with global numbering; runtime order is shared across both target kinds.
 - `ConnectionDialog.tsx` keeps OpenAI Terminal Target capability equal to the owner model mode and lets "从已有终端目标填充" prefill a draft that saves as an independent private Connection.
+- The Terminal Target form owns the explicit `upstream_model_id` (上游模型 ID): create prefills the owner `model_id` for manual decoupling, edit hydrates the persisted identity, and clearing either form is rejected in place; an unchanged edit omits the PATCH field, while server 422 field errors render under the input.
 - Dead `?tab=` state is normalized away at the router; `action=create-terminal-target` (+ `endpoint_id`) and `focus_connection_id` are one-shot parameters consumed exactly once.
 
 ## STRUCTURE
@@ -43,6 +44,7 @@ model-detail/
 ├── connectionCollectionState.ts
 ├── modelAccessTargetProjection.ts
 ├── connectionDataSupport.ts
+├── upstreamModelIdField.ts # Shared 200-code-point/client/server field validation
 ├── useModelDetailDialogState.ts
 ├── useModelDetailModelForm.ts
 ├── useModelLoadbalanceCurrentState.ts

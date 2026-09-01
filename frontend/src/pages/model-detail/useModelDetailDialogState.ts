@@ -51,6 +51,7 @@ export function createHeaderRow(overrides?: Partial<Pick<HeaderRow, "key" | "val
 export function createDefaultConnectionForm(
   apiFamily: ApiFamily | null = null,
   openAIMode: OpenAIAcceptedFormat | null = null,
+  ownerModelID?: string | null,
 ): ConnectionDialogForm {
   const resolvedApiFamily = apiFamily ?? "openai";
 
@@ -58,6 +59,7 @@ export function createDefaultConnectionForm(
     api_family: resolvedApiFamily,
     name: "",
     is_active: true,
+    upstream_model_id: ownerModelID?.trim() ? ownerModelID.trim() : undefined,
     custom_headers: null,
     openai_text_capability:
       resolvedApiFamily === "openai" ? normalizeOpenAITextCapability(openAIMode) : null,
@@ -81,6 +83,7 @@ export function createEditConnectionForm(
     endpoint_id: connection.endpoint_id,
     name: connection.name ?? "",
     is_active: connection.is_active,
+    upstream_model_id: connection.upstream_model_id ?? undefined,
     custom_headers: connection.custom_headers,
     openai_text_capability:
       resolvedApiFamily === "openai"
@@ -98,6 +101,7 @@ interface UseModelDetailDialogStateInput {
   openAIMode?: OpenAIAcceptedFormat | null;
   globalEndpoints: Endpoint[];
   initialLockedEndpointId?: number | null;
+  ownerModelID?: string | null;
 }
 
 export function useModelDetailDialogState({
@@ -105,6 +109,7 @@ export function useModelDetailDialogState({
   openAIMode = null,
   globalEndpoints,
   initialLockedEndpointId = null,
+  ownerModelID = null,
 }: UseModelDetailDialogStateInput) {
   const [isEditModelDialogOpen, setIsEditModelDialogOpen] = useState(false);
   const [editRedirectTo, setEditRedirectTo] = useState("");
@@ -124,6 +129,7 @@ export function useModelDetailDialogState({
   const [customRequestParametersDraft, setCustomRequestParametersDraft] = useState("");
   const [customRequestParametersError, setCustomRequestParametersError] =
     useState<CustomRequestParametersParseError | null>(null);
+  const [upstreamModelIdError, setUpstreamModelIdError] = useState<string | null>(null);
   // Kept out of ConnectionDialogForm on purpose: that type is ConnectionCreate,
   // and the shallow merge in setConnectionForm would blank the window array.
   const [routingScheduleDraft, setRoutingScheduleDraft] = useState<RoutingScheduleDraft>(emptyRoutingScheduleDraft);
@@ -144,6 +150,13 @@ export function useModelDetailDialogState({
     return inlineEndpointName.length > 0 ? inlineEndpointName : null;
   }, [createMode, newEndpointForm.name, selectedEndpoint]);
 
+  const resolvedConnectionForm =
+    editingConnection === null &&
+    connectionFormState.upstream_model_id === undefined &&
+    ownerModelID?.trim()
+      ? { ...connectionFormState, upstream_model_id: ownerModelID.trim() }
+      : connectionFormState;
+
   const setConnectionForm = (nextForm: ConnectionCreate | ConnectionDialogForm) => {
     setConnectionFormState((currentForm) => ({
       ...currentForm,
@@ -161,6 +174,7 @@ export function useModelDetailDialogState({
       setHeaderRows(headers);
       setCustomRequestParametersDraft(customRequestParametersDraftFromValue(connection.custom_request_parameters));
       setCustomRequestParametersError(null);
+      setUpstreamModelIdError(null);
       setRoutingScheduleDraft(routingScheduleDraftFromSchedule(connection.routing_schedule));
       setRoutingScheduleError(null);
       setConnectionFormState(
@@ -176,9 +190,10 @@ export function useModelDetailDialogState({
       setHeaderRows([]);
       setCustomRequestParametersDraft("");
       setCustomRequestParametersError(null);
+      setUpstreamModelIdError(null);
       setRoutingScheduleDraft(emptyRoutingScheduleDraft());
       setRoutingScheduleError(null);
-      setConnectionFormState({ ...createDefaultConnectionForm(apiFamily, openAIMode) });
+      setConnectionFormState({ ...createDefaultConnectionForm(apiFamily, openAIMode, ownerModelID) });
       setNewEndpointForm({ ...createDefaultEndpointForm() });
       setCreateMode("select");
       setSelectedEndpointId("");
@@ -202,7 +217,7 @@ export function useModelDetailDialogState({
     setSelectedEndpointId,
     newEndpointForm,
     setNewEndpointForm,
-    connectionForm: connectionFormState,
+    connectionForm: resolvedConnectionForm,
     setConnectionForm,
     headerRows,
     setHeaderRows,
@@ -210,6 +225,8 @@ export function useModelDetailDialogState({
     setCustomRequestParametersDraft,
     customRequestParametersError,
     setCustomRequestParametersError,
+    upstreamModelIdError,
+    setUpstreamModelIdError,
     routingScheduleDraft,
     setRoutingScheduleDraft,
     routingScheduleError,

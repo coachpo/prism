@@ -90,9 +90,9 @@ func TestBuildTextUpstreamRequestStreamUsageInjection(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			upstream, err := adapter.BuildTextUpstreamRequest(t.Context(), TextUpstreamRequest{
-				Operation:     tc.operation,
-				RawBody:       []byte(tc.rawBody),
-				TargetModelID: tc.targetModelID,
+				Operation:       tc.operation,
+				RawBody:         []byte(tc.rawBody),
+				UpstreamModelID: tc.targetModelID,
 			})
 			if err != nil {
 				t.Fatalf("BuildTextUpstreamRequest: %v", err)

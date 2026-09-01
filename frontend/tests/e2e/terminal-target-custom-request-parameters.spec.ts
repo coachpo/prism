@@ -63,6 +63,7 @@ function createConnection(
     priority: 0,
     name: "OpenRouter Primary",
     auth_type: "openai",
+    upstream_model_id: "router-model",
     custom_headers: null,
     custom_request_parameters: params,
     routing_schedule: null,

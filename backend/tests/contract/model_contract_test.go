@@ -710,6 +710,9 @@ func modelInsertConnection(t *testing.T, harness *contractHarness, profileID int
 		t.Fatalf("load model %d api family: %v", modelConfigID, err)
 	}
 	connectionID := modelInsertConnectionRow(t, harness, profileID, apiFamily, endpointID, priority, isActive, customHeaders)
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE connections SET upstream_model_id = (SELECT model_id FROM model_configs WHERE id = $2 AND profile_id = $3) WHERE id = $1`, connectionID, modelConfigID, profileID); err != nil {
+		t.Fatalf("set connection %d upstream model id from owner %d: %v", connectionID, modelConfigID, err)
+	}
 	modelInsertConnectionTarget(t, harness, profileID, modelConfigID, connectionID, priority, true)
 	return connectionID
 }

@@ -7,18 +7,18 @@ import (
 	"github.com/coachpo/prism/backend/internal/gateway/provider/gemini"
 )
 
-func buildGeminiPlannedUpstreamRequest(input requestPlanningInput, operation resolvedRequestOperation, attempt runtimeTerminalAttempt) (plannedUpstreamRequest, bool, error) {
+func buildGeminiPlannedUpstreamRequest(input requestPlanningInput, operation resolvedRequestOperation, upstreamModelID string) (plannedUpstreamRequest, bool, error) {
 	providerOperation := providerOperationFromRuntime(operation.Match.Operation)
 	if !gemini.IsOperation(providerOperation) {
 		return plannedUpstreamRequest{}, false, nil
 	}
 	adapter := gemini.New()
 	upstream, err := adapter.BuildGenerateContentUpstreamRequest(context.Background(), gemini.GenerateContentUpstreamRequest{
-		Operation:     providerOperation,
-		RawBody:       input.RawBody,
-		ContentType:   operation.ContentType,
-		RequestPath:   input.Request.URL.Path,
-		TargetModelID: attempt.TargetModel.ModelID,
+		Operation:       providerOperation,
+		RawBody:         input.RawBody,
+		ContentType:     operation.ContentType,
+		RequestPath:     input.Request.URL.Path,
+		UpstreamModelID: upstreamModelID,
 	})
 	if err != nil {
 		if domainErr := domainErrorFromProviderAdapterError(err); domainErr != nil {

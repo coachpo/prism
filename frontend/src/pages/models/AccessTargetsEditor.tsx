@@ -562,6 +562,15 @@ export function AccessTargetsEditor({
                               {connection.endpoint.base_url}
                             </span>
                           ) : null}
+                          {isTerminalTarget && connection?.upstream_model_id ? (
+                            <span
+                              className="truncate font-mono text-xs text-muted-foreground"
+                              title={`${copy.terminalUpstreamModelId}: ${connection.upstream_model_id}`}
+                            >
+                              {copy.terminalUpstreamModelIdShort}{" "}
+                              {connection.upstream_model_id}
+                            </span>
+                          ) : null}
                           {connection?.is_active === false ? (
                             <OperatorTypeBadge
                               intent="degraded"

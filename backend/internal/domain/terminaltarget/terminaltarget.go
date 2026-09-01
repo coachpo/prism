@@ -62,16 +62,22 @@ type RuntimePricingCard struct {
 }
 
 type Record struct {
-	ID                      int
-	ProfileID               int
-	OwnerModelConfigID      *int
-	APIFamily               string
-	EndpointID              int
-	Endpoint                *Endpoint
-	IsActive                bool
-	Priority                int
-	Name                    *string
-	AuthType                *string
+	ID                 int
+	ProfileID          int
+	OwnerModelConfigID *int
+	APIFamily          string
+	EndpointID         int
+	Endpoint           *Endpoint
+	IsActive           bool
+	Priority           int
+	Name               *string
+	AuthType           *string
+	// UpstreamModelID is the explicit upstream model identity of this
+	// Terminal Target. It is written on create (defaulting to the owner
+	// model's current model_id), never cleared, and never cascades on model
+	// rename. NULL means the target has no owner edge (orphan) or predates
+	// the decoupling without a write since.
+	UpstreamModelID         *string
 	CustomHeaders           map[string]string
 	CustomRequestParameters *CustomRequestParameters
 	RoutingScheduleTimezone *string
@@ -95,16 +101,20 @@ type RuntimeEndpoint struct {
 }
 
 type RuntimeRecord struct {
-	ID                      int
-	ProfileID               int
-	APIFamily               string
-	EndpointID              int
-	Priority                int
-	QPSLimit                *int
-	MaxInFlightNonStream    *int
-	MaxInFlightStream       *int
-	Name                    *string
-	AuthType                *string
+	ID                   int
+	ProfileID            int
+	APIFamily            string
+	EndpointID           int
+	Priority             int
+	QPSLimit             *int
+	MaxInFlightNonStream *int
+	MaxInFlightStream    *int
+	Name                 *string
+	AuthType             *string
+	// UpstreamModelID is the required frozen upstream identity read into the
+	// planning snapshot. Runtime excludes orphan rows and rejects an owned
+	// active target without a non-blank value.
+	UpstreamModelID         *string
 	CustomHeaders           map[string]any
 	CustomRequestParameters *CustomRequestParameters
 	PricingTemplateID       *int

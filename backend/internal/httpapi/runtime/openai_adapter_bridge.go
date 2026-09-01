@@ -11,16 +11,16 @@ import (
 	"github.com/coachpo/prism/backend/internal/gateway/provider/openai"
 )
 
-func buildOpenAITextPlannedUpstreamRequest(input requestPlanningInput, operation resolvedRequestOperation, attempt runtimeTerminalAttempt) (plannedUpstreamRequest, bool, error) {
+func buildOpenAITextPlannedUpstreamRequest(input requestPlanningInput, operation resolvedRequestOperation, upstreamModelID string) (plannedUpstreamRequest, bool, error) {
 	providerOperation := providerOperationFromRuntime(operation.Match.Operation)
 	if !openai.IsTextOperation(providerOperation) {
 		return plannedUpstreamRequest{}, false, nil
 	}
 	adapter := openai.New()
 	upstream, err := adapter.BuildTextUpstreamRequest(context.Background(), openai.TextUpstreamRequest{
-		Operation:     providerOperation,
-		RawBody:       input.RawBody,
-		TargetModelID: attempt.TargetModel.ModelID,
+		Operation:       providerOperation,
+		RawBody:         input.RawBody,
+		UpstreamModelID: upstreamModelID,
 	})
 	if err != nil {
 		if domainErr := domainErrorFromProviderAdapterError(err); domainErr != nil {

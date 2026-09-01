@@ -779,6 +779,7 @@ func newRequestPlanSnapshot(models ...runtimeModelRecord) *planningSnapshot {
 			ModelConfigID:        model.ID,
 			EndpointID:           1,
 			Priority:             1,
+			UpstreamModelID:      stringPtr(model.ModelID),
 			OpenAITextCapability: openAITextCapability,
 			Endpoint:             runtimeEndpoint{ID: 1, BaseURL: "https://upstream.example"},
 		}
@@ -847,6 +848,7 @@ func addRequestPlanConnectionTargetWithOptions(snapshot *planningSnapshot, model
 		ModelConfigID:           model.ID,
 		EndpointID:              1,
 		Priority:                position,
+		UpstreamModelID:         stringPtr(model.ModelID),
 		PricingTemplateSnapshot: options.pricingTemplateSnapshot,
 		OpenAITextCapability:    openAITextCapability,
 		RoutingSchedule:         options.routingSchedule,

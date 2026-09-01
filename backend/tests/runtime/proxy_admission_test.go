@@ -173,13 +173,14 @@ func TestRuntimeAdmissionRejectsAllConnectionsBeforeLaunch(t *testing.T) {
 	var retainedCallerRequestID *string
 	var rowKind string
 	var errorCode *string
+	var upstreamModelID *string
 	if err := harness.conn.QueryRow(
 		context.Background(),
-		`SELECT caller_request_id, row_kind, error_code
+		`SELECT caller_request_id, row_kind, error_code, upstream_model_id
 		   FROM request_logs
 		  WHERE profile_id = $1`,
 		activeProfileID,
-	).Scan(&retainedCallerRequestID, &rowKind, &errorCode); err != nil {
+	).Scan(&retainedCallerRequestID, &rowKind, &errorCode, &upstreamModelID); err != nil {
 		t.Fatalf("load admission telemetry correlation: %v", err)
 	}
 	if retainedCallerRequestID == nil || *retainedCallerRequestID != callerRequestID {
@@ -187,5 +188,8 @@ func TestRuntimeAdmissionRejectsAllConnectionsBeforeLaunch(t *testing.T) {
 	}
 	if rowKind != "admission" || errorCode == nil || *errorCode != "admission_exhausted" {
 		t.Fatalf("expected typed admission telemetry, got row_kind=%q error_code=%+v", rowKind, errorCode)
+	}
+	if upstreamModelID != nil {
+		t.Fatalf("admission row must not manufacture upstream model identity, got %q", *upstreamModelID)
 	}
 }

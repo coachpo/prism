@@ -133,25 +133,29 @@ type RequestLogDetailSummary struct {
 	ModelLabel               string    `json:"model_label"`
 	ResolvedTargetModelID    *string   `json:"attempt_target_model_id"`
 	ResolvedTargetModelLabel *string   `json:"attempt_target_model_label"`
-	APIFamily                string    `json:"api_family"`
-	RowKind                  string    `json:"row_kind"`
-	UpstreamStatusCode       *int      `json:"upstream_status_code"`
-	GatewayStatusCode        *int      `json:"gateway_status_code"`
-	LegacyStatusCode         *int      `json:"legacy_status_code"`
-	AttemptDurationMS        *int      `json:"attempt_duration_ms"`
-	LegacyDurationMS         *int      `json:"legacy_duration_ms"`
-	TTFTMS                   *int      `json:"ttft_ms"`
-	CompletionDurationMS     *int      `json:"completion_duration_ms"`
-	OutputRateTPS            *float64  `json:"output_rate_tps"`
-	OutputRateState          string    `json:"output_rate_state"`
-	OutputRateReason         *string   `json:"output_rate_reason"`
-	IsStream                 bool      `json:"is_stream"`
-	StreamOutcome            string    `json:"stream_outcome"`
-	StreamErrorKind          *string   `json:"stream_error_kind"`
-	AttemptNumber            *int      `json:"attempt_number"`
-	AttemptTrigger           *string   `json:"attempt_trigger"`
-	AttemptResult            *string   `json:"attempt_result"`
-	IsWinner                 *bool     `json:"is_winner"`
+	// UpstreamModelID is the retained request-time snapshot. NULL means not
+	// recorded (legacy rows or targets whose identity predates the
+	// decoupling); it is never inferred from the live configuration.
+	UpstreamModelID      *string  `json:"upstream_model_id"`
+	APIFamily            string   `json:"api_family"`
+	RowKind              string   `json:"row_kind"`
+	UpstreamStatusCode   *int     `json:"upstream_status_code"`
+	GatewayStatusCode    *int     `json:"gateway_status_code"`
+	LegacyStatusCode     *int     `json:"legacy_status_code"`
+	AttemptDurationMS    *int     `json:"attempt_duration_ms"`
+	LegacyDurationMS     *int     `json:"legacy_duration_ms"`
+	TTFTMS               *int     `json:"ttft_ms"`
+	CompletionDurationMS *int     `json:"completion_duration_ms"`
+	OutputRateTPS        *float64 `json:"output_rate_tps"`
+	OutputRateState      string   `json:"output_rate_state"`
+	OutputRateReason     *string  `json:"output_rate_reason"`
+	IsStream             bool     `json:"is_stream"`
+	StreamOutcome        string   `json:"stream_outcome"`
+	StreamErrorKind      *string  `json:"stream_error_kind"`
+	AttemptNumber        *int     `json:"attempt_number"`
+	AttemptTrigger       *string  `json:"attempt_trigger"`
+	AttemptResult        *string  `json:"attempt_result"`
+	IsWinner             *bool    `json:"is_winner"`
 }
 
 // RequestLogDetailRequest is the request-context block.
@@ -228,6 +232,7 @@ type requestLogDetailRow struct {
 	CreatedAt                         time.Time
 	ModelID                           string
 	ResolvedTargetModelID             *string
+	UpstreamModelID                   *string
 	APIFamily                         string
 	RowKind                           string
 	UpstreamStatusCode                *int
@@ -380,6 +385,7 @@ func GetRequestLogDetail(ctx context.Context, exec queryExecutor, profileID int,
 			ModelLabel:               resolveRequestLogModelLabel(currentModelsByID, row.ModelID),
 			ResolvedTargetModelID:    row.ResolvedTargetModelID,
 			ResolvedTargetModelLabel: resolveRequestLogResolvedTargetModelLabel(currentModelsByID, row.ResolvedTargetModelID),
+			UpstreamModelID:          row.UpstreamModelID,
 			APIFamily:                row.APIFamily,
 			RowKind:                  row.RowKind,
 			UpstreamStatusCode:       row.UpstreamStatusCode,
@@ -734,7 +740,7 @@ func buildDetailCurrentPricingTemplate(ctx context.Context, exec queryExecutor, 
 func loadRequestLogDetailRow(ctx context.Context, exec queryExecutor, profileID int, requestLogID int64) (requestLogDetailRow, bool, error) {
 	row := exec.QueryRow(
 		ctx,
-		`SELECT profile_id, id, created_at, model_id, resolved_target_model_id, api_family, row_kind,
+		`SELECT profile_id, id, created_at, model_id, resolved_target_model_id, upstream_model_id, api_family, row_kind,
 		 upstream_status_code, gateway_status_code, legacy_status_code, attempt_duration_ms, legacy_duration_ms,
 		 ttft_ms, completion_duration_ms, output_rate_state, output_rate_reason, output_delivery_span_ms, is_stream, stream_outcome, stream_error_kind,
 		 attempt_number, attempt_trigger, attempt_result, is_winner,
@@ -780,6 +786,7 @@ func loadRequestLogDetailRow(ctx context.Context, exec queryExecutor, profileID 
 
 func scanRequestLogDetailRow(scanner interface{ Scan(...any) error }) (requestLogDetailRow, error) {
 	var resolvedTargetModelID sql.NullString
+	var upstreamModelID sql.NullString
 	var upstreamStatusCode, gatewayStatusCode, legacyStatusCode sql.NullInt64
 	var attemptDurationMS, legacyDurationMS, ttftMS, completionDurationMS, attemptNumber sql.NullInt32
 	var outputRateState sql.NullString
@@ -818,7 +825,7 @@ func scanRequestLogDetailRow(scanner interface{ Scan(...any) error }) (requestLo
 
 	item := requestLogDetailRow{}
 	if err := scanner.Scan(
-		&item.ProfileID, &item.ID, &item.CreatedAt, &item.ModelID, &resolvedTargetModelID, &item.APIFamily, &item.RowKind,
+		&item.ProfileID, &item.ID, &item.CreatedAt, &item.ModelID, &resolvedTargetModelID, &upstreamModelID, &item.APIFamily, &item.RowKind,
 		&upstreamStatusCode, &gatewayStatusCode, &legacyStatusCode, &attemptDurationMS, &legacyDurationMS,
 		&ttftMS, &completionDurationMS, &outputRateState, &outputRateReason, &outputDeliverySpanMS, &item.IsStream, &streamOutcome, &streamErrorKind,
 		&attemptNumber, &attemptTrigger, &attemptResult, &isWinner,
@@ -849,6 +856,8 @@ func scanRequestLogDetailRow(scanner interface{ Scan(...any) error }) (requestLo
 	}
 	item.CreatedAt = item.CreatedAt.UTC()
 	item.ResolvedTargetModelID = nullableString(resolvedTargetModelID)
+	// Persisted evidence only: NULL stays NULL and is never inferred.
+	item.UpstreamModelID = nullableString(upstreamModelID)
 	item.RowKind = stringValue(normalizeOptionalString(nonNullString(item.RowKind)))
 	item.UpstreamStatusCode = nullableInt64AsInt(upstreamStatusCode)
 	item.GatewayStatusCode = nullableInt64AsInt(gatewayStatusCode)

@@ -181,54 +181,59 @@ type ProxyAPIKeyFilterOptionsParams struct {
 }
 
 type RequestLogListItem struct {
-	RequestLogID                  string    `json:"request_log_id"`
-	StatusCode                    *int      `json:"status_code"`
-	RowKind                       string    `json:"row_kind"`
-	IngressRequestID              *string   `json:"ingress_request_id"`
-	AttemptNumber                 *int      `json:"attempt_number"`
-	AttemptTrigger                *string   `json:"attempt_trigger"`
-	AttemptResult                 *string   `json:"attempt_result"`
-	IsWinner                      *bool     `json:"is_winner"`
-	CreatedAt                     time.Time `json:"created_at"`
-	ModelID                       string    `json:"ingress_model_id"`
-	ModelLabel                    string    `json:"model_label"`
-	ResolvedTargetModelID         *string   `json:"attempt_target_model_id"`
-	ResolvedTargetModelLabel      *string   `json:"attempt_target_model_label"`
-	APIFamily                     string    `json:"api_family"`
-	EndpointID                    *int      `json:"endpoint_id"`
-	EndpointLabel                 string    `json:"endpoint_label"`
-	TerminalTargetID              *int      `json:"terminal_target_id"`
-	ProxyAPIKeyID                 *int      `json:"proxy_api_key_id"`
-	ProxyAPIKeyNameSnapshot       *string   `json:"proxy_api_key_name_snapshot"`
-	ProxyAPIKeyAttributionState   string    `json:"proxy_api_key_attribution_state"`
-	ProxyAPIKeyAuthEnforced       *bool     `json:"proxy_api_key_auth_enforced_at_request"`
-	UpstreamStatusCode            *int      `json:"upstream_status_code"`
-	GatewayStatusCode             *int      `json:"gateway_status_code"`
-	LegacyStatusCode              *int      `json:"legacy_status_code"`
-	AttemptDurationMS             *int      `json:"attempt_duration_ms"`
-	LegacyDurationMS              *int      `json:"legacy_duration_ms"`
-	TTFTMS                        *int      `json:"ttft_ms"`
-	CompletionDurationMS          *int      `json:"completion_duration_ms"`
-	OutputRateTPS                 *float64  `json:"output_rate_tps"`
-	OutputRateState               string    `json:"output_rate_state"`
-	OutputRateReason              *string   `json:"output_rate_reason"`
-	IsStream                      bool      `json:"is_stream"`
-	StreamOutcome                 string    `json:"stream_outcome"`
-	StreamErrorKind               *string   `json:"stream_error_kind"`
-	ErrorSource                   *string   `json:"error_source"`
-	ErrorCode                     *string   `json:"error_code"`
-	FailureStage                  *string   `json:"failure_stage"`
-	FailureDetailPreview          *string   `json:"failure_detail_preview"`
-	FailureDetailSource           string    `json:"failure_detail_source"`
-	FailureDetailPreviewTruncated bool      `json:"failure_detail_preview_truncated"`
-	FailureDetailRedacted         bool      `json:"failure_detail_redacted"`
-	OutputTokens                  *int      `json:"output_tokens"`
-	TotalTokens                   *int      `json:"total_tokens"`
-	TotalCostUserCurrencyMicros   *int64    `json:"total_cost_user_currency_micros"`
-	PricingStatus                 string    `json:"pricing_status"`
-	UnpricedReason                *string   `json:"unpriced_reason"`
-	PricingResolutionKind         *string   `json:"pricing_resolution_kind"`
-	PricingEvidenceTrust          string    `json:"pricing_evidence_trust"`
+	RequestLogID             string    `json:"request_log_id"`
+	StatusCode               *int      `json:"status_code"`
+	RowKind                  string    `json:"row_kind"`
+	IngressRequestID         *string   `json:"ingress_request_id"`
+	AttemptNumber            *int      `json:"attempt_number"`
+	AttemptTrigger           *string   `json:"attempt_trigger"`
+	AttemptResult            *string   `json:"attempt_result"`
+	IsWinner                 *bool     `json:"is_winner"`
+	CreatedAt                time.Time `json:"created_at"`
+	ModelID                  string    `json:"ingress_model_id"`
+	ModelLabel               string    `json:"model_label"`
+	ResolvedTargetModelID    *string   `json:"attempt_target_model_id"`
+	ResolvedTargetModelLabel *string   `json:"attempt_target_model_label"`
+	// UpstreamModelID is the retained request-time snapshot of the actual
+	// upstream identity. NULL means not recorded (legacy rows, diagnostics,
+	// or a terminal target whose identity predates the decoupling); it is
+	// never inferred from the live configuration.
+	UpstreamModelID               *string  `json:"upstream_model_id"`
+	APIFamily                     string   `json:"api_family"`
+	EndpointID                    *int     `json:"endpoint_id"`
+	EndpointLabel                 string   `json:"endpoint_label"`
+	TerminalTargetID              *int     `json:"terminal_target_id"`
+	ProxyAPIKeyID                 *int     `json:"proxy_api_key_id"`
+	ProxyAPIKeyNameSnapshot       *string  `json:"proxy_api_key_name_snapshot"`
+	ProxyAPIKeyAttributionState   string   `json:"proxy_api_key_attribution_state"`
+	ProxyAPIKeyAuthEnforced       *bool    `json:"proxy_api_key_auth_enforced_at_request"`
+	UpstreamStatusCode            *int     `json:"upstream_status_code"`
+	GatewayStatusCode             *int     `json:"gateway_status_code"`
+	LegacyStatusCode              *int     `json:"legacy_status_code"`
+	AttemptDurationMS             *int     `json:"attempt_duration_ms"`
+	LegacyDurationMS              *int     `json:"legacy_duration_ms"`
+	TTFTMS                        *int     `json:"ttft_ms"`
+	CompletionDurationMS          *int     `json:"completion_duration_ms"`
+	OutputRateTPS                 *float64 `json:"output_rate_tps"`
+	OutputRateState               string   `json:"output_rate_state"`
+	OutputRateReason              *string  `json:"output_rate_reason"`
+	IsStream                      bool     `json:"is_stream"`
+	StreamOutcome                 string   `json:"stream_outcome"`
+	StreamErrorKind               *string  `json:"stream_error_kind"`
+	ErrorSource                   *string  `json:"error_source"`
+	ErrorCode                     *string  `json:"error_code"`
+	FailureStage                  *string  `json:"failure_stage"`
+	FailureDetailPreview          *string  `json:"failure_detail_preview"`
+	FailureDetailSource           string   `json:"failure_detail_source"`
+	FailureDetailPreviewTruncated bool     `json:"failure_detail_preview_truncated"`
+	FailureDetailRedacted         bool     `json:"failure_detail_redacted"`
+	OutputTokens                  *int     `json:"output_tokens"`
+	TotalTokens                   *int     `json:"total_tokens"`
+	TotalCostUserCurrencyMicros   *int64   `json:"total_cost_user_currency_micros"`
+	PricingStatus                 string   `json:"pricing_status"`
+	UnpricedReason                *string  `json:"unpriced_reason"`
+	PricingResolutionKind         *string  `json:"pricing_resolution_kind"`
+	PricingEvidenceTrust          string   `json:"pricing_evidence_trust"`
 	// Typed pricing evidence deliberately stays on the list DTO so the table
 	// can distinguish family, selector state, and selected role without reading
 	// detail-only snapshots.

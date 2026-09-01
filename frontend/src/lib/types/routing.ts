@@ -492,6 +492,8 @@ export interface Connection {
  priority: number;
  name: string | null;
  auth_type: string | null;
+ /** Explicit upstream model identity; null only on orphan/legacy targets. */
+ upstream_model_id: string | null;
  custom_headers: Record<string, string> | null;
  custom_headers_redacted: string[] | null;
  custom_request_parameters: JsonObject | null;
@@ -517,6 +519,8 @@ export interface ConnectionCreate {
  is_active?: boolean;
  name?: string | null;
  auth_type?: string | null;
+ /** Omit to default to the owner model's current model_id; null is invalid. */
+ upstream_model_id?: string;
  custom_headers?: Record<string, string> | null;
  custom_request_parameters?: JsonObject | null;
  routing_schedule?: RoutingSchedule | null;
@@ -535,6 +539,8 @@ export interface ConnectionUpdate {
  is_active?: boolean;
  name?: string | null;
  auth_type?: string | null;
+ /** Omit to keep the stored identity; the field cannot be cleared. */
+ upstream_model_id?: string;
  custom_headers?: Record<string, string> | null;
  custom_request_parameters?: JsonObject | null;
  routing_schedule?: RoutingSchedule | null;

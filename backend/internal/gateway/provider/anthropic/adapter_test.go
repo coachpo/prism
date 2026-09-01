@@ -25,9 +25,9 @@ func TestAdapterBuildsMessagesAndTokenCountRequests(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			request, err := adapter.BuildMessagesUpstreamRequest(context.Background(), MessagesUpstreamRequest{
-				Operation:     provider.Operation{Name: test.operationName},
-				RawBody:       []byte(`{"model":"public-claude","messages":[],"stream":true}`),
-				TargetModelID: "target-claude",
+				Operation:       provider.Operation{Name: test.operationName},
+				RawBody:         []byte(`{"model":"public-claude","messages":[],"stream":true}`),
+				UpstreamModelID: "target-claude",
 			})
 			if err != nil {
 				t.Fatalf("build upstream request: %v", err)

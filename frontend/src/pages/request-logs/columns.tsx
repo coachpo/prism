@@ -28,6 +28,7 @@ import {
   formatTokens,
   formatTtft,
 } from "./requestLogMetricPresentation";
+import { UpstreamModelIdValue } from "./UpstreamModelIdValue";
 
 export const ROW_HEIGHT = 45;
 
@@ -315,6 +316,31 @@ export function getColumns(): ColumnDef[] {
           </span>
         </div>
       ),
+    },
+    {
+      // Optional column, hidden by default (Requests column preferences): the
+      // upstream identity is retained request-time evidence. Planning/admission
+      // rows never launched an upstream request; legacy rows predate the
+      // snapshot. Both render a reasoned dash — never an inferred value.
+      key: "upstream_model_id",
+      label: messages.upstreamModelIdColumn,
+      width: 190,
+      grow: 2,
+      render: (row) => {
+        const reason =
+          row.row_kind === "upstream"
+            ? messages.upstreamModelIdMissing
+            : messages.noUpstreamAttemptTarget;
+        return (
+          <div className="min-w-0">
+            <UpstreamModelIdValue
+              value={row.upstream_model_id}
+              missingReason={reason}
+              className="block truncate text-xs"
+            />
+          </div>
+        );
+      },
     },
     {
       key: "terminal_target",

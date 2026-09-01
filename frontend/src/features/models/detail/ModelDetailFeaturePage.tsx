@@ -473,6 +473,7 @@ export function ModelDetailFeaturePage({
         onOpenChange={data.setIsConnectionDialogOpen}
         apiFamily={model.api_family}
         ownerOpenAIAcceptedFormat={ownerOpenAIAcceptedFormat}
+        ownerModelId={model.model_id}
         editingConnection={data.editingConnection}
         connectionForm={data.connectionForm}
         setConnectionForm={data.setConnectionForm}
@@ -492,6 +493,8 @@ export function ModelDetailFeaturePage({
         setCustomRequestParametersDraft={data.setCustomRequestParametersDraft}
         customRequestParametersError={data.customRequestParametersError}
         setCustomRequestParametersError={data.setCustomRequestParametersError}
+        upstreamModelIdError={data.upstreamModelIdError}
+        setUpstreamModelIdError={data.setUpstreamModelIdError}
         handleConnectionSubmit={data.handleConnectionSubmit}
         endpointSourceDefaultName={data.endpointSourceDefaultName}
         pricingTemplates={data.pricingTemplates}

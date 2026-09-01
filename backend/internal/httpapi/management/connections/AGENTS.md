@@ -26,6 +26,7 @@ connections/
 ├── connection_reference_store.go # Connection reference query and row scanner
 ├── terminal_target_store.go # Terminal Target read/write persistence
 ├── terminal_target_projection.go # Terminal Target query shape and row projection
+├── upstream_model_id.go # Terminal Target upstream_model_id validation and create/PATCH resolution
 ├── routing_window_store.go # Routing-window child-row persistence and hydration
 ├── connection_db_arguments.go # PostgreSQL nullable values and array arguments
 ├── writer.go               # Shared HTTP-neutral owner-scoped create (`CreateOwnerConnection`)
@@ -68,6 +69,7 @@ connections/
 - Effective Default-profile scope and profile/access-target locks: `profile_scope.go`, `connection_access_target_store.go`
 - Model and endpoint owner lookups: `connection_model_store.go`, `connection_endpoint_store.go`
 - Terminal Target read/write and response projection: `terminal_target_store.go`, `terminal_target_projection.go`
+- Terminal Target `upstream_model_id` management mapping (both create chains and PATCH): `upstream_model_id.go`, over the HTTP-neutral value contract in `internal/domain/terminaltarget/upstream_model_id.go`. Create omission defaults to the owner model's current `model_id` and writes it explicitly; explicit null, blank-after-trim, and over-200-rune values are 422 errors with flat `field`/`path`/`reason` and an applicable `limit`, before any write; PATCH omission preserves and explicit null cannot clear; trimming removes leading/trailing whitespace only (case, slashes, and interior characters survive); model rename never cascades and copy preserves the source value.
 - Routing-window persistence and read hydration: `routing_window_store.go`, `routing_schedule.go`, `routing_schedule_state.go`
 - PostgreSQL nullable values and array arguments: `connection_db_arguments.go`
 - Pricing-template CRUD and validation: `pricing_templates.go`

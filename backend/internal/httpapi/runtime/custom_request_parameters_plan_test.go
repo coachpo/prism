@@ -30,6 +30,8 @@ func TestCustomRequestParametersPlanMaterializesImmutablePerAttemptBodies(t *tes
 	if secondErr != nil {
 		t.Fatalf("parse second config: %v", secondErr)
 	}
+	firstUpstreamModelID := "provider/First-Model"
+	secondUpstreamModelID := "provider/Second-Model"
 	snapshot.TerminalTargetsByID[1001] = runtimeConnection{
 		ID:                      1001,
 		ProfileID:               requestPlanTestProfileID,
@@ -37,6 +39,7 @@ func TestCustomRequestParametersPlanMaterializesImmutablePerAttemptBodies(t *tes
 		ModelConfigID:           targetModel.ID,
 		EndpointID:              1,
 		Priority:                0,
+		UpstreamModelID:         stringPtr(firstUpstreamModelID),
 		CustomRequestParameters: firstConfig,
 		OpenAITextCapability:    stringPtr(providerauth.OpenAITextCapabilityDualNative),
 		Endpoint:                runtimeEndpoint{ID: 1, BaseURL: "https://upstream.example"},
@@ -48,6 +51,7 @@ func TestCustomRequestParametersPlanMaterializesImmutablePerAttemptBodies(t *tes
 		ModelConfigID:           targetModel.ID,
 		EndpointID:              2,
 		Priority:                1,
+		UpstreamModelID:         stringPtr(secondUpstreamModelID),
 		CustomRequestParameters: secondConfig,
 		OpenAITextCapability:    stringPtr(providerauth.OpenAITextCapabilityDualNative),
 		Endpoint:                runtimeEndpoint{ID: 2, BaseURL: "https://upstream.example"},
@@ -90,8 +94,8 @@ func TestCustomRequestParametersPlanMaterializesImmutablePerAttemptBodies(t *tes
 		t.Fatalf("expected attempt for connection 1002, got %+v", byConnection)
 	}
 
-	assertPlannedAttemptBody(t, first.UpstreamBody, 0.1, "first-provider")
-	assertPlannedAttemptBody(t, second.UpstreamBody, 0.9, "second-provider")
+	assertPlannedAttemptBody(t, first.UpstreamBody, firstUpstreamModelID, 0.1, "first-provider")
+	assertPlannedAttemptBody(t, second.UpstreamBody, secondUpstreamModelID, 0.9, "second-provider")
 
 	if bytes.Equal(first.UpstreamBody, second.UpstreamBody) {
 		t.Fatalf("attempt bodies must differ per Connection, both %s", first.UpstreamBody)
@@ -119,7 +123,7 @@ func TestCustomRequestParametersPlanMaterializesImmutablePerAttemptBodies(t *tes
 	}
 }
 
-func assertPlannedAttemptBody(t *testing.T, rawBody []byte, wantTemperature float64, wantProvider string) {
+func assertPlannedAttemptBody(t *testing.T, rawBody []byte, wantModelID string, wantTemperature float64, wantProvider string) {
 	t.Helper()
 	var payload map[string]any
 	if err := json.Unmarshal(rawBody, &payload); err != nil {
@@ -136,7 +140,7 @@ func assertPlannedAttemptBody(t *testing.T, rawBody []byte, wantTemperature floa
 	if !ok || len(only) != 1 || only[0] != wantProvider {
 		t.Fatalf("expected provider.only [%q], got %+v in %s", wantProvider, provider["only"], rawBody)
 	}
-	if payload["model"] != "target-openai" {
-		t.Fatalf("expected model to survive overlay, got %v", payload["model"])
+	if payload["model"] != wantModelID {
+		t.Fatalf("expected rewritten upstream model %q to survive overlay, got %v", wantModelID, payload["model"])
 	}
 }

@@ -49,7 +49,7 @@ export function RequestLogsPage() {
       const nextKeys = current.visibleKeys.includes(key)
         ? current.visibleKeys.filter((visibleKey) => visibleKey !== key)
         : [...current.visibleKeys, key];
-      const next = { version: 4 as const, visibleKeys: nextKeys };
+      const next = { version: 5 as const, visibleKeys: nextKeys };
       saveColumnPreferences(next);
       return next;
     });

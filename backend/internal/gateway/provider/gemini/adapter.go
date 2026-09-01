@@ -37,12 +37,12 @@ type OperationMetadata struct {
 }
 
 type GenerateContentUpstreamRequest struct {
-	Operation     provider.Operation
-	RawBody       []byte
-	ContentType   string
-	RequestPath   string
-	TargetModelID string
-	Header        http.Header
+	Operation       provider.Operation
+	RawBody         []byte
+	ContentType     string
+	RequestPath     string
+	UpstreamModelID string
+	Header          http.Header
 }
 
 func New(_ ...any) Adapter {
@@ -71,12 +71,12 @@ func IsOperation(operation provider.Operation) bool {
 
 func (adapter Adapter) BuildUpstreamRequest(ctx context.Context, request provider.ProviderRequest, target provider.UpstreamTarget) (provider.UpstreamRequest, error) {
 	return adapter.BuildGenerateContentUpstreamRequest(ctx, GenerateContentUpstreamRequest{
-		Operation:     request.Operation,
-		RawBody:       request.Body,
-		ContentType:   request.ContentType,
-		RequestPath:   request.NativePath,
-		TargetModelID: target.ModelID,
-		Header:        target.Header,
+		Operation:       request.Operation,
+		RawBody:         request.Body,
+		ContentType:     request.ContentType,
+		RequestPath:     request.NativePath,
+		UpstreamModelID: target.ModelID,
+		Header:          target.Header,
 	})
 }
 
@@ -85,8 +85,8 @@ func (adapter Adapter) BuildGenerateContentUpstreamRequest(_ context.Context, re
 	if !ok {
 		return provider.UpstreamRequest{}, &provider.AdapterError{HTTPStatus: http.StatusBadRequest, Code: "gemini_operation_unsupported", Detail: "Gemini operation is unsupported by this adapter."}
 	}
-	path := "/v1beta/models/" + strings.TrimSpace(request.TargetModelID) + metadata.Suffix
-	if strings.TrimSpace(request.TargetModelID) == "" {
+	path := "/v1beta/models/" + strings.TrimSpace(request.UpstreamModelID) + metadata.Suffix
+	if strings.TrimSpace(request.UpstreamModelID) == "" {
 		path = strings.TrimSpace(request.RequestPath)
 	}
 	return provider.UpstreamRequest{Method: http.MethodPost, Path: path, Header: request.Header.Clone(), Body: append([]byte(nil), request.RawBody...)}, nil

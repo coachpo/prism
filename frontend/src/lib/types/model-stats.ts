@@ -167,6 +167,8 @@ interface ModelInitialTerminalTargetCommon {
   name?: string | null;
   is_active?: boolean;
   auth_type?: string | null;
+  /** Omit to default to the new model's model_id; an explicit null is a 422. */
+  upstream_model_id?: string;
   pricing_template_id?: number | null;
   qps_limit?: number | null;
   max_in_flight_non_stream?: number | null;

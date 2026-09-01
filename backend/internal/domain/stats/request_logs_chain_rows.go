@@ -26,7 +26,7 @@ const chainRowSelectList = `id, row_kind, ingress_request_id, attempt_number, at
 			attempt_duration_ms, legacy_duration_ms, upstream_status_code, gateway_status_code, legacy_status_code,
 			error_source, error_code, failure_stage, error_detail, error_detail_redacted, error_detail_truncated,
 			stream_error_detail, stream_error_detail_redacted, stream_error_detail_truncated,
-			stream_outcome, stream_error_kind, model_id, resolved_target_model_id, endpoint_id, connection_id,
+			stream_outcome, stream_error_kind, model_id, resolved_target_model_id, upstream_model_id, endpoint_id, connection_id,
 			total_tokens, total_cost_user_currency_micros, pricing_status, unpriced_reason, pricing_resolution_kind, pricing_evidence_trust,
 			pricing_template_kind, pricing_selection_state, pricing_card_role, pricing_selector_threshold_tokens, pricing_selector_basis_tokens, created_at,
 			endpoint_base_url, endpoint_description`
@@ -52,7 +52,7 @@ func chainRowScanDest(item *ChainRowItem) ([]any, *chainRowRawDetail) {
 		&item.AttemptDurationMS, &item.LegacyDurationMS, &item.UpstreamStatusCode, &item.GatewayStatusCode, &item.LegacyStatusCode,
 		&item.ErrorSource, &item.ErrorCode, &item.FailureStage, &raw.errorDetail, &raw.errorDetailRedacted, &raw.errorDetailTruncated,
 		&raw.streamErrorDetail, &raw.streamErrorDetailRedacted, &raw.streamErrorDetailTruncated,
-		&item.StreamOutcome, &item.StreamErrorKind, &item.ModelID, &item.ResolvedTargetModelID, &item.EndpointID, &item.TerminalTargetID,
+		&item.StreamOutcome, &item.StreamErrorKind, &item.ModelID, &item.ResolvedTargetModelID, &item.UpstreamModelID, &item.EndpointID, &item.TerminalTargetID,
 		&item.TotalTokens, &item.TotalCostUserCurrencyMicros, &item.PricingStatus, &item.UnpricedReason, &item.PricingResolutionKind, &item.PricingEvidenceTrust,
 		&item.PricingTemplateKind, &item.PricingSelectionState, &item.PricingCardRole, &item.PricingSelectorThresholdTokens, &item.PricingSelectorBasisTokens, &item.CreatedAt,
 		&raw.endpointBaseURL, &raw.endpointDescription, &item.MatchedByFilter,

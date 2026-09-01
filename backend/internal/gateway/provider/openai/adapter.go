@@ -29,9 +29,9 @@ type TextOperationMetadata struct {
 }
 
 type TextUpstreamRequest struct {
-	Operation     provider.Operation
-	RawBody       []byte
-	TargetModelID string
+	Operation       provider.Operation
+	RawBody         []byte
+	UpstreamModelID string
 }
 
 func New(_ ...any) Adapter {
@@ -65,7 +65,7 @@ func (adapter Adapter) BuildTextUpstreamRequest(_ context.Context, request TextU
 	if !ok {
 		return provider.UpstreamRequest{}, &provider.AdapterError{HTTPStatus: http.StatusBadRequest, Code: "openai_text_operation_unsupported", Detail: "OpenAI text operation is unsupported by this adapter."}
 	}
-	body := rewriteJSONModel(request.RawBody, request.TargetModelID)
+	body := rewriteJSONModel(request.RawBody, request.UpstreamModelID)
 	if metadata.Name == OperationChatCompletions && RequestWantsStream(request.Operation, request.RawBody, metadata.NativePath) {
 		body = ensureChatCompletionsStreamUsage(body)
 	}
@@ -171,7 +171,7 @@ func requestBodyWantsStream(rawBody []byte, _ string) bool {
 
 func (adapter Adapter) BuildUpstreamRequest(ctx context.Context, request provider.ProviderRequest, target provider.UpstreamTarget) (provider.UpstreamRequest, error) {
 	if IsTextOperation(request.Operation) {
-		return adapter.BuildTextUpstreamRequest(ctx, TextUpstreamRequest{Operation: request.Operation, RawBody: request.Body, TargetModelID: target.ModelID})
+		return adapter.BuildTextUpstreamRequest(ctx, TextUpstreamRequest{Operation: request.Operation, RawBody: request.Body, UpstreamModelID: target.ModelID})
 	}
 	return provider.UpstreamRequest{}, &provider.AdapterError{HTTPStatus: http.StatusBadRequest, Code: "openai_operation_unsupported", Detail: "OpenAI operation is unsupported by this adapter."}
 }

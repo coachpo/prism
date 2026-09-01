@@ -12,6 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import type { ChainResponse, RequestLogDetail } from "@/lib/types/request-logs";
 import { RequestLogOverviewTab } from "./detail/RequestLogOverviewTab";
+import { UpstreamModelIdValue } from "./UpstreamModelIdValue";
 
 interface RequestLogDetailSheetProps {
   request: RequestLogDetail | null;
@@ -154,6 +155,13 @@ function RetainedChainSection({
               {ingressItem.finalized_summary ? (
                 <>
                   <span aria-hidden="true">·</span>
+                  <UpstreamModelIdValue
+                    value={ingressItem.finalized_summary.final_upstream_model_id}
+                    missingReason={messages.requestLogs.upstreamModelIdMissing}
+                    showLabel
+                    testId="final-upstream-model-id"
+                  />
+                  <span aria-hidden="true">·</span>
                   <span className="font-mono tabular-nums">
                     {messages.requestLogs.requestTotalKnownCost}:{" "}
                     {ingressItem.finalized_summary.total_cost_user_currency_micros === null
@@ -225,6 +233,14 @@ function RetainedChainSection({
                       <span className="shrink-0 text-[11px]">
                         {messages.requestLogs.attemptTargetModel}: {row.attempt_target_model_id}
                       </span>
+                    ) : null}
+                    {row.row_kind === "upstream" ? (
+                      <UpstreamModelIdValue
+                        value={row.upstream_model_id}
+                        missingReason={messages.requestLogs.upstreamModelIdMissing}
+                        showLabel
+                        className="shrink-0 text-[11px]"
+                      />
                     ) : null}
                     {row.terminal_target_label || row.terminal_target_id !== null ? (
                       <span className="shrink-0 text-[11px]">

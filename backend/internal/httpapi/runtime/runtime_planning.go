@@ -162,13 +162,17 @@ func (s *Service) resolveRequestPlanTarget(input requestPlanningInput, operation
 }
 
 func buildPlannedUpstreamRequest(input requestPlanningInput, operation resolvedRequestOperation, attempt runtimeTerminalAttempt) (plannedUpstreamRequest, error) {
-	if upstreamRequest, ok, err := buildOpenAITextPlannedUpstreamRequest(input, operation, attempt); ok || err != nil {
+	upstreamModelID, err := attemptUpstreamModelID(attempt)
+	if err != nil {
+		return plannedUpstreamRequest{}, err
+	}
+	if upstreamRequest, ok, err := buildOpenAITextPlannedUpstreamRequest(input, operation, upstreamModelID); ok || err != nil {
 		return upstreamRequest, err
 	}
-	if upstreamRequest, ok, err := buildAnthropicPlannedUpstreamRequest(input, operation, attempt); ok || err != nil {
+	if upstreamRequest, ok, err := buildAnthropicPlannedUpstreamRequest(input, operation, upstreamModelID); ok || err != nil {
 		return upstreamRequest, err
 	}
-	if upstreamRequest, ok, err := buildGeminiPlannedUpstreamRequest(input, operation, attempt); ok || err != nil {
+	if upstreamRequest, ok, err := buildGeminiPlannedUpstreamRequest(input, operation, upstreamModelID); ok || err != nil {
 		return upstreamRequest, err
 	}
 	effectiveRequestPath := input.Request.URL.Path
@@ -176,12 +180,12 @@ func buildPlannedUpstreamRequest(input requestPlanningInput, operation resolvedR
 	switch operation.Match.Operation.ModelBindingSource {
 	case RuntimeOperationModelBindingPath:
 		pathModelID := strings.TrimSpace(operation.Match.PathParams["model"])
-		if pathModelID != "" && pathModelID != attempt.TargetModel.ModelID {
-			effectiveRequestPath = rewriteModelInPath(input.Request.URL.Path, pathModelID, attempt.TargetModel.ModelID)
+		if pathModelID != "" && pathModelID != upstreamModelID {
+			effectiveRequestPath = rewriteModelInPath(input.Request.URL.Path, pathModelID, upstreamModelID)
 		}
 	case RuntimeOperationModelBindingBody:
-		if bodyModelID := extractModelFromBody(input.RawBody); bodyModelID != "" && bodyModelID != attempt.TargetModel.ModelID {
-			upstreamBody = rewriteModelInBody(input.RawBody, attempt.TargetModel.ModelID)
+		if bodyModelID := extractModelFromBody(input.RawBody); bodyModelID != "" && bodyModelID != upstreamModelID {
+			upstreamBody = rewriteModelInBody(input.RawBody, upstreamModelID)
 		}
 	default:
 		return plannedUpstreamRequest{}, unsupportedOperationModelBindingError(operation.Match.Operation)
@@ -195,6 +199,21 @@ func buildPlannedUpstreamRequest(input requestPlanningInput, operation resolvedR
 		ClientHeaders:           flattenHeaders(input.Request.Header),
 		RequestGenerationParams: extractBufferedRequestGenerationParams(operation.Match.Operation, input.RawBody),
 	}, nil
+}
+
+// attemptUpstreamModelID returns the explicit upstream identity frozen on one
+// Terminal Target. A missing value is invalid persisted configuration: it
+// cannot silently inherit the logical model identity because doing so would
+// collapse the two identities this field exists to keep distinct.
+func attemptUpstreamModelID(attempt runtimeTerminalAttempt) (string, error) {
+	if attempt.Connection.UpstreamModelID == nil {
+		return "", fmt.Errorf("terminal target %d is missing upstream_model_id", attempt.Connection.ID)
+	}
+	upstreamModelID := strings.TrimSpace(*attempt.Connection.UpstreamModelID)
+	if upstreamModelID == "" {
+		return "", fmt.Errorf("terminal target %d has blank upstream_model_id", attempt.Connection.ID)
+	}
+	return upstreamModelID, nil
 }
 
 func assembleRequestPlan(input requestPlanningInput, operation resolvedRequestOperation, target resolvedExecutionTarget) (requestPlan, error) {

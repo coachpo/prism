@@ -98,13 +98,16 @@ type ChainIngressItem struct {
 // FinalizedSummary is the authoritative finalized-ingress projection from
 // usage_request_events.
 type FinalizedSummary struct {
-	RequestLogID                      *string      `json:"request_log_id,omitempty"`
-	FinalStatusCode                   int          `json:"final_status_code"`
-	FinalResult                       string       `json:"final_result"`
-	FinalErrorCode                    *string      `json:"final_error_code"`
-	RequestedModelID                  string       `json:"-"`
-	RequestedModel                    *ModelRef    `json:"ingress_model"`
-	ResolvedModel                     *ModelRef    `json:"final_target_model"`
+	RequestLogID     *string   `json:"request_log_id,omitempty"`
+	FinalStatusCode  int       `json:"final_status_code"`
+	FinalResult      string    `json:"final_result"`
+	FinalErrorCode   *string   `json:"final_error_code"`
+	RequestedModelID string    `json:"-"`
+	RequestedModel   *ModelRef `json:"ingress_model"`
+	ResolvedModel    *ModelRef `json:"final_target_model"`
+	// FinalUpstreamModelID is the winner usage event's retained request-time
+	// snapshot; NULL on legacy/no-winner rows and never inferred.
+	FinalUpstreamModelID              *string      `json:"final_upstream_model_id"`
 	TerminalTarget                    *TargetRef   `json:"terminal_target"`
 	Endpoint                          *EndpointRef `json:"endpoint"`
 	TTFTMS                            *int         `json:"ttft_ms"`
@@ -171,49 +174,52 @@ type EndpointRef struct {
 
 // ChainRowItem is one retained request-log row within a chain item.
 type ChainRowItem struct {
-	RequestLogID                      string    `json:"request_log_id"`
-	MatchedByFilter                   bool      `json:"matched_by_filter,omitempty"`
-	RowKind                           string    `json:"row_kind"`
-	IngressRequestID                  string    `json:"ingress_request_id"`
-	AttemptNumber                     *int      `json:"attempt_number"`
-	AttemptTrigger                    *string   `json:"attempt_trigger"`
-	AttemptResult                     *string   `json:"attempt_result"`
-	IsWinner                          *bool     `json:"is_winner"`
-	AttemptDurationMS                 *int      `json:"attempt_duration_ms"`
-	LegacyDurationMS                  *int      `json:"legacy_duration_ms"`
-	UpstreamStatusCode                *int      `json:"upstream_status_code"`
-	GatewayStatusCode                 *int      `json:"gateway_status_code"`
-	LegacyStatusCode                  *int      `json:"legacy_status_code"`
-	ErrorSource                       *string   `json:"error_source"`
-	ErrorCode                         *string   `json:"error_code"`
-	FailureStage                      *string   `json:"failure_stage"`
-	FailureDetailPreview              *string   `json:"failure_detail_preview"`
-	FailureDetailSource               string    `json:"failure_detail_source"`
-	FailureDetailPreviewTruncated     bool      `json:"failure_detail_preview_truncated"`
-	FailureDetailRedacted             bool      `json:"failure_detail_redacted"`
-	FailureDetailPersistenceTruncated bool      `json:"failure_detail_persistence_truncated"`
-	StreamOutcome                     string    `json:"stream_outcome"`
-	StreamErrorKind                   *string   `json:"stream_error_kind"`
-	ModelID                           string    `json:"ingress_model_id"`
-	ResolvedTargetModelID             *string   `json:"attempt_target_model_id"`
-	EndpointID                        *int      `json:"endpoint_id"`
-	TerminalTargetID                  *int      `json:"terminal_target_id"`
-	TerminalTargetLabel               *string   `json:"terminal_target_label"`
-	TerminalTargetConfigured          bool      `json:"terminal_target_configured"`
-	TerminalTargetOwnerModelID        *string   `json:"terminal_target_owner_model_id"`
-	TotalTokens                       *int      `json:"total_tokens"`
-	TotalCostUserCurrencyMicros       *int64    `json:"total_cost_user_currency_micros"`
-	PricingStatus                     string    `json:"pricing_status"`
-	UnpricedReason                    *string   `json:"unpriced_reason"`
-	PricingResolutionKind             *string   `json:"pricing_resolution_kind"`
-	PricingEvidenceTrust              string    `json:"pricing_evidence_trust"`
-	PricingTemplateKind               *string   `json:"pricing_template_kind"`
-	PricingSelectionState             *string   `json:"pricing_selection_state"`
-	PricingCardRole                   *string   `json:"pricing_card_role"`
-	PricingSelectorThresholdTokens    *int      `json:"pricing_selector_threshold_tokens"`
-	PricingSelectorBasisTokens        *int64    `json:"pricing_selector_basis_tokens"`
-	CreatedAt                         time.Time `json:"created_at"`
-	IsCurrent                         bool      `json:"is_current,omitempty"`
+	RequestLogID                      string  `json:"request_log_id"`
+	MatchedByFilter                   bool    `json:"matched_by_filter,omitempty"`
+	RowKind                           string  `json:"row_kind"`
+	IngressRequestID                  string  `json:"ingress_request_id"`
+	AttemptNumber                     *int    `json:"attempt_number"`
+	AttemptTrigger                    *string `json:"attempt_trigger"`
+	AttemptResult                     *string `json:"attempt_result"`
+	IsWinner                          *bool   `json:"is_winner"`
+	AttemptDurationMS                 *int    `json:"attempt_duration_ms"`
+	LegacyDurationMS                  *int    `json:"legacy_duration_ms"`
+	UpstreamStatusCode                *int    `json:"upstream_status_code"`
+	GatewayStatusCode                 *int    `json:"gateway_status_code"`
+	LegacyStatusCode                  *int    `json:"legacy_status_code"`
+	ErrorSource                       *string `json:"error_source"`
+	ErrorCode                         *string `json:"error_code"`
+	FailureStage                      *string `json:"failure_stage"`
+	FailureDetailPreview              *string `json:"failure_detail_preview"`
+	FailureDetailSource               string  `json:"failure_detail_source"`
+	FailureDetailPreviewTruncated     bool    `json:"failure_detail_preview_truncated"`
+	FailureDetailRedacted             bool    `json:"failure_detail_redacted"`
+	FailureDetailPersistenceTruncated bool    `json:"failure_detail_persistence_truncated"`
+	StreamOutcome                     string  `json:"stream_outcome"`
+	StreamErrorKind                   *string `json:"stream_error_kind"`
+	ModelID                           string  `json:"ingress_model_id"`
+	ResolvedTargetModelID             *string `json:"attempt_target_model_id"`
+	// UpstreamModelID is the retained request-time snapshot; NULL stays NULL
+	// for legacy/diagnostic rows and is never inferred from current config.
+	UpstreamModelID                *string   `json:"upstream_model_id"`
+	EndpointID                     *int      `json:"endpoint_id"`
+	TerminalTargetID               *int      `json:"terminal_target_id"`
+	TerminalTargetLabel            *string   `json:"terminal_target_label"`
+	TerminalTargetConfigured       bool      `json:"terminal_target_configured"`
+	TerminalTargetOwnerModelID     *string   `json:"terminal_target_owner_model_id"`
+	TotalTokens                    *int      `json:"total_tokens"`
+	TotalCostUserCurrencyMicros    *int64    `json:"total_cost_user_currency_micros"`
+	PricingStatus                  string    `json:"pricing_status"`
+	UnpricedReason                 *string   `json:"unpriced_reason"`
+	PricingResolutionKind          *string   `json:"pricing_resolution_kind"`
+	PricingEvidenceTrust           string    `json:"pricing_evidence_trust"`
+	PricingTemplateKind            *string   `json:"pricing_template_kind"`
+	PricingSelectionState          *string   `json:"pricing_selection_state"`
+	PricingCardRole                *string   `json:"pricing_card_role"`
+	PricingSelectorThresholdTokens *int      `json:"pricing_selector_threshold_tokens"`
+	PricingSelectorBasisTokens     *int64    `json:"pricing_selector_basis_tokens"`
+	CreatedAt                      time.Time `json:"created_at"`
+	IsCurrent                      bool      `json:"is_current,omitempty"`
 }
 
 // ChainResponse is the outer-page envelope.

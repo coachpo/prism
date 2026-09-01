@@ -125,6 +125,9 @@ export function CopyTerminalTargetDialog({
           </DialogDescription>
         </DialogHeader>
         <DialogBody className="flex flex-col gap-4">
+          <p className="text-xs text-muted-foreground" data-testid="copy-upstream-model-note">
+            {copy.copyUpstreamModelNote}
+          </p>
           <div className="flex flex-col gap-1.5">
             <Label>{copy.copyDestinationModels}</Label>
             <div className="flex max-h-72 flex-col gap-1 overflow-y-auto rounded-lg border border-border p-2">

@@ -24,6 +24,7 @@ function makeRow(overrides: Partial<RequestLogListItem>): RequestLogListItem {
     ingress_model_id: "gpt-4o",
     model_label: "gpt-4o",
     attempt_target_model_id: "gpt-4o-native",
+    upstream_model_id: null,
     attempt_target_model_label: "gpt-4o-native",
     caller_client_display: "Codex",
     upstream_client_display: "OpenAI SDK",

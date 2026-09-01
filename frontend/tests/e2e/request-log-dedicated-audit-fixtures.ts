@@ -127,6 +127,12 @@ function getScenarioModelId(scenario: Scenario): string {
   return "gpt-4o-mini";
 }
 
+function getScenarioUpstreamModelId(scenario: Scenario): string | null {
+  return scenario === "metadata_only"
+    ? null
+    : `provider/${getScenarioModelId(scenario)}`;
+}
+
 function getScenarioModelLabel(scenario: Scenario): string {
   if (scenario === "gemini_document") return "Gemini 2.5 Flash";
   if (scenario === "anthropic_document") return "Claude 3.5 Sonnet";
@@ -196,6 +202,7 @@ export function createRequestLogListItem(scenario: Scenario = "full") {
     model_label: getScenarioModelLabel(scenario),
     attempt_target_model_id: null,
     attempt_target_model_label: null,
+    upstream_model_id: getScenarioUpstreamModelId(scenario),
     caller_client_display: "Prism QA Browser",
     upstream_client_display: "Prism QA Browser",
     user_agent_overridden: false,
@@ -246,6 +253,7 @@ function createRequestLogDetail(scenario: Scenario) {
       model_label: getScenarioModelLabel(scenario),
       attempt_target_model_id: null,
       attempt_target_model_label: null,
+      upstream_model_id: getScenarioUpstreamModelId(scenario),
       api_family: apiFamily,
       row_kind: "upstream",
       upstream_status_code: 200,
@@ -349,6 +357,31 @@ function createRequestLogDetail(scenario: Scenario) {
     caliber: {},
     dataset_coverage: {},
     samples: {},
+  };
+}
+
+function createFinalizedSummary(scenario: Scenario) {
+  const modelId = getScenarioModelId(scenario);
+  const modelLabel = getScenarioModelLabel(scenario);
+  return {
+    request_log_id: "101",
+    final_status_code: 200,
+    final_result: "completed",
+    final_error_code: null,
+    ingress_model: { id: modelId, label: modelLabel },
+    final_target_model: { id: modelId, label: modelLabel },
+    final_upstream_model_id: getScenarioUpstreamModelId(scenario),
+    terminal_target: null,
+    endpoint: { id: 1, label: "Primary endpoint" },
+    ttft_ms: null,
+    output_rate_tps: null,
+    output_rate_state: "unmeasurable",
+    output_rate_reason: "missing_completion_duration",
+    total_tokens: 20,
+    total_cost_user_currency_micros: 3000,
+    report_currency_symbol: "$",
+    final_pricing_status: "priced",
+    attempt_count: 1,
   };
 }
 
@@ -486,6 +519,20 @@ export async function mockPrismRoutes(page: Page, scenario: Scenario) {
       return fulfillJson({ timezone_preference: "UTC" });
     }
 
+    if (pathname === "/api/stats/requests/export") {
+      return route.fulfill({
+        status: 200,
+        contentType: "text/csv",
+        headers: {
+          "Content-Disposition": 'attachment; filename="prism-request-logs.csv"',
+        },
+        body: [
+          "attempt_target_model_id,upstream_model_id",
+          `${getScenarioModelId(scenario)},${getScenarioUpstreamModelId(scenario) ?? ""}`,
+        ].join("\n"),
+      });
+    }
+
     if (pathname === "/api/stats/requests") {
       // Requests page defaults to view=ingress_chains; the fixture returns a
       // chain envelope with the single row plus its finalized summary.
@@ -513,8 +560,8 @@ export async function mockPrismRoutes(page: Page, scenario: Scenario) {
               completed_at: null,
               elapsed_ms: null,
               elapsed_evidence_state: "unavailable",
-              finalized_evidence_state: "unavailable",
-              finalized_summary: null,
+              finalized_evidence_state: "authoritative",
+              finalized_summary: createFinalizedSummary(scenario),
               expected_attempt_count: null,
               expected_request_log_row_count: null,
               retained_upstream_attempt_count: 1,

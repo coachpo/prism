@@ -80,17 +80,21 @@ type runtimeConnectionUpstreamAuthSnapshot struct {
 }
 
 type runtimeConnection struct {
-	ID                      int
-	ProfileID               int
-	APIFamily               string
-	ModelConfigID           int
-	EndpointID              int
-	Priority                int
-	QPSLimit                *int
-	MaxInFlightNonStream    *int
-	MaxInFlightStream       *int
-	Name                    *string
-	AuthType                *string
+	ID                   int
+	ProfileID            int
+	APIFamily            string
+	ModelConfigID        int
+	EndpointID           int
+	Priority             int
+	QPSLimit             *int
+	MaxInFlightNonStream *int
+	MaxInFlightStream    *int
+	Name                 *string
+	AuthType             *string
+	// UpstreamModelID is the required frozen upstream identity of this owned
+	// Terminal Target. Snapshot construction rejects an owned active row that
+	// does not carry it; orphan rows never enter the runtime snapshot.
+	UpstreamModelID         *string
 	EncryptedEndpointAPIKey string
 	CustomHeaders           map[string]any
 	CustomRequestParameters *terminaltarget.CustomRequestParameters

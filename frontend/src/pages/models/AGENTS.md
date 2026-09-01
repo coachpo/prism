@@ -8,6 +8,8 @@
 models/
 ├── ModelDialog.tsx         # Edit dialog and backend errors
 ├── CreateModelDialog.tsx   # Create flow
+├── InitialTerminalTargetFields.tsx # First Terminal Target fields in composite create
+├── useInitialTerminalTargetUpstreamModelId.ts # Entry-ID follow-until-edited field lifecycle
 ├── DeleteModelDialog.tsx   # Delete confirmation flow
 ├── AccessTargetsEditor.tsx # Mixed Model Target/Terminal Target list editor with row-ID mutations
 ├── modelFormState.ts       # Model CRUD form defaults, normalization, validation, and payloads

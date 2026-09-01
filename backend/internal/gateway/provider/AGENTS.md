@@ -27,6 +27,7 @@ provider/
 - Unsupported shapes return explicit adapter errors or unsupported capability results. Do not silently passthrough unknown provider APIs.
 - Keep OpenAI Chat Completions and Responses operation-native; wire mismatches are rejected during runtime planning rather than converted here.
 - Runtime owns transport, stream terminal parsing, and audit capture; adapters must not widen the operation registry.
+- Model-bound provider request DTOs name their wire identity `UpstreamModelID`. Runtime supplies the selected Terminal Target's frozen value per attempt; logical Prism identities remain in routing/telemetry contracts and must not be inferred or substituted here.
 - Add or update conformance tests when changing adapter interfaces or hook behavior declarations.
 
 ## ANTI-PATTERNS

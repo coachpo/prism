@@ -20,7 +20,7 @@
     "requested_to_time": "2026-04-19T12:00:00Z",
     "retention_epoch": "0",
     "retention_generation": "1",
-    "source_revision": "57d588416c808a771cb7b18606367752aaa5aa93921a4fb06d2d46a9c105f0a5",
+    "source_revision": "d13353c8a1f84ee7d0c811595c86ba6338d85435f6ec2bf0e8abb47c1c89a959",
     "state": "legacy_unknown"
   },
   "dataset_coverage": {
@@ -34,7 +34,7 @@
       "retention_from_time": null,
       "retention_generation": "1",
       "source": "raw",
-      "source_revision": "57d588416c808a771cb7b18606367752aaa5aa93921a4fb06d2d46a9c105f0a5",
+      "source_revision": "d13353c8a1f84ee7d0c811595c86ba6338d85435f6ec2bf0e8abb47c1c89a959",
       "to_time": "2026-04-19T12:00:00Z"
     }
   },
@@ -148,6 +148,7 @@
       "ttft_ms": 320,
       "unpriced_reason": null,
       "upstream_client_display": "OpenAI SDK",
+      "upstream_model_id": "vendor/gpt-4o-native",
       "upstream_status_code": 200,
       "user_agent_overridden": true
     },
@@ -211,6 +212,7 @@
       "ttft_ms": null,
       "unpriced_reason": "MISSING_PRICE_DATA",
       "upstream_client_display": null,
+      "upstream_model_id": null,
       "upstream_status_code": 200,
       "user_agent_overridden": false
     }

@@ -198,7 +198,7 @@ func buildExportRowQuery(params ExportParams) (string, []any) {
 	} else {
 		whereClause, args = buildRequestLogBrowseWhere(params.RequestLogListParams)
 	}
-	query := `SELECT id, row_kind, ingress_request_id, model_id, resolved_target_model_id, api_family, operation_name,
+	query := `SELECT id, row_kind, ingress_request_id, model_id, resolved_target_model_id, upstream_model_id, api_family, operation_name,
 		attempt_number, attempt_trigger, attempt_result, is_winner, attempt_duration_ms, legacy_duration_ms, ttft_ms, completion_duration_ms,
 		upstream_status_code, gateway_status_code, legacy_status_code,
 		error_source, error_code, failure_stage, error_detail, stream_error_detail,
@@ -220,7 +220,7 @@ func buildExportRowQuery(params ExportParams) (string, []any) {
 // exportHeader is the fixed CSV column allowlist (Requests SPEC §6.8).
 var exportHeader = []string{
 	"row_kind", "request_log_id", "ingress_request_id", "attempt_number", "attempt_trigger", "attempt_result", "is_winner",
-	"created_at", "ingress_model_id", "attempt_target_model_id", "api_family", "operation_name", "endpoint_id", "terminal_target_id",
+	"created_at", "ingress_model_id", "attempt_target_model_id", "upstream_model_id", "api_family", "operation_name", "endpoint_id", "terminal_target_id",
 	"upstream_status_code", "gateway_status_code", "legacy_status_code", "error_source", "error_code", "failure_stage",
 	"error_detail", "stream_error_detail", "stream_outcome", "stream_error_kind",
 	"attempt_duration_ms", "legacy_duration_ms", "ttft_ms", "total_duration_ms", "input_tokens", "output_tokens", "total_tokens",
@@ -256,12 +256,12 @@ func writeExportRows(ctx context.Context, writer *csv.Writer, rows interface {
 		default:
 		}
 		var record exportRowRecord
-		var resolvedTargetModelID, operationName, errorSource, errorCode, failureStage, errorDetail, streamErrorDetail, streamErrorKind, unpricedReason, resolutionKind, currencyCodeOriginal, reportCurrencyCode, reportCurrencySymbol, fxRateUsed, fxRateSource, templateNameSnapshot, pricingTemplateKind, pricingSelectionState, pricingCardRole, pricingScheduleTimezone, pricingScheduleDigest *string
+		var resolvedTargetModelID, upstreamModelID, operationName, errorSource, errorCode, failureStage, errorDetail, streamErrorDetail, streamErrorKind, unpricedReason, resolutionKind, currencyCodeOriginal, reportCurrencyCode, reportCurrencySymbol, fxRateUsed, fxRateSource, templateNameSnapshot, pricingTemplateKind, pricingSelectionState, pricingCardRole, pricingScheduleTimezone, pricingScheduleDigest *string
 		var pricingSelectorThreshold, pricingScheduleLocalWeekday, pricingScheduleLocalMinute *int
 		var pricingSelectorBasis *int64
 		var pricingScheduleDecidedAt *time.Time
 		if err := rows.Scan(
-			&record.ID, &record.RowKind, &record.IngressRequestID, &record.ModelID, &resolvedTargetModelID, &record.APIFamily, &operationName,
+			&record.ID, &record.RowKind, &record.IngressRequestID, &record.ModelID, &resolvedTargetModelID, &upstreamModelID, &record.APIFamily, &operationName,
 			&record.AttemptNumber, &record.AttemptTrigger, &record.AttemptResult, &record.IsWinner, &record.AttemptDurationMS, &record.LegacyDurationMS, &record.TTFTMS, &record.CompletionDurationMS,
 			&record.UpstreamStatusCode, &record.GatewayStatusCode, &record.LegacyStatusCode,
 			&errorSource, &errorCode, &failureStage, &errorDetail, &streamErrorDetail,
@@ -280,6 +280,7 @@ func writeExportRows(ctx context.Context, writer *csv.Writer, rows interface {
 			return fmt.Errorf("scan export row: %w", err)
 		}
 		record.ResolvedTargetModelID = resolvedTargetModelID
+		record.UpstreamModelID = upstreamModelID
 		record.OperationName = derefExportString(operationName)
 		record.ErrorSource = errorSource
 		record.ErrorCode = errorCode
@@ -347,6 +348,7 @@ type exportRowRecord struct {
 	IngressRequestID               string
 	ModelID                        string
 	ResolvedTargetModelID          *string
+	UpstreamModelID                *string
 	APIFamily                      string
 	OperationName                  string
 	AttemptNumber                  *int
@@ -438,6 +440,7 @@ func (record exportRowRecord) csvCells() []string {
 		record.CreatedAt.UTC().Format(time.RFC3339),
 		record.ModelID,
 		optionalString(record.ResolvedTargetModelID),
+		optionalString(record.UpstreamModelID),
 		record.APIFamily,
 		record.OperationName,
 		optionalIntString(record.EndpointID),

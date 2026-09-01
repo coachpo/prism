@@ -40,6 +40,9 @@ func TestRequestLogListContract(t *testing.T) {
 	}
 	itemsByID := requestLogItemsByID(t, payload["items"].([]any))
 	primaryItem := itemsByID[101]
+	if primaryItem["upstream_model_id"] != "vendor/gpt-4o-native" {
+		t.Fatalf("expected retained upstream model snapshot on list row, got %+v", primaryItem)
+	}
 	if pricingStatus, ok := primaryItem["pricing_status"].(string); !ok || pricingStatus != "priced" {
 		t.Fatalf("expected primary request-log list row pricing_status=priced, got %+v", primaryItem)
 	}
@@ -333,6 +336,9 @@ func TestRequestLogDetailContract(t *testing.T) {
 	_ = os.WriteFile("/tmp/request-log-detail-actual.json", append(rawDump, '\n'), 0o644)
 	if !jsonBytesEqual(t, payload, expected) {
 		t.Fatalf("expected request-log detail payload to match fixture, got %+v", payload)
+	}
+	if summary := asMapRuntime(t, payload["summary"]); summary["upstream_model_id"] != "vendor/gpt-4o-native" {
+		t.Fatalf("expected retained upstream model snapshot in exact detail, got %+v", summary)
 	}
 	routing := asMapRuntime(t, payload["routing"])
 	auditEnabledAtRequest, ok := routing["audit_enabled_at_request"].(bool)

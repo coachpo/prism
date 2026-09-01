@@ -34,6 +34,8 @@ export interface UseModelDetailConnectionMutationsInput
       | import("./customRequestParameters").CustomRequestParametersParseError
       | null,
   ) => void;
+  /** In-place 422 error for the upstream model id field. */
+  setUpstreamModelIdError: (error: string | null) => void;
   setIsConnectionDialogOpen: (open: boolean) => void;
   setConnections: React.Dispatch<React.SetStateAction<Connection[]>>;
   setAllConnections: React.Dispatch<React.SetStateAction<Connection[]>>;
@@ -57,6 +59,7 @@ export function useModelDetailConnectionMutations({
   headerRows,
   customRequestParametersDraft,
   setCustomRequestParametersError,
+  setUpstreamModelIdError,
   editingConnection,
   pricingTemplates,
   endpointSourceDefaultName,
@@ -92,6 +95,7 @@ export function useModelDetailConnectionMutations({
     headerRows,
     customRequestParametersDraft,
     setCustomRequestParametersError,
+    setUpstreamModelIdError,
     editingConnection,
     endpointSourceDefaultName,
     routingScheduleDraft,

@@ -21,6 +21,7 @@ type OwnerConnectionCreateResult struct {
 	IsActive                    bool
 	OpenAITextCapability        *string
 	OpenAIImageCapability       *string
+	UpstreamModelID             *string
 	PricingTemplateID           *int
 	QPSLimit                    *int
 	MaxInFlightNonStream        *int
@@ -34,8 +35,12 @@ type OwnerConnectionCreateResult struct {
 // model composite-create flow). It mirrors the owner-scoped connection create
 // request without any HTTP dependencies.
 type OwnerScopedConnectionCreateInput struct {
-	OwnerModelID               int
-	OwnerAPIFamily             string
+	OwnerModelID   int
+	OwnerAPIFamily string
+	// OwnerModelIDString is the owner model's current model_id. Create
+	// omits-resolution writes it verbatim as the new target's
+	// upstream_model_id when the request omits the field.
+	OwnerModelIDString         string
 	OwnerOpenAIAcceptedFormat  *string
 	OwnerOpenAIImageOperations *string
 	APIFamily                  string
@@ -44,15 +49,18 @@ type OwnerScopedConnectionCreateInput struct {
 	Name                       *string
 	IsActive                   *bool
 	AuthType                   *string
-	CustomHeaders              map[string]string
-	CustomRequestParameters    CustomRequestParametersInput
-	RoutingSchedule            RoutingScheduleInput
-	OpenAITextCapability       *string
-	OpenAIImageCapability      *string
-	PricingTemplateID          *int
-	QPSLimit                   *int
-	MaxInFlightNonStream       *int
-	MaxInFlightStream          *int
+	// UpstreamModelID is presence-aware like the plain create chain: explicit
+	// null/blank/over-length are 422s, omission defaults to OwnerModelIDString.
+	UpstreamModelID         optionalString
+	CustomHeaders           map[string]string
+	CustomRequestParameters CustomRequestParametersInput
+	RoutingSchedule         RoutingScheduleInput
+	OpenAITextCapability    *string
+	OpenAIImageCapability   *string
+	PricingTemplateID       *int
+	QPSLimit                *int
+	MaxInFlightNonStream    *int
+	MaxInFlightStream       *int
 }
 
 // CreateOwnerScopedConnectionTx creates a private Connection plus its owner
@@ -76,6 +84,10 @@ func (s *Service) CreateOwnerScopedConnectionTx(ctx context.Context, tx pgx.Tx, 
 	}
 	if input.EndpointID == nil && input.EndpointCreate == nil {
 		return OwnerConnectionCreateResult{}, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "Exactly one of endpoint_id or endpoint_create is required"}
+	}
+	upstreamModelID, err := resolveUpstreamModelIDCreate(input.OwnerModelIDString, input.UpstreamModelID)
+	if err != nil {
+		return OwnerConnectionCreateResult{}, err
 	}
 	authType, err := validateAuthType(input.AuthType)
 	if err != nil {
@@ -144,6 +156,7 @@ func (s *Service) CreateOwnerScopedConnectionTx(ctx context.Context, tx pgx.Tx, 
 		Priority:                position,
 		Name:                    normalizeOptionalString(input.Name),
 		AuthType:                authType,
+		UpstreamModelID:         &upstreamModelID,
 		CustomHeaders:           customHeaders,
 		CustomRequestParameters: customRequestParameters,
 		RoutingSchedule:         routingSchedulePayloadFromRecord(routingScheduleTimezone, routingWindows),
@@ -174,6 +187,7 @@ func (s *Service) CreateOwnerScopedConnectionTx(ctx context.Context, tx pgx.Tx, 
 		IsActive:                    item.IsActive,
 		OpenAITextCapability:        openAITextCapability,
 		OpenAIImageCapability:       openAIImageCapability,
+		UpstreamModelID:             cloneString(item.UpstreamModelID),
 		PricingTemplateID:           pricingTemplateID,
 		QPSLimit:                    input.QPSLimit,
 		MaxInFlightNonStream:        input.MaxInFlightNonStream,

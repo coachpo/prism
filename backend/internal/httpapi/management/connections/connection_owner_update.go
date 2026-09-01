@@ -194,6 +194,11 @@ func (s *Service) applyOwnerScopedConnectionUpdate(ctx context.Context, tx pgx.T
 		}
 		next.CustomRequestParameters = customRequestParameters
 	}
+	upstreamModelID, err := resolveUpstreamModelIDUpdate(current.UpstreamModelID, requestBody.UpstreamModelID)
+	if err != nil {
+		return connectionResponse{}, err
+	}
+	next.UpstreamModelID = upstreamModelID
 	if requestBody.RoutingSchedule.Set {
 		currentTimezone, currentWindows := routingScheduleConfigFromResponse(current)
 		timezone, windows, err := resolveRoutingScheduleUpdate(currentTimezone, currentWindows, requestBody.RoutingSchedule)

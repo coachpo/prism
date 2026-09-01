@@ -3,7 +3,7 @@
 // localStorage. The pricing_state column is always part of the default set.
 import { getColumns } from "./columns";
 
-const COLUMN_PREFS_STORAGE_KEY = "prism.request-logs.columns.v4";
+const COLUMN_PREFS_STORAGE_KEY = "prism.request-logs.columns.v5";
 const DEFAULT_COLUMN_KEYS = [
   "created_at",
   "status_code",
@@ -18,12 +18,12 @@ const DEFAULT_COLUMN_KEYS = [
 ] as const;
 
 export interface RequestLogColumnPreferences {
-  version: 4;
+  version: 5;
   visibleKeys: string[];
 }
 
 export const DEFAULT_COLUMN_PREFERENCES: RequestLogColumnPreferences = {
-  version: 4,
+  version: 5,
   visibleKeys: [...DEFAULT_COLUMN_KEYS],
 };
 
@@ -36,11 +36,11 @@ export function loadColumnPreferences(): RequestLogColumnPreferences {
     const raw = localStorage.getItem(COLUMN_PREFS_STORAGE_KEY);
     if (!raw) return DEFAULT_COLUMN_PREFERENCES;
     const parsed = JSON.parse(raw) as RequestLogColumnPreferences;
-    if (parsed.version !== 4 || !Array.isArray(parsed.visibleKeys)) return DEFAULT_COLUMN_PREFERENCES;
+    if (parsed.version !== 5 || !Array.isArray(parsed.visibleKeys)) return DEFAULT_COLUMN_PREFERENCES;
     const allKeys = allColumnKeys();
     const validKeys = parsed.visibleKeys.filter((key) => allKeys.includes(key));
     if (validKeys.length === 0) return DEFAULT_COLUMN_PREFERENCES;
-    return { version: 4, visibleKeys: validKeys };
+    return { version: 5, visibleKeys: validKeys };
   } catch {
     return DEFAULT_COLUMN_PREFERENCES;
   }

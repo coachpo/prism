@@ -14,6 +14,8 @@ import { OperatorCallout, OperatorInsetPanel, OperatorSwitchField } from "@/shar
 import { DEFAULT_OPENAI_ACCEPTED_FORMAT } from "@/pages/models/modelFormState";
 import type { OpenAICapabilitySelectValue } from "@/features/models/openaiCapabilityOptions";
 import { buildCompositeModelCreatePayload } from "./compositeModelCreatePayload";
+import { InitialTerminalTargetFields } from "./InitialTerminalTargetFields";
+import { useInitialTerminalTargetUpstreamModelId } from "./useInitialTerminalTargetUpstreamModelId";
 import {
   OPENAI_ACCEPTED_FORMAT_SELECT_VALUES,
   OPENAI_CAPABILITY_UNSET,
@@ -60,8 +62,13 @@ export function CreateModelDialog({
   const [inlineBaseUrl, setInlineBaseUrl] = useState("");
   const [inlineApiKey, setInlineApiKey] = useState("");
   const [targetName, setTargetName] = useState("");
+  const initialUpstreamModelId = useInitialTerminalTargetUpstreamModelId({ modelId });
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const handleClose = () => {
+    initialUpstreamModelId.reset();
+    onClose();
+  };
 
   useEffect(() => {
     if (!isOpen) return;
@@ -86,6 +93,7 @@ export function CreateModelDialog({
 
   const handleSubmit = async () => {
     setFormError(null);
+    initialUpstreamModelId.clearError();
     if (!modelId.trim()) {
       setFormError(messages.modelsData.modelIdRequired);
       return;
@@ -95,6 +103,7 @@ export function CreateModelDialog({
       return;
     }
     if (!configureLater) {
+      if (!initialUpstreamModelId.validate()) return;
       if (!inlineEndpoint && endpointId === null) {
         setFormError(copy.initialTargetEndpointRequired);
         return;
@@ -122,12 +131,14 @@ export function CreateModelDialog({
                 : { endpoint_id: endpointId ?? undefined }),
               name: targetName.trim() || null,
               is_active: true,
+              upstream_model_id: initialUpstreamModelId.value.trim(),
             },
       });
       const created = await modelsApi.create(payload);
       await onCreated(created.model);
-      onClose();
+      handleClose();
     } catch (error) {
+      if (initialUpstreamModelId.applyServerError(error)) return;
       setFormError(error instanceof Error ? error.message : messages.modelsData.saveFailed);
     } finally {
       setSubmitting(false);
@@ -135,7 +146,7 @@ export function CreateModelDialog({
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && !submitting && onClose()}>
+    <Dialog open={isOpen} onOpenChange={(open) => !open && !submitting && handleClose()}>
       <DialogContent data-testid="create-model-dialog" aria-busy={submitting}>
         <DialogHeader>
           <DialogTitle>{copy.createModelTitle}</DialogTitle>
@@ -239,58 +250,27 @@ export function CreateModelDialog({
           />
 
           {!configureLater ? (
-            <OperatorInsetPanel data-testid="initial-terminal-target-section">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-medium">{copy.initialTargetTitle}</h3>
-                <Button variant="outline" size="sm" onClick={() => setInlineEndpoint((current) => !current)} type="button">
-                  {inlineEndpoint ? copy.initialTargetUseExisting : copy.initialTargetCreateInline}
-                </Button>
-              </div>
-              {apiFamily === "openai" && resolvedAcceptedFormat ? (
-                <div className="mt-2 text-xs text-muted-foreground">
-                  {copy.ownerDerivedCapability}: {getOpenAIAcceptedFormatOptionLabel(resolvedAcceptedFormat, copy)}（{copy.ownerDerivedReadOnly}）
-                </div>
-              ) : null}
-              {inlineEndpoint ? (
-                <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                  <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="create-target-inline-name">{copy.endpointNameLabel}</Label>
-                    <Input id="create-target-inline-name" value={inlineName} onChange={(event) => setInlineName(event.target.value)} />
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="create-target-inline-url">{copy.endpointBaseUrlLabel}</Label>
-                    <Input id="create-target-inline-url" value={inlineBaseUrl} onChange={(event) => setInlineBaseUrl(event.target.value)} />
-                  </div>
-                  <div className="flex flex-col gap-1.5 sm:col-span-2">
-                    <Label htmlFor="create-target-inline-key">{copy.endpointApiKeyLabel}</Label>
-                    <Input id="create-target-inline-key" type="password" value={inlineApiKey} onChange={(event) => setInlineApiKey(event.target.value)} />
-                  </div>
-                </div>
-              ) : (
-                <div className="mt-3 flex flex-col gap-1.5">
-                  <Label htmlFor="create-target-endpoint">{copy.endpointLabel}</Label>
-                  <Select
-                    value={endpointId === null ? "" : String(endpointId)}
-                    onValueChange={(value) => setEndpointId(value === "" ? null : Number(value))}
-                  >
-                    <SelectTrigger id="create-target-endpoint" className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {endpoints.map((endpoint) => (
-                        <SelectItem key={endpoint.id} value={String(endpoint.id)}>
-                          {endpoint.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-              <div className="mt-3 flex flex-col gap-1.5">
-                <Label htmlFor="create-target-name">{copy.targetNameLabel}</Label>
-                <Input id="create-target-name" value={targetName} onChange={(event) => setTargetName(event.target.value)} />
-              </div>
-            </OperatorInsetPanel>
+            <InitialTerminalTargetFields
+              apiFamily={apiFamily}
+              endpointId={endpointId}
+              endpoints={endpoints}
+              inlineApiKey={inlineApiKey}
+              inlineBaseUrl={inlineBaseUrl}
+              inlineEndpoint={inlineEndpoint}
+              inlineName={inlineName}
+              modelId={modelId}
+              resolvedAcceptedFormat={resolvedAcceptedFormat}
+              setEndpointId={setEndpointId}
+              setInlineApiKey={setInlineApiKey}
+              setInlineBaseUrl={setInlineBaseUrl}
+              setInlineEndpoint={setInlineEndpoint}
+              setInlineName={setInlineName}
+              setTargetName={setTargetName}
+              targetName={targetName}
+              upstreamModelId={initialUpstreamModelId.value}
+              upstreamModelIdError={initialUpstreamModelId.error}
+              onUpstreamModelIdChange={initialUpstreamModelId.updateFromOperator}
+            />
           ) : null}
 
           {formError ? (
@@ -299,7 +279,7 @@ export function CreateModelDialog({
 
         </DialogBody>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={submitting}>
+          <Button variant="outline" onClick={handleClose} disabled={submitting}>
             {messages.settingsDialogs.cancel}
           </Button>
           <Button onClick={() => void handleSubmit()} disabled={submitting || strategyById.size === 0}>

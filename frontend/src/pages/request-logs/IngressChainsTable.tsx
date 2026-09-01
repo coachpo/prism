@@ -39,6 +39,7 @@ import {
 	formatTokenRate,
 } from "./requestLogMetricPresentation";
 import type { ChainRowReadState } from "./useRequestLogIngressChains";
+import { UpstreamModelIdValue } from "./UpstreamModelIdValue";
 
 const CHAIN_COLUMN_COUNT = 11;
 
@@ -429,11 +430,26 @@ function ChainSummaryRow({
 				)}
 			</TableCell>
 
-				<TableCell className="max-w-52 truncate">
-						{summary?.final_target_model?.label ?? (
-						<OperatorMissingValue reason={missingReason} />
-					)}
-				</TableCell>
+
+					<TableCell className="max-w-52">
+						{summary ? (
+							<div className="flex min-w-0 flex-col gap-0.5">
+								<span className="truncate">
+									{summary.final_target_model?.label ?? (
+										<OperatorMissingValue reason={missingReason} />
+									)}
+								</span>
+								<UpstreamModelIdValue
+									value={summary.final_upstream_model_id}
+									missingReason={copy.upstreamModelIdMissing}
+									showLabel
+									className="truncate text-[11px] text-muted-foreground"
+								/>
+							</div>
+						) : (
+							<OperatorMissingValue reason={missingReason} />
+						)}
+					</TableCell>
 
 				<TableCell className="max-w-52">
 					{summary ? (
@@ -615,10 +631,19 @@ function ChainRowButton({
 					: `#${row.attempt_number}`}
 			</span>
 			<span>{attemptTriggerLabel(row.attempt_trigger, copy)}</span>
-			<span className="truncate">
-				{isUpstreamAttempt && targetModel ? targetModel : (
-					<OperatorMissingValue reason={copy.noUpstreamAttemptTarget} />
-				)}
+			<span className="flex min-w-0 flex-col gap-0.5">
+				<span className="truncate">
+					{isUpstreamAttempt && targetModel ? targetModel : (
+						<OperatorMissingValue reason={copy.noUpstreamAttemptTarget} />
+					)}
+				</span>
+				{isUpstreamAttempt ? (
+					<UpstreamModelIdValue
+						value={row.upstream_model_id}
+						missingReason={copy.upstreamModelIdMissing}
+						className="truncate text-[11px] text-muted-foreground"
+					/>
+				) : null}
 			</span>
 			<span className="truncate">
 				{isUpstreamAttempt && terminalTarget ? terminalTarget : (

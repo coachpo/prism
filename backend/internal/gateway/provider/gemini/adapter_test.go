@@ -26,9 +26,9 @@ func TestAdapterBuildsGenerateStreamAndTokenCountRequests(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			request, err := adapter.BuildGenerateContentUpstreamRequest(context.Background(), GenerateContentUpstreamRequest{
-				Operation:     provider.Operation{Name: test.operationName},
-				RawBody:       []byte(`{"model":"body-should-not-change","contents":[]}`),
-				TargetModelID: "target-gemini",
+				Operation:       provider.Operation{Name: test.operationName},
+				RawBody:         []byte(`{"model":"body-should-not-change","contents":[]}`),
+				UpstreamModelID: "target-gemini",
 			})
 			if err != nil {
 				t.Fatalf("build upstream request: %v", err)

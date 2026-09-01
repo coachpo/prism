@@ -54,6 +54,7 @@ func (s *Service) handleCreateModelConnection(w http.ResponseWriter, r *http.Req
 			IsActive:                resolvedBool(requestBody.IsActive, true),
 			Name:                    requestBody.Name,
 			AuthType:                requestBody.AuthType,
+			UpstreamModelID:         requestBody.UpstreamModelID,
 			CustomHeaders:           requestBody.CustomHeaders,
 			CustomRequestParameters: customRequestParameters,
 			RoutingSchedule:         requestBody.RoutingSchedule,

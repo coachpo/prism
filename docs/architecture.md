@@ -411,7 +411,7 @@ Models resolve through ordered access targets. Public target authoring points on
 - Access-target `position` orders all rows of both types in one global mixed sequence and is not priority, tier, or weight; Model Target and Terminal Target rows are type-neutral peers and no target type holds a hidden priority.
 - `single`, `fill-first`, and `round-robin` run once over the enabled mixed rows. A Model Target row is an atomic parent peer whose child attempts stay one contiguous block; child models keep their own strategy and round-robin cursor.
 - Model IDs are unique within a profile.
-- The gateway may normalize provider request payloads before forwarding, for example rewriting the requested model ID to the final target model ID for upstream compatibility. Prism does not rewrite response-body model identity on the client-facing way back out.
+- The gateway may normalize provider request payloads before forwarding. Every selected Terminal Target carries an explicit persisted `upstream_model_id`, and every upstream attempt rewrites the provider model identity to that target's frozen value instead of the final logical target model ID. Runtime snapshots load only active owner-backed connections; a missing or blank identity on such a row makes the replacement snapshot invalid so hot refresh retains its last-good generation, while orphan connections are excluded. The entry `model_id` the client addressed stays the logical identity for attribution, capability checks, routing, and pricing; only the actual upstream body/path uses the frozen upstream ID. Prism does not rewrite response-body model identity on the client-facing way back out.
 
 Model contracts require `api_family`; runtime compatibility is checked against `api_family` only.
 
@@ -816,11 +816,27 @@ Request:
   "display_name": "GPT-4o Public",
   "loadbalance_strategy_id": 7,
   "openai_accepted_format": "dual_native",
-  "is_enabled": false
+  "is_enabled": false,
+  "initial_terminal_target": {
+    "endpoint_id": 1,
+    "name": "Primary production key",
+    "upstream_model_id": "provider/model-a",
+    "openai_text_capability": "dual_native"
+  }
 }
 ```
 
-Response `201`: Created model object.
+`initial_terminal_target` is optional. Omitting it creates only the model; when
+present, the model, endpoint if created inline, Terminal Target, and owner edge
+are written in one transaction and the response includes the created target
+summary with its non-empty `upstream_model_id`. Omitting only
+`initial_terminal_target.upstream_model_id` writes the new entry `model_id` as
+the concrete default. Explicit `null`, blank, or a value longer than 200
+Unicode characters rejects the whole composite create with `422` and no model,
+endpoint, connection, or owner-edge write.
+
+Response `201`: Created model object and, when requested, its initial Terminal
+Target summary.
 
 Validation rules:
 
@@ -1096,6 +1112,7 @@ Request (using existing endpoint):
   "endpoint_id": 1,
   "is_active": true,
   "name": "Primary production key",
+  "upstream_model_id": "provider/model-a",
   "custom_headers": {
     "X-Custom-Org": "org-123"
   },
@@ -1124,6 +1141,7 @@ Request (inline endpoint creation):
   },
   "is_active": true,
   "name": "Regional fallback",
+  "upstream_model_id": "provider/model-a-eu",
   "openai_text_capability": "dual_native",
   "pricing_template_id": null,
   "qps_limit": null,
@@ -1138,6 +1156,7 @@ Create semantics:
 
 - Exactly one of `endpoint_id` or `endpoint_create` is required.
 - The connection `api_family` is derived from the owner model. A conflicting request value is rejected.
+- `upstream_model_id` is optional only on create. Omission writes the owner model's current entry `model_id` as a concrete value. A supplied value is trimmed at its leading and trailing whitespace only; case, slashes, and internal characters are preserved. Explicit `null`, blank, or more than 200 Unicode characters returns `422` with `field=upstream_model_id`, `reason=required|too_long`, and `limit=200` for the latter. The transaction writes nothing on validation failure.
 - `priority` is rejected with `422`; Terminal Target ordering for a model is owned by `/api/models/{model_config_id}/targets` positions.
 - Limiter fields are optional. `null` means unlimited. Positive integers apply per-connection request admission limits.
 - `openai_text_capability` is the OpenAI text runtime capability source of truth for OpenAI-family Terminal Targets. It accepts `responses_only`, `chat_completions_only`, or `dual_native`, is required for OpenAI rows, and must equal the owner model's `openai_accepted_format` (strict mode equality). Non-OpenAI rows must omit it or persist `null`. Cross-mode authoring is rejected with `422`; changing a capability that would break an existing relation is rejected with `409`.
@@ -1150,7 +1169,13 @@ Create semantics:
 PATCH /api/models/{model_config_id}/connections/{connection_id}
 ```
 
-Request: Mutable compatibility connection metadata: `endpoint_id`, `endpoint_create`, `is_active`, `name`, `auth_type`, `custom_headers`, `custom_request_parameters`, `routing_schedule`, `openai_text_capability`, `pricing_template_id`, `qps_limit`, `max_in_flight_non_stream`, `max_in_flight_stream`. `auth_type` accepts `openai`, `anthropic`, `gemini`, or `gemini_api_key`; it is independent of `api_family` and selects only the upstream credential scheme.
+Request: Mutable compatibility connection metadata: `endpoint_id`, `endpoint_create`, `is_active`, `name`, `auth_type`, `upstream_model_id`, `custom_headers`, `custom_request_parameters`, `routing_schedule`, `openai_text_capability`, `pricing_template_id`, `qps_limit`, `max_in_flight_non_stream`, `max_in_flight_stream`. `auth_type` accepts `openai`, `anthropic`, `gemini`, or `gemini_api_key`; it is independent of `api_family` and selects only the upstream credential scheme.
+
+`upstream_model_id` is presence-aware: omission preserves the stored value,
+while explicit `null`, blank, or over-200-character input is rejected with the
+same field error as create. It cannot be cleared. Renaming the owner model does
+not rewrite existing Terminal Targets; only targets created after the rename
+default from the new entry ID.
 
 `custom_request_parameters` is a presence-aware whole-value replace: omitting the field keeps the current value, `null`/`{}` clears it to `NULL`, and a non-empty valid object replaces it wholesale; any violation fails the whole PATCH atomically.
 
@@ -1161,6 +1186,27 @@ Request: Mutable compatibility connection metadata: `endpoint_id`, `endpoint_cre
 `endpoint_create` is supported on update and is mutually exclusive with `endpoint_id`. `priority` is rejected with `422`. The owner model and connection `api_family` are immutable.
 
 Response `200`: Updated Terminal Target object, represented as a compatibility connection. Public `PUT` or `PATCH /api/connections/{connection_id}` rejects mutation requests.
+
+##### Copy Terminal Target
+
+```
+POST /api/models/{model_config_id}/connections/{connection_id}/copies
+```
+
+Request:
+
+```json
+{
+  "destination_model_config_ids": [8, 9],
+  "enable_copies": false
+}
+```
+
+The batch is transactional and validates every destination before inserting
+any copy. Each copied Terminal Target preserves the source
+`upstream_model_id` exactly; it never substitutes the destination model's
+entry ID. The redacted `connection_summary` in every response item includes
+that non-empty `upstream_model_id` alongside counts and non-secret metadata.
 
 ##### List Terminal Target References
 
@@ -2259,6 +2305,7 @@ Attempt-view response `200`:
       "model_label": "GPT-4o",
       "attempt_target_model_id": "gpt-4o",
       "attempt_target_model_label": "GPT-4o",
+      "upstream_model_id": "provider/model-a",
       "api_family": "openai",
       "endpoint_id": 12,
       "endpoint_label": "Primary OpenAI",
@@ -2316,6 +2363,7 @@ Chain-view response `200`:
         "final_error_code": null,
         "requested_model": {"id": "agent", "label": "Agent"},
         "resolved_model": {"id": "gpt-5.6", "label": "GPT-5.6"},
+        "final_upstream_model_id": "provider/gpt-5.6-2026-08",
         "terminal_target": {"id": 23, "label": "OpenCode Go / GPT-5.6", "configured": true, "owner_model_id": "gpt-5.6"},
         "endpoint": {"id": 7, "label": "OpenCode Go"},
         "ttft_ms": 320,
@@ -2369,6 +2417,7 @@ Chain-view response `200`:
           "attempt_trigger": "initial",
           "attempt_result": "http_error",
           "is_winner": false,
+          "upstream_model_id": "provider/gpt-5.6-a",
           "upstream_status_code": 429,
           "gateway_status_code": null,
           "legacy_status_code": null,
@@ -2393,6 +2442,7 @@ Chain semantics:
 - `retained_upstream_attempt_count` counts `row_kind=upstream` only; `retained_request_log_row_count` counts all retained row kinds; legacy rows are counted separately in `legacy_unknown_row_count`.
 - `chain_complete` expresses retention/evidence reconciliation (expected vs retained), not the current API row page.
 - `finalized_summary` fields come only from the finalized `usage_request_events` row; attempt rows never carry `final_*` facts.
+- Each attempt/list/chain/exact-detail row exposes its stored `upstream_model_id`. `finalized_summary.final_upstream_model_id` comes only from the winner usage event. A missing historical or diagnostic value stays `null`; the server and UI never substitute a current Terminal Target value or a logical model ID.
 - `finalized_summary.currency_attribution` comes from persisted usage-event provenance; `cost_segment_key` remains independently canonicalized as epoch first, then legacy code, then unknown.
 - `attempt_budget_exhausted` etc. gateway terminal codes appear in `final_error_code`.
 - All Requests list/detail/chain/export responses send `Cache-Control: private, no-store` and preserve auth/profile-sensitive `Vary`.
@@ -2410,6 +2460,11 @@ GET /api/stats/requests/export
 ```
 
 Server-side full filtered CSV export (Requests SPEC §6.8). It reuses the non-pagination attempt/chain filter projection, including requested/attempt/final identities, API family, row kind, status/error, pricing, signed `query_context`, and final selectors. `view=attempts` exports the flat attempt cohort; `view=ingress_chains` exports all retained rows of the server-selected chain cohort, including finalized pricing/cost-segment and row-filter semantics. Signed final selectors retain their frozen request-domain bounds, while ordinary triage remains tokenless. The export:
+
+The CSV places `upstream_model_id` immediately after
+`attempt_target_model_id`; the cell is the immutable attempt snapshot or empty
+for rows without evidence. It is subject to the same formula-injection
+protection as every other exported text cell.
 
 - Reads rows and counts in one `READ ONLY REPEATABLE READ` snapshot (with the exact-ingress range exemption); concurrent inserts cannot change the exported row count.
 - Rejects more than 100,000 rows or a requested range wider than 31 days (unless exact ingress is supplied) with a typed error before any file bytes; exactly 31 days is reachable even though ordinary custom browsing remains capped at 30.
@@ -2434,6 +2489,7 @@ Response `200` (v2 exact detail; old un-scoped `status_code`/`response_time_ms` 
     "model_label": "GPT-4o",
     "resolved_target_model_id": "gpt-4o",
     "resolved_target_model_label": "GPT-4o",
+    "upstream_model_id": "provider/model-a",
     "api_family": "openai",
     "row_kind": "upstream",
     "upstream_status_code": 429,
@@ -3725,6 +3781,15 @@ connections (profile-scoped private endpoint bindings)
   profile_id FK -> profiles.id
   api_family
   endpoint_id FK -> endpoints.id
+  upstream_model_id (nullable varchar(200); the Terminal Target's explicit
+    upstream identity. Backfilled once by migration 000031 from the unique
+    owner model's current model_id via the owner access-target edge; orphan
+    rows without an owner edge keep NULL and a multiple-owner anomaly aborts
+    migration. Create omission writes the owner model's current model_id
+    explicitly; explicit null/blank/over-length are 422s; PATCH cannot clear;
+    model rename never cascades; copy preserves the source value. Runtime
+    excludes orphans and rejects a replacement snapshot if an active,
+    owner-backed row lacks this value)
   pricing_template_id FK -> pricing_templates.id (nullable, RESTRICT)
   qps_limit, max_in_flight_non_stream, max_in_flight_stream
   is_active, priority
@@ -3823,6 +3888,10 @@ request_logs (partitioned immutable attribution)
   PK (created_at, id)
   profile_id FK -> profiles.id
   model_id, resolved_target_model_id, api_family
+  upstream_model_id (nullable request-time snapshot of the actual upstream
+    identity the attempt's Terminal Target used; written only by the runtime
+    writer for real upstream rows, NULL for planning/admission/legacy rows;
+    never inferred on read)
   operation_name, upstream_operation_name, operation_translation_mode, upstream_request_path
   ingress_request_id, attempt_number, provider_correlation_id
   endpoint_id, connection_id, endpoint_base_url, endpoint_description
@@ -3838,6 +3907,8 @@ usage_request_events (partitioned immutable usage attribution)
   profile_id FK -> profiles.id
   ingress_request_id indexed grouping id
   model_id, resolved_target_model_id, api_family
+  upstream_model_id (nullable request-time winner snapshot; NULL on no-winner
+    and legacy rows, never inferred on read)
   operation_name, upstream_operation_name, operation_translation_mode, upstream_request_path
   endpoint_id, connection_id
   proxy_api_key_id, proxy_api_key_name_snapshot
@@ -4082,6 +4153,7 @@ Terminal Targets are represented as `connections` / `connection_id` in the compa
 | profile_id | INTEGER | FK -> profiles.id, NOT NULL | Owning profile |
 | api_family | VARCHAR(50) | NOT NULL | Runtime compatibility family used for same-family target validation |
 | endpoint_id | INTEGER | FK -> endpoints.id, NOT NULL | Referenced endpoint |
+| upstream_model_id | VARCHAR(200) | NULLABLE, CHECK NULL or non-blank | Exact provider model identity for this Terminal Target; nullable only for orphan compatibility rows, while every owner-backed management/runtime target returns or requires a concrete non-blank value |
 | pricing_template_id | INTEGER | FK -> pricing_templates.id, NULLABLE, ON DELETE RESTRICT | Assigned pricing template |
 | qps_limit | INTEGER | NULLABLE | Per-Terminal Target QPS cap; `NULL` means unlimited |
 | max_in_flight_non_stream | INTEGER | NULLABLE | Concurrent non-stream request cap; `NULL` means unlimited |
@@ -4221,6 +4293,7 @@ Telemetry rows have immutable profile attribution captured at request start. Cap
 | profile_id | INTEGER | FK -> profiles.id, NOT NULL | Immutable profile attribution |
 | model_id | VARCHAR(200) | NOT NULL | Model ID used for attempt |
 | resolved_target_model_id | VARCHAR(200) | NULLABLE | Final target model selected for the attempt |
+| upstream_model_id | VARCHAR(200) | NULLABLE, CHECK NULL or non-blank | Request-time provider model identity for a real upstream attempt; `NULL` for planning, admission, legacy, and pre-000031 rows |
 | api_family | VARCHAR(50) | NOT NULL | Fixed runtime compatibility family |
 | ingress_request_id | VARCHAR(36) | NULLABLE | Prism-generated incoming request grouping ID |
 | attempt_number | INTEGER | NULLABLE | Per-ingress attempt order, starting at 1 |
@@ -4336,6 +4409,7 @@ Request-log semantics:
 - Output-rate evidence (000030) is written once per request on the final attempt row: the runtime classifies progressive visible text/tool-output delivery (strict per-operation allowlists for OpenAI Chat/Responses, Anthropic, and Gemini; usage, terminal, control, reasoning, and image payloads never count) and persists the same `output_rate_state`, `output_rate_reason`, `output_delivery_event_count`, and `output_delivery_span_ms` verdict to the final attempt row and the usage event. A rate is measured only for completed streams with at least two visible output events whose first-to-last span reaches 50ms, a usable output-token numerator, and no reasoning-token misalignment; non-streaming text, Images, non-text operations, incomplete streams, and insufficient evidence are `unmeasurable`/`not_applicable` with a reason. Every read surface derives tok/s only from `state=measured` rows as `output_tokens * 1000.0 / output_delivery_span_ms` and averages measured samples with equal weight; historical rows (evidence NULL) and legacy v2/provisional outbox payloads materialize as `unknown` and never enter an average. The thresholds are writer policy, never schema constraints.
 - `attempt_number` preserves retry/failover ordering within that group.
 - `model_id` records the requested model ID while `resolved_target_model_id` records the final target model ID selected for that attempt.
+- `upstream_model_id` records the selected Terminal Target's frozen identity on every real upstream attempt. It is never reconstructed from the live connection or either logical model identity; planning, admission, legacy, and historical rows remain `NULL`.
 - `operation_name` is nullable in the schema for compatibility, but materialized rows for registered operations, including synthetic failures, carry a non-empty canonical operation name. Registry rejection creates no row and therefore has no persisted operation name.
 - `operation_name` and `request_path` remain ingress-led. `upstream_operation_name`, `operation_translation_mode`, and `upstream_request_path` are additive upstream attribution. Current OpenAI attempts are native and use `none`/NULL; historical translation values remain intact.
 - `selected_terminal_target_id` can differ from `connection_id` when the planner selected one terminal target but execution later failed over to another attempt.
@@ -4355,6 +4429,7 @@ Usage-event rows are the finalized source for the unified statistics snapshot. T
 | ingress_request_id | VARCHAR(36) | NOT NULL, indexed with `profile_id` | Incoming request grouping ID preserved for aggregate attribution and cross-table correlation |
 | model_id | VARCHAR(200) | NOT NULL | Requested model ID |
 | resolved_target_model_id | VARCHAR(200) | NULLABLE | Final target model selected for the request |
+| upstream_model_id | VARCHAR(200) | NULLABLE, CHECK NULL or non-blank | Frozen identity of the executor-confirmed final/winner attempt; `NULL` when no attempt wins and on legacy/pre-000031 rows |
 | api_family | VARCHAR(50) | NOT NULL | Fixed runtime compatibility family |
 | operation_name | VARCHAR(120) | NULLABLE | Ingress canonical operation name; runtime writers populate it for supported operations |
 | upstream_operation_name | VARCHAR(120) | NULLABLE | Provider-facing operation name for finalized attribution |
@@ -4447,6 +4522,7 @@ Usage-event semantics:
 
 - One row captures the finalized usage event for each materialized telemetry envelope and feeds the statistics snapshot.
 - `ingress_request_id` preserves the stable request-group identifier shared with the attempt-level `request_logs` rows for the same incoming runtime request.
+- `upstream_model_id` is copied only from the executor-confirmed final/winner attempt. Zero-launch and no-winner events keep `NULL`, and old outbox-v2 payloads without the field materialize normally as `NULL` rather than being quarantined or inferred.
 - `operation_name` is nullable in the schema for compatibility, but registered-operation envelopes materialize a non-empty canonical operation name. Operation-registry rejection creates no usage event.
 - Output-rate evidence mirrors the final attempt row's verdict (000030): the same state, reason, event count, and delivery span are written to both tables, legacy outbox rows without evidence fields normalize to `unknown` with reason `unknown_missing_evidence` instead of quarantining, and statistics consumers average only `state=measured` rows.
 - `proxy_api_key_name_snapshot` preserves display intent even if the key name later changes.

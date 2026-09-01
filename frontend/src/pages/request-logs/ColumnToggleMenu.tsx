@@ -37,6 +37,7 @@ export function ColumnToggleMenu({
         className="h-8 gap-1.5 text-xs"
         aria-expanded={open}
         aria-haspopup="menu"
+        data-testid="request-log-column-toggle-trigger"
         onClick={() => setOpen((current) => !current)}
       >
         <Columns3 className="h-3.5 w-3.5" />

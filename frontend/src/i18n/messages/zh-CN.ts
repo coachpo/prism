@@ -1545,6 +1545,20 @@ export const zhCNMessages = {
     connectionDialogDescription:
       "配置这个模型私有终端目标要把请求发往哪里。路由优先级仍由终端目标列表中的拖拽排序负责。",
     connectionDisplayNamePlaceholder: "终端目标显示名称",
+    upstreamModelId: "上游模型 ID",
+    upstreamModelIdHint: (ownerModelId: MessageArg) =>
+      `已预填入口模型 ID（${ownerModelId}）；如供应商要求不同标识，请填写其精确模型 ID。`,
+    upstreamModelIdHintDecoupled: (ownerModelId: MessageArg) =>
+      `发送给供应商的精确模型 ID，已与入口模型 ID（${ownerModelId}）脱钩。`,
+    upstreamModelIdPlaceholder: "例如：provider/model-a",
+    upstreamModelIdBlank: "上游模型 ID 不能为空白",
+    upstreamModelIdTooLong: "上游模型 ID 最多 200 个字符",
+    upstreamModelIdRequired:
+      "上游模型 ID 不能清空；如需改回入口模型 ID，请显式填写。",
+    upstreamModelIdDefaultSummary: (ownerModelId: MessageArg) =>
+      `跟随入口模型（${ownerModelId}）`,
+    upstreamModelIdMissingHistory:
+      "该行没有实际上游模型证据；不会用当前配置或逻辑目标模型代填。",
     prefillFromExisting: "从已有终端目标填充",
     prefillFromExistingPlaceholder:
       "选择同家族终端目标以预填字段（将创建独立副本）",
@@ -1559,7 +1573,7 @@ export const zhCNMessages = {
     cooldownMinutesSeconds: (minutes: MessageArg, seconds: MessageArg) =>
       `${minutes} 分 ${seconds} 秒`,
     cooldownSeconds: (seconds: MessageArg) => `${seconds} 秒`,
-    copyModelIdAria: (modelId: MessageArg) => `复制模型 ID ${modelId}`,
+    copyModelIdAria: (modelId: MessageArg) => `复制入口模型 ID ${modelId}`,
     costOverview: "成本概览",
     createNew: "新建端点",
     created: "创建时间",
@@ -1633,11 +1647,11 @@ export const zhCNMessages = {
     maxInFlightStream: "最大并发（流式）",
     modelConfigurationAndConnectionRouting:
       "为此入口模型选择失败重试与目标轮换方式。",
-    modelIdLabel: "模型 ID",
+    modelIdLabel: "入口模型 ID",
     modelRoutingAccessTargetsAndTerminalTargets:
       "入口模型路由覆盖分组后的访问目标、同家族模型目标，以及模型私有终端目标。",
     modelSettingsDescription:
-      "更新入口模型、路由默认值，以及它到达终端目标时使用的策略。",
+      "更新入口模型、路由默认值，以及它到达终端目标时使用的策略。修改入口模型 ID 不会改写已有终端目标的上游模型 ID。",
     modelSettingsTitle: "模型设置",
     noConnectionsConfigured: "还没有配置终端目标",
     noConnectionsMatchFilter: "没有终端目标匹配你的筛选条件",
@@ -2478,14 +2492,22 @@ export const zhCNMessages = {
     endpointApiKeyLabel: "API Key",
     endpointLabel: "端点",
     targetNameLabel: "终端目标名称",
-    modelIdRequired: "模型 ID 必填",
+    initialTargetUpstreamModelIdLabel: "上游模型 ID",
+    initialTargetUpstreamModelIdHint: (modelId: MessageArg) =>
+      `已预填入口模型 ID（${modelId}）；如供应商要求不同标识，请填写其精确模型 ID。`,
+    initialTargetUpstreamModelIdPlaceholder: "例如：provider/model-a",
+    copyUpstreamModelNote:
+      "副本会保留源终端目标的上游模型 ID；副本创建后可单独修改。",
+    terminalUpstreamModelId: "上游模型 ID",
+    terminalUpstreamModelIdShort: "上游模型 ·",
+    modelIdRequired: "入口模型 ID 必填",
     selectLoadbalanceStrategy: "请选择路由策略",
     initialTargetEndpointRequired: "请选择端点或内联新建",
     initialTargetInlineEndpointRequired: "内联端点需要名称与 Base URL",
     submitCreateModel: "创建模型",
     submitConfigureLater: "创建为停用",
     apiFamilyLabel: "API 家族",
-    modelIdLabel: "模型 ID",
+    modelIdLabel: "入口模型 ID",
     displayNameLabel: "显示名称",
     openaiAcceptedFormatLabel: "OpenAI 接受格式",
     loadbalanceStrategyLabel: "路由策略",
@@ -2555,7 +2577,7 @@ export const zhCNMessages = {
     editModelEnabledDescription:
       "当模型详情中已经有已启用的访问目标时，可启用此入口模型。",
     enableAccessTarget: (value: MessageArg) => `启用访问目标 ${value}`,
-    modelId: "模型 ID",
+    modelId: "入口模型 ID",
     modelIdPlaceholder: "例如：gpt-4o",
     modelTarget: "模型目标",
     needsTarget: "需要目标",
@@ -3192,6 +3214,9 @@ export const zhCNMessages = {
     attemptResultUnknown: "结果未知",
     actualTerminalTargetMissing: "没有实际终端目标证据。",
     actualEndpointMissing: "没有实际端点证据。",
+    upstreamModelIdColumn: "上游模型 ID",
+    upstreamModelIdMissing:
+      "该请求行没有保存实际上游模型 ID；不会用当前配置或逻辑目标模型代填。",
     attemptEvidenceCount: (retained: MessageArg, expected: MessageArg) =>
       `已保留 ${retained} / 预期 ${expected}`,
     expectedUnknown: "未知",

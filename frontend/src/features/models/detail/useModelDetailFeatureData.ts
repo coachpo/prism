@@ -136,12 +136,15 @@ export function useModelDetailFeatureData({
     setCustomRequestParametersDraft,
     customRequestParametersError,
     setCustomRequestParametersError,
+    upstreamModelIdError,
+    setUpstreamModelIdError,
     endpointSourceDefaultName,
     openConnectionDialog,
   } = useModelDetailDialogState({
     apiFamily: model?.api_family ?? null,
     openAIMode: model?.openai_accepted_format ?? null,
     globalEndpoints,
+    ownerModelID: model?.model_id ?? null,
   })
 
   const { refetchSpending } = useModelDetailBootstrap({
@@ -209,6 +212,7 @@ export function useModelDetailFeatureData({
     routingScheduleDraft,
     setRoutingScheduleError,
     setCustomRequestParametersError,
+    setUpstreamModelIdError,
     editingConnection,
     pricingTemplates,
     endpointSourceDefaultName,
@@ -286,11 +290,8 @@ export function useModelDetailFeatureData({
     if (!Number.isFinite(parsed) || parsed <= 0) {
       return
     }
-    if (createMode !== "select") {
-      setCreateMode("select")
-    }
+    openConnectionDialog()
     setSelectedEndpointId(String(parsed))
-    setIsConnectionDialogOpen(true)
     // Consume the one-shot action so refresh never reopens the dialog.
     const next = new URLSearchParams(searchParams)
     next.delete("action")
@@ -355,6 +356,8 @@ export function useModelDetailFeatureData({
     setCustomRequestParametersDraft,
     customRequestParametersError,
     setCustomRequestParametersError,
+    upstreamModelIdError,
+    setUpstreamModelIdError,
     accessTargetSummary,
     endpointSourceDefaultName,
     openConnectionDialog,

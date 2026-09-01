@@ -7,18 +7,18 @@ import (
 	"github.com/coachpo/prism/backend/internal/gateway/provider/anthropic"
 )
 
-func buildAnthropicPlannedUpstreamRequest(input requestPlanningInput, operation resolvedRequestOperation, attempt runtimeTerminalAttempt) (plannedUpstreamRequest, bool, error) {
+func buildAnthropicPlannedUpstreamRequest(input requestPlanningInput, operation resolvedRequestOperation, upstreamModelID string) (plannedUpstreamRequest, bool, error) {
 	providerOperation := providerOperationFromRuntime(operation.Match.Operation)
 	if !anthropic.IsOperation(providerOperation) {
 		return plannedUpstreamRequest{}, false, nil
 	}
 	adapter := anthropic.New()
 	upstream, err := adapter.BuildMessagesUpstreamRequest(context.Background(), anthropic.MessagesUpstreamRequest{
-		Operation:     providerOperation,
-		RawBody:       input.RawBody,
-		ContentType:   operation.ContentType,
-		RequestPath:   input.Request.URL.Path,
-		TargetModelID: attempt.TargetModel.ModelID,
+		Operation:       providerOperation,
+		RawBody:         input.RawBody,
+		ContentType:     operation.ContentType,
+		RequestPath:     input.Request.URL.Path,
+		UpstreamModelID: upstreamModelID,
 	})
 	if err != nil {
 		if domainErr := domainErrorFromProviderAdapterError(err); domainErr != nil {

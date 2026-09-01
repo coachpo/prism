@@ -30,12 +30,12 @@ type OperationMetadata struct {
 }
 
 type MessagesUpstreamRequest struct {
-	Operation     provider.Operation
-	RawBody       []byte
-	ContentType   string
-	RequestPath   string
-	TargetModelID string
-	Header        http.Header
+	Operation       provider.Operation
+	RawBody         []byte
+	ContentType     string
+	RequestPath     string
+	UpstreamModelID string
+	Header          http.Header
 }
 
 const (
@@ -67,12 +67,12 @@ func IsOperation(operation provider.Operation) bool {
 
 func (adapter Adapter) BuildUpstreamRequest(ctx context.Context, request provider.ProviderRequest, target provider.UpstreamTarget) (provider.UpstreamRequest, error) {
 	return adapter.BuildMessagesUpstreamRequest(ctx, MessagesUpstreamRequest{
-		Operation:     request.Operation,
-		RawBody:       request.Body,
-		ContentType:   request.ContentType,
-		RequestPath:   request.NativePath,
-		TargetModelID: target.ModelID,
-		Header:        target.Header,
+		Operation:       request.Operation,
+		RawBody:         request.Body,
+		ContentType:     request.ContentType,
+		RequestPath:     request.NativePath,
+		UpstreamModelID: target.ModelID,
+		Header:          target.Header,
 	})
 }
 
@@ -81,7 +81,7 @@ func (adapter Adapter) BuildMessagesUpstreamRequest(_ context.Context, request M
 	if !ok {
 		return provider.UpstreamRequest{}, &provider.AdapterError{HTTPStatus: http.StatusBadRequest, Code: "anthropic_operation_unsupported", Detail: "Anthropic operation is unsupported by this adapter."}
 	}
-	body := rewriteJSONModel(request.RawBody, request.TargetModelID)
+	body := rewriteJSONModel(request.RawBody, request.UpstreamModelID)
 	return provider.UpstreamRequest{Method: http.MethodPost, Path: metadata.NativePath, Header: request.Header.Clone(), Body: body}, nil
 }
 

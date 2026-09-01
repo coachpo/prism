@@ -88,6 +88,9 @@ func (s *Service) createCompositeConnection(ctx context.Context, tx pgx.Tx, prof
 	if s.terminalTargetCreator == nil {
 		return nil, &domainError{StatusCode: http.StatusInternalServerError, Detail: "Terminal target creator is unavailable"}
 	}
+	// The initial Terminal Target's upstream_model_id defaults to the newly
+	// created model's own model_id inside the shared create chain when the
+	// composite request omits it.
 	capability, err := resolveCompositeCapability(created, initial)
 	if err != nil {
 		return nil, err
@@ -98,6 +101,7 @@ func (s *Service) createCompositeConnection(ctx context.Context, tx pgx.Tx, prof
 	}
 	result, err := s.terminalTargetCreator.CreateOwnerScopedConnectionTx(ctx, tx, profileID, connections.OwnerScopedConnectionCreateInput{
 		OwnerModelID:               created.ID,
+		OwnerModelIDString:         created.ModelID,
 		OwnerAPIFamily:             created.APIFamily,
 		OwnerOpenAIAcceptedFormat:  created.OpenAIAcceptedFormat,
 		OwnerOpenAIImageOperations: created.OpenAIImageOperations,
@@ -107,6 +111,7 @@ func (s *Service) createCompositeConnection(ctx context.Context, tx pgx.Tx, prof
 		Name:                       initial.Name,
 		IsActive:                   initial.IsActive,
 		AuthType:                   initial.AuthType,
+		UpstreamModelID:            connections.OptionalStringFrom(initial.UpstreamModelID.Set, initial.UpstreamModelID.Value),
 		CustomHeaders:              initial.CustomHeaders,
 		CustomRequestParameters:    connections.CustomRequestParametersInput{Set: initial.CustomRequestParameters.Set, Raw: initial.CustomRequestParameters.Raw},
 		RoutingSchedule:            connections.RoutingScheduleInput{Set: initial.RoutingSchedule.Set, Raw: initial.RoutingSchedule.Raw},
@@ -131,6 +136,8 @@ func compositeConnectionEnvelope(result *connections.OwnerConnectionCreateResult
 		"endpoint_id":                    result.EndpointID,
 		"is_active":                      result.IsActive,
 		"openai_text_capability":         result.OpenAITextCapability,
+		"openai_image_capability":        result.OpenAIImageCapability,
+		"upstream_model_id":              result.UpstreamModelID,
 		"pricing_template_id":            result.PricingTemplateID,
 		"qps_limit":                      result.QPSLimit,
 		"max_in_flight_non_stream":       result.MaxInFlightNonStream,

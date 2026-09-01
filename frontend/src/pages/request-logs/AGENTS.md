@@ -18,7 +18,7 @@ request-logs/
 ├── useRequestLogDetail.ts       # Exact-request detail fetch, not-found handling, and refresh
 ├── useRequestLogChain.ts        # Retained ingress chain fetch for the detail sheet
 ├── requestLogSavedViews.ts      # Versioned saved canonical views (localStorage)
-├── requestLogColumnPreferences.ts # Versioned column-visibility preferences (localStorage)
+├── requestLogColumnPreferences.ts # v5 column-visibility preferences (localStorage)
 ├── RequestLogAuditPage.tsx      # Dedicated full audit page
 ├── useDedicatedRequestLogAudit.ts # Thin composition over dedicated audit read lanes
 ├── useRequestLogAuditRequest.ts # Request detail, capture gating, and audit window
@@ -31,7 +31,8 @@ request-logs/
 ├── AuditCaptureLedger.tsx       # Bytes seen, kept, and dropped with the reason capture stopped
 ├── requestLogAuditState.ts      # Audit capture mode and request-detail audit state helpers
 ├── streamTelemetry.ts           # Stream-outcome, TTFT, and rate helpers for request-log views
-├── columns.tsx                  # Table column definitions (nine core + pricing state) and scoped status/duration helpers
+├── columns.tsx                  # Core plus optional retained-evidence columns and scoped status/duration helpers
+├── UpstreamModelIdValue.tsx     # Honest retained upstream-ID value/missing renderer
 ├── pricingExplanation.ts        # Unpriced-cause, token-component, and typed selection-state/card-role classification for rows and detail
 ├── RequestLogsViewToolbar.tsx   # View switcher plus the controls both views share (columns, page size, export)
 ├── FiltersBar.tsx               # UI shell for retained browse filters plus refresh/clear actions
@@ -95,6 +96,7 @@ request-logs/
 - Keep the default view as the server-side retained ingress chain (`view=ingress_chains`) with signed chain cursors; the table paginates by `chain_cursor`, not by `offset`.
 - The chain envelope owns required `filter_options`; never mark them loaded when the field is absent. Attempts carry only limit/offset, chains only chain/row cursors, and CSV no pagination fields.
 - Keep row scoping strict: render `upstream_status_code`/`gateway_status_code`/`legacy_status_code` by `row_kind` and never COALESCE across scopes; the `pricing_state` column is first-class in the default column set.
+- `upstream_model_id` is the optional hidden-by-default retained attempt snapshot column; `finalized_summary.final_upstream_model_id` is the winner snapshot. Render persisted values in mono and a reasoned `—` for NULL, never inferring from live configuration. Column preferences use v5 so old v4 state falls back safely without exposing the new column by default.
 - Keep BIGINT request-log IDs as decimal strings end-to-end; never convert them to JS numbers.
 - Keep the payload viewer content-aware: streaming SSE offers 消息/JSON 事件/原始 SSE with real per-view content, non-stream JSON offers 消息/JSON, and binary/invalid-UTF-8 bodies are unparseable; never render the same stored text as two modes.
 - Keep saved views and column preferences versioned in localStorage with a schema version; saved views omit transient pagination/selection anchors.

@@ -417,10 +417,11 @@ func runtimePlanningCacheInvalidationAfterOwnerScopedConnectionRoutes(t *testing
 	updateUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-owner-connection-update"})
 	updateEndpointID := harness.seedEndpoint(t, profileID, "cache-owner-update-endpoint-"+suffix, updateUpstream.baseURL("/cache-invalidation/owner-connection-update"), "owner-update-key")
 	generation = harness.runtimeCache.PublishedGeneration()
-	updateResponse := harness.requestJSON(t, http.MethodPatch, fmt.Sprintf("/api/models/%d/connections/%d", ownerModelConfigID, createdConnectionID), map[string]any{"endpoint_id": updateEndpointID}, runtimeModelHeader(profileID))
+	updatedUpstreamModelID := "vendor/cache-owner-updated-" + suffix
+	updateResponse := harness.requestJSON(t, http.MethodPatch, fmt.Sprintf("/api/models/%d/connections/%d", ownerModelConfigID, createdConnectionID), map[string]any{"endpoint_id": updateEndpointID, "upstream_model_id": updatedUpstreamModelID}, runtimeModelHeader(profileID))
 	assertStatus(t, updateResponse, http.StatusOK)
 	harness.waitForRuntimeSnapshotGeneration(t, generation)
-	assertRuntimeRequestRoutesToScriptedUpstream(t, harness, publicModelID, ownerModelID, updateUpstream, "/cache-invalidation/owner-connection-update/v1/chat/completions")
+	assertRuntimeRequestRoutesToScriptedUpstream(t, harness, publicModelID, updatedUpstreamModelID, updateUpstream, "/cache-invalidation/owner-connection-update/v1/chat/completions")
 
 	remainingUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-owner-connection-delete"})
 	remainingEndpointID := harness.seedEndpoint(t, profileID, "cache-owner-delete-endpoint-"+suffix, remainingUpstream.baseURL("/cache-invalidation/owner-connection-delete"), "owner-delete-key")

@@ -40,8 +40,8 @@ func TestRequestLogCSVExportContract(t *testing.T) {
 			errorDetail = "=HYPERLINK(\"http://evil\")"
 		}
 		if _, err := harness.conn.Exec(context.Background(), `INSERT INTO request_logs (
-			profile_id, model_id, resolved_target_model_id, api_family, operation_name, ingress_request_id, attempt_number, attempt_trigger, attempt_result, is_winner, row_kind, url_scrub_provenance, upstream_status_code, attempt_duration_ms, is_stream, stream_outcome, ttft_ms, completion_duration_ms, success_flag, input_tokens, output_tokens, total_tokens, currency_code_original, report_currency_code, report_currency_symbol, fx_rate_used, fx_rate_source, pricing_status, unpriced_reason, pricing_evidence_trust, pricing_template_id_used, pricing_template_name_snapshot, pricing_template_revision_id_used, pricing_config_version_used, reporting_currency_epoch, metadata_redacted_fields, metadata_truncated_fields, request_path, error_detail, endpoint_id, connection_id, caller_user_agent, created_at)
-			VALUES ($1, CASE WHEN $2 = 2 THEN 'other-model' ELSE 'export-model' END, CASE WHEN $2 = 0 THEN 'export-other-target' ELSE 'export-target' END, 'openai', 'openai.chat_completions', $3, CASE WHEN $2 = 1 THEN 2 ELSE 1 END, CASE WHEN $2 = 1 THEN 'failover' ELSE 'initial' END, CASE WHEN $2 = 0 THEN 'http_error' ELSE 'completed' END, $2 <> 0, 'upstream', 'runtime_scrubbed', CASE WHEN $2 = 0 THEN 503 ELSE 200 END, 11 * ($2 + 1), $2 = 1, CASE WHEN $2 = 1 THEN 'completed' ELSE 'not_streaming' END, CASE WHEN $2 = 1 THEN 7 END, CASE WHEN $2 = 1 THEN 19 END, $2 <> 0, CASE WHEN $2 = 1 THEN 5 END, CASE WHEN $2 = 1 THEN 10 END, CASE WHEN $2 = 1 THEN 15 END, CASE WHEN $2 = 1 THEN 'EUR' END, 'USD', '$', CASE WHEN $2 = 1 THEN '2' END, CASE WHEN $2 = 1 THEN 'TEST' END, CASE WHEN $2 = 2 THEN 'unpriced' ELSE 'ineligible' END, CASE WHEN $2 = 2 THEN 'MISSING_TOKEN_USAGE' END, 'trusted', CASE WHEN $2 = 1 THEN 42 END, CASE WHEN $2 = 1 THEN 'Export price' END, CASE WHEN $2 = 1 THEN 77 END, CASE WHEN $2 = 1 THEN 3 END, CASE WHEN $2 = 1 THEN 4 END, CASE WHEN $2 = 1 THEN ARRAY['authorization']::text[] ELSE ARRAY[]::text[] END, CASE WHEN $2 = 1 THEN ARRAY['error_detail']::text[] ELSE ARRAY[]::text[] END, '/v1/chat/completions', $4, CASE WHEN $2 = 2 THEN 9912 ELSE 9911 END, CASE WHEN $2 = 2 THEN 7712 ELSE 7711 END, CASE WHEN $2 = 2 THEN 'Other-Client/1.0' ELSE 'Codex-Parity/1.0' END, $5)`,
+			profile_id, model_id, resolved_target_model_id, upstream_model_id, api_family, operation_name, ingress_request_id, attempt_number, attempt_trigger, attempt_result, is_winner, row_kind, url_scrub_provenance, upstream_status_code, attempt_duration_ms, is_stream, stream_outcome, ttft_ms, completion_duration_ms, success_flag, input_tokens, output_tokens, total_tokens, currency_code_original, report_currency_code, report_currency_symbol, fx_rate_used, fx_rate_source, pricing_status, unpriced_reason, pricing_evidence_trust, pricing_template_id_used, pricing_template_name_snapshot, pricing_template_revision_id_used, pricing_config_version_used, reporting_currency_epoch, metadata_redacted_fields, metadata_truncated_fields, request_path, error_detail, endpoint_id, connection_id, caller_user_agent, created_at)
+			VALUES ($1, CASE WHEN $2 = 2 THEN 'other-model' ELSE 'export-model' END, CASE WHEN $2 = 0 THEN 'export-other-target' ELSE 'export-target' END, CASE WHEN $2 = 1 THEN '=upstream-winner' ELSE 'upstream-first' END, 'openai', 'openai.chat_completions', $3, CASE WHEN $2 = 1 THEN 2 ELSE 1 END, CASE WHEN $2 = 1 THEN 'failover' ELSE 'initial' END, CASE WHEN $2 = 0 THEN 'http_error' ELSE 'completed' END, $2 <> 0, 'upstream', 'runtime_scrubbed', CASE WHEN $2 = 0 THEN 503 ELSE 200 END, 11 * ($2 + 1), $2 = 1, CASE WHEN $2 = 1 THEN 'completed' ELSE 'not_streaming' END, CASE WHEN $2 = 1 THEN 7 END, CASE WHEN $2 = 1 THEN 19 END, $2 <> 0, CASE WHEN $2 = 1 THEN 5 END, CASE WHEN $2 = 1 THEN 10 END, CASE WHEN $2 = 1 THEN 15 END, CASE WHEN $2 = 1 THEN 'EUR' END, 'USD', '$', CASE WHEN $2 = 1 THEN '2' END, CASE WHEN $2 = 1 THEN 'TEST' END, CASE WHEN $2 = 2 THEN 'unpriced' ELSE 'ineligible' END, CASE WHEN $2 = 2 THEN 'MISSING_TOKEN_USAGE' END, 'trusted', CASE WHEN $2 = 1 THEN 42 END, CASE WHEN $2 = 1 THEN 'Export price' END, CASE WHEN $2 = 1 THEN 77 END, CASE WHEN $2 = 1 THEN 3 END, CASE WHEN $2 = 1 THEN 4 END, CASE WHEN $2 = 1 THEN ARRAY['authorization']::text[] ELSE ARRAY[]::text[] END, CASE WHEN $2 = 1 THEN ARRAY['error_detail']::text[] ELSE ARRAY[]::text[] END, '/v1/chat/completions', $4, CASE WHEN $2 = 2 THEN 9912 ELSE 9911 END, CASE WHEN $2 = 2 THEN 7712 ELSE 7711 END, CASE WHEN $2 = 2 THEN 'Other-Client/1.0' ELSE 'Codex-Parity/1.0' END, $5)`,
 			profileID, index, ingress, errorDetail, now.Add(time.Duration(index)*time.Minute)); err != nil {
 			t.Fatalf("seed export row %d: %v", index, err)
 		}
@@ -103,7 +103,7 @@ func TestRequestLogCSVExportContract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse export CSV: %v", err)
 	}
-	wantHeader := "row_kind,request_log_id,ingress_request_id,attempt_number,attempt_trigger,attempt_result,is_winner,created_at,ingress_model_id,attempt_target_model_id,api_family,operation_name,endpoint_id,terminal_target_id,upstream_status_code,gateway_status_code,legacy_status_code,error_source,error_code,failure_stage,error_detail,stream_error_detail,stream_outcome,stream_error_kind,attempt_duration_ms,legacy_duration_ms,ttft_ms,total_duration_ms,input_tokens,output_tokens,total_tokens,cache_read_input_tokens,cache_creation_input_tokens,reasoning_tokens,total_cost_user_currency_micros,currency_code_original,report_currency_code,report_currency_symbol,fx_rate_used,fx_rate_source,pricing_status,unpriced_reason,pricing_resolution_kind,missing_price_components,pricing_evidence_trust,pricing_template_id_used,pricing_template_name_snapshot,pricing_template_revision_id_used,pricing_config_version_used,pricing_version_effective_at,reporting_currency_epoch,metadata_redacted_fields,metadata_truncated_fields,pricing_template_kind,pricing_selection_state,pricing_card_role,pricing_selector_threshold_tokens,pricing_selector_basis_tokens,pricing_schedule_decided_at,pricing_schedule_timezone,pricing_schedule_local_weekday,pricing_schedule_local_minute,pricing_schedule_digest"
+	wantHeader := "row_kind,request_log_id,ingress_request_id,attempt_number,attempt_trigger,attempt_result,is_winner,created_at,ingress_model_id,attempt_target_model_id,upstream_model_id,api_family,operation_name,endpoint_id,terminal_target_id,upstream_status_code,gateway_status_code,legacy_status_code,error_source,error_code,failure_stage,error_detail,stream_error_detail,stream_outcome,stream_error_kind,attempt_duration_ms,legacy_duration_ms,ttft_ms,total_duration_ms,input_tokens,output_tokens,total_tokens,cache_read_input_tokens,cache_creation_input_tokens,reasoning_tokens,total_cost_user_currency_micros,currency_code_original,report_currency_code,report_currency_symbol,fx_rate_used,fx_rate_source,pricing_status,unpriced_reason,pricing_resolution_kind,missing_price_components,pricing_evidence_trust,pricing_template_id_used,pricing_template_name_snapshot,pricing_template_revision_id_used,pricing_config_version_used,pricing_version_effective_at,reporting_currency_epoch,metadata_redacted_fields,metadata_truncated_fields,pricing_template_kind,pricing_selection_state,pricing_card_role,pricing_selector_threshold_tokens,pricing_selector_basis_tokens,pricing_schedule_decided_at,pricing_schedule_timezone,pricing_schedule_local_weekday,pricing_schedule_local_minute,pricing_schedule_digest"
 	if strings.Join(records[0], ",") != wantHeader {
 		t.Fatalf("CSV header drifted: %q", strings.Join(records[0], ","))
 	}
@@ -117,7 +117,7 @@ func TestRequestLogCSVExportContract(t *testing.T) {
 			failover = record
 		}
 	}
-	if failover == nil || failover[columns["ttft_ms"]] != "7" || failover[columns["total_duration_ms"]] != "19" || failover[columns["currency_code_original"]] != "EUR" || failover[columns["report_currency_code"]] != "USD" || failover[columns["report_currency_symbol"]] != "$" || failover[columns["pricing_template_kind"]] != "tiered" || failover[columns["pricing_selection_state"]] != "selected" || failover[columns["pricing_card_role"]] != "tier_above" || failover[columns["pricing_selector_threshold_tokens"]] != "272000" || failover[columns["pricing_selector_basis_tokens"]] != "272001" {
+	if failover == nil || failover[columns["upstream_model_id"]] != "'=upstream-winner" || failover[columns["ttft_ms"]] != "7" || failover[columns["total_duration_ms"]] != "19" || failover[columns["currency_code_original"]] != "EUR" || failover[columns["report_currency_code"]] != "USD" || failover[columns["report_currency_symbol"]] != "$" || failover[columns["pricing_template_kind"]] != "tiered" || failover[columns["pricing_selection_state"]] != "selected" || failover[columns["pricing_card_role"]] != "tier_above" || failover[columns["pricing_selector_threshold_tokens"]] != "272000" || failover[columns["pricing_selector_basis_tokens"]] != "272001" {
 		t.Fatalf("expected exact stream/failover database fields in CSV, got %+v", failover)
 	}
 	base, combined := fmt.Sprintf("view=attempts&from_time=%s&to_time=%s", from, to), fmt.Sprintf("client_rule_id=%d&ingress_model_id=export-model&attempt_target_model_id=export-target&endpoint_id=9911&terminal_target_id=7711&status_family=2xx&status_code=200&pricing_status=ineligible&error_text=HYPERLINK", clientRuleID)
@@ -149,7 +149,7 @@ func TestRequestLogCSVExportContract(t *testing.T) {
 			winner = asMap(t, items[0])
 		}
 	}
-	if jsonInt(t, winner["ttft_ms"]) != 7 || jsonInt(t, winner["completion_duration_ms"]) != 19 || winner["report_currency_symbol"] != failover[columns["report_currency_symbol"]] {
+	if winner["upstream_model_id"] != "=upstream-winner" || jsonInt(t, winner["ttft_ms"]) != 7 || jsonInt(t, winner["completion_duration_ms"]) != 19 || winner["report_currency_symbol"] != failover[columns["report_currency_symbol"]] {
 		t.Fatalf("expected JSON/CSV stream-duration and currency parity, JSON=%+v CSV=%+v", winner, failover)
 	}
 	missingPayload := requestJSONStatus[map[string]any](t, harness, http.MethodGet, path+"&final_result=failed", nil, modelHeader(profileID), http.StatusUnprocessableEntity)
@@ -251,9 +251,10 @@ func TestRequestLogCSVExportSnapshotStableUnderConcurrentInserts(t *testing.T) {
 
 	// Seed a base row set.
 	for index := 0; index < 10; index++ {
+		ingressID := fmt.Sprintf("snap-%d", index)
 		if _, err := harness.conn.Exec(context.Background(), `INSERT INTO request_logs (profile_id, model_id, api_family, ingress_request_id, attempt_number, row_kind, url_scrub_provenance, upstream_status_code, attempt_duration_ms, is_stream, success_flag, pricing_status, pricing_evidence_trust, request_path, created_at)
 			VALUES ($1, 'snap-model', 'openai', $2, 1, 'upstream', 'runtime_scrubbed', 200, 100, FALSE, TRUE, 'ineligible', 'trusted', '/v1/chat/completions', $3)`,
-			profileID, fmt.Sprintf("snap-%d", index), now.Add(time.Duration(index)*time.Minute)); err != nil {
+			profileID, ingressID, now.Add(time.Duration(index)*time.Minute)); err != nil {
 			t.Fatalf("seed snapshot row %d: %v", index, err)
 		}
 	}
@@ -287,9 +288,10 @@ func TestRequestLogCSVExportSnapshotStableUnderConcurrentInserts(t *testing.T) {
 				return
 			default:
 			}
+			concurrentID := fmt.Sprintf("snap-concurrent-%d", counter)
 			if _, err := harness.conn.Exec(context.Background(), `INSERT INTO request_logs (profile_id, model_id, api_family, ingress_request_id, attempt_number, row_kind, url_scrub_provenance, upstream_status_code, attempt_duration_ms, is_stream, success_flag, pricing_status, pricing_evidence_trust, request_path, created_at)
 				VALUES ($1, 'snap-model', 'openai', $2, 1, 'upstream', 'runtime_scrubbed', 200, 100, FALSE, TRUE, 'ineligible', 'trusted', '/v1/chat/completions', now())`,
-				profileID, fmt.Sprintf("snap-concurrent-%d", counter)); err != nil {
+				profileID, concurrentID); err != nil {
 				t.Errorf("concurrent insert: %v", err)
 				return
 			}

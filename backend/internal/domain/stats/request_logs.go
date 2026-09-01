@@ -14,6 +14,7 @@ type requestLogListRow struct {
 	CreatedAt                      time.Time
 	ModelID                        string
 	ResolvedTargetModelID          *string
+	UpstreamModelID                *string
 	APIFamily                      string
 	EndpointID                     *int
 	ConnectionID                   *int
@@ -175,7 +176,7 @@ func ListRequestLogs(ctx context.Context, exec queryExecutor, params RequestLogL
 	}
 	rows, err := exec.Query(
 		ctx,
-		`SELECT id, created_at, model_id, resolved_target_model_id, api_family, endpoint_id, connection_id,
+		`SELECT id, created_at, model_id, resolved_target_model_id, upstream_model_id, api_family, endpoint_id, connection_id,
 		 proxy_api_key_id_snapshot, proxy_api_key_name_snapshot, proxy_api_key_attribution_state, proxy_api_key_auth_enforced_at_request,
 		 ingress_request_id, row_kind,
 		 upstream_status_code, gateway_status_code, legacy_status_code, `+scopedRequestLogStatusSQL+` AS scoped_status, attempt_duration_ms, legacy_duration_ms,
@@ -217,6 +218,7 @@ func ListRequestLogs(ctx context.Context, exec queryExecutor, params RequestLogL
 			ModelLabel:                    resolveRequestLogModelLabel(currentModelsByID, item.ModelID),
 			ResolvedTargetModelID:         item.ResolvedTargetModelID,
 			ResolvedTargetModelLabel:      resolveRequestLogResolvedTargetModelLabel(currentModelsByID, item.ResolvedTargetModelID),
+			UpstreamModelID:               item.UpstreamModelID,
 			APIFamily:                     item.APIFamily,
 			EndpointID:                    item.EndpointID,
 			EndpointLabel:                 resolveEndpointLabel(currentEndpoint.Name, currentEndpoint.BaseURL, item.EndpointBaseURL, item.EndpointID, "Unknown Endpoint"),
@@ -855,6 +857,7 @@ func endpointFromMap(items map[int]endpointRecord, endpointID *int) (endpointRec
 
 func scanRequestLogListRow(scanner interface{ Scan(...any) error }) (requestLogListRow, error) {
 	var resolvedTargetModelID sql.NullString
+	var upstreamModelID sql.NullString
 	var endpointID sql.NullInt32
 	var connectionID sql.NullInt32
 	var proxyAPIKeyID sql.NullInt32
@@ -893,7 +896,7 @@ func scanRequestLogListRow(scanner interface{ Scan(...any) error }) (requestLogL
 	var upstreamUserAgent sql.NullString
 	var endpointBaseURL sql.NullString
 	item := requestLogListRow{}
-	if err := scanner.Scan(&item.ID, &item.CreatedAt, &item.ModelID, &resolvedTargetModelID, &item.APIFamily, &endpointID, &connectionID,
+	if err := scanner.Scan(&item.ID, &item.CreatedAt, &item.ModelID, &resolvedTargetModelID, &upstreamModelID, &item.APIFamily, &endpointID, &connectionID,
 		&proxyAPIKeyID, &proxyAPIKeyNameSnapshot, &proxyAPIKeyAttributionState, &proxyAPIKeyAuthEnforced, &ingressRequestID, &item.RowKind,
 		&upstreamStatusCode, &gatewayStatusCode, &legacyStatusCode, &scopedStatus, &attemptDurationMS, &legacyDurationMS,
 		&ttftMS, &completionDurationMS, &item.IsStream, &streamOutcome, &streamErrorKind,
@@ -907,6 +910,10 @@ func scanRequestLogListRow(scanner interface{ Scan(...any) error }) (requestLogL
 	}
 	item.CreatedAt = item.CreatedAt.UTC()
 	item.ResolvedTargetModelID = nullableString(resolvedTargetModelID)
+	// The snapshot is persisted evidence only: NULL (legacy/no-winner/diagnostic
+	// rows) stays NULL and is never inferred from the current configuration or
+	// the logical target model id.
+	item.UpstreamModelID = nullableString(upstreamModelID)
 	item.EndpointID = normalizePositiveID(nullableInt32(endpointID))
 	item.ConnectionID = normalizePositiveID(nullableInt32(connectionID))
 	item.ProxyAPIKeyID = normalizePositiveID(nullableInt32(proxyAPIKeyID))

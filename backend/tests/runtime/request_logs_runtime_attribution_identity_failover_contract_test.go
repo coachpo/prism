@@ -254,16 +254,17 @@ type runtimePricingOwnerFixture struct {
 }
 
 type runtimePricingOwnerFailoverFixture struct {
-	harness                                    *runtimeHarness
-	gate                                       *runtimeTelemetryMaterializeGate
-	profileID                                  int
-	publicModelID                              string
-	primaryUpstream, secondaryUpstream         *scriptedUpstream
-	primaryEndpointID, secondaryEndpointID     int
-	primaryConnectionID, secondaryConnectionID int
-	primaryTemplateID, secondaryTemplateID     int
-	primaryOwner, secondaryOwner               runtimePricingOwnerFixture
-	reportCurrency                             runtimeReportCurrencySnapshot
+	harness                                          *runtimeHarness
+	gate                                             *runtimeTelemetryMaterializeGate
+	profileID                                        int
+	publicModelID, targetModelID                     string
+	primaryUpstream, secondaryUpstream               *scriptedUpstream
+	primaryEndpointID, secondaryEndpointID           int
+	primaryConnectionID, secondaryConnectionID       int
+	primaryUpstreamModelID, secondaryUpstreamModelID string
+	primaryTemplateID, secondaryTemplateID           int
+	primaryOwner, secondaryOwner                     runtimePricingOwnerFixture
+	reportCurrency                                   runtimeReportCurrencySnapshot
 }
 
 func newRuntimePricingOwnerFailoverFixture(t *testing.T) runtimePricingOwnerFailoverFixture {
@@ -282,6 +283,9 @@ func newRuntimePricingOwnerFailoverFixture(t *testing.T) runtimePricingOwnerFail
 	secondaryEndpointID := harness.seedEndpoint(t, profileID, "runtime-request-log-secondary-endpoint-"+suffix, secondaryUpstream.baseURL("/request-logs/fill-first/secondary"), "runtime-request-log-secondary-key", 1)
 	primaryConnectionID := harness.seedConnection(t, profileID, targetModelConfigID, primaryEndpointID, "runtime-request-log-primary-connection-"+suffix, nil, nil, 0)
 	secondaryConnectionID := harness.seedConnection(t, profileID, targetModelConfigID, secondaryEndpointID, "runtime-request-log-secondary-connection-"+suffix, nil, nil, 1)
+	primaryUpstreamModelID, secondaryUpstreamModelID := "vendor/Model-A", "vendor/Model-B"
+	setRuntimeConnectionUpstreamModelID(t, harness.conn, primaryConnectionID, primaryUpstreamModelID)
+	setRuntimeConnectionUpstreamModelID(t, harness.conn, secondaryConnectionID, secondaryUpstreamModelID)
 	reportCurrency := loadRuntimeReportCurrencySnapshot(t, harness.conn, profileID)
 	primaryTemplateID := insertRuntimePricingTemplate(t, harness.conn, profileID, "runtime-request-log-primary-pricing-"+suffix, reportCurrency.Code, "1", "2", "3", "4", "5")
 	secondaryTemplateID := insertRuntimePricingTemplate(t, harness.conn, profileID, "runtime-request-log-secondary-pricing-"+suffix, reportCurrency.Code, "6", "7", "8", "9", "10")
@@ -289,7 +293,7 @@ func newRuntimePricingOwnerFailoverFixture(t *testing.T) runtimePricingOwnerFail
 	advanceRuntimePricingTemplateRevision(t, harness.conn, secondaryTemplateID)
 	attachRuntimeConnectionPricingTemplate(t, harness, primaryConnectionID, primaryTemplateID)
 	attachRuntimeConnectionPricingTemplate(t, harness, secondaryConnectionID, secondaryTemplateID)
-	return runtimePricingOwnerFailoverFixture{harness: harness, gate: gate, profileID: profileID, publicModelID: publicModelID, primaryUpstream: primaryUpstream, secondaryUpstream: secondaryUpstream, primaryEndpointID: primaryEndpointID, secondaryEndpointID: secondaryEndpointID, primaryConnectionID: primaryConnectionID, secondaryConnectionID: secondaryConnectionID, primaryTemplateID: primaryTemplateID, secondaryTemplateID: secondaryTemplateID, primaryOwner: loadRuntimePricingOwnerFixture(t, harness.conn, primaryTemplateID, reportCurrency), secondaryOwner: loadRuntimePricingOwnerFixture(t, harness.conn, secondaryTemplateID, reportCurrency), reportCurrency: reportCurrency}
+	return runtimePricingOwnerFailoverFixture{harness: harness, gate: gate, profileID: profileID, publicModelID: publicModelID, targetModelID: targetModelID, primaryUpstream: primaryUpstream, secondaryUpstream: secondaryUpstream, primaryEndpointID: primaryEndpointID, secondaryEndpointID: secondaryEndpointID, primaryConnectionID: primaryConnectionID, secondaryConnectionID: secondaryConnectionID, primaryUpstreamModelID: primaryUpstreamModelID, secondaryUpstreamModelID: secondaryUpstreamModelID, primaryTemplateID: primaryTemplateID, secondaryTemplateID: secondaryTemplateID, primaryOwner: loadRuntimePricingOwnerFixture(t, harness.conn, primaryTemplateID, reportCurrency), secondaryOwner: loadRuntimePricingOwnerFixture(t, harness.conn, secondaryTemplateID, reportCurrency), reportCurrency: reportCurrency}
 }
 
 func loadRuntimePricingOwnerFixture(t *testing.T, conn *pgx.Conn, templateID int, reportCurrency runtimeReportCurrencySnapshot) runtimePricingOwnerFixture {
@@ -358,7 +362,15 @@ func TestRuntimeRequestLogPersistsFailoverAttemptRowsAndSingleUsageEvent(t *test
 		nil,
 	)
 	assertStatus(t, response, http.StatusOK)
+	if got := requestModelID(t, fixture.primaryUpstream.lastRequest(t).Body); got != fixture.primaryUpstreamModelID {
+		t.Fatalf("primary wire model = %q, want %q", got, fixture.primaryUpstreamModelID)
+	}
+	if got := requestModelID(t, fixture.secondaryUpstream.lastRequest(t).Body); got != fixture.secondaryUpstreamModelID {
+		t.Fatalf("secondary wire model = %q, want %q", got, fixture.secondaryUpstreamModelID)
+	}
 	waitForRuntimeTelemetryCounts(t, fixture.harness.conn, fixture.profileID, runtimeTelemetryCounts{RequestLogs: 0, UsageEvents: 0, OutboxRows: 1}, 5*time.Second)
+	setRuntimeConnectionUpstreamModelID(t, fixture.harness.conn, fixture.primaryConnectionID, "changed-after-enqueue-a")
+	setRuntimeConnectionUpstreamModelID(t, fixture.harness.conn, fixture.secondaryConnectionID, "changed-after-enqueue-b")
 	if replacementID := advanceRuntimePricingTemplateRevision(t, fixture.harness.conn, fixture.primaryTemplateID); replacementID == fixture.primaryOwner.revisionID {
 		t.Fatalf("expected primary current revision to advance beyond %d", fixture.primaryOwner.revisionID)
 	}
@@ -373,20 +385,23 @@ func TestRuntimeRequestLogPersistsFailoverAttemptRowsAndSingleUsageEvent(t *test
 	if got := len(fixture.secondaryUpstream.requestsSnapshot()); got != 1 {
 		t.Fatalf("expected secondary upstream to receive one failover attempt, got %d requests", got)
 	}
-	assertLatestRuntimeAttemptSequence(t, fixture.harness.conn, fixture.profileID, []runtimeRequestLogAttempt{{
-		AttemptNumber: 1,
-		ConnectionID:  fixture.primaryConnectionID,
-		EndpointID:    fixture.primaryEndpointID,
-		StatusCode:    http.StatusServiceUnavailable,
-		SuccessFlag:   false,
+	ingressRequestID := assertLatestRuntimeAttemptSequence(t, fixture.harness.conn, fixture.profileID, []runtimeRequestLogAttempt{{
+		AttemptNumber:   1,
+		ConnectionID:    fixture.primaryConnectionID,
+		EndpointID:      fixture.primaryEndpointID,
+		StatusCode:      http.StatusServiceUnavailable,
+		SuccessFlag:     false,
+		UpstreamModelID: fixture.primaryUpstreamModelID,
 	}, {
-		AttemptNumber: 2,
-		ConnectionID:  fixture.secondaryConnectionID,
-		EndpointID:    fixture.secondaryEndpointID,
-		StatusCode:    http.StatusOK,
-		SuccessFlag:   true,
+		AttemptNumber:   2,
+		ConnectionID:    fixture.secondaryConnectionID,
+		EndpointID:      fixture.secondaryEndpointID,
+		StatusCode:      http.StatusOK,
+		SuccessFlag:     true,
+		UpstreamModelID: fixture.secondaryUpstreamModelID,
 	}})
-	ingressRequestID := loadLatestRuntimeIngressRequestID(t, fixture.harness.conn, fixture.profileID)
+	assertLatestRuntimeModelIdentity(t, fixture.harness.conn, fixture.profileID, fixture.publicModelID, fixture.targetModelID)
+	assertRuntimeUpstreamReadProjections(t, fixture.harness, fixture.profileID, ingressRequestID, fixture.primaryUpstreamModelID, fixture.secondaryUpstreamModelID)
 	primaryPersisted := loadRuntimePersistedPricingOwnerFixture(t, fixture.harness.conn, fixture.profileID, ingressRequestID, "request_logs", &fixture.primaryConnectionID)
 	if primaryPersisted.owner.templateID != fixture.primaryOwner.templateID || primaryPersisted.owner.revisionID != fixture.primaryOwner.revisionID || primaryPersisted.owner.inputPrice != "" || primaryPersisted.owner.configVersion != 0 {
 		t.Fatalf("expected failed primary attempt to retain identity but no selected-card snapshot, got %+v", primaryPersisted.owner)
@@ -401,11 +416,12 @@ func TestRuntimeRequestLogPersistsFailoverAttemptRowsAndSingleUsageEvent(t *test
 }
 
 type runtimeRequestLogAttempt struct {
-	AttemptNumber int
-	ConnectionID  int
-	EndpointID    int
-	StatusCode    int
-	SuccessFlag   bool
+	AttemptNumber   int
+	ConnectionID    int
+	EndpointID      int
+	StatusCode      int
+	SuccessFlag     bool
+	UpstreamModelID string
 }
 
 func assertLatestRuntimeAttemptCounts(t *testing.T, conn *pgx.Conn, profileID int, wantRequestLogAttempt int, wantUsageEventAttempt int) {
@@ -500,13 +516,13 @@ func assertLatestRuntimeModelIdentityState(t *testing.T, conn *pgx.Conn, profile
 	}
 }
 
-func assertLatestRuntimeAttemptSequence(t *testing.T, conn *pgx.Conn, profileID int, want []runtimeRequestLogAttempt) {
+func assertLatestRuntimeAttemptSequence(t *testing.T, conn *pgx.Conn, profileID int, want []runtimeRequestLogAttempt) string {
 	t.Helper()
 	ingressRequestID := loadLatestRuntimeIngressRequestID(t, conn, profileID)
 
 	rows, err := conn.Query(
 		context.Background(),
-		`SELECT attempt_number, connection_id, endpoint_id, upstream_status_code, success_flag FROM request_logs WHERE profile_id = $1 AND ingress_request_id = $2 AND row_kind = 'upstream' ORDER BY attempt_number ASC, id ASC`,
+		`SELECT attempt_number, connection_id, endpoint_id, upstream_status_code, success_flag, upstream_model_id FROM request_logs WHERE profile_id = $1 AND ingress_request_id = $2 AND row_kind = 'upstream' ORDER BY attempt_number ASC, id ASC`,
 		profileID,
 		ingressRequestID,
 	)
@@ -518,7 +534,7 @@ func assertLatestRuntimeAttemptSequence(t *testing.T, conn *pgx.Conn, profileID 
 	got := make([]runtimeRequestLogAttempt, 0, len(want))
 	for rows.Next() {
 		var attempt runtimeRequestLogAttempt
-		if err := rows.Scan(&attempt.AttemptNumber, &attempt.ConnectionID, &attempt.EndpointID, &attempt.StatusCode, &attempt.SuccessFlag); err != nil {
+		if err := rows.Scan(&attempt.AttemptNumber, &attempt.ConnectionID, &attempt.EndpointID, &attempt.StatusCode, &attempt.SuccessFlag, &attempt.UpstreamModelID); err != nil {
 			t.Fatalf("scan runtime request-log attempt sequence: %v", err)
 		}
 		got = append(got, attempt)
@@ -534,4 +550,5 @@ func assertLatestRuntimeAttemptSequence(t *testing.T, conn *pgx.Conn, profileID 
 			t.Fatalf("expected request-log attempt sequence %+v for ingress_request_id %q, got %+v", want, ingressRequestID, got)
 		}
 	}
+	return ingressRequestID
 }

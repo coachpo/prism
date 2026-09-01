@@ -116,9 +116,9 @@ func TestOpenAIAdapterBuildsExactTextUpstreamRequests(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			upstream, err := adapter.BuildTextUpstreamRequest(context.Background(), openai.TextUpstreamRequest{
-				Operation:     provider.Operation{Name: test.operationName},
-				RawBody:       test.rawBody,
-				TargetModelID: "target-model",
+				Operation:       provider.Operation{Name: test.operationName},
+				RawBody:         test.rawBody,
+				UpstreamModelID: "target-model",
 			})
 			if err != nil {
 				t.Fatalf("build text upstream request: %v", err)

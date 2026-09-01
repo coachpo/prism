@@ -214,14 +214,19 @@ type connectionCreateRequest struct {
 	AuthType                *string                         `json:"auth_type"`
 	CustomHeaders           map[string]string               `json:"custom_headers"`
 	CustomRequestParameters optionalCustomRequestParameters `json:"custom_request_parameters"`
-	RoutingSchedule         RoutingScheduleInput            `json:"routing_schedule"`
-	OpenAITextCapability    *string                         `json:"openai_text_capability"`
-	OpenAIImageCapability   *string                         `json:"openai_image_capability"`
-	PricingTemplateID       *int                            `json:"pricing_template_id"`
-	QPSLimit                *int                            `json:"qps_limit"`
-	MaxInFlightNonStream    *int                            `json:"max_in_flight_non_stream"`
-	MaxInFlightStream       *int                            `json:"max_in_flight_stream"`
-	Priority                presenceMarker                  `json:"priority"`
+	// UpstreamModelID uses the presence-tracking optionalString: an explicit
+	// JSON null is a 422 (the identity can never be absent), blank and
+	// over-length values are 422 field errors, and an omitted field defaults
+	// to the owner model's current model_id in the create resolver.
+	UpstreamModelID       optionalString       `json:"upstream_model_id"`
+	RoutingSchedule       RoutingScheduleInput `json:"routing_schedule"`
+	OpenAITextCapability  *string              `json:"openai_text_capability"`
+	OpenAIImageCapability *string              `json:"openai_image_capability"`
+	PricingTemplateID     *int                 `json:"pricing_template_id"`
+	QPSLimit              *int                 `json:"qps_limit"`
+	MaxInFlightNonStream  *int                 `json:"max_in_flight_non_stream"`
+	MaxInFlightStream     *int                 `json:"max_in_flight_stream"`
+	Priority              presenceMarker       `json:"priority"`
 }
 
 type connectionUpdateRequest struct {
@@ -233,10 +238,13 @@ type connectionUpdateRequest struct {
 	AuthType                optionalString                  `json:"auth_type"`
 	CustomHeaders           optionalHeaders                 `json:"custom_headers"`
 	CustomRequestParameters optionalCustomRequestParameters `json:"custom_request_parameters"`
-	RoutingSchedule         RoutingScheduleInput            `json:"routing_schedule"`
-	OpenAITextCapability    optionalString                  `json:"openai_text_capability"`
-	OpenAIImageCapability   optionalString                  `json:"openai_image_capability"`
-	PricingTemplateID       optionalInt                     `json:"pricing_template_id"`
+	// UpstreamModelID preserves the stored identity when omitted and rejects
+	// an explicit null, blank, or over-length value with a 422.
+	UpstreamModelID       optionalString       `json:"upstream_model_id"`
+	RoutingSchedule       RoutingScheduleInput `json:"routing_schedule"`
+	OpenAITextCapability  optionalString       `json:"openai_text_capability"`
+	OpenAIImageCapability optionalString       `json:"openai_image_capability"`
+	PricingTemplateID     optionalInt          `json:"pricing_template_id"`
 	// ExpectedConnectionUpdatedAt and ExpectedPricingTemplateID are required
 	// CAS fields whenever pricing_template_id is present in the request. They
 	// guard concurrent overwrites of the same Terminal Target's pricing
@@ -247,10 +255,6 @@ type connectionUpdateRequest struct {
 	MaxInFlightNonStream        optionalInt    `json:"max_in_flight_non_stream"`
 	MaxInFlightStream           optionalInt    `json:"max_in_flight_stream"`
 	Priority                    presenceMarker `json:"priority"`
-}
-
-type connectionPriorityMoveRequest struct {
-	ToIndex int `json:"to_index"`
 }
 
 type modelConnectionsBatchRequest struct {
@@ -280,16 +284,20 @@ type connectionPricingTemplateSummary struct {
 }
 
 type connectionResponse struct {
-	ID                      int                                     `json:"id"`
-	ProfileID               int                                     `json:"profile_id"`
-	ModelConfigID           *int                                    `json:"model_config_id,omitempty"`
-	APIFamily               string                                  `json:"api_family"`
-	EndpointID              int                                     `json:"endpoint_id"`
-	Endpoint                *endpointResponse                       `json:"endpoint"`
-	IsActive                bool                                    `json:"is_active"`
-	Priority                int                                     `json:"priority"`
-	Name                    *string                                 `json:"name"`
-	AuthType                *string                                 `json:"auth_type"`
+	ID            int               `json:"id"`
+	ProfileID     int               `json:"profile_id"`
+	ModelConfigID *int              `json:"model_config_id,omitempty"`
+	APIFamily     string            `json:"api_family"`
+	EndpointID    int               `json:"endpoint_id"`
+	Endpoint      *endpointResponse `json:"endpoint"`
+	IsActive      bool              `json:"is_active"`
+	Priority      int               `json:"priority"`
+	Name          *string           `json:"name"`
+	AuthType      *string           `json:"auth_type"`
+	// UpstreamModelID is the explicit upstream model identity this Terminal
+	// Target sends per attempt. NULL only on orphan rows or rows that predate
+	// the decoupling without any write since.
+	UpstreamModelID         *string                                 `json:"upstream_model_id"`
 	CustomHeaders           map[string]string                       `json:"custom_headers"`
 	CustomHeadersRedacted   []string                                `json:"custom_headers_redacted"`
 	CustomRequestParameters *terminaltarget.CustomRequestParameters `json:"custom_request_parameters"`

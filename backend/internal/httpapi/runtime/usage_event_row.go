@@ -17,11 +17,14 @@ func resolvedTargetModelIDForResult(plan requestPlan, result executionResult) *s
 }
 
 func finalExecutionAttempt(result executionResult) *executionAttempt {
-	if len(result.Attempts) == 0 {
+	return executionAttemptForLaunchOrdinal(result.Attempts, result.WinnerOrdinal)
+}
+
+func executionAttemptUpstreamModelID(attempt *executionAttempt) *string {
+	if attempt == nil {
 		return nil
 	}
-	attempt := result.Attempts[len(result.Attempts)-1]
-	return &attempt
+	return upstreamModelIDSnapshot(attempt.Connection)
 }
 
 func executionAttemptUpstreamOperationName(attempt *executionAttempt) *string {
@@ -78,6 +81,7 @@ func buildRuntimeUsageEvent(plan requestPlan, result executionResult, request *h
 		IngressRequestID:         telemetry.ingressRequestID,
 		ModelID:                  plan.RequestedModelID,
 		ResolvedTargetModelID:    resolvedTargetModelIDForResult(plan, result),
+		UpstreamModelID:          executionAttemptUpstreamModelID(finalAttempt),
 		APIFamily:                plan.APIFamily,
 		OperationName:            telemetry.operationName,
 		UpstreamOperationName:    executionAttemptUpstreamOperationName(finalAttempt),

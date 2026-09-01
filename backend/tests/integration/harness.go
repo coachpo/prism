@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -44,6 +45,33 @@ func newPostgresHarness(t *testing.T) postgresHarness {
 		t.Fatal("shared integration postgres harness not initialized")
 	}
 	return sharedIntegrationPostgresHarness
+}
+
+func newMigrationRunnerBefore(t *testing.T, version string) migrate.Runner {
+	t.Helper()
+	dir := t.TempDir()
+	entries, err := os.ReadDir(migrate.DefaultMigrationsDir())
+	if err != nil {
+		t.Fatalf("read migrations: %v", err)
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || filepath.Ext(name) != ".sql" || strings.SplitN(name, "_", 2)[0] >= version {
+			continue
+		}
+		contents, err := os.ReadFile(filepath.Join(migrate.DefaultMigrationsDir(), name))
+		if err == nil {
+			err = os.WriteFile(filepath.Join(dir, name), contents, 0o644)
+		}
+		if err != nil {
+			t.Fatalf("stage migration %s: %v", name, err)
+		}
+	}
+	runner, err := migrate.New(migrate.Options{MigrationsDir: dir})
+	if err != nil {
+		t.Fatalf("build pre-%s migration runner: %v", version, err)
+	}
+	return runner
 }
 
 func (h postgresHarness) openDatabase(t *testing.T, ctx context.Context, databaseName string) *pgx.Conn {

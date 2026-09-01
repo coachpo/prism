@@ -122,15 +122,16 @@ func TestRuntimePlanningFailureWritesSafeDiagnostics(t *testing.T) {
 	var gatewayStatusCode *int
 	var errorDetail *string
 	var upstreamStatusCode *int
+	var upstreamModelID *string
 	deadline := time.Now().Add(15 * time.Second)
 	for {
 		err := harness.conn.QueryRow(context.Background(), `
-			SELECT row_kind, error_source, error_code, failure_stage, gateway_status_code, error_detail, upstream_status_code
+			SELECT row_kind, error_source, error_code, failure_stage, gateway_status_code, error_detail, upstream_status_code, upstream_model_id
 			FROM request_logs
 			WHERE profile_id = $1 AND model_id = $2
 			ORDER BY id DESC LIMIT 1`,
 			profileID, modelID,
-		).Scan(&rowKind, &errorSource, &errorCode, &failureStage, &gatewayStatusCode, &errorDetail, &upstreamStatusCode)
+		).Scan(&rowKind, &errorSource, &errorCode, &failureStage, &gatewayStatusCode, &errorDetail, &upstreamStatusCode, &upstreamModelID)
 		if err == nil {
 			break
 		}
@@ -141,6 +142,9 @@ func TestRuntimePlanningFailureWritesSafeDiagnostics(t *testing.T) {
 	}
 	if rowKind != "planning" {
 		t.Fatalf("expected row_kind planning, got %q", rowKind)
+	}
+	if upstreamModelID != nil {
+		t.Fatalf("planning row must not manufacture upstream model identity, got %q", *upstreamModelID)
 	}
 	if errorSource != "prism" || failureStage != "routing" {
 		t.Fatalf("expected prism/routing failure source/stage, got %q/%q", errorSource, failureStage)

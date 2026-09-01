@@ -73,6 +73,7 @@ func TestBuildPlanningSnapshotFreezesRoutingAssemblyContract(t *testing.T) {
 		t.Fatalf("unexpected compiled terminal target identity: %+v", connection)
 	}
 	assertRuntimeStringPtr(t, connection.Name, "primary terminal", "connection name")
+	assertRuntimeStringPtr(t, connection.UpstreamModelID, "upstream-frozen-model", "upstream model id")
 	assertRuntimeStringPtr(t, connection.OpenAITextCapability, providerauth.OpenAITextCapabilityChatCompletionsOnly, "OpenAI text capability")
 	assertRuntimeIntPtr(t, connection.QPSLimit, 10, "qps limit")
 	if connection.EncryptedEndpointAPIKey != "" || connection.UpstreamAuth == nil {
@@ -108,6 +109,15 @@ func TestBuildPlanningSnapshotFreezesRoutingAssemblyContract(t *testing.T) {
 	}
 	if terminal := routingPlan.TerminalTargetsByID[901]; terminal.Endpoint.ID != 801 || terminal.UpstreamAuth == nil {
 		t.Fatalf("expected compiled routing plan to index terminal targets by connection id, got %+v", terminal)
+	}
+}
+
+func TestBuildPlanningSnapshotRejectsOwnedActiveConnectionWithoutUpstreamModelID(t *testing.T) {
+	tx := newRuntimePlanningSnapshotFakeTx("")
+	tx.missingUpstreamModelID = true
+	_, err := buildPlanningSnapshot(context.Background(), tx, 42, "")
+	if err == nil || !strings.Contains(err.Error(), "active owned connection 901 is missing upstream_model_id") {
+		t.Fatalf("expected missing owned upstream identity to reject the snapshot, got %v", err)
 	}
 }
 
@@ -176,7 +186,8 @@ func TestRuntimeConnectionCompilesRoutingScheduleWithoutSecretKey(t *testing.T) 
 }
 
 type runtimePlanningSnapshotFakeTx struct {
-	encryptedAPIKey string
+	encryptedAPIKey        string
+	missingUpstreamModelID bool
 }
 
 func newRuntimePlanningSnapshotFakeTx(encryptedAPIKey string) *runtimePlanningSnapshotFakeTx {
@@ -212,10 +223,14 @@ func (tx *runtimePlanningSnapshotFakeTx) Query(_ context.Context, query string, 
 }
 
 func (tx *runtimePlanningSnapshotFakeTx) connectionRows() pgx.Rows {
+	upstreamModelID := sql.NullString{String: "upstream-frozen-model", Valid: true}
+	if tx.missingUpstreamModelID {
+		upstreamModelID = sql.NullString{}
+	}
 	return newRuntimePlanningRows([]any{
 		901, 42, "openai", 801, 2,
 		sql.NullInt32{Int32: 10, Valid: true}, sql.NullInt32{Int32: 3, Valid: true}, sql.NullInt32{Int32: 4, Valid: true},
-		sql.NullString{String: "primary terminal", Valid: true}, sql.NullString{String: "openai", Valid: true}, sql.NullString{String: `{"X-Custom":"allowed"}`, Valid: true}, sql.NullString{String: `{"provider":{"only":["deepinfra/turbo"]}}`, Valid: true}, sql.NullInt32{Int32: 701, Valid: true},
+		sql.NullString{String: "primary terminal", Valid: true}, sql.NullString{String: "openai", Valid: true}, upstreamModelID, sql.NullString{String: `{"X-Custom":"allowed"}`, Valid: true}, sql.NullString{String: `{"provider":{"only":["deepinfra/turbo"]}}`, Valid: true}, sql.NullInt32{Int32: 701, Valid: true},
 		sql.NullString{String: providerauth.OpenAITextCapabilityChatCompletionsOnly, Valid: true}, sql.NullString{}, sql.NullString{String: "Asia/Shanghai", Valid: true},
 		sql.NullInt32{Int32: 701, Valid: true}, sql.NullString{String: "Contract Template", Valid: true}, sql.NullInt64{Int64: 99, Valid: true},
 		sql.NullInt64{Int64: 99, Valid: true}, sql.NullInt32{Int32: 3, Valid: true}, sql.NullString{String: runtimePricingUnitPerMillion, Valid: true}, sql.NullString{String: "USD", Valid: true}, sql.NullInt32{Int32: 1, Valid: true},

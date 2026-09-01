@@ -53,20 +53,25 @@ type modelCreateRequest struct {
 // modelInitialTerminalTargetRequest carries the optional first Terminal Target
 // for the composite model create. endpoint_id and endpoint_create are XOR.
 type modelInitialTerminalTargetRequest struct {
-	EndpointID              *int                        `json:"endpoint_id"`
-	EndpointCreate          *modelEndpointCreateRequest `json:"endpoint_create"`
-	Name                    *string                     `json:"name"`
-	IsActive                *bool                       `json:"is_active"`
-	AuthType                *string                     `json:"auth_type"`
-	PricingTemplateID       *int                        `json:"pricing_template_id"`
-	OpenAITextCapability    *string                     `json:"openai_text_capability"`
-	OpenAIImageCapability   *string                     `json:"openai_image_capability"`
-	QPSLimit                *int                        `json:"qps_limit"`
-	MaxInFlightNonStream    *int                        `json:"max_in_flight_non_stream"`
-	MaxInFlightStream       *int                        `json:"max_in_flight_stream"`
-	CustomHeaders           map[string]string           `json:"custom_headers"`
-	CustomRequestParameters optionalRawMessage          `json:"custom_request_parameters"`
-	RoutingSchedule         optionalRawMessage          `json:"routing_schedule"`
+	EndpointID        *int                        `json:"endpoint_id"`
+	EndpointCreate    *modelEndpointCreateRequest `json:"endpoint_create"`
+	Name              *string                     `json:"name"`
+	IsActive          *bool                       `json:"is_active"`
+	AuthType          *string                     `json:"auth_type"`
+	PricingTemplateID *int                        `json:"pricing_template_id"`
+	// UpstreamModelID is presence-aware (models.optionalString): an explicit
+	// JSON null is a 422 in the shared Terminal Target create chain, an
+	// omitted field defaults to the new model's model_id, and provided values
+	// are validated (trim only, non-blank, at most 200 Unicode characters).
+	UpstreamModelID         optionalString     `json:"upstream_model_id"`
+	OpenAITextCapability    *string            `json:"openai_text_capability"`
+	OpenAIImageCapability   *string            `json:"openai_image_capability"`
+	QPSLimit                *int               `json:"qps_limit"`
+	MaxInFlightNonStream    *int               `json:"max_in_flight_non_stream"`
+	MaxInFlightStream       *int               `json:"max_in_flight_stream"`
+	CustomHeaders           map[string]string  `json:"custom_headers"`
+	CustomRequestParameters optionalRawMessage `json:"custom_request_parameters"`
+	RoutingSchedule         optionalRawMessage `json:"routing_schedule"`
 }
 
 type modelEndpointCreateRequest struct {
@@ -205,16 +210,19 @@ type connectionPricingTemplateSummary struct {
 }
 
 type connectionTargetSummary struct {
-	ID                      int                                     `json:"id"`
-	ModelConfigID           int                                     `json:"-"`
-	ProfileID               int                                     `json:"profile_id"`
-	APIFamily               string                                  `json:"api_family"`
-	EndpointID              int                                     `json:"endpoint_id"`
-	Endpoint                *endpointResponse                       `json:"endpoint"`
-	IsActive                bool                                    `json:"is_active"`
-	Priority                int                                     `json:"priority"`
-	Name                    *string                                 `json:"name"`
-	AuthType                *string                                 `json:"auth_type"`
+	ID            int               `json:"id"`
+	ModelConfigID int               `json:"-"`
+	ProfileID     int               `json:"profile_id"`
+	APIFamily     string            `json:"api_family"`
+	EndpointID    int               `json:"endpoint_id"`
+	Endpoint      *endpointResponse `json:"endpoint"`
+	IsActive      bool              `json:"is_active"`
+	Priority      int               `json:"priority"`
+	Name          *string           `json:"name"`
+	AuthType      *string           `json:"auth_type"`
+	// UpstreamModelID mirrors connections.upstream_model_id so the model
+	// detail page's access-target display shows the exact upstream identity.
+	UpstreamModelID         *string                                 `json:"upstream_model_id"`
 	CustomHeaders           map[string]string                       `json:"custom_headers"`
 	CustomHeadersRedacted   []string                                `json:"custom_headers_redacted"`
 	CustomRequestParameters *terminaltarget.CustomRequestParameters `json:"custom_request_parameters"`
@@ -293,12 +301,6 @@ type modelConfigListResponse struct {
 // Target mutations (create/update/move/delete/enable/order).
 type accessTargetMutationEnvelope struct {
 	AccessTargets         []modelAccessTargetResponse         `json:"access_targets"`
-	ConfigurationWarnings []modelrouting.ConfigurationWarning `json:"configuration_warnings"`
-}
-
-// modelCreateResponse is the fixed composite-create envelope.
-type modelCreateResponse struct {
-	Model                 modelConfigResponse                 `json:"model"`
 	ConfigurationWarnings []modelrouting.ConfigurationWarning `json:"configuration_warnings"`
 }
 

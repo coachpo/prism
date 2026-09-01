@@ -142,6 +142,7 @@ export interface TerminalTargetCopyResponse {
       name: string | null;
       endpoint_id: number;
       is_active: boolean;
+      upstream_model_id: string;
       openai_text_capability: OpenAITextCapability | null;
       openai_image_capability: OpenAIImageCapability | null;
       pricing_template: { id: number; name: string } | null;

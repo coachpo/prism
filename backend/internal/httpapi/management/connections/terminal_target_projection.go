@@ -12,7 +12,7 @@ import (
 	"github.com/coachpo/prism/backend/internal/endpointdomain"
 )
 
-const connectionSelectQuery = `SELECT connections.id, connections.profile_id, model_access_targets.source_model_config_id, connections.api_family, connections.endpoint_id, endpoints.id, endpoints.profile_id, endpoints.name, endpoints.base_url, endpoints.api_key, endpoints.api_key_fingerprint, endpoints.api_key_updated_at, endpoints.config_revision, endpoints.created_at, endpoints.updated_at, connections.is_active, model_access_targets.position, connections.name, connections.auth_type, connections.custom_headers, connections.custom_request_parameters, connections.openai_text_capability, connections.openai_image_capability, connections.routing_schedule_timezone, connections.pricing_template_id, connections.qps_limit, connections.max_in_flight_non_stream, connections.max_in_flight_stream, pricing_templates.id, pricing_templates.name, revisions.version, revisions.currency_code, revisions.template_kind, connections.created_at, connections.updated_at FROM model_access_targets JOIN connections ON connections.id = model_access_targets.target_connection_id LEFT JOIN endpoints ON endpoints.id = connections.endpoint_id LEFT JOIN pricing_templates ON pricing_templates.id = connections.pricing_template_id LEFT JOIN pricing_template_revisions AS revisions ON revisions.id = pricing_templates.current_revision_id`
+const connectionSelectQuery = `SELECT connections.id, connections.profile_id, model_access_targets.source_model_config_id, connections.api_family, connections.endpoint_id, endpoints.id, endpoints.profile_id, endpoints.name, endpoints.base_url, endpoints.api_key, endpoints.api_key_fingerprint, endpoints.api_key_updated_at, endpoints.config_revision, endpoints.created_at, endpoints.updated_at, connections.is_active, model_access_targets.position, connections.name, connections.auth_type, connections.upstream_model_id, connections.custom_headers, connections.custom_request_parameters, connections.openai_text_capability, connections.openai_image_capability, connections.routing_schedule_timezone, connections.pricing_template_id, connections.qps_limit, connections.max_in_flight_non_stream, connections.max_in_flight_stream, pricing_templates.id, pricing_templates.name, revisions.version, revisions.currency_code, revisions.template_kind, connections.created_at, connections.updated_at FROM model_access_targets JOIN connections ON connections.id = model_access_targets.target_connection_id LEFT JOIN endpoints ON endpoints.id = connections.endpoint_id LEFT JOIN pricing_templates ON pricing_templates.id = connections.pricing_template_id LEFT JOIN pricing_template_revisions AS revisions ON revisions.id = pricing_templates.current_revision_id`
 
 const pricingUnitPerMillion = "PER_1M"
 
@@ -53,6 +53,7 @@ func scanTerminalTargetRecord(scanner interface{ Scan(...any) error }) (terminal
 	var endpointUpdatedAt sql.NullTime
 	var connectionName sql.NullString
 	var authType sql.NullString
+	var upstreamModelID sql.NullString
 	var customHeaders sql.NullString
 	var customRequestParameters sql.NullString
 	var openAITextCapability sql.NullString
@@ -68,11 +69,12 @@ func scanTerminalTargetRecord(scanner interface{ Scan(...any) error }) (terminal
 	var templateKind sql.NullString
 	var templateVersion sql.NullInt32
 	record := terminaltarget.Record{}
-	if err := scanner.Scan(&record.ID, &record.ProfileID, &modelConfigID, &record.APIFamily, &record.EndpointID, &joinedEndpointID, &endpointProfileID, &endpointName, &endpointBaseURL, &endpointAPIKey, &endpointFingerprint, &endpointKeyUpdatedAt, &endpointConfigRevision, &endpointCreatedAt, &endpointUpdatedAt, &record.IsActive, &record.Priority, &connectionName, &authType, &customHeaders, &customRequestParameters, &openAITextCapability, &openAIImageCapability, &routingScheduleTimezone, &pricingTemplateID, &qpsLimit, &maxInFlightNonStream, &maxInFlightStream, &templateID, &templateName, &templateVersion, &templateCurrencyCode, &templateKind, &record.CreatedAt, &record.UpdatedAt); err != nil {
+	if err := scanner.Scan(&record.ID, &record.ProfileID, &modelConfigID, &record.APIFamily, &record.EndpointID, &joinedEndpointID, &endpointProfileID, &endpointName, &endpointBaseURL, &endpointAPIKey, &endpointFingerprint, &endpointKeyUpdatedAt, &endpointConfigRevision, &endpointCreatedAt, &endpointUpdatedAt, &record.IsActive, &record.Priority, &connectionName, &authType, &upstreamModelID, &customHeaders, &customRequestParameters, &openAITextCapability, &openAIImageCapability, &routingScheduleTimezone, &pricingTemplateID, &qpsLimit, &maxInFlightNonStream, &maxInFlightStream, &templateID, &templateName, &templateVersion, &templateCurrencyCode, &templateKind, &record.CreatedAt, &record.UpdatedAt); err != nil {
 		return terminaltarget.Record{}, err
 	}
 	record.RoutingScheduleTimezone = nullableStringValue(routingScheduleTimezone)
 	record.OwnerModelConfigID = nullableInt32(modelConfigID)
+	record.UpstreamModelID = nullableStringValue(upstreamModelID)
 	record.Name = nullableStringValue(connectionName)
 	record.AuthType = nullableStringValue(authType)
 	record.CustomHeaders = parseCustomHeaders(customHeaders)
@@ -116,6 +118,7 @@ func terminalTargetRecordFromConnectionResponse(item connectionResponse) termina
 		Priority:                item.Priority,
 		Name:                    item.Name,
 		AuthType:                item.AuthType,
+		UpstreamModelID:         cloneString(item.UpstreamModelID),
 		CustomHeaders:           item.CustomHeaders,
 		CustomRequestParameters: item.CustomRequestParameters,
 		OpenAITextCapability:    item.OpenAITextCapability,
@@ -164,6 +167,7 @@ func connectionResponseFromTerminalTargetRecord(record terminaltarget.Record) co
 		Priority:                record.Priority,
 		Name:                    record.Name,
 		AuthType:                record.AuthType,
+		UpstreamModelID:         cloneString(record.UpstreamModelID),
 		CustomHeaders:           record.CustomHeaders,
 		CustomRequestParameters: record.CustomRequestParameters,
 		OpenAITextCapability:    record.OpenAITextCapability,

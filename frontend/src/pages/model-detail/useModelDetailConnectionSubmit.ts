@@ -15,6 +15,11 @@ import {
   prepareConnectionSubmit,
 } from "./connectionSubmitPreparation";
 import type { CommitModelDetailConnection } from "./useModelDetailConnectionReconciliation";
+import {
+  upstreamModelIdIssueFromError,
+  upstreamModelIdIssueMessage,
+  validateUpstreamModelIdField,
+} from "./upstreamModelIdField";
 
 const TERMINAL_TARGET_OWNER_MISMATCH =
   "Terminal Target owner does not match the current model";
@@ -37,6 +42,7 @@ interface UseModelDetailConnectionSubmitInput
       | import("./customRequestParameters").CustomRequestParametersParseError
       | null,
   ) => void;
+  setUpstreamModelIdError: (error: string | null) => void;
   setIsConnectionDialogOpen: (open: boolean) => void;
   applyTargets: (targets: import("@/lib/types").ModelAccessTarget[]) => void;
   commitConnection: CommitModelDetailConnection;
@@ -84,6 +90,7 @@ export function useModelDetailConnectionSubmit({
   headerRows,
   customRequestParametersDraft,
   setCustomRequestParametersError,
+  setUpstreamModelIdError,
   editingConnection,
   endpointSourceDefaultName,
   routingScheduleDraft,
@@ -98,6 +105,21 @@ export function useModelDetailConnectionSubmit({
     async (event: Pick<Event, "preventDefault">) => {
       event.preventDefault();
       if (!id || !Number.isFinite(modelConfigId)) return;
+
+      const upstreamModelIdIssue = validateUpstreamModelIdField(
+        connectionForm.upstream_model_id,
+        true,
+      );
+      if (upstreamModelIdIssue) {
+        setUpstreamModelIdError(
+          upstreamModelIdIssueMessage(
+            upstreamModelIdIssue,
+            editingConnection ? "edit" : "create",
+          ),
+        );
+        return;
+      }
+      setUpstreamModelIdError(null);
 
       const preparation = prepareConnectionSubmit({
         apiFamily: modelApiFamily,
@@ -178,6 +200,16 @@ export function useModelDetailConnectionSubmit({
           );
           return;
         }
+        const upstreamModelIdIssue = upstreamModelIdIssueFromError(error);
+        if (upstreamModelIdIssue) {
+          setUpstreamModelIdError(
+            upstreamModelIdIssueMessage(
+              upstreamModelIdIssue,
+              editingConnection ? "edit" : "create",
+            ),
+          );
+          return;
+        }
         toast.error(
           error instanceof Error
             ? error.message
@@ -205,6 +237,7 @@ export function useModelDetailConnectionSubmit({
       setCustomRequestParametersError,
       setIsConnectionDialogOpen,
       setRoutingScheduleError,
+      setUpstreamModelIdError,
     ],
   );
 

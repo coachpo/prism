@@ -78,24 +78,28 @@ func TestRuntimeAttemptBudgetExhaustionAt64Launches(t *testing.T) {
 	gate.Release()
 	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 64, UsageEvents: 1, OutboxRows: 0}, 15*time.Second)
 
-	var attemptCount int
+	var attemptCount, upstreamSnapshotCount int
 	queryCtx, queryCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer queryCancel()
-	if err := harness.conn.QueryRow(queryCtx, `SELECT COUNT(*) FROM request_logs WHERE profile_id = $1 AND model_id = $2 AND row_kind = 'upstream'`, profileID, modelID).Scan(&attemptCount); err != nil {
+	if err := harness.conn.QueryRow(queryCtx, `SELECT COUNT(*), COUNT(upstream_model_id) FROM request_logs WHERE profile_id = $1 AND model_id = $2 AND row_kind = 'upstream'`, profileID, modelID).Scan(&attemptCount, &upstreamSnapshotCount); err != nil {
 		t.Fatalf("count budget request rows: %v", err)
 	}
 	if attemptCount != 64 {
 		t.Fatalf("expected 64 retained upstream rows, got %d", attemptCount)
 	}
+	if upstreamSnapshotCount != 64 {
+		t.Fatalf("expected all 64 real upstream rows to retain a model snapshot, got %d", upstreamSnapshotCount)
+	}
 
 	var finalErrorCode string
 	var persistedAttemptCount int
 	var resolvedTargetModelID sql.NullString
+	var upstreamModelID sql.NullString
 	var endpointID sql.NullInt64
 	var connectionID sql.NullInt64
 	var selectedTerminalTargetID sql.NullInt64
 	var finalAttemptNumber sql.NullInt64
-	if err := harness.conn.QueryRow(queryCtx, `SELECT COALESCE(final_error_code, ''), attempt_count, resolved_target_model_id, endpoint_id, connection_id, selected_terminal_target_id, final_attempt_number FROM usage_request_events WHERE profile_id = $1 AND model_id = $2 ORDER BY created_at DESC LIMIT 1`, profileID, modelID).Scan(&finalErrorCode, &persistedAttemptCount, &resolvedTargetModelID, &endpointID, &connectionID, &selectedTerminalTargetID, &finalAttemptNumber); err != nil {
+	if err := harness.conn.QueryRow(queryCtx, `SELECT COALESCE(final_error_code, ''), attempt_count, resolved_target_model_id, upstream_model_id, endpoint_id, connection_id, selected_terminal_target_id, final_attempt_number FROM usage_request_events WHERE profile_id = $1 AND model_id = $2 ORDER BY created_at DESC LIMIT 1`, profileID, modelID).Scan(&finalErrorCode, &persistedAttemptCount, &resolvedTargetModelID, &upstreamModelID, &endpointID, &connectionID, &selectedTerminalTargetID, &finalAttemptNumber); err != nil {
 		t.Fatalf("read final error code: %v", err)
 	}
 	if finalErrorCode != "attempt_budget_exhausted" {
@@ -104,8 +108,8 @@ func TestRuntimeAttemptBudgetExhaustionAt64Launches(t *testing.T) {
 	if persistedAttemptCount != 64 {
 		t.Fatalf("expected finalized usage event attempt_count=64, got %d", persistedAttemptCount)
 	}
-	if resolvedTargetModelID.Valid || endpointID.Valid || connectionID.Valid || finalAttemptNumber.Valid {
-		t.Fatalf("budget exhaustion has no winner and must keep final identity null, got resolved=%+v endpoint=%+v connection=%+v final_attempt=%+v", resolvedTargetModelID, endpointID, connectionID, finalAttemptNumber)
+	if resolvedTargetModelID.Valid || upstreamModelID.Valid || endpointID.Valid || connectionID.Valid || finalAttemptNumber.Valid {
+		t.Fatalf("budget exhaustion has no winner and must keep final identity null, got resolved=%+v upstream=%+v endpoint=%+v connection=%+v final_attempt=%+v", resolvedTargetModelID, upstreamModelID, endpointID, connectionID, finalAttemptNumber)
 	}
 	if !selectedTerminalTargetID.Valid || int(selectedTerminalTargetID.Int64) != connectionIDs[0] {
 		t.Fatalf("expected planning-primary terminal target %d, got %+v", connectionIDs[0], selectedTerminalTargetID)

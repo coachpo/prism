@@ -52,8 +52,9 @@ func listActiveConnectionsForProfile(ctx context.Context, tx pgx.Tx, profileID i
 	return items, nil
 }
 
-// listActiveTerminalTargetRecordsForProfile reads the active connection rows
-// only. It is split from listActiveConnectionsForProfile so the routing-window
+// listActiveTerminalTargetRecordsForProfile reads owner-backed active
+// connection rows only. Orphan compatibility rows stay out of runtime. It is
+// split from listActiveConnectionsForProfile so the routing-window
 // batch read runs after rows.Close() has returned: pgx single-connection
 // transactions report conn-busy when a second query starts while the first
 // result rows are still open, and correctness must not depend on the
@@ -63,7 +64,7 @@ func listActiveTerminalTargetRecordsForProfile(ctx context.Context, tx pgx.Tx, p
 		ctx,
 		`SELECT connections.id, connections.profile_id, connections.api_family, connections.endpoint_id,
 			connections.priority, connections.qps_limit, connections.max_in_flight_non_stream, connections.max_in_flight_stream,
-			connections.name, connections.auth_type, connections.custom_headers, connections.custom_request_parameters, connections.pricing_template_id,
+			connections.name, connections.auth_type, connections.upstream_model_id, connections.custom_headers, connections.custom_request_parameters, connections.pricing_template_id,
 			connections.openai_text_capability, connections.openai_image_capability, connections.routing_schedule_timezone,
 			pricing_templates.id, pricing_templates.name, pricing_templates.current_revision_id,
 			revisions.id, revisions.version, revisions.pricing_unit, revisions.currency_code,
@@ -71,6 +72,9 @@ func listActiveTerminalTargetRecordsForProfile(ctx context.Context, tx pgx.Tx, p
 			revisions.pricing_schedule_timezone, revisions.pricing_schedule_digest, revisions.effective_at,
 			endpoints.id, endpoints.name, endpoints.base_url, endpoints.api_key
 		FROM connections
+		JOIN model_access_targets AS owner_targets
+			ON owner_targets.profile_id = connections.profile_id
+			AND owner_targets.target_connection_id = connections.id
 		JOIN endpoints ON endpoints.id = connections.endpoint_id
 		LEFT JOIN pricing_templates ON pricing_templates.id = connections.pricing_template_id AND pricing_templates.deleted_at IS NULL
 		LEFT JOIN pricing_template_revisions AS revisions ON revisions.id = pricing_templates.current_revision_id
@@ -159,6 +163,7 @@ func scanRuntimeTerminalTargetRecord(scanner interface{ Scan(...any) error }) (t
 	var maxInFlightStream sql.NullInt32
 	var name sql.NullString
 	var authType sql.NullString
+	var upstreamModelID sql.NullString
 	var customHeaders sql.NullString
 	var customRequestParameters sql.NullString
 	var pricingTemplateID sql.NullInt32
@@ -191,6 +196,7 @@ func scanRuntimeTerminalTargetRecord(scanner interface{ Scan(...any) error }) (t
 		&maxInFlightStream,
 		&name,
 		&authType,
+		&upstreamModelID,
 		&customHeaders,
 		&customRequestParameters,
 		&pricingTemplateID,
@@ -222,6 +228,11 @@ func scanRuntimeTerminalTargetRecord(scanner interface{ Scan(...any) error }) (t
 	record.MaxInFlightStream = nullableInt32(maxInFlightStream)
 	record.Name = nullableString(name)
 	record.AuthType = nullableString(authType)
+	if !upstreamModelID.Valid || strings.TrimSpace(upstreamModelID.String) == "" {
+		return terminaltarget.RuntimeRecord{}, fmt.Errorf("active owned connection %d is missing upstream_model_id", record.ID)
+	}
+	normalizedUpstreamModelID := strings.TrimSpace(upstreamModelID.String)
+	record.UpstreamModelID = &normalizedUpstreamModelID
 	record.CustomHeaders = parseCustomHeaders(customHeaders)
 	customRequestParametersValue, parseErr := parseRuntimeCustomRequestParameters(customRequestParameters)
 	if parseErr != nil {
@@ -301,6 +312,7 @@ func runtimeConnectionFromTerminalTargetRecord(record terminaltarget.RuntimeReco
 		MaxInFlightStream:       record.MaxInFlightStream,
 		Name:                    record.Name,
 		AuthType:                record.AuthType,
+		UpstreamModelID:         cloneRuntimeStringPointer(record.UpstreamModelID),
 		EncryptedEndpointAPIKey: record.Endpoint.EncryptedAPIKey,
 		CustomHeaders:           record.CustomHeaders,
 		CustomRequestParameters: record.CustomRequestParameters,

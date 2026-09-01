@@ -45,6 +45,7 @@ export function flattenChainItems(
         attempt_target_model_id: row.attempt_target_model_id,
         attempt_target_model_label:
           withLabels.attempt_target_model_label ?? row.attempt_target_model_id,
+        upstream_model_id: row.upstream_model_id ?? null,
         caller_client_display: null,
         upstream_client_display: null,
         user_agent_overridden: false,

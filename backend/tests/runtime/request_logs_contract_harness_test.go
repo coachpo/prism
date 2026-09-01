@@ -240,7 +240,7 @@ func seedFixtureRequestLog(t *testing.T, harness *requestLogContractHarness, pro
 	ensureRuntimeTestLogPartitions(t, harness.databaseName, runtimeTestLogPartitionFor("request_logs", createdAt))
 	if _, err := harness.conn.Exec(context.Background(), `
 		INSERT INTO request_logs (
-			id, profile_id, model_id, api_family, resolved_target_model_id, endpoint_id, connection_id,
+			id, profile_id, model_id, api_family, resolved_target_model_id, upstream_model_id, endpoint_id, connection_id,
 			proxy_api_key_id_snapshot, proxy_api_key_name_snapshot, ingress_request_id, attempt_number,
 			provider_correlation_id, endpoint_base_url, row_kind, url_scrub_provenance, upstream_status_code,
 			attempt_duration_ms, is_stream, input_tokens, output_tokens, total_tokens, success_flag,
@@ -254,7 +254,7 @@ func seedFixtureRequestLog(t *testing.T, harness *requestLogContractHarness, pro
 			endpoint_description, created_at, caller_user_agent, upstream_user_agent, completion_duration_ms,
 			ttft_ms, audit_enabled_at_request, audit_capture_bodies_at_request
 		) VALUES (
-			$1, $2, 'gpt-4o', 'openai', 'gpt-4o-native', 12, 34, NULL, NULL, 'ingress_req_42', 2,
+			$1, $2, 'gpt-4o', 'openai', 'gpt-4o-native', 'vendor/gpt-4o-native', 12, 34, NULL, NULL, 'ingress_req_42', 2,
 			'req_upstream_abc123', 'https://api.openai.com', 'upstream', 'runtime_scrubbed', 200,
 			1234, FALSE, 15, 42, 57, TRUE, 'priced', 'trusted', NULL, 3, 20, 30, 0, 0, 0, 1250, 1250,
 			'USD', 'USD', '$', '1', 'DEFAULT_1_TO_1', '1M tokens', '2.500000', '10.000000', '0.000000',

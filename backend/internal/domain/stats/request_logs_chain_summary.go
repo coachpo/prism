@@ -48,6 +48,7 @@ const finalizedSummaryJoinSQL = `
 const finalizedSummarySelectList = `final_request_log.id,
 		ue.model_id,
 		ue.resolved_target_model_id,
+		ue.upstream_model_id,
 		ue.status_code,
 		ue.success_flag,
 		ue.stream_outcome,
@@ -109,6 +110,7 @@ type finalizedSummaryScan struct {
 	raw     struct {
 		requestLogID         sql.NullInt64
 		resolvedModelID      *string
+		upstreamModelID      *string
 		endpointID           *int
 		endpointLabel        *string
 		connectionID         *int
@@ -139,6 +141,7 @@ func (scan *finalizedSummaryScan) dest() []any {
 		&s.raw.requestLogID,
 		&s.summary.RequestedModelID,
 		&s.raw.resolvedModelID,
+		&s.raw.upstreamModelID,
 		&s.summary.FinalStatusCode,
 		&s.summary.SuccessFlag,
 		&s.summary.StreamOutcome,
@@ -203,6 +206,10 @@ func (scan *finalizedSummaryScan) assemble() *FinalizedSummary {
 	if raw.resolvedModelID != nil {
 		summary.ResolvedModel = &ModelRef{ID: *raw.resolvedModelID, Label: *raw.resolvedModelID}
 	}
+	// The winner usage event's persisted upstream identity, verbatim. NULL
+	// (legacy/no-winner rows) stays NULL: the read layer must not infer it
+	// from the live configuration or the logical target model.
+	summary.FinalUpstreamModelID = raw.upstreamModelID
 	if raw.connectionID != nil {
 		label := fmt.Sprintf("Terminal Target #%d", *raw.connectionID)
 		if raw.terminalTargetName != nil && strings.TrimSpace(*raw.terminalTargetName) != "" {

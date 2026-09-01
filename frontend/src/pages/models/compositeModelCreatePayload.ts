@@ -22,6 +22,8 @@ export interface CompositeModelCreatePayloadInput {
     };
     name?: string | null;
     is_active?: boolean;
+    /** Omit only for non-form callers that intentionally request API defaulting. */
+    upstream_model_id?: string;
   };
 }
 

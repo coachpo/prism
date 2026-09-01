@@ -489,6 +489,7 @@ func (h *runtimeHarness) seedConnectionWithOpenAITextCapability(tb testing.TB, p
 			profile_id,
 			api_family,
 			endpoint_id,
+			upstream_model_id,
 			pricing_template_id,
 			qps_limit,
 			max_in_flight_non_stream,
@@ -504,7 +505,7 @@ func (h *runtimeHarness) seedConnectionWithOpenAITextCapability(tb testing.TB, p
 			last_health_check,
 			created_at,
 			updated_at
-		) SELECT $1, model_configs.api_family, $3, NULL, NULL, NULL, NULL, CASE WHEN model_configs.api_family = 'openai' THEN $8 ELSE NULL END, TRUE, $4, $5, $6, $7, 'healthy', NULL, NULL, $9, $9
+		) SELECT $1, model_configs.api_family, $3, model_configs.model_id, NULL, NULL, NULL, NULL, CASE WHEN model_configs.api_family = 'openai' THEN $8 ELSE NULL END, TRUE, $4, $5, $6, $7, 'healthy', NULL, NULL, $9, $9
 		FROM model_configs WHERE model_configs.id = $2
 		RETURNING id`,
 		profileID,

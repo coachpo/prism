@@ -14,7 +14,7 @@ const newModelDialog = /New Model|新建模型/;
 const editModelDialog = /Edit Model|编辑模型/;
 const cancelButton = /Cancel|取消/;
 const createDefaultsButton = /Create Defaults|创建默认策略/;
-const modelIdLabel = /Model ID|模型 ID/;
+const modelIdLabel = /Entry Model ID|入口模型 ID/;
 const displayNameLabel = /Display Name|显示名称/;
 const noStrategiesCopy =
   /No loadbalance strategies are available\. Create one on the Loadbalance Strategies page first\.|没有可用的路由策略。请先在路由策略页面创建一个。/;
@@ -92,11 +92,13 @@ export async function mockModelRoutes(
     defaultsDelay?: Promise<void>;
     defaultsResponse?: unknown;
     defaultsStatus?: number;
+    endpoints?: ReturnType<typeof createDetailEndpoint>[];
     models?: ReturnType<typeof createModelListItem>[];
     strategies?: ReturnType<typeof createStrategy>[];
   } = {},
 ) {
   const strategies = options.strategies ?? [createStrategy()];
+  const endpoints = options.endpoints ?? [];
   const models = options.models ?? [
     createModelListItem(1, "target-alpha", "Target Alpha", "openai"),
     createModelListItem(2, "target-beta", "Target Beta", "openai"),
@@ -144,7 +146,7 @@ export async function mockModelRoutes(
       return fulfillJson(models);
     }
     if (pathname === "/api/endpoints") {
-      return fulfillJson([]);
+      return fulfillJson(endpoints);
     }
     if (pathname === "/api/pricing-templates") {
       return fulfillJson([]);
@@ -443,10 +445,12 @@ test("reopened create model dialog adopts the canonical default strategy after d
   );
 });
 
-test("create model dialog saves a configure-later targetless disabled draft", async ({
+test("create model dialog supports configure-later and a decoupled initial target", async ({
   page,
 }) => {
-  const routes = await mockModelRoutes(page);
+  const routes = await mockModelRoutes(page, {
+    endpoints: [createDetailEndpoint()],
+  });
 
   await page.goto("/models");
   await page.getByRole("button", { name: newModelButton }).click();
@@ -454,6 +458,9 @@ test("create model dialog saves a configure-later targetless disabled draft", as
   const dialog = page.getByRole("dialog", { name: newModelDialog });
   await page.getByRole("textbox", { name: modelIdLabel }).fill("draft-openai");
   await dialog.getByRole("switch", { name: /稍后配置/ }).check();
+  await expect(
+    dialog.getByRole("textbox", { name: "上游模型 ID" }),
+  ).toHaveCount(0);
   await expect(
     dialog.getByRole("button", { name: "创建为停用" }),
   ).toBeEnabled();
@@ -472,6 +479,32 @@ test("create model dialog saves a configure-later targetless disabled draft", as
       is_enabled: false,
     },
   ]);
+
+  await page.getByRole("button", { name: newModelButton }).click();
+  const entryModelId = dialog.getByRole("textbox", { name: modelIdLabel });
+  const upstreamModelId = dialog.getByRole("textbox", { name: "上游模型 ID" });
+
+  await entryModelId.fill("entry-a");
+  await expect(upstreamModelId).toHaveValue("entry-a");
+  await dialog.locator("#create-target-endpoint").click();
+  await page.getByRole("option", { name: "OpenAI Primary" }).click();
+  await upstreamModelId.fill("");
+  await dialog.getByRole("button", { name: "创建并启用" }).click();
+  await expect(dialog.getByText("上游模型 ID 不能为空白")).toBeVisible();
+  expect(routes.getCreatedPayloads()).toHaveLength(1);
+  await upstreamModelId.fill("provider/Model-B");
+  await entryModelId.fill("entry-c");
+  await expect(upstreamModelId).toHaveValue("provider/Model-B");
+
+  await dialog.getByRole("button", { name: "创建并启用" }).click();
+  expect(routes.getCreatedPayloads()).toHaveLength(2);
+  expect(routes.getCreatedPayloads()[1]).toMatchObject({
+    model_id: "entry-c",
+    initial_terminal_target: {
+      endpoint_id: 1,
+      upstream_model_id: "provider/Model-B",
+    },
+  });
 });
 
 const detailTimestamp = "2026-08-08T12:00:00Z";
@@ -527,6 +560,8 @@ function createDetailConnection(
     priority,
     name,
     auth_type: null,
+    upstream_model_id:
+      id === 15 ? "provider/Responses-Primary" : "provider/Dual-Fallback",
     custom_headers: { "X-Trace": "on" },
     openai_text_capability: capability,
     pricing_template_id: null,
@@ -707,6 +742,7 @@ function createDetailDiagnostics() {
 }
 
 export async function mockModelDetailRoutes(page: Page) {
+  const mutationPaths: string[] = [];
   const connection15 = createDetailConnection(
     15,
     "Primary Responses",
@@ -790,6 +826,9 @@ export async function mockModelDetailRoutes(page: Page) {
     if (!pathname.startsWith("/api/")) {
       return route.continue();
     }
+    if (request.method() !== "GET" && pathname.includes("/connections")) {
+      mutationPaths.push(pathname);
+    }
     const fulfillJson = (body: unknown, status = 200) =>
       route.fulfill({
         status,
@@ -842,7 +881,10 @@ export async function mockModelDetailRoutes(page: Page) {
     if (pathname === "/api/models/7" && request.method() === "GET") {
       return fulfillJson(modelDetail);
     }
-    if (pathname === "/api/models/7/connections") {
+    if (
+      pathname === "/api/models/7/connections" &&
+      request.method() === "GET"
+    ) {
       return fulfillJson([connection15, connection16]);
     }
     if (pathname === "/api/models" && request.method() === "GET") {
@@ -872,6 +914,8 @@ export async function mockModelDetailRoutes(page: Page) {
     }
     return fulfillJson({});
   });
+
+  return { mutationPaths };
 }
 
 // A model pair for SPA navigation: model 16 holds one Terminal Target plus a
@@ -1113,7 +1157,14 @@ test("model target detail entry switches entities over SPA without stale state",
   await expect(
     menu.getByRole("menuitem", { name: /复制终端目标 Primary Responses/ }),
   ).toBeVisible();
-  await page.keyboard.press("Escape");
+  await menu
+    .getByRole("menuitem", { name: /复制终端目标 Primary Responses/ })
+    .click();
+  const copyDialog = page.getByRole("dialog", { name: "复制终端目标" });
+  await expect(copyDialog.getByTestId("copy-upstream-model-note")).toContainText(
+    "保留源终端目标的上游模型 ID",
+  );
+  await copyDialog.getByRole("button", { name: "取消" }).click();
 
   // The model-target row offers the entry and lands on the canonical detail
   // URL of the TARGET config id (17), not this row's or option list's ids.
@@ -1154,7 +1205,7 @@ test("model target detail entry switches entities over SPA without stale state",
 test("model detail canonicalizes dead tab and one-shot target actions", async ({
   page,
 }) => {
-  await mockModelDetailRoutes(page);
+  const routes = await mockModelDetailRoutes(page);
 
   // Model detail no longer exposes a tab in the canonical URL; unsupported
   // legacy tab state is removed while one-shot actions remain supported.
@@ -1163,6 +1214,22 @@ test("model detail canonicalizes dead tab and one-shot target actions", async ({
     .getByTestId("model-detail-feature-page")
     .waitFor({ timeout: 15000 });
   await expect(page).toHaveURL(/\/models\/7$/);
+  await expect(
+    page
+      .getByTestId("access-target-91")
+      .getByTitle("上游模型 ID: provider/Responses-Primary"),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "编辑模型" }).click();
+  const modelSettings = page.getByRole("dialog", { name: "模型设置" });
+  await expect(
+    modelSettings.getByText(
+      /修改入口模型 ID 不会改写已有终端目标的上游模型 ID/,
+    ),
+  ).toBeVisible();
+  await expect(
+    modelSettings.getByRole("textbox", { name: "入口模型 ID" }),
+  ).toBeVisible();
+  await modelSettings.getByRole("button", { name: "取消" }).click();
 
   // One-shot create action opens the dialog and clears itself (replace), so a
   // refresh never reopens it.
@@ -1173,6 +1240,17 @@ test("model detail canonicalizes dead tab and one-shot target actions", async ({
   const dialog = page.getByRole("dialog", { name: /终端目标|Terminal Target/ });
   await expect(dialog).toBeVisible();
   await expect(page).toHaveURL(/\/models\/7$/);
+  const upstreamModelId = dialog.getByRole("textbox", {
+    name: "上游模型 ID",
+  });
+  await expect(upstreamModelId).toHaveValue("detail-openai");
+  await upstreamModelId.fill("");
+  await dialog.getByRole("button", { name: "保存终端目标" }).click();
+  await expect(dialog.getByText("上游模型 ID 不能为空白")).toBeVisible();
+  expect(routes.mutationPaths).toHaveLength(0);
+  await dialog.locator("#conn-prefill-source").click();
+  await page.getByRole("option", { name: "Primary Responses" }).click();
+  await expect(upstreamModelId).toHaveValue("provider/Responses-Primary");
   await page.reload();
   await page
     .getByTestId("model-detail-feature-page")
@@ -1180,6 +1258,23 @@ test("model detail canonicalizes dead tab and one-shot target actions", async ({
   await expect(
     page.getByRole("dialog", { name: /终端目标|Terminal Target/ }),
   ).toHaveCount(0);
+
+  await page
+    .getByRole("button", { name: "编辑 Primary Responses" })
+    .click();
+  const editDialog = page.getByRole("dialog", { name: "编辑终端目标" });
+  const editUpstreamModelId = editDialog.getByRole("textbox", {
+    name: "上游模型 ID",
+  });
+  await expect(editUpstreamModelId).toHaveValue("provider/Responses-Primary");
+  await editUpstreamModelId.fill("");
+  await editDialog.getByRole("button", { name: "保存终端目标" }).click();
+  await expect(
+    editDialog.getByText(
+      "上游模型 ID 不能清空；如需改回入口模型 ID，请显式填写。",
+    ),
+  ).toBeVisible();
+  expect(routes.mutationPaths).toHaveLength(0);
 
   // focus_connection_id focuses the target row and clears itself once.
   await page.goto("/models/7?focus_connection_id=16");

@@ -80,6 +80,7 @@ func scanConnectionTargetSummaryWithPrefix(scanner interface{ Scan(...any) error
 	var endpointKeyUpdatedAt *time.Time
 	var connectionName sql.NullString
 	var authType sql.NullString
+	var upstreamModelID sql.NullString
 	var customHeaders sql.NullString
 	var customRequestParameters sql.NullString
 	var openAITextCapability sql.NullString
@@ -114,6 +115,7 @@ func scanConnectionTargetSummaryWithPrefix(scanner interface{ Scan(...any) error
 		&item.Priority,
 		&connectionName,
 		&authType,
+		&upstreamModelID,
 		&customHeaders,
 		&customRequestParameters,
 		&openAITextCapability,
@@ -141,6 +143,7 @@ func scanConnectionTargetSummaryWithPrefix(scanner interface{ Scan(...any) error
 	item.Endpoint = &endpoint
 	item.Name = nullableStringValue(connectionName)
 	item.AuthType = nullableStringValue(authType)
+	item.UpstreamModelID = nullableStringValue(upstreamModelID)
 	item.CustomHeaders, item.CustomHeadersRedacted = safediag.RedactSensitiveHeaderValues(parseCustomHeaders(customHeaders))
 	item.CustomRequestParameters = parseCustomRequestParameters(customRequestParameters)
 	item.OpenAITextCapability = nullableStringValue(openAITextCapability)

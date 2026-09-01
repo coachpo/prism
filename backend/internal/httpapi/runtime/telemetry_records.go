@@ -7,9 +7,14 @@ import (
 )
 
 type requestLogInsert struct {
-	ProfileID                         int
-	ModelID                           string
-	ResolvedTargetModelID             *string
+	ProfileID             int
+	ModelID               string
+	ResolvedTargetModelID *string
+	// UpstreamModelID is the request-time snapshot of the actual upstream
+	// model identity used by this attempt's Terminal Target. Only real
+	// upstream rows carry it; planning/admission diagnostic rows and legacy
+	// outbox payloads keep NULL so retained evidence stays honest.
+	UpstreamModelID                   *string
 	APIFamily                         string
 	OperationName                     string  `json:"operation_name"`
 	UpstreamOperationName             *string `json:"upstream_operation_name,omitempty"`
@@ -127,10 +132,14 @@ type requestLogInsert struct {
 }
 
 type usageEventInsert struct {
-	ProfileID                         int
-	IngressRequestID                  string
-	ModelID                           string
-	ResolvedTargetModelID             *string
+	ProfileID             int
+	IngressRequestID      string
+	ModelID               string
+	ResolvedTargetModelID *string
+	// UpstreamModelID is the request-time snapshot of the winning attempt's
+	// actual upstream identity. No-winner results, planning/admission rows,
+	// and legacy payloads keep NULL instead of inferring one.
+	UpstreamModelID                   *string
 	APIFamily                         string
 	OperationName                     string  `json:"operation_name"`
 	UpstreamOperationName             *string `json:"upstream_operation_name,omitempty"`

@@ -65,6 +65,7 @@ stats/
 - Dashboard aggregate snapshot cache and snapshot revision: `dashboard_aggregate_store.go`
 - Recent activity feed and watermarks: `dashboard_recent_activity.go`
 - Request-log attempt list/detail, chain view, CSV export, and cost segments: `request_logs.go`, `request_logs_chain.go`, `request_logs_export.go`, `request_logs_detail.go`, `cost_segments.go`, `types.go`
+- `upstream_model_id` (migration `000031`) is projected verbatim on list, chain rows, detail, and CSV; finalized summaries expose the winner snapshot as `final_upstream_model_id`. NULL stays NULL for legacy/diagnostic/no-winner rows and is never inferred from the live configuration or the logical target model
 - Ingress-chain cursor signing: `request_logs_chain_cursor.go`
 - Ingress-chain cohort predicates: `request_logs_chain_cohort.go`
 - Finalized ingress summaries: `request_logs_chain_summary.go`

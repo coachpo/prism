@@ -88,6 +88,11 @@ export function buildConnectionDraftPayload({
     return { errorMessage: limiterError, payload: null };
   }
 
+  // Interactive forms validate this required value before projection. Keep an
+  // explicit blank present as a fail-closed backend 422 instead of silently
+  // converting operator input into create-default or PATCH-preserve semantics.
+  const upstreamModelId = connectionForm.upstream_model_id?.trim();
+
   const resolvedApiFamily = apiFamily ?? connectionForm.api_family;
   const payload: ConnectionCreate = {
     api_family: resolvedApiFamily,
@@ -105,6 +110,10 @@ export function buildConnectionDraftPayload({
     max_in_flight_non_stream: normalizeLimiterField(connectionForm.max_in_flight_non_stream),
     max_in_flight_stream: normalizeLimiterField(connectionForm.max_in_flight_stream),
   };
+
+  if (upstreamModelId !== undefined) {
+    payload.upstream_model_id = upstreamModelId;
+  }
 
   if (resolvedApiFamily !== "openai") {
     delete payload.openai_text_capability;
@@ -138,13 +147,22 @@ export function buildConnectionDraftPayload({
 /**
  * Shapes the PATCH body for an existing Terminal Target. `pricing_template_id`
  * is only sent when the draft actually moves the pricing reference, and the
- * backend then requires both CAS fields alongside it.
+ * backend then requires both CAS fields alongside it. An unchanged upstream
+ * model ID is omitted; an explicit blank stays present for backend rejection.
  */
 export function buildConnectionUpdatePayload(
   draftPayload: ConnectionCreate,
   editingConnection: Connection,
 ): ModelConnectionUpdate {
   const payload: ModelConnectionUpdate = { ...draftPayload };
+  const nextUpstreamModelId = draftPayload.upstream_model_id?.trim();
+  const currentUpstreamModelId = editingConnection.upstream_model_id ?? "";
+  if (
+    nextUpstreamModelId === undefined ||
+    nextUpstreamModelId === currentUpstreamModelId
+  ) {
+    delete payload.upstream_model_id;
+  }
   const nextPricingTemplateId = draftPayload.pricing_template_id ?? null;
   const currentPricingTemplateId = editingConnection.pricing_template_id ?? null;
 

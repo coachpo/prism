@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -27,29 +25,7 @@ func TestOutputDeliveryRateEvidenceUpgradePath(t *testing.T) {
 	harness := newPostgresHarness(t)
 	runner := newRunner(t)
 
-	// Stage a pre-000030 migration directory: every current migration except
-	// the new 000030 file, so the staged database stops at 000029.
-	pre030Dir := t.TempDir()
-	entries, err := os.ReadDir(migrate.DefaultMigrationsDir())
-	if err != nil {
-		t.Fatalf("read migration directory: %v", err)
-	}
-	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".sql" || strings.HasPrefix(entry.Name(), "000030_") {
-			continue
-		}
-		contents, err := os.ReadFile(filepath.Join(migrate.DefaultMigrationsDir(), entry.Name()))
-		if err != nil {
-			t.Fatalf("read pre-000030 migration %s: %v", entry.Name(), err)
-		}
-		if err := os.WriteFile(filepath.Join(pre030Dir, entry.Name()), contents, 0o644); err != nil {
-			t.Fatalf("stage pre-000030 migration %s: %v", entry.Name(), err)
-		}
-	}
-	pre030Runner, err := migrate.New(migrate.Options{MigrationsDir: pre030Dir})
-	if err != nil {
-		t.Fatalf("build pre-000030 migration runner: %v", err)
-	}
+	pre030Runner := newMigrationRunnerBefore(t, "000030")
 
 	conn := harness.openEmptyDatabase(t, testContext, "output_rate_evidence_upgrade")
 	defer func() { _ = conn.Close(testContext) }()

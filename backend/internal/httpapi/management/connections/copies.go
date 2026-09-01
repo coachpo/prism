@@ -40,6 +40,7 @@ type redactedConnectionSummary struct {
 	IsActive                    bool                     `json:"is_active"`
 	OpenAITextCapability        *string                  `json:"openai_text_capability"`
 	OpenAIImageCapability       *string                  `json:"openai_image_capability"`
+	UpstreamModelID             *string                  `json:"upstream_model_id"`
 	PricingTemplate             *redactedPricingTemplate `json:"pricing_template"`
 	QPSLimit                    *int                     `json:"qps_limit"`
 	MaxInFlightNonStream        *int                     `json:"max_in_flight_non_stream"`
@@ -61,6 +62,7 @@ func redactConnectionSummary(item connectionResponse) redactedConnectionSummary 
 		IsActive:                    item.IsActive,
 		OpenAITextCapability:        item.OpenAITextCapability,
 		OpenAIImageCapability:       item.OpenAIImageCapability,
+		UpstreamModelID:             cloneString(item.UpstreamModelID),
 		QPSLimit:                    item.QPSLimit,
 		MaxInFlightNonStream:        item.MaxInFlightNonStream,
 		MaxInFlightStream:           item.MaxInFlightStream,
@@ -187,6 +189,7 @@ func (s *Service) handleCreateConnectionCopies(w http.ResponseWriter, r *http.Re
 				Priority:                position,
 				Name:                    cloneString(source.Name),
 				AuthType:                cloneString(source.AuthType),
+				UpstreamModelID:         cloneString(source.UpstreamModelID),
 				CustomHeaders:           cloneHeaderMap(sourceCustomHeaders),
 				CustomRequestParameters: source.CustomRequestParameters.Clone(),
 				RoutingSchedule:         source.RoutingSchedule,

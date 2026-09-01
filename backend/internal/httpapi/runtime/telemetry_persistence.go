@@ -109,9 +109,9 @@ func insertRequestLogsAndUsageEventTx(ctx context.Context, tx pgx.Tx, requestLog
 		err := tx.QueryRow(
 			ctx,
 			`INSERT INTO request_logs (
-				profile_id, model_id, resolved_target_model_id, api_family, operation_name,
+				profile_id, model_id, resolved_target_model_id, upstream_model_id, api_family, operation_name,
 				row_kind, caller_request_id, url_scrub_provenance, metadata_redacted_fields, metadata_truncated_fields,
-				 endpoint_id, connection_id, selected_terminal_target_id, proxy_api_key_id_snapshot, proxy_api_key_name_snapshot, proxy_api_key_attribution_state,
+				endpoint_id, connection_id, selected_terminal_target_id, proxy_api_key_id_snapshot, proxy_api_key_name_snapshot, proxy_api_key_attribution_state,
 				ingress_request_id, attempt_number, attempt_trigger, attempt_result, is_winner, attempt_duration_ms, legacy_duration_ms,
 				provider_correlation_id, endpoint_base_url, endpoint_description,
 				upstream_status_code, gateway_status_code, legacy_status_code,
@@ -133,11 +133,43 @@ func insertRequestLogsAndUsageEventTx(ctx context.Context, tx pgx.Tx, requestLog
 				request_generation_params, request_generation_params_status, upstream_operation_name, operation_translation_mode, upstream_request_path,
 				proxy_api_key_auth_enforced_at_request, pricing_version_effective_at,
 				pricing_template_kind, pricing_selection_state, pricing_card_role, pricing_selector_threshold_tokens, pricing_selector_basis_tokens,
-			pricing_schedule_decided_at, pricing_schedule_timezone, pricing_schedule_local_weekday, pricing_schedule_local_minute, pricing_schedule_digest
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, CASE WHEN $14::bigint IS NOT NULL AND $15::varchar IS NOT NULL THEN 'identified' WHEN $14::bigint IS NULL AND $15::varchar IS NULL THEN 'none' ELSE 'unknown' END, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57, $58, $59, $60, $61, $62, $63, $64, $65, $66, $67, $68, $69, $70, $71, $72, $73, $74, $75, $76, $77, $78, $79, $80, $81, $82, $83, $84, $85, $86, $87, $88, $89, $90, $91, $92, $93, $94, $95, $96, $97, $98, $99, $100, $101, $102, $103, $104, $105, $106, $107) RETURNING id`,
+				pricing_schedule_decided_at, pricing_schedule_timezone, pricing_schedule_local_weekday, pricing_schedule_local_minute, pricing_schedule_digest
+			) VALUES (
+				$1, $2, $3, $4, $5, $6,
+				$7, $8, $9, $10, $11,
+				$12, $13, $14, $15, $16,
+				CASE
+					WHEN $15::bigint IS NOT NULL AND $16::varchar IS NOT NULL THEN 'identified'
+					WHEN $15::bigint IS NULL AND $16::varchar IS NULL THEN 'none'
+					ELSE 'unknown'
+				END,
+				$17, $18, $19, $20, $21, $22, $23,
+				$24, $25, $26,
+				$27, $28, $29,
+				$30, $31, $32, $33, $34, $35,
+				$36, $37, $38,
+				$39, $40, $41,
+				$42, $43, $44, $45, $46,
+				$47, $48, $49,
+				$50, $51, $52, $53, $54,
+				$55, $56, $57, $58, $59,
+				$60, $61, $62, $63, $64,
+				$65, $66, $67, $68,
+				$69, $70, $71, $72, $73,
+				$74, $75, $76, $77,
+				$78, $79, $80, $81,
+				$82, $83, $84, $85,
+				$86, $87, $88, $89,
+				$90, $91,
+				$92, $93, $94, $95, $96,
+				$97, $98,
+				$99, $100, $101, $102, $103,
+				$104, $105, $106, $107, $108
+			) RETURNING id`,
 			requestLog.ProfileID,
 			requestLog.ModelID,
 			nullableStringArg(requestLog.ResolvedTargetModelID),
+			nullableStringArg(requestLog.UpstreamModelID),
 			requestLog.APIFamily,
 			requestLog.OperationName,
 			requestLog.RowKind,
@@ -258,7 +290,7 @@ func insertRequestLogsAndUsageEventTx(ctx context.Context, tx pgx.Tx, requestLog
 	if _, err := tx.Exec(
 		ctx,
 		`INSERT INTO usage_request_events (
-			profile_id, ingress_request_id, model_id, resolved_target_model_id, api_family, operation_name,
+			profile_id, ingress_request_id, model_id, resolved_target_model_id, upstream_model_id, api_family, operation_name,
 			endpoint_id, connection_id, selected_terminal_target_id, proxy_api_key_name_snapshot,
 			status_code, success_flag, input_tokens, output_tokens, total_tokens,
 			cache_read_input_tokens, cache_creation_input_tokens, reasoning_tokens,
@@ -277,12 +309,38 @@ func insertRequestLogsAndUsageEventTx(ctx context.Context, tx pgx.Tx, requestLog
 			proxy_api_key_auth_enforced_at_request, currency_attribution, pricing_version_effective_at,
 			pricing_template_kind, pricing_selection_state, pricing_card_role, pricing_selector_threshold_tokens, pricing_selector_basis_tokens,
 			pricing_schedule_decided_at, pricing_schedule_timezone, pricing_schedule_local_weekday, pricing_schedule_local_minute, pricing_schedule_digest
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57, $58, $59, $60, $61, $62, $63, $64, $65, $66, $67, $68, $69, $70, CASE WHEN $70::bigint IS NOT NULL AND $10::varchar IS NOT NULL THEN 'identified' WHEN $70::bigint IS NULL AND $10::varchar IS NULL THEN 'none' ELSE 'unknown' END, $71, $72, $73, $74, $75, $76, $77, $78, $79, $80, $81, $82, $83, $84, $85, $86, $87)`,
+		) VALUES (
+			$1, $2, $3, $4, $5, $6, $7,
+			$8, $9, $10, $11,
+			$12, $13, $14, $15, $16,
+			$17, $18, $19,
+			$20, $21, $22, $23, $24,
+			$25, $26, $27, $28, $29,
+			$30, $31, $32, $33, $34,
+			$35, $36, $37, $38,
+			$39, $40, $41, $42, $43, $44, $45, $46,
+			$47, $48, $49, $50,
+			$51, $52, $53, $54, $55,
+			$56, $57, $58, $59,
+			$60, $61, $62, $63,
+			$64, $65, $66, $67, $68,
+			$69, $70, $71,
+			CASE
+				WHEN $71::bigint IS NOT NULL AND $11::varchar IS NOT NULL THEN 'identified'
+				WHEN $71::bigint IS NULL AND $11::varchar IS NULL THEN 'none'
+				ELSE 'unknown'
+			END,
+			$72, $73, $74, $75,
+			$76, $77, $78,
+			$79, $80, $81, $82, $83,
+			$84, $85, $86, $87, $88
+		)`,
 
 		usageEvent.ProfileID,
 		usageEvent.IngressRequestID,
 		usageEvent.ModelID,
 		nullableStringArg(usageEvent.ResolvedTargetModelID),
+		nullableStringArg(usageEvent.UpstreamModelID),
 		usageEvent.APIFamily,
 		usageEvent.OperationName,
 		nullableIntArg(usageEvent.EndpointID),

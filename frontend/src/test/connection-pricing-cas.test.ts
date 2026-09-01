@@ -14,6 +14,7 @@ function createConnection(params?: Partial<Connection>): Connection {
     priority: 0,
     name: "openrouter link",
     auth_type: null,
+    upstream_model_id: null,
     custom_headers: null,
     custom_headers_redacted: null,
     custom_request_parameters: null,

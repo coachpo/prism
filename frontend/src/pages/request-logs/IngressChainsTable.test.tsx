@@ -43,6 +43,7 @@ function attempt(overrides: Partial<RequestLogChainRow>): RequestLogChainRow {
     ingress_model_id: "entry-a",
     attempt_target_model_id: "target-b",
     attempt_target_model_label: "Model B",
+    upstream_model_id: "provider/Model-B",
     endpoint_id: 7,
     endpoint_label: "Endpoint B",
     terminal_target_id: 16,
@@ -80,6 +81,7 @@ const chain: ChainIngressItem = {
     final_error_code: null,
     ingress_model: { id: "entry-a", label: "Model A" },
     final_target_model: { id: "target-c", label: "Model C" },
+    final_upstream_model_id: "provider/Model-C",
     terminal_target: {
       id: 17,
       label: "TT-C",
@@ -149,6 +151,7 @@ const chain: ChainIngressItem = {
       failure_stage: null,
       attempt_target_model_id: "target-c",
       attempt_target_model_label: "Model C",
+      upstream_model_id: "provider/Model-C",
       endpoint_id: 8,
       endpoint_label: "Endpoint C",
       terminal_target_id: 17,
@@ -190,6 +193,7 @@ describe("IngressChainsTable route attribution", () => {
     const summary = screen.getByTestId("chain-summary-ingress-abc");
     expect(within(summary).getByText("Model A")).toBeInTheDocument();
     expect(within(summary).getByText("Model C")).toBeInTheDocument();
+    expect(within(summary).getByText(/provider\/Model-C/)).toBeInTheDocument();
     expect(within(summary).getByText("TT-C")).toBeInTheDocument();
     expect(within(summary).getByText("Endpoint C")).toBeInTheDocument();
     expect(within(summary).getByText("80.0 tok/s")).toBeInTheDocument();
@@ -204,6 +208,7 @@ describe("IngressChainsTable route attribution", () => {
     const failed = screen.getByTestId("chain-row-112");
     expect(failed).toHaveTextContent("首次尝试");
     expect(failed).toHaveTextContent("Model B");
+    expect(failed).toHaveTextContent("provider/Model-B");
     expect(failed).toHaveTextContent("TT-B");
     expect(failed).toHaveTextContent("Endpoint B");
     expect(failed).toHaveTextContent("503");
@@ -218,6 +223,7 @@ describe("IngressChainsTable route attribution", () => {
     const winner = screen.getByTestId("chain-row-113");
     expect(winner).toHaveTextContent("故障转移");
     expect(winner).toHaveTextContent("Model C");
+    expect(winner).toHaveTextContent("provider/Model-C");
     expect(winner).toHaveTextContent("TT-C");
     expect(winner).toHaveTextContent("Endpoint C");
     expect(winner).toHaveTextContent("完成");

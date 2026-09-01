@@ -95,6 +95,7 @@ func (s *Service) buildRuntimeBudgetExhaustionTelemetryEnvelope(plan requestPlan
 	// and launch-budget terminal errors have no winner and therefore keep every
 	// actual final-target field null while retaining the planning-primary field.
 	var finalResolvedTargetModelID *string
+	var finalUpstreamModelID *string
 	var finalEndpointID *int
 	var finalConnectionID *int
 	finalEndpointLabel := "Unknown Endpoint"
@@ -104,6 +105,7 @@ func (s *Service) buildRuntimeBudgetExhaustionTelemetryEnvelope(plan requestPlan
 	winnerAttempt := executionAttemptForLaunchOrdinal(result.Attempts, result.WinnerOrdinal)
 	if winnerAttempt != nil {
 		finalResolvedTargetModelID = optionalTrimmedStringPointer(winnerAttempt.ResolvedTargetModelID)
+		finalUpstreamModelID = upstreamModelIDSnapshot(winnerAttempt.Connection)
 		if winnerAttempt.Connection.Endpoint.ID > 0 {
 			finalEndpointID = intPtr(winnerAttempt.Connection.Endpoint.ID)
 		}
@@ -124,6 +126,7 @@ func (s *Service) buildRuntimeBudgetExhaustionTelemetryEnvelope(plan requestPlan
 		IngressRequestID:           ingressRequestID,
 		ModelID:                    plan.RequestedModelID,
 		ResolvedTargetModelID:      finalResolvedTargetModelID,
+		UpstreamModelID:            finalUpstreamModelID,
 		APIFamily:                  plan.APIFamily,
 		OperationName:              strings.TrimSpace(plan.RuntimeOperation.Name),
 		EndpointID:                 finalEndpointID,

@@ -22,8 +22,8 @@
       "retention_from_time": null,
       "retention_generation": "1",
       "source": "raw",
-      "source_revision": "112e6b6f1be71276a549e9ce6812dce0d12f4a61bdfd7e88910c43cf87a7511c",
-      "to_time": "2026-08-31T08:28:29.963485155Z"
+      "source_revision": "4e156d6b432483165a533469e1a1441902e787b0ab45f87ff224727d7eeeacd0",
+      "to_time": "2026-08-31T22:26:32.387862856Z"
     }
   },
   "endpoint": {
@@ -179,6 +179,7 @@
     "stream_error_kind": null,
     "stream_outcome": "not_streaming",
     "ttft_ms": 320,
+    "upstream_model_id": "vendor/gpt-4o-native",
     "upstream_status_code": 200
   },
   "terminal_target": {

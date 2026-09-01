@@ -640,12 +640,12 @@ func task9InsertRuntimeEndpoint(t *testing.T, ctx context.Context, exec task9Que
 
 func task9InsertRuntimeConnection(t *testing.T, ctx context.Context, exec task9QueryRower, profileID int, modelConfigID int, endpointID int, name string, now time.Time) int {
 	t.Helper()
-	var apiFamily string
-	if err := exec.QueryRow(ctx, `SELECT api_family FROM model_configs WHERE id = $1`, modelConfigID).Scan(&apiFamily); err != nil {
+	var apiFamily, upstreamModelID string
+	if err := exec.QueryRow(ctx, `SELECT api_family, model_id FROM model_configs WHERE id = $1`, modelConfigID).Scan(&apiFamily, &upstreamModelID); err != nil {
 		t.Fatalf("load task9 runtime model api family: %v", err)
 	}
 	var connectionID int
-	if err := exec.QueryRow(ctx, `INSERT INTO connections (profile_id, api_family, endpoint_id, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_text_capability, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, $2, $3, NULL, NULL, NULL, NULL, $6, TRUE, 0, $4, NULL, NULL, 'healthy', NULL, NULL, $5, $5) RETURNING id`, profileID, apiFamily, endpointID, name, now, openAITextCapabilityForTask9APIFamily(apiFamily)).Scan(&connectionID); err != nil {
+	if err := exec.QueryRow(ctx, `INSERT INTO connections (profile_id, api_family, endpoint_id, upstream_model_id, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_text_capability, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, $2, $3, $4, NULL, NULL, NULL, NULL, $7, TRUE, 0, $5, NULL, NULL, 'healthy', NULL, NULL, $6, $6) RETURNING id`, profileID, apiFamily, endpointID, upstreamModelID, name, now, openAITextCapabilityForTask9APIFamily(apiFamily)).Scan(&connectionID); err != nil {
 		t.Fatalf("insert task9 runtime connection: %v", err)
 	}
 	if err := exec.QueryRow(ctx, `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_connection_id, position, is_enabled, created_at, updated_at) VALUES ($1, $2, 'connection', $3, 0, TRUE, $4, $4) RETURNING id`, profileID, modelConfigID, connectionID, now).Scan(new(int)); err != nil {

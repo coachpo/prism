@@ -84,6 +84,7 @@ function createConnection(id: number, name: string): Connection {
     name,
     priority: 0,
     auth_type: null,
+    upstream_model_id: `provider/Model-${id}`,
     custom_headers: null,
     custom_headers_redacted: null,
     custom_request_parameters: null,
@@ -187,9 +188,13 @@ describe("AccessTargetsEditor mixed ordering", () => {
       "access-target-501",
     ]);
     expect(within(rows[0]).getByText("终端目标")).toBeTruthy();
+    expect(
+      within(rows[0]).getByTitle("上游模型 ID: provider/Model-901"),
+    ).toBeTruthy();
     expect(within(rows[0]).getByText("1")).toBeTruthy();
     expect(within(rows[1]).getByText("2")).toBeTruthy();
     expect(within(rows[2]).getByText("模型目标")).toBeTruthy();
+    expect(within(rows[2]).queryByText(/provider\/Model-/)).toBeNull();
     expect(within(rows[2]).getByText("3")).toBeTruthy();
   });
 

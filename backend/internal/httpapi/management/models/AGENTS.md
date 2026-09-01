@@ -120,7 +120,7 @@ models/
 
 ## UX-UPGRADE SURFACES
 
-- `POST /api/models` supports composite create via `initial_terminal_target` (endpoint_id XOR inline endpoint_create; capability derives from the owner accepted format; enabled defaults; `model_initial_target_inactive` / `model_no_enabled_targets` hard errors; single transaction with full rollback). Responses are `{model, configuration_warnings}` envelopes.
+- `POST /api/models` supports composite create via `initial_terminal_target` (endpoint_id XOR inline endpoint_create; capability derives from the owner accepted format; enabled defaults; `model_initial_target_inactive` / `model_no_enabled_targets` hard errors; single transaction with full rollback). Responses are `{model, configuration_warnings}` envelopes. The initial target's `upstream_model_id` is presence-aware: omitted defaults to the new model's `model_id` written explicitly; explicit null/blank/over-length reject 422 through the shared Terminal Target create chain.
 - `GET /api/models/{model_config_id}/routing-diagnostics` serves the `modelrouting` analyzer over the committed graph; it is read-only and never invalidates planning. `GET /api/models` embeds a compact `routing_summary` per model computed in one bounded batch.
 - Routing-relevant mutations attach `configuration_warnings` from `modelMutationWarnings`; the frontend keys presentation off warning codes, never message text.
 - Route-witness readiness receives the model-bound operation projection from `httpapi/runtime/operations.go`, covers OpenAI/Anthropic/Gemini without a second catalog, and preserves actual Endpoint identity, lowercase coverage, and routing-schedule qualifiers.
