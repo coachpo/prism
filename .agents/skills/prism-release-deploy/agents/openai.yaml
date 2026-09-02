@@ -1,0 +1,6 @@
+interface:
+  display_name: "Prism Release Deploy"
+  short_description: "Release and stage Prism deployments safely"
+  default_prompt: "Use $prism-release-deploy to plan a gated Prism release and staged rollout from an immutable image manifest."
+policy:
+  allow_implicit_invocation: true

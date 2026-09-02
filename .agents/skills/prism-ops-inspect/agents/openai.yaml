@@ -1,0 +1,6 @@
+interface:
+  display_name: "Prism Ops Inspect"
+  short_description: "Inspect Prism operational state without mutations"
+  default_prompt: "Use $prism-ops-inspect to collect a secret-safe Prism deployment snapshot and report drift."
+policy:
+  allow_implicit_invocation: true

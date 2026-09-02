@@ -1,0 +1,6 @@
+interface:
+  display_name: "Prism Backup Restore"
+  short_description: "Back up, retain, and restore Prism safely"
+  default_prompt: "Use $prism-backup-restore to plan a verified Prism backup or side-by-side recovery with explicit safety gates."
+policy:
+  allow_implicit_invocation: true
