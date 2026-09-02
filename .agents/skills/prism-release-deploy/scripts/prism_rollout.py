@@ -47,7 +47,20 @@ def deploy_main():
     health = wait_health(topology, expected_version=args["version"])
     post = database_evidence(topology)
     pre = args["preflight_database"]
-    if not set(pre["schema_versions"]).issubset(post["schema_versions"]):
+    pre_version_count = int(pre["schema_version_count"])
+    post_version_prefix = post["schema_versions"][:pre_version_count]
+    post_version_prefix_sha = hashlib.sha256(
+        json.dumps(
+            post_version_prefix,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+    if (
+        pre_version_count < 0
+        or len(post["schema_versions"]) < pre_version_count
+        or post_version_prefix_sha != pre["schema_versions_prefix_sha256"]
+    ):
         raise RuntimeError("migration history lost a preflight version")
     for key in ("models", "connections", "access_targets", "request_logs", "usage_request_events"):
         if post["counts"][key] < pre["counts"][key]:
@@ -167,6 +180,7 @@ except Exception as exc:
 
 REMOTE_READ_JSON = r"""
 import base64
+import hashlib
 import json
 from pathlib import Path
 import sys
@@ -178,7 +192,30 @@ if path.is_symlink() or not path.is_file():
 value = json.loads(path.read_text(encoding="utf-8"))
 if not isinstance(value, dict):
     raise SystemExit("JSON evidence is not an object")
-print(json.dumps(value, sort_keys=True))
+database = value.get("database")
+if not isinstance(database, dict):
+    raise SystemExit("backup manifest lacks database evidence")
+schema_versions = database.get("schema_versions")
+if not isinstance(schema_versions, list) or any(
+    not isinstance(version, str) for version in schema_versions
+):
+    raise SystemExit("backup manifest has invalid schema-version evidence")
+schema_versions_prefix_sha256 = hashlib.sha256(
+    json.dumps(
+        schema_versions,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+).hexdigest()
+print(json.dumps({
+    "database": {
+        "schema_version_count": len(schema_versions),
+        "schema_versions_prefix_sha256": schema_versions_prefix_sha256,
+        "counts": database.get("counts"),
+        "historical_evidence": database.get("historical_evidence", {}),
+    },
+    "config_sha256": value.get("config_sha256"),
+}, sort_keys=True))
 """
 
 

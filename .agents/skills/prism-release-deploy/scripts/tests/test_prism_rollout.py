@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import importlib.util
 import io
 import json
@@ -19,6 +20,8 @@ SPEC = importlib.util.spec_from_file_location(
 MODULE = importlib.util.module_from_spec(SPEC)
 assert SPEC and SPEC.loader
 SPEC.loader.exec_module(MODULE)
+
+from prism_backup_common import SECRET_PATTERN
 
 
 class RolloutTests(unittest.TestCase):
@@ -164,6 +167,48 @@ class RolloutTests(unittest.TestCase):
         value = json.loads(output.getvalue())
         self.assertEqual(value["services"], ["prism-a", "prism-b"])
         self.assertEqual(value["confirm_rollout"], "v1.2.3@abcdef123456")
+
+    def test_backup_manifest_reader_projects_secret_safe_deploy_evidence(self) -> None:
+        manifest = {
+            "database": {
+                "schema_versions": [
+                    "000001_initial_schema",
+                    "000005_proxy_api_key_immutable_attribution",
+                    "000031_terminal_target_upstream_model_identity",
+                ],
+                "counts": {
+                    "models": 16,
+                    "connections": 22,
+                    "access_targets": 26,
+                    "request_logs": 4,
+                    "usage_request_events": 4,
+                },
+                "historical_evidence": {"request_upstream_nonnull": 4},
+            },
+            "config_sha256": "a" * 64,
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "manifest.json"
+            path.write_text(json.dumps(manifest), encoding="utf-8")
+            encoded = base64.urlsafe_b64encode(
+                json.dumps({"path": str(path)}).encode("utf-8")
+            ).decode("ascii")
+            result = subprocess.run(
+                [sys.executable, "-", encoded],
+                input=MODULE.REMOTE_READ_JSON,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIsNone(SECRET_PATTERN.search(result.stdout))
+        projected = json.loads(result.stdout)
+        self.assertNotIn("schema_versions", projected["database"])
+        self.assertEqual(projected["database"]["schema_version_count"], 3)
+        self.assertEqual(
+            len(projected["database"]["schema_versions_prefix_sha256"]), 64
+        )
+        self.assertEqual(projected["database"]["counts"]["models"], 16)
 
     def test_manifest_binds_repository_tag_and_nonempty_digest(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
