@@ -24,6 +24,7 @@ Publish an immutable Prism release manifest, then consume it in a separately aut
 2. Before execution, read [references/release-manifest.md](references/release-manifest.md).
 3. Run the repository `release.sh`; wait for the release commit's CI and tag-triggered Docker Image workflow, not the pre-release commit's CI.
 4. Verify repository, tag, release SHA, OCI revision/version/platform, and full manifest digest. Write `status: published` evidence under `artifacts/evidence/prism-ops/releases/` only after all gates pass.
+5. If the release commit, tag, workflows, and image already published but manifest creation failed, use `prism_release.py recover --spec X.Y.Z --confirm-release vX.Y.Z`. Recovery is validation-only: it requires a clean main containing the release tag, identical local/remote tag identity, green release workflows, and matching OCI evidence; it never reruns `release.sh`, pushes, tags, or rebuilds.
 
 ## Rollout stage
 

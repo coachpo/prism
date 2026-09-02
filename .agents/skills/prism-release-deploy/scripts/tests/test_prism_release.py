@@ -3,12 +3,16 @@ from __future__ import annotations
 import importlib.util
 import io
 import json
+import sys
+import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
-SCRIPT = Path(__file__).resolve().parents[1] / "prism_release.py"
+SCRIPTS = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(SCRIPTS))
+SCRIPT = SCRIPTS / "prism_release.py"
 SPEC = importlib.util.spec_from_file_location("prism_release", SCRIPT)
 MODULE = importlib.util.module_from_spec(SPEC)
 assert SPEC and SPEC.loader
@@ -124,6 +128,87 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(result, 0)
         release_plan.assert_called_once()
         self.assertEqual(json.loads(output.getvalue())["tag"], "v1.1.3")
+
+    def test_recovery_allows_main_to_advance_beyond_release_tag(self) -> None:
+        release_sha = "a" * 40
+        main_sha = "b" * 40
+
+        def command(argv, *, cwd=None):
+            values = tuple(argv)
+            responses = {
+                ("git", "rev-parse", "HEAD"): main_sha,
+                ("git", "branch", "--show-current"): "main",
+                ("git", "status", "--porcelain"): "",
+                ("git", "rev-parse", "origin/main"): main_sha,
+                ("git", "ls-remote", "origin", "refs/heads/main"):
+                    f"{main_sha}\trefs/heads/main",
+                ("git", "rev-list", "-n1", "v1.1.3"): release_sha,
+                ("git", "ls-remote", "--tags", "origin", "refs/tags/v1.1.3"):
+                    f"{release_sha}\trefs/tags/v1.1.3",
+                ("git", "merge-base", "--is-ancestor", release_sha, main_sha): "",
+            }
+            return responses[values]
+
+        with (
+            patch.object(MODULE, "run", side_effect=command),
+            patch.object(
+                MODULE,
+                "version_surfaces",
+                return_value={
+                    "root": "1.1.3",
+                    "backend": "1.1.3",
+                    "frontend": "1.1.3",
+                    "frontend_package": "1.1.3",
+                },
+            ),
+        ):
+            plan = MODULE.recovery_plan(Path("/fixture"), "1.1.3")
+        self.assertEqual(plan["head"], main_sha)
+        self.assertEqual(plan["release_sha"], release_sha)
+
+    def test_recover_writes_manifest_without_running_release_helper(self) -> None:
+        plan = {
+            "action": "recover",
+            "current_version": "1.1.3",
+            "version": "1.1.3",
+            "tag": "v1.1.3",
+            "repo_root": "/fixture",
+            "head": "b" * 40,
+            "release_sha": "a" * 40,
+            "branch": "main",
+            "dirty": False,
+        }
+        manifest = {
+            "schema_version": 1,
+            "status": "published",
+            "tag": "v1.1.3",
+            "version": "1.1.3",
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "release.json"
+            with (
+                patch.object(MODULE, "recovery_plan", return_value=plan),
+                patch.object(MODULE, "finalize_manifest", return_value=manifest),
+                patch.object(MODULE, "release_plan") as release_plan,
+                redirect_stdout(io.StringIO()) as output,
+            ):
+                result = MODULE.main(
+                    [
+                        "recover",
+                        "--repo-root",
+                        "/fixture",
+                        "--spec",
+                        "1.1.3",
+                        "--confirm-release",
+                        "v1.1.3",
+                        "--manifest",
+                        str(path),
+                    ]
+                )
+            self.assertEqual(result, 0)
+            release_plan.assert_not_called()
+            self.assertEqual(json.loads(path.read_text(encoding="utf-8")), manifest)
+            self.assertEqual(json.loads(output.getvalue())["status"], "published")
 
 
 if __name__ == "__main__":

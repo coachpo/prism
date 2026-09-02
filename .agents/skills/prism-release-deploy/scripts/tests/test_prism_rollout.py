@@ -3,11 +3,13 @@ from __future__ import annotations
 import importlib.util
 import io
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
 SCRIPTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS))
@@ -94,6 +96,27 @@ class RolloutTests(unittest.TestCase):
             b"ok",
         )
         self.assertEqual(sleeps, [10])
+
+    def test_provider_smoke_uses_one_quoted_remote_command(self) -> None:
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout=b'{}\n__PRISM_STATUS__:200',
+            stderr=b'',
+        )
+        with patch.object(MODULE, "run", return_value=completed) as run:
+            status, body = MODULE.remote_http(
+                "capy",
+                "prism-a-prism-1",
+                "/v1/chat/completions",
+                {"model": "entry-model"},
+            )
+        self.assertEqual((status, body), (200, b"{}"))
+        argv = run.call_args.args[0]
+        self.assertEqual(argv[:4], ["ssh", "-o", "BatchMode=yes", "capy"])
+        self.assertEqual(len(argv), 5)
+        self.assertIn("'Content-Type: application/json'", argv[4])
+        self.assertIn("--data-binary @-", argv[4])
 
     def test_stream_requires_visible_content_and_terminal(self) -> None:
         with self.assertRaises(MODULE.RolloutError):

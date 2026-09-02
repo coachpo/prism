@@ -15,6 +15,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from ssh_command import ssh_command
+
 
 class ReleaseError(RuntimeError):
     pass
@@ -167,34 +169,32 @@ def wait_workflows(
 
 def inspect_image(host: str, image_ref: str) -> dict[str, object]:
     manifest_raw = run(
-        [
-            "ssh",
-            "-o",
-            "BatchMode=yes",
+        ssh_command(
             host,
-            "docker",
-            "buildx",
-            "imagetools",
-            "inspect",
-            image_ref,
-            "--format",
-            "{{json .Manifest}}",
-        ]
+            [
+                "docker",
+                "buildx",
+                "imagetools",
+                "inspect",
+                image_ref,
+                "--format",
+                "{{json .Manifest}}",
+            ],
+        )
     )
     image_raw = run(
-        [
-            "ssh",
-            "-o",
-            "BatchMode=yes",
+        ssh_command(
             host,
-            "docker",
-            "buildx",
-            "imagetools",
-            "inspect",
-            image_ref,
-            "--format",
-            "{{json .Image}}",
-        ]
+            [
+                "docker",
+                "buildx",
+                "imagetools",
+                "inspect",
+                image_ref,
+                "--format",
+                "{{json .Image}}",
+            ],
+        )
     )
     try:
         manifest = json.loads(manifest_raw)
@@ -258,10 +258,102 @@ def release_plan(repo: Path, spec: str) -> dict[str, object]:
     return plan
 
 
+def recovery_plan(repo: Path, spec: str) -> dict[str, object]:
+    if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", spec):
+        raise ReleaseError("release recovery requires an exact X.Y.Z version")
+    version = spec
+    tag = "v" + version
+    head = run(["git", "rev-parse", "HEAD"], cwd=repo)
+    branch = run(["git", "branch", "--show-current"], cwd=repo)
+    dirty = bool(run(["git", "status", "--porcelain"], cwd=repo))
+    if dirty or branch != "main":
+        raise ReleaseError("release recovery requires a clean main branch")
+    upstream = run(["git", "rev-parse", "origin/main"], cwd=repo)
+    remote_main = run(
+        ["git", "ls-remote", "origin", "refs/heads/main"], cwd=repo
+    ).split()[0]
+    local_tag = run(["git", "rev-list", "-n1", tag], cwd=repo)
+    remote_tag_raw = run(
+        ["git", "ls-remote", "--tags", "origin", f"refs/tags/{tag}"], cwd=repo
+    )
+    if not remote_tag_raw:
+        raise ReleaseError("release recovery requires the remote release tag")
+    remote_tag = remote_tag_raw.split()[0]
+    if len({head, upstream, remote_main}) != 1:
+        raise ReleaseError("release recovery main identities are not identical")
+    if local_tag != remote_tag:
+        raise ReleaseError("release recovery tag identities are not identical")
+    run(["git", "merge-base", "--is-ancestor", local_tag, head], cwd=repo)
+    surfaces = version_surfaces(repo)
+    if set(surfaces.values()) != {version}:
+        raise ReleaseError("release recovery version surfaces are not aligned")
+    return {
+        "action": "recover",
+        "repo_root": str(repo),
+        "current_version": version,
+        "version": version,
+        "tag": tag,
+        "head": head,
+        "release_sha": local_tag,
+        "branch": branch,
+        "dirty": dirty,
+    }
+
+
+def finalize_manifest(
+    repo: Path,
+    *,
+    release_spec: str,
+    version: str,
+    tag: str,
+    release_sha: str,
+    host: str,
+    timeout_seconds: int,
+    poll_seconds: int,
+) -> dict[str, object]:
+    origin = run(["git", "remote", "get-url", "origin"], cwd=repo)
+    slug = parse_origin_slug(origin)
+    workflows = wait_workflows(
+        slug, release_sha, tag, timeout_seconds, poll_seconds
+    )
+    image_repository = f"ghcr.io/{slug.lower()}"
+    mutable_ref = f"{image_repository}:{tag}"
+    image = inspect_image(host, mutable_ref)
+    host_arch = normalized_host_arch(
+        run(ssh_command(host, ["uname", "-m"]))
+    )
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", str(image["manifest_digest"])):
+        raise ReleaseError("published image has no manifest digest")
+    if image["revision"] != release_sha or image["version"] != version:
+        raise ReleaseError("OCI revision/version does not match the release")
+    if image["os"] != "linux" or image["architecture"] != host_arch:
+        raise ReleaseError("published image platform does not match deployment host")
+    surfaces = version_surfaces(repo)
+    if set(surfaces.values()) != {version}:
+        raise ReleaseError("release version surfaces are not aligned")
+    immutable_ref = f"{mutable_ref}@{image['manifest_digest']}"
+    return {
+        "schema_version": 1,
+        "status": "published",
+        "created_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "repository": slug,
+        "release_spec": release_spec,
+        "version": version,
+        "tag": tag,
+        "release_sha": release_sha,
+        "commit_subject": run(
+            ["git", "log", "-1", "--pretty=%s", release_sha], cwd=repo
+        ),
+        "version_surfaces": surfaces,
+        "workflows": workflows,
+        "image": {"repository": image_repository, "ref": immutable_ref, **image},
+    }
+
+
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(description=__doc__)
     subparsers = result.add_subparsers(dest="action", required=True)
-    for action in ("plan", "execute"):
+    for action in ("plan", "execute", "recover"):
         command = subparsers.add_parser(action)
         command.add_argument("--repo-root", type=Path, default=Path.cwd())
         command.add_argument("--spec", required=True)
@@ -278,6 +370,43 @@ def parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     repo = args.repo_root.resolve()
+    if args.action == "recover":
+        plan = recovery_plan(repo, args.spec)
+        if args.confirm_release != plan["tag"]:
+            raise ReleaseError(
+                f"recover requires --confirm-release {plan['tag']}"
+            )
+        manifest = finalize_manifest(
+            repo,
+            release_spec=args.spec,
+            version=str(plan["version"]),
+            tag=str(plan["tag"]),
+            release_sha=str(plan["release_sha"]),
+            host=args.host,
+            timeout_seconds=args.timeout_seconds,
+            poll_seconds=args.poll_seconds,
+        )
+        manifest_path = args.manifest
+        if manifest_path is None:
+            stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            manifest_path = (
+                repo
+                / "artifacts"
+                / "evidence"
+                / "prism-ops"
+                / "releases"
+                / f"{stamp}-{plan['tag']}.json"
+            )
+        write_new(manifest_path.resolve(), manifest)
+        print(
+            json.dumps(
+                {"manifest": str(manifest_path.resolve()), **manifest},
+                ensure_ascii=False,
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        return 0
     plan = release_plan(repo, args.spec)
     if args.action == "plan":
         print(json.dumps(plan, ensure_ascii=False, indent=2, sort_keys=True))
@@ -306,45 +435,16 @@ def main(argv: list[str] | None = None) -> int:
         raise ReleaseError("release tag does not point to release HEAD")
     if run(["git", "status", "--porcelain"], cwd=repo):
         raise ReleaseError("release helper left a dirty worktree")
-    origin = run(["git", "remote", "get-url", "origin"], cwd=repo)
-    slug = parse_origin_slug(origin)
-    workflows = wait_workflows(
-        slug,
-        release_sha,
-        str(plan["tag"]),
-        args.timeout_seconds,
-        args.poll_seconds,
+    manifest = finalize_manifest(
+        repo,
+        release_spec=args.spec,
+        version=str(plan["version"]),
+        tag=str(plan["tag"]),
+        release_sha=release_sha,
+        host=args.host,
+        timeout_seconds=args.timeout_seconds,
+        poll_seconds=args.poll_seconds,
     )
-    image_repository = f"ghcr.io/{slug.lower()}"
-    mutable_ref = f"{image_repository}:{plan['tag']}"
-    image = inspect_image(args.host, mutable_ref)
-    host_arch = normalized_host_arch(
-        run(["ssh", "-o", "BatchMode=yes", args.host, "uname", "-m"])
-    )
-    if not re.fullmatch(r"sha256:[0-9a-f]{64}", str(image["manifest_digest"])):
-        raise ReleaseError("published image has no manifest digest")
-    if image["revision"] != release_sha or image["version"] != plan["version"]:
-        raise ReleaseError("OCI revision/version does not match the release")
-    if image["os"] != "linux" or image["architecture"] != host_arch:
-        raise ReleaseError("published image platform does not match deployment host")
-    surfaces = version_surfaces(repo)
-    if set(surfaces.values()) != {plan["version"]}:
-        raise ReleaseError("release version surfaces are not aligned")
-    immutable_ref = f"{mutable_ref}@{image['manifest_digest']}"
-    manifest = {
-        "schema_version": 1,
-        "status": "published",
-        "created_at": dt.datetime.now(dt.timezone.utc).isoformat(),
-        "repository": slug,
-        "release_spec": args.spec,
-        "version": plan["version"],
-        "tag": plan["tag"],
-        "release_sha": release_sha,
-        "commit_subject": run(["git", "log", "-1", "--pretty=%s"], cwd=repo),
-        "version_surfaces": surfaces,
-        "workflows": workflows,
-        "image": {"repository": image_repository, "ref": immutable_ref, **image},
-    }
     manifest_path = args.manifest
     if manifest_path is None:
         stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")

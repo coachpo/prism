@@ -15,6 +15,8 @@ from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import cast
 
+from ssh_command import ssh_command
+
 SKILLS_ROOT = Path(__file__).resolve().parents[2]
 BACKUP_SCRIPTS = SKILLS_ROOT / "prism-backup-restore" / "scripts"
 sys.path.insert(0, str(BACKUP_SCRIPTS))
@@ -250,43 +252,41 @@ def validate_image_identity(
 def inspect_remote_image(host: str, manifest: dict[str, object]) -> dict[str, object]:
     image_ref = str(cast("dict[str, object]", manifest["image"])["ref"])
     manifest_result = subprocess.run(
-        [
-            "ssh",
-            "-o",
-            "BatchMode=yes",
+        ssh_command(
             host,
-            "docker",
-            "buildx",
-            "imagetools",
-            "inspect",
-            image_ref,
-            "--format",
-            "{{json .Manifest}}",
-        ],
+            [
+                "docker",
+                "buildx",
+                "imagetools",
+                "inspect",
+                image_ref,
+                "--format",
+                "{{json .Manifest}}",
+            ],
+        ),
         text=True,
         capture_output=True,
         check=False,
     )
     image_result = subprocess.run(
-        [
-            "ssh",
-            "-o",
-            "BatchMode=yes",
+        ssh_command(
             host,
-            "docker",
-            "buildx",
-            "imagetools",
-            "inspect",
-            image_ref,
-            "--format",
-            "{{json .Image}}",
-        ],
+            [
+                "docker",
+                "buildx",
+                "imagetools",
+                "inspect",
+                image_ref,
+                "--format",
+                "{{json .Image}}",
+            ],
+        ),
         text=True,
         capture_output=True,
         check=False,
     )
     arch_result = subprocess.run(
-        ["ssh", "-o", "BatchMode=yes", host, "uname", "-m"],
+        ssh_command(host, ["uname", "-m"]),
         text=True,
         capture_output=True,
         check=False,
@@ -339,30 +339,29 @@ def remote_http(
 ) -> tuple[int, bytes]:
     body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
     result = run(
-        [
-            "ssh",
-            "-o",
-            "BatchMode=yes",
+        ssh_command(
             host,
-            "docker",
-            "exec",
-            "-i",
-            container,
-            "curl",
-            "-sS",
-            "-N",
-            "--connect-timeout",
-            "10",
-            "--max-time",
-            "180",
-            "-H",
-            "Content-Type: application/json",
-            "--data-binary",
-            "@-",
-            "-w",
-            "\n__PRISM_STATUS__:%{http_code}",
-            f"http://127.0.0.1:8080{path}",
-        ],
+            [
+                "docker",
+                "exec",
+                "-i",
+                container,
+                "curl",
+                "-sS",
+                "-N",
+                "--connect-timeout",
+                "10",
+                "--max-time",
+                "180",
+                "-H",
+                "Content-Type: application/json",
+                "--data-binary",
+                "@-",
+                "-w",
+                "\n__PRISM_STATUS__:%{http_code}",
+                f"http://127.0.0.1:8080{path}",
+            ],
+        ),
         input_bytes=body,
     )
     if result.returncode != 0:
