@@ -210,6 +210,23 @@ class RolloutTests(unittest.TestCase):
         )
         self.assertEqual(projected["database"]["counts"]["models"], 16)
 
+    def test_safe_database_evidence_removes_secret_like_migration_names(self) -> None:
+        namespace = {"hashlib": __import__("hashlib"), "json": json}
+        exec(MODULE.REMOTE_SCHEMA_EVIDENCE, namespace)
+        projected = namespace["safe_database_evidence"](
+            {
+                "schema_versions": [
+                    "000005_proxy_api_key_immutable_attribution",
+                    "000031_terminal_target_upstream_model_identity",
+                ],
+                "counts": {"models": 16},
+            }
+        )
+        rendered = json.dumps(projected, sort_keys=True)
+        self.assertNotIn("schema_versions", projected)
+        self.assertIsNone(SECRET_PATTERN.search(rendered))
+        self.assertEqual(projected["schema_version_count"], 2)
+
     def test_manifest_binds_repository_tag_and_nonempty_digest(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "release.json"

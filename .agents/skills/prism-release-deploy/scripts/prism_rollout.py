@@ -32,8 +32,30 @@ class RolloutError(RuntimeError):
     pass
 
 
+REMOTE_SCHEMA_EVIDENCE = r"""
+def safe_database_evidence(database):
+    schema_versions = database.get("schema_versions")
+    if not isinstance(schema_versions, list) or any(
+        not isinstance(version, str) for version in schema_versions
+    ):
+        raise RuntimeError("database evidence has invalid schema versions")
+    result = dict(database)
+    result.pop("schema_versions", None)
+    result["schema_version_count"] = len(schema_versions)
+    result["schema_versions_prefix_sha256"] = hashlib.sha256(
+        json.dumps(
+            schema_versions,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+    return result
+"""
+
+
 REMOTE_DEPLOY = (
     REMOTE_COMMON
+    + REMOTE_SCHEMA_EVIDENCE
     + r"""
 
 def deploy_main():
@@ -90,7 +112,8 @@ def deploy_main():
     print(json.dumps({
         "service": topology["service"], "app_container": topology["app_id"],
         "postgres_container": topology["pg_id"], "health": health,
-        "app": app, "database": post, "config_sha256": args["config_sha256"],
+        "app": app, "database": safe_database_evidence(post),
+        "config_sha256": args["config_sha256"],
     }, sort_keys=True))
 
 
@@ -182,7 +205,7 @@ except Exception as exc:
 )
 
 
-REMOTE_READ_JSON = r"""
+REMOTE_READ_JSON = REMOTE_SCHEMA_EVIDENCE + r"""
 import base64
 import hashlib
 import json
@@ -199,25 +222,8 @@ if not isinstance(value, dict):
 database = value.get("database")
 if not isinstance(database, dict):
     raise SystemExit("backup manifest lacks database evidence")
-schema_versions = database.get("schema_versions")
-if not isinstance(schema_versions, list) or any(
-    not isinstance(version, str) for version in schema_versions
-):
-    raise SystemExit("backup manifest has invalid schema-version evidence")
-schema_versions_prefix_sha256 = hashlib.sha256(
-    json.dumps(
-        schema_versions,
-        ensure_ascii=False,
-        separators=(",", ":"),
-    ).encode("utf-8")
-).hexdigest()
 print(json.dumps({
-    "database": {
-        "schema_version_count": len(schema_versions),
-        "schema_versions_prefix_sha256": schema_versions_prefix_sha256,
-        "counts": database.get("counts"),
-        "historical_evidence": database.get("historical_evidence", {}),
-    },
+    "database": safe_database_evidence(database),
     "config_sha256": value.get("config_sha256"),
 }, sort_keys=True))
 """
