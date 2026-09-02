@@ -26,6 +26,7 @@ func (graph *DiagnosticsGraph) addModel(configID int, modelID string, apiFamily 
 		ModelID:               modelID,
 		APIFamily:             apiFamily,
 		IsEnabled:             enabled,
+		DirectRequestEnabled:  true,
 		OpenAIAcceptedFormat:  stringRef(acceptedFormat),
 		LoadbalanceStrategyID: strategyID,
 	}

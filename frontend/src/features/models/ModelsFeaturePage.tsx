@@ -27,11 +27,13 @@ import { DeleteModelDialog } from "@/pages/models/DeleteModelDialog";
 import { ModelDialog } from "@/pages/models/ModelDialog";
 import { ModelsTable } from "./ModelsTable";
 import { ModelsMetricsScopeSwitch } from "./ModelsMetricsScopeSwitch";
+import { ModelInventoryViewSwitch } from "./ModelInventoryViewSwitch";
 import {
   hasModelTarget,
   isSingleTruncated,
   isUpstreamDecoupled,
 } from "./modelRoutingFlags";
+import { filterModelsByInventoryView, type ModelInventoryView } from "./modelView";
 import { useModelsPageData } from "@/pages/models/useModelsPageData";
 import {
   DEFAULT_MODELS_LIST_FILTERS,
@@ -52,6 +54,7 @@ export function ModelsFeaturePage() {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
   const searchText = search.search ?? "";
+  const view: ModelInventoryView = search.view === "model_targets" || search.view === "all" ? search.view : "entries";
   const apiFamilyFilter =
     search.api_family ?? DEFAULT_MODELS_LIST_FILTERS.api_family;
   const statusFilter = search.status ?? DEFAULT_MODELS_LIST_FILTERS.status;
@@ -68,7 +71,7 @@ export function ModelsFeaturePage() {
           if (resetPage) delete next.page;
           for (const key of Object.keys(next)) {
             const value = next[key];
-            if (value === undefined || value === "" || value === "all")
+            if (value === undefined || value === "" || (value === "all" && key !== "view"))
               delete next[key];
           }
           return next;
@@ -84,9 +87,11 @@ export function ModelsFeaturePage() {
     [navigate],
   );
 
+  const visibleModels = useMemo(() => filterModelsByInventoryView(data.models, view), [data.models, view]);
+
   const filtered = useMemo(() => {
     const query = searchText.trim().toLowerCase();
-    return data.models.filter(
+    return visibleModels.filter(
       (model: import("@/lib/api/models").ManagedModelConfigListItem) => {
         if (query) {
           const haystack =
@@ -111,24 +116,36 @@ export function ModelsFeaturePage() {
         return true;
       },
     );
-  }, [apiFamilyFilter, data.models, flagFilter, searchText, statusFilter]);
+  }, [apiFamilyFilter, flagFilter, searchText, statusFilter, visibleModels]);
+
+  const hasActiveFilters =
+    searchText.trim() !== "" ||
+    apiFamilyFilter !== "all" ||
+    statusFilter !== "all" ||
+    flagFilter !== "all";
 
   const stats = useMemo(() => {
-    const enabled = data.models.filter(
+    const enabled = visibleModels.filter(
       (model: import("@/lib/api/models").ManagedModelConfigListItem) =>
         model.is_enabled,
     ).length;
     return {
-      total: data.models.length,
+      total: visibleModels.length,
       enabled,
-      disabled: data.models.length - enabled,
-      needsTarget: data.models.filter(
+      disabled: visibleModels.length - enabled,
+      needsTarget: visibleModels.filter(
         (model: import("@/lib/api/models").ManagedModelConfigListItem) =>
           model.routing_summary?.total_access_target_count === 0,
       ).length,
-      singleTruncated: data.models.filter(isSingleTruncated).length,
+      singleTruncated: visibleModels.filter(isSingleTruncated).length,
     };
-  }, [data.models]);
+  }, [visibleModels]);
+  const viewCountDescription =
+    view === "model_targets"
+      ? copy.modelTargetCountDescription(formatNumber(filtered.length))
+      : view === "all"
+        ? copy.allCountDescription(formatNumber(filtered.length))
+        : copy.countDescription(formatNumber(filtered.length));
   const filters = normalizeModelsListFilters({
     search: searchText,
     api_family: apiFamilyFilter,
@@ -175,7 +192,7 @@ export function ModelsFeaturePage() {
     >
       <OperatorPageHeader
         title={copy.title}
-        description={copy.countDescription(formatNumber(filtered.length))}
+        description={viewCountDescription}
       >
         {/* Export entry: the standalone client-config export page. */}
         <Button
@@ -192,9 +209,9 @@ export function ModelsFeaturePage() {
 
       <div className="grid gap-[var(--density-card-gap)] sm:grid-cols-2 xl:grid-cols-5">
         <OperatorKpiCard
-          label={copy.kpiTotal}
+          label={view === "model_targets" ? copy.viewModelTargets : view === "all" ? copy.viewAll : copy.kpiTotal}
           value={formatNumber(stats.total)}
-          detail={copy.kpiTotalDetail}
+          detail={view === "entries" ? copy.kpiTotalDetail : viewCountDescription}
           onClick={() =>
             patchSearch({
               status: undefined,
@@ -253,6 +270,10 @@ export function ModelsFeaturePage() {
               {copy.metricsScopeBasis(scope)}
             </p>
           </div>
+          <ModelInventoryViewSwitch
+            onViewChange={(value) => patchSearch({ view: value === "entries" ? undefined : value })}
+            view={view}
+          />
           <FieldGroup className="gap-4 md:flex-row md:items-end">
             <Field className="md:max-w-sm">
               <FieldLabel htmlFor="models-search">
@@ -351,6 +372,7 @@ export function ModelsFeaturePage() {
           <ModelsTable
             scope={scope}
             filtered={filtered}
+            hasActiveFilters={hasActiveFilters}
             metricsFailed={data.metricsFailed}
             metricsLoading={data.metricsLoading}
             modelMetrics24h={data.modelMetrics24h}
@@ -372,17 +394,18 @@ export function ModelsFeaturePage() {
             onSelectionChange={setSelectedIds}
             onSetEnabled={data.setModelEnabled}
             onSetManyEnabled={data.setModelsEnabled}
+            onShowEntries={() => patchSearch({ view: undefined })}
             onSort={(column, direction) =>
               patchSearch({ sort_by: column, sort_order: direction })
             }
             page={search.page ?? 1}
             pageSize={search.page_size}
-            search={filters.search}
             selectedIds={selectedIds}
             setDeleteTarget={data.setDeleteTarget}
             sortBy={search.sort_by ?? "name"}
             sortOrder={search.sort_order ?? "asc"}
             togglingModelIds={data.togglingModelIds}
+            view={view}
           />
         </CardContent>
       </Card>

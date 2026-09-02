@@ -52,6 +52,7 @@ import type { ModelDerivedMetric } from "@/pages/models/modelTableContracts"
 import type { ObservabilityScope } from "@/lib/types/model-stats"
 import { isSingleTruncated } from "./modelRoutingFlags"
 import { ModelExitMappingCell } from "./ModelExitMappingCell"
+import type { ModelInventoryView } from "./modelView"
 
 const MODEL_PAGE_SIZES = [25, 50, 100] as const
 const MODEL_COLUMN_COUNT = 10
@@ -70,6 +71,7 @@ export type ModelSortColumn =
 type Props = {
   scope: ObservabilityScope
   filtered: ManagedModelConfigListItem[]
+  hasActiveFilters: boolean
   metricsFailed: boolean
   metricsLoading: boolean
   modelMetrics24h: Record<number, ModelDerivedMetric>
@@ -82,15 +84,16 @@ type Props = {
   onSelectionChange: (ids: Set<number>) => void
   onSetEnabled: (model: ManagedModelConfigListItem, enabled: boolean) => Promise<boolean>
   onSetManyEnabled: (models: ManagedModelConfigListItem[], enabled: boolean) => Promise<void>
+  onShowEntries: () => void
   onSort: (column: ModelSortColumn, direction: OperationalSortDirection) => void
   page: number
   pageSize?: number
-  search: string
   selectedIds: Set<number>
   setDeleteTarget: (model: ManagedModelConfigListItem) => void
   sortBy: ModelSortColumn
   sortOrder: OperationalSortDirection
   togglingModelIds: Set<number>
+  view: ModelInventoryView
 }
 
 function modelTitle(model: ManagedModelConfigListItem) {
@@ -106,6 +109,11 @@ function ModelIdentityCell({ model }: { model: ManagedModelConfigListItem }) {
     <div className="flex min-w-56 flex-col gap-0.5">
       <div className="flex min-w-0 items-center gap-1">
         <span className="truncate font-medium" title={title}>{title}</span>
+        <OperatorTypeBadge
+          intent={model.direct_request_enabled === true ? "accent" : "neutral"}
+          label={model.direct_request_enabled === true ? messages.modelsPage.viewEntries : messages.modelsPage.viewModelTargets}
+          preserveLabel
+        />
         <CopyButton
           aria-label={messages.modelDetail.copyModelIdAria(model.model_id)}
           className="size-6 rounded-md text-muted-foreground hover:text-foreground"
@@ -118,6 +126,14 @@ function ModelIdentityCell({ model }: { model: ManagedModelConfigListItem }) {
         />
       </div>
       {showModelId ? <span className="truncate font-mono text-xs text-muted-foreground">{model.model_id}</span> : null}
+      {model.direct_request_enabled === false && model.incoming_model_target_count === 0 ? (
+        <span
+          className="text-xs text-muted-foreground"
+          title={model.configuration_warnings?.find((warning) => warning.code === "model_target_unreferenced")?.message}
+        >
+          {messages.modelsPage.unreferencedModelTarget}
+        </span>
+      ) : null}
     </div>
   )
 }
@@ -219,6 +235,7 @@ function MetricValue({
 export function ModelsTable({
   scope,
   filtered,
+  hasActiveFilters,
   metricsFailed,
   metricsLoading,
   modelMetrics24h,
@@ -231,15 +248,16 @@ export function ModelsTable({
   onSelectionChange,
   onSetEnabled,
   onSetManyEnabled,
+  onShowEntries,
   onSort,
   page,
   pageSize,
-  search,
   selectedIds,
   setDeleteTarget,
   sortBy,
   sortOrder,
   togglingModelIds,
+  view,
 }: Props) {
   const { currencyState } = useReportingCurrencyContext()
   const { formatNumber, locale, messages } = useLocale()
@@ -286,14 +304,29 @@ export function ModelsTable({
   }
 
   if (filtered.length === 0) {
+    const modelTargetViewEmpty = view === "model_targets" && !hasActiveFilters
     return (
       <OperatorEmptyState
         icon={<Server />}
-        title={search ? messages.modelsUi.noModelsMatchSearch : messages.modelsUi.noModelsConfigured}
-        description={search ? messages.modelsUi.tryDifferentModelNameOrId : messages.modelsUi.createFirstModel}
+        title={
+          hasActiveFilters
+            ? copy.noModelsMatchFilters
+            : modelTargetViewEmpty
+              ? copy.noModelTargetsConfigured
+              : messages.modelsUi.noModelsConfigured
+        }
+        description={
+          hasActiveFilters
+            ? copy.tryDifferentFilters
+            : modelTargetViewEmpty
+              ? copy.addModelTargetFromEntry
+              : messages.modelsUi.createFirstModel
+        }
         action={
-          search ? (
+          hasActiveFilters ? (
             <Button variant="outline" onClick={onClearFilters}>{copy.clearFilters}</Button>
+          ) : modelTargetViewEmpty ? (
+            <Button variant="outline" onClick={onShowEntries}>{copy.viewEntries}</Button>
           ) : (
             // Same entry point as the page header: one way to create a model.
             <Button onClick={onCreate}><Plus data-icon="inline-start" />{copy.newModel}</Button>

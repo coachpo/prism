@@ -46,16 +46,20 @@ func TestUpstreamModelIDPerAttemptRewrite(t *testing.T) {
 	for _, scenario := range scenarios {
 		t.Run(scenario.name, func(t *testing.T) {
 			service := newRequestPlanUnitService()
-			model := runtimeModelRecord{ID: 1, APIFamily: scenario.apiFamily, ModelID: "entry-model"}
+			entryModel := runtimeModelRecord{ID: 1, APIFamily: scenario.apiFamily, ModelID: "entry-model"}
+			internalModel := runtimeModelRecord{ID: 2, APIFamily: scenario.apiFamily, ModelID: "internal-model"}
 			if strings.HasPrefix(scenario.path, "/v1/images/") {
-				model.OpenAIImageOperations = stringPtr(providerauth.OpenAIImageCapabilityGenerationsAndEdits)
+				entryModel.OpenAIImageOperations = stringPtr(providerauth.OpenAIImageCapabilityGenerationsAndEdits)
+				internalModel.OpenAIImageOperations = stringPtr(providerauth.OpenAIImageCapabilityGenerationsAndEdits)
 			}
-			snapshot := newRequestPlanSnapshot(model)
-			setSnapshotUpstreamModelID(snapshot, 1001, "Vendor/Upstream Model-X")
+			snapshot := newRequestPlanSnapshot(entryModel, internalModel)
+			setRequestPlanModelDirectEntry(snapshot, "internal-model", false)
+			addRequestPlanProxyTarget(snapshot, "entry-model", "internal-model")
+			setSnapshotUpstreamModelID(snapshot, 1002, "Vendor/Upstream Model-X")
 			if strings.HasPrefix(scenario.path, "/v1/images/") {
-				connection := snapshot.TerminalTargetsByID[1001]
+				connection := snapshot.TerminalTargetsByID[1002]
 				connection.OpenAIImageCapability = stringPtr(providerauth.OpenAIImageCapabilityGenerationsAndEdits)
-				snapshot.TerminalTargetsByID[1001] = connection
+				snapshot.TerminalTargetsByID[1002] = connection
 			}
 
 			operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, scenario.path)
@@ -77,7 +81,7 @@ func TestUpstreamModelIDPerAttemptRewrite(t *testing.T) {
 			if plan.IsStreamingRequest != scenario.stream {
 				t.Fatalf("expected streaming=%v, got %v", scenario.stream, plan.IsStreamingRequest)
 			}
-			if plan.ResolvedTargetModelID == nil || *plan.ResolvedTargetModelID != "entry-model" || plan.ResolvedPricingModelID != "entry-model" {
+			if plan.ResolvedTargetModelID == nil || *plan.ResolvedTargetModelID != "internal-model" || plan.ResolvedPricingModelID != "internal-model" {
 				t.Fatalf("logical attribution drifted: resolved=%+v pricing=%q", plan.ResolvedTargetModelID, plan.ResolvedPricingModelID)
 			}
 			coveredOperations[operationMatch.Operation.Name] = true
@@ -93,10 +97,15 @@ func TestUpstreamModelIDPerAttemptRewrite(t *testing.T) {
 
 func TestUpstreamModelIDPlanningFailsClosedWhenIdentityIsMissing(t *testing.T) {
 	service := newRequestPlanUnitService()
-	snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "entry-model"})
-	connection := snapshot.TerminalTargetsByID[1001]
+	snapshot := newRequestPlanSnapshot(
+		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "entry-model"},
+		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "internal-model"},
+	)
+	setRequestPlanModelDirectEntry(snapshot, "internal-model", false)
+	addRequestPlanProxyTarget(snapshot, "entry-model", "internal-model")
+	connection := snapshot.TerminalTargetsByID[1002]
 	connection.UpstreamModelID = nil
-	snapshot.TerminalTargetsByID[1001] = connection
+	snapshot.TerminalTargetsByID[1002] = connection
 
 	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/chat/completions")
 	_, err := service.buildTestRequestPlanFromSnapshot(httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil), []byte(`{"model":"entry-model","messages":[]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)

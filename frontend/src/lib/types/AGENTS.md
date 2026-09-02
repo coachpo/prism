@@ -48,6 +48,7 @@ types/
 
 - Keep server field names exactly as JSON uses them: snake_case stays snake_case.
 - Route-witness coverage is lowercase and retains `route_schedule`; model list contracts retain authoritative `routing_summary`. Family-discriminated create types prohibit OpenAI-only keys for non-OpenAI families.
+- Model management contracts carry required `direct_request_enabled`, `incoming_model_target_count`, and `configuration_warnings`; the direct bit is the only client-entry qualification while Model Target summaries remain full graph nodes.
 - Preserve nullable versus optional semantics from backend responses; do not collapse `null`, missing, and empty values.
 - Add new contract fields in the narrow leaf file and re-export only through `../types.ts`; request-log list, chain, detail, filter, and query types stay together in `request-logs.ts`.
 - Keep frontend-only display labels, derived state, and form drafts outside this directory.

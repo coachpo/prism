@@ -19,7 +19,73 @@ func TestRuntimeCacheInvalidation(t *testing.T) {
 	t.Run("AuthCacheInvalidationAfterAuthDisable", runtimeAuthCacheInvalidationAfterAuthDisable)
 	t.Run("PlanningCacheInvalidationAfterHeaderBlocklistWrite", runtimePlanningCacheInvalidationAfterHeaderBlocklistWrite)
 	t.Run("PlanningCacheInvalidationAfterAuditSettingsWrite", runtimePlanningCacheInvalidationAfterAuditSettingsWrite)
+	t.Run("PlanningCacheInvalidationAfterDirectRequestQualification", runtimePlanningCacheInvalidationAfterDirectRequestQualification)
 	t.Run("PlanningCacheInvalidationAfterOwnerScopedConnectionAndTargetMutations", runtimePlanningCacheInvalidationAfterOwnerScopedConnectionAndTargetMutations)
+}
+
+func runtimePlanningCacheInvalidationAfterDirectRequestQualification(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	upstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "direct-cache-response"})
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:       profileID,
+		APIFamily:       "openai",
+		PublicModelID:   "direct-cache-entry-" + suffix,
+		TargetModelID:   "direct-cache-internal-" + suffix,
+		EndpointBaseURL: upstream.baseURL("/cache-invalidation/direct-entry"),
+		EndpointAPIKey:  "direct-cache-key",
+	})
+	var targetModelConfigID int
+	if err := harness.conn.QueryRow(context.Background(), `SELECT id FROM model_configs WHERE profile_id = $1 AND model_id = $2`, profileID, route.TargetModelID).Scan(&targetModelConfigID); err != nil {
+		t.Fatalf("load target model config: %v", err)
+	}
+
+	assertRuntimeRequestRoutesToScriptedUpstream(t, harness, route.TargetModelID, route.TargetModelID, upstream, "/cache-invalidation/direct-entry/v1/chat/completions")
+	assertRuntimeModelsMembership(t, harness, route.TargetModelID, true)
+
+	generation := harness.runtimeCache.PublishedGeneration()
+	update := harness.requestJSON(t, http.MethodPut, fmt.Sprintf("/api/models/%d", targetModelConfigID), map[string]any{"direct_request_enabled": false}, runtimeModelHeader(profileID))
+	assertStatus(t, update, http.StatusOK)
+	harness.waitForRuntimeSnapshotGeneration(t, generation)
+
+	beforeRejected := len(upstream.requestsSnapshot())
+	rejected := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{"messages": []map[string]any{}, "model": route.TargetModelID}, nil)
+	assertStatus(t, rejected, http.StatusNotFound)
+	if got := len(upstream.requestsSnapshot()); got != beforeRejected {
+		t.Fatalf("non-entry direct request reached upstream: before=%d after=%d", beforeRejected, got)
+	}
+	assertRuntimeRequestRoutesToScriptedUpstream(t, harness, route.PublicModelID, route.TargetModelID, upstream, "/cache-invalidation/direct-entry/v1/chat/completions")
+	assertRuntimeModelsMembership(t, harness, route.TargetModelID, false)
+
+	generation = harness.runtimeCache.PublishedGeneration()
+	update = harness.requestJSON(t, http.MethodPut, fmt.Sprintf("/api/models/%d", targetModelConfigID), map[string]any{"direct_request_enabled": true}, runtimeModelHeader(profileID))
+	assertStatus(t, update, http.StatusOK)
+	harness.waitForRuntimeSnapshotGeneration(t, generation)
+	assertRuntimeRequestRoutesToScriptedUpstream(t, harness, route.TargetModelID, route.TargetModelID, upstream, "/cache-invalidation/direct-entry/v1/chat/completions")
+	assertRuntimeModelsMembership(t, harness, route.TargetModelID, true)
+}
+
+func assertRuntimeModelsMembership(t *testing.T, harness *runtimeHarness, modelID string, want bool) {
+	t.Helper()
+	response := harness.requestJSON(t, http.MethodGet, "/v1/models", nil, nil)
+	assertStatus(t, response, http.StatusOK)
+	var payload struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	decodeJSONResponse(t, response, &payload)
+	found := false
+	for _, model := range payload.Data {
+		if model.ID == modelID {
+			found = true
+			break
+		}
+	}
+	if found != want {
+		t.Fatalf("expected /v1/models membership for %q to be %v, got %+v", modelID, want, payload.Data)
+	}
 }
 
 func runtimeAuthCacheInvalidationAfterProxyKeyRotation(t *testing.T) {

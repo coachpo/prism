@@ -11,6 +11,7 @@ import type { LoadbalanceStrategySummary } from "./loadbalance";
 import type { UsageSnapshotPreset } from "./usage-statistics";
 import type { PersistedTerminalTargetType } from "./target-compatibility";
 import type { StreamOutcome } from "./request-logs";
+import type { ConfigurationWarning } from "./routing-diagnostics";
 
 export type ModelAccessTargetType = "model" | PersistedTerminalTargetType;
 
@@ -22,6 +23,8 @@ export interface ModelAccessTargetModelSummary {
   display_name: string | null;
   openai_accepted_format: OpenAIAcceptedFormat | null;
   openai_image_operations: OpenAIImageOperations | null;
+  direct_request_enabled: boolean;
+  incoming_model_target_count: number;
   loadbalance_strategy_id: number | null;
   is_enabled: boolean;
 }
@@ -76,10 +79,13 @@ export interface ModelConfig {
   display_name: string | null;
   openai_accepted_format: OpenAIAcceptedFormat | null;
   openai_image_operations: OpenAIImageOperations | null;
+  direct_request_enabled: boolean;
   loadbalance_strategy_id: number | null;
   loadbalance_strategy: LoadbalanceStrategySummary | null;
   access_targets: ModelAccessTarget[];
   is_enabled: boolean;
+  incoming_model_target_count: number;
+  configuration_warnings: ConfigurationWarning[];
   created_at: string;
   updated_at: string;
 }
@@ -92,6 +98,7 @@ export interface ModelConfigListItem {
   display_name: string | null;
   openai_accepted_format: OpenAIAcceptedFormat | null;
   openai_image_operations: OpenAIImageOperations | null;
+  direct_request_enabled: boolean;
   loadbalance_strategy_id: number | null;
   loadbalance_strategy: LoadbalanceStrategySummary | null;
   access_targets: ModelAccessTarget[];
@@ -101,6 +108,8 @@ export interface ModelConfigListItem {
   health_success_rate: number | null;
   health_total_requests: number;
   routing_summary: ModelRoutingSummary | null;
+  incoming_model_target_count: number;
+  configuration_warnings: ConfigurationWarning[];
   created_at: string;
   updated_at: string;
 }
@@ -138,6 +147,7 @@ interface ModelConfigMutationCommon {
   display_name?: string | null;
   loadbalance_strategy_id?: number;
   is_enabled?: boolean;
+  direct_request_enabled?: boolean;
 }
 
 interface ModelConfigCreateRequired extends ModelConfigMutationCommon {

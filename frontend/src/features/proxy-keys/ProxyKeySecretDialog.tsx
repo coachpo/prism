@@ -20,6 +20,7 @@ import type { ModelConfigListItem } from "@/lib/types"
 import { RuntimeSelfTestDialog } from "@/features/runtime-self-test/RuntimeSelfTestDialog"
 import type { SelfTestRequestSpec } from "@/features/runtime-self-test/selfTestTypes"
 import type { GeneratedProxyKeyState } from "./generatedSecretSession"
+import { runtimeSelfTestModelCandidates } from "@/features/runtime-self-test/modelCandidates"
 
 interface ProxyKeySecretDialogProps {
   state: GeneratedProxyKeyState
@@ -34,10 +35,6 @@ interface ProxyKeySecretDialogProps {
   onRetryModels: () => void
   onSetSavedAck: (acknowledged: boolean) => void
   onFinish: () => void
-}
-
-function eligibleModels(models: ModelConfigListItem[]): ModelConfigListItem[] {
-  return models.filter((model) => model.is_enabled)
 }
 
 export function ProxyKeySecretDialog({
@@ -61,14 +58,14 @@ export function ProxyKeySecretDialog({
   // the dialog is remounted per session via key at the call site, so no
   // effect is needed to seed it.
   const [selectedModelId, setSelectedModelId] = useState<string>(() =>
-    eligibleModels(models)[0]?.model_id ?? "",
+    runtimeSelfTestModelCandidates(models)[0]?.model_id ?? "",
   )
   const [selectedOpenAIOperation, setSelectedOpenAIOperation] = useState<"responses" | "chat_completions">("responses")
   const [selfTestOpen, setSelfTestOpen] = useState(false)
   const [closeAttemptAnnounced, setCloseAttemptAnnounced] = useState(false)
   const announcementRef = useRef<HTMLDivElement | null>(null)
 
-  const candidates = useMemo(() => eligibleModels(models), [models])
+  const candidates = useMemo(() => runtimeSelfTestModelCandidates(models), [models])
   const selectedModel = useMemo(
     () => candidates.find((model) => model.model_id === selectedModelId) ?? candidates[0] ?? null,
     [candidates, selectedModelId],

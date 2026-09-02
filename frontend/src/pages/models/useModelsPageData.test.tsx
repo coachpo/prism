@@ -110,10 +110,12 @@ function modelConfig(overrides: Partial<ModelConfig> = {}): ModelConfig {
     display_name: "GPT Entry",
     openai_accepted_format: "dual_native",
     openai_image_operations: null,
+    direct_request_enabled: true,
     loadbalance_strategy_id: 7,
     loadbalance_strategy: initialStrategies[0],
     access_targets: [],
     is_enabled: true,
+    incoming_model_target_count: 0,
     created_at: "2026-08-01T00:00:00Z",
     updated_at: "2026-08-01T00:00:00Z",
     ...overrides,
@@ -128,6 +130,8 @@ function modelListItem(overrides: Partial<ModelConfig> = {}) {
     active_connection_count: 0,
     health_success_rate: null,
     health_total_requests: 0,
+    routing_summary: null,
+    configuration_warnings: [],
   } as ManagedModelConfigListItem;
 }
 

@@ -36,6 +36,9 @@ const (
 	// for every provider, so this code has no OpenAI gate. The precedent is
 	// single_strategy_truncates_targets, which is likewise ungated.
 	WarningCodeTerminalTargetScheduleLimitsAvailability = "terminal_target_schedule_limits_availability"
+	// WarningCodeModelTargetUnreferenced is a management projection warning for
+	// a non-entry model that has no incoming Model Target edge.
+	WarningCodeModelTargetUnreferenced = "model_target_unreferenced"
 )
 
 // Routing-schedule availability reasons carried in Details["reason"].

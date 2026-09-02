@@ -130,6 +130,7 @@ export interface ExportSourceModelRow {
  api_family: string;
  display_name: string | null;
  is_enabled: boolean;
+ direct_request_enabled: boolean;
  selectable: boolean;
  unselectable_reason?: string;
  openai_accepted_format?: string;

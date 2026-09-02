@@ -3,6 +3,7 @@ import type { ManagedModelConfigListItem } from "@/lib/api/models"
 import {
   OperatorMissingValue,
   OperatorStatusBadge,
+  OperatorTypeBadge,
 } from "@/shared/design-system"
 import { projectExitMapping } from "./modelExitMapping"
 
@@ -134,13 +135,17 @@ function ExitMappingItemLine({
           reason={copy.exitUpstreamMissingReason}
         />
       )}
-      {decoupled ? (
-        <span
-          className="shrink-0 text-muted-foreground"
-          title={copy.exitDecoupledReason(entryModelId, upstreamModelId)}
-        >
-          {copy.exitDecoupled}
-        </span>
+      {upstreamModelId ? (
+        <OperatorTypeBadge
+          intent={decoupled ? "accent" : "neutral"}
+          label={decoupled ? copy.exitUpstreamOnly : copy.exitEntrySame}
+          preserveLabel
+          title={
+            decoupled
+              ? copy.exitUpstreamOnlyReason(entryModelId, upstreamModelId)
+              : copy.exitEntrySameReason(entryModelId)
+          }
+        />
       ) : null}
       {!item.isEnabled ? (
         <span

@@ -32,6 +32,7 @@
 - Treat `tests/priority/` as the guardrail for no-inline side effects, scheduler-owned background work, and DB lane isolation.
 - Keep partitioned log tests aligned with `internal/platform/logretention/`, runtime partition ensuring, and the baseline migration `000001_initial_schema.sql`.
 - Keep hard-delete guardrail tests aligned with model CRUD validation, runtime request-log final-target attribution, and the live baseline migration.
+- Direct-entry coverage spans model management (create/update omission and boolean/null validation, projection, incoming-reference warning), runtime (direct lookup before downstream side effects versus all-node recursive routing), route-witness/setup roots, `/v1/models`, Pi export, and proxy-key self-test selectors. Migration tests for 000032 must prove retained rows default true without rewriting history.
 - Keep Dockerfile contract tests aligned with non-root `prism:prism` execution, `/app/config` ownership, and `/app/config/config.json` defaults.
 - Keep bootstrap tests aligned with the plaintext v1 contract: required `runtime.sideEffects.attemptTimeout`, the removed `runtime.transport` section rejected with a readable migration error, unsupported legacy encrypted files, restart-required external edits, preserved existing valid files, and parse-only mail config compatibility.
 - Keep runtime contract tests aligned with `internal/httpapi/runtime/operations.go`, hook residency, rejected-route isolation, streaming or non-streaming parity, and persisted `operation_name` fields.

@@ -40,6 +40,9 @@ func TestBuildPlanningSnapshotFreezesRoutingAssemblyContract(t *testing.T) {
 	if model.ID != 11 || model.ProfileID != profileID || model.APIFamily != "openai" {
 		t.Fatalf("unexpected model identity: %+v", model)
 	}
+	if direct, ok := snapshot.DirectModelsByID["router-openai"]; !ok || direct.ID != model.ID {
+		t.Fatalf("expected direct-entry model index to carry router-openai, got %+v", snapshot.DirectModelsByID)
+	}
 	if !model.CreatedAt.Equal(time.Unix(2, 0).UTC()) {
 		t.Fatalf("expected model created_at to survive snapshot assembly, got %+v", model.CreatedAt)
 	}
@@ -198,7 +201,7 @@ func (tx *runtimePlanningSnapshotFakeTx) Query(_ context.Context, query string, 
 
 	switch {
 	case strings.Contains(query, "FROM model_configs") && strings.Contains(query, "model_configs.loadbalance_strategy_id"):
-		return newRuntimePlanningRows([]any{11, 42, "openai", "router-openai", sql.NullInt32{Int32: 303, Valid: true}, sql.NullString{String: "dual_native", Valid: true}, sql.NullString{}, time.Unix(2, 0).UTC(), true, false}), nil
+		return newRuntimePlanningRows([]any{11, 42, "openai", "router-openai", sql.NullInt32{Int32: 303, Valid: true}, sql.NullString{String: "dual_native", Valid: true}, sql.NullString{}, true, time.Unix(2, 0).UTC(), true, false}), nil
 	case strings.Contains(query, "FROM model_access_targets"):
 		return newRuntimePlanningRows([]any{501, 42, 11, runtimeAccessTargetTypeConnection, sql.NullInt32{}, sql.NullString{}, sql.NullInt32{}, sql.NullString{}, sql.NullBool{}, sql.NullInt32{Int32: 901, Valid: true}, sql.NullInt32{Int32: 42, Valid: true}, sql.NullString{String: "openai", Valid: true}, sql.NullString{String: providerauth.OpenAITextCapabilityChatCompletionsOnly, Valid: true}, sql.NullString{}, 2, true}), nil
 	case strings.Contains(query, "FROM loadbalance_strategies"):

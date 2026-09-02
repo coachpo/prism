@@ -17,7 +17,7 @@ func ptr[T any](value T) *T { return &value }
 func TestAnalyzeRouteWitnessSnapshotDirectTerminalTargets(t *testing.T) {
 	graph := &DiagnosticsGraph{
 		ModelsByID: map[int]DiagnosticsModel{
-			1: {ConfigID: 1, ProfileID: 1, ModelID: "dual-model", APIFamily: "openai", IsEnabled: true, OpenAIAcceptedFormat: ptr("dual_native"), LoadbalanceStrategyID: strategyPtr(10)},
+			1: {ConfigID: 1, ProfileID: 1, ModelID: "dual-model", APIFamily: "openai", IsEnabled: true, DirectRequestEnabled: true, OpenAIAcceptedFormat: ptr("dual_native"), LoadbalanceStrategyID: strategyPtr(10)},
 			2: {ConfigID: 2, ProfileID: 1, ModelID: "disabled-model", APIFamily: "openai", IsEnabled: false, OpenAIAcceptedFormat: ptr("dual_native"), LoadbalanceStrategyID: strategyPtr(10)},
 		},
 		AccessTargetsBySourceModelID: map[int][]DiagnosticsAccessTarget{
@@ -81,8 +81,8 @@ func TestAnalyzeRouteWitnessSnapshotResolvesThroughModelTarget(t *testing.T) {
 	// Parent has no terminal targets; child model has a terminal target.
 	graph := &DiagnosticsGraph{
 		ModelsByID: map[int]DiagnosticsModel{
-			1: {ConfigID: 1, ProfileID: 1, ModelID: "parent", APIFamily: "openai", IsEnabled: true, OpenAIAcceptedFormat: ptr("dual_native"), LoadbalanceStrategyID: strategyPtr(10)},
-			2: {ConfigID: 2, ProfileID: 1, ModelID: "child", APIFamily: "openai", IsEnabled: true, OpenAIAcceptedFormat: ptr("chat_completions_only"), LoadbalanceStrategyID: strategyPtr(10)},
+			1: {ConfigID: 1, ProfileID: 1, ModelID: "parent", APIFamily: "openai", IsEnabled: true, DirectRequestEnabled: true, OpenAIAcceptedFormat: ptr("dual_native"), LoadbalanceStrategyID: strategyPtr(10)},
+			2: {ConfigID: 2, ProfileID: 1, ModelID: "child", APIFamily: "openai", IsEnabled: true, DirectRequestEnabled: true, OpenAIAcceptedFormat: ptr("chat_completions_only"), LoadbalanceStrategyID: strategyPtr(10)},
 		},
 		AccessTargetsBySourceModelID: map[int][]DiagnosticsAccessTarget{
 			1: {
@@ -113,12 +113,37 @@ func TestAnalyzeRouteWitnessSnapshotResolvesThroughModelTarget(t *testing.T) {
 	}
 }
 
+func TestAnalyzeRouteWitnessSnapshotKeepsNonEntryNodesButRootsOnlyDirectEntries(t *testing.T) {
+	graph := &DiagnosticsGraph{
+		ModelsByID: map[int]DiagnosticsModel{
+			1: {ConfigID: 1, ProfileID: 1, ModelID: "entry", APIFamily: "anthropic", IsEnabled: true, DirectRequestEnabled: true, LoadbalanceStrategyID: strategyPtr(10)},
+			2: {ConfigID: 2, ProfileID: 1, ModelID: "internal-target", APIFamily: "anthropic", IsEnabled: true, DirectRequestEnabled: false, LoadbalanceStrategyID: strategyPtr(10)},
+		},
+		AccessTargetsBySourceModelID: map[int][]DiagnosticsAccessTarget{
+			1: {{ID: 101, SourceModelConfigID: 1, TargetType: "model", TargetModelConfigID: ptr(2), Position: 0, IsEnabled: true}},
+			2: {{ID: 102, SourceModelConfigID: 2, TargetType: "connection", TargetConnectionID: ptr(501), Position: 0, IsEnabled: true}},
+		},
+		ConnectionsByID: map[int]DiagnosticsConnection{
+			501: {ID: 501, ProfileID: 1, APIFamily: "anthropic", EndpointID: 1501, IsActive: true},
+		},
+		StrategiesByModelID: map[int]DiagnosticsStrategy{10: {ID: 10, Subtype: "fill-first"}},
+	}
+	snapshot := AnalyzeRouteWitnessSnapshotWithOperations(graph, 3, []RouteWitnessOperation{{Name: "anthropic.messages", APIFamily: "anthropic"}})
+	if len(snapshot.Witnesses) != 2 || len(snapshot.DirectWitnesses) != 1 {
+		t.Fatalf("expected all graph witnesses plus one direct root witness, all=%+v direct=%+v", snapshot.Witnesses, snapshot.DirectWitnesses)
+	}
+	readiness := snapshot.ProfileReadiness()
+	if readiness.RouteWitnessCount == nil || *readiness.RouteWitnessCount != 1 || readiness.RepresentativeWitness == nil || readiness.RepresentativeWitness.ModelID != "entry" {
+		t.Fatalf("profile readiness must use direct roots only: %+v", readiness)
+	}
+}
+
 func TestAnalyzeRouteWitnessSnapshotCycleSafe(t *testing.T) {
 	// A <-> B model-target cycle must not hang or duplicate witnesses.
 	graph := &DiagnosticsGraph{
 		ModelsByID: map[int]DiagnosticsModel{
-			1: {ConfigID: 1, ProfileID: 1, ModelID: "a", APIFamily: "openai", IsEnabled: true, OpenAIAcceptedFormat: ptr("dual_native"), LoadbalanceStrategyID: strategyPtr(10)},
-			2: {ConfigID: 2, ProfileID: 1, ModelID: "b", APIFamily: "openai", IsEnabled: true, OpenAIAcceptedFormat: ptr("dual_native"), LoadbalanceStrategyID: strategyPtr(10)},
+			1: {ConfigID: 1, ProfileID: 1, ModelID: "a", APIFamily: "openai", IsEnabled: true, DirectRequestEnabled: true, OpenAIAcceptedFormat: ptr("dual_native"), LoadbalanceStrategyID: strategyPtr(10)},
+			2: {ConfigID: 2, ProfileID: 1, ModelID: "b", APIFamily: "openai", IsEnabled: true, DirectRequestEnabled: true, OpenAIAcceptedFormat: ptr("dual_native"), LoadbalanceStrategyID: strategyPtr(10)},
 		},
 		AccessTargetsBySourceModelID: map[int][]DiagnosticsAccessTarget{
 			1: {{ID: 301, SourceModelConfigID: 1, TargetType: "model", TargetModelConfigID: ptr(2), Position: 0, IsEnabled: true}},
@@ -136,7 +161,7 @@ func TestAnalyzeRouteWitnessSnapshotCycleSafe(t *testing.T) {
 func TestAnalyzeRouteWitnessSnapshotUnresolvableStrategy(t *testing.T) {
 	graph := &DiagnosticsGraph{
 		ModelsByID: map[int]DiagnosticsModel{
-			1: {ConfigID: 1, ProfileID: 1, ModelID: "broken", APIFamily: "openai", IsEnabled: true, OpenAIAcceptedFormat: ptr("dual_native"), LoadbalanceStrategyID: strategyPtr(999)},
+			1: {ConfigID: 1, ProfileID: 1, ModelID: "broken", APIFamily: "openai", IsEnabled: true, DirectRequestEnabled: true, OpenAIAcceptedFormat: ptr("dual_native"), LoadbalanceStrategyID: strategyPtr(999)},
 		},
 		AccessTargetsBySourceModelID: map[int][]DiagnosticsAccessTarget{},
 		ConnectionsByID:              map[int]DiagnosticsConnection{},
@@ -157,7 +182,7 @@ func TestAnalyzeRouteWitnessSnapshotDeterministicOrder(t *testing.T) {
 	// numerically smallest terminal target regardless of authored order.
 	graph := &DiagnosticsGraph{
 		ModelsByID: map[int]DiagnosticsModel{
-			1: {ConfigID: 1, ProfileID: 1, ModelID: "m", APIFamily: "openai", IsEnabled: true, OpenAIAcceptedFormat: ptr("dual_native"), LoadbalanceStrategyID: strategyPtr(10)},
+			1: {ConfigID: 1, ProfileID: 1, ModelID: "m", APIFamily: "openai", IsEnabled: true, DirectRequestEnabled: true, OpenAIAcceptedFormat: ptr("dual_native"), LoadbalanceStrategyID: strategyPtr(10)},
 		},
 		AccessTargetsBySourceModelID: map[int][]DiagnosticsAccessTarget{
 			1: {
@@ -178,12 +203,35 @@ func TestAnalyzeRouteWitnessSnapshotDeterministicOrder(t *testing.T) {
 	}
 }
 
+func TestAnalyzeRouteWitnessSnapshotDirectRepresentativePreservesModelOrder(t *testing.T) {
+	graph := &DiagnosticsGraph{
+		ModelsByID: map[int]DiagnosticsModel{
+			1: {ConfigID: 1, ProfileID: 1, ModelID: "first", APIFamily: "anthropic", IsEnabled: true, DirectRequestEnabled: true, LoadbalanceStrategyID: strategyPtr(10)},
+			2: {ConfigID: 2, ProfileID: 1, ModelID: "second", APIFamily: "anthropic", IsEnabled: true, DirectRequestEnabled: true, LoadbalanceStrategyID: strategyPtr(10)},
+		},
+		AccessTargetsBySourceModelID: map[int][]DiagnosticsAccessTarget{
+			1: {{ID: 101, SourceModelConfigID: 1, TargetType: TargetTypeTerminal, TargetConnectionID: ptr(900), Position: 0, IsEnabled: true}},
+			2: {{ID: 102, SourceModelConfigID: 2, TargetType: TargetTypeTerminal, TargetConnectionID: ptr(100), Position: 0, IsEnabled: true}},
+		},
+		ConnectionsByID: map[int]DiagnosticsConnection{
+			100: {ID: 100, ProfileID: 1, APIFamily: "anthropic", EndpointID: 1000, IsActive: true},
+			900: {ID: 900, ProfileID: 1, APIFamily: "anthropic", EndpointID: 9000, IsActive: true},
+		},
+		StrategiesByModelID: map[int]DiagnosticsStrategy{10: {ID: 10, Subtype: "fill-first"}},
+	}
+	snapshot := AnalyzeRouteWitnessSnapshotWithOperations(graph, 1, []RouteWitnessOperation{{Name: "anthropic.messages", APIFamily: "anthropic"}})
+	representative := snapshot.RepresentativeWitnessRef()
+	if representative == nil || representative.ModelConfigID != "1" || representative.TerminalTargetID != "900" {
+		t.Fatalf("expected direct representative to use canonical model-config order, got %+v", representative)
+	}
+}
+
 func TestAnalyzeRouteWitnessSnapshotSupportsRegisteredFamiliesAndEndpointIdentity(t *testing.T) {
 	graph := &DiagnosticsGraph{
 		ModelsByID: map[int]DiagnosticsModel{
-			10: {ConfigID: 10, ProfileID: 1, ModelID: "anthropic-parent", APIFamily: "anthropic", IsEnabled: true, LoadbalanceStrategyID: strategyPtr(1)},
-			11: {ConfigID: 11, ProfileID: 1, ModelID: "anthropic-child", APIFamily: "anthropic", IsEnabled: true, LoadbalanceStrategyID: strategyPtr(1)},
-			20: {ConfigID: 20, ProfileID: 1, ModelID: "gemini-direct", APIFamily: "gemini", IsEnabled: true, LoadbalanceStrategyID: strategyPtr(1)},
+			10: {ConfigID: 10, ProfileID: 1, ModelID: "anthropic-parent", APIFamily: "anthropic", IsEnabled: true, DirectRequestEnabled: true, LoadbalanceStrategyID: strategyPtr(1)},
+			11: {ConfigID: 11, ProfileID: 1, ModelID: "anthropic-child", APIFamily: "anthropic", IsEnabled: true, DirectRequestEnabled: true, LoadbalanceStrategyID: strategyPtr(1)},
+			20: {ConfigID: 20, ProfileID: 1, ModelID: "gemini-direct", APIFamily: "gemini", IsEnabled: true, DirectRequestEnabled: true, LoadbalanceStrategyID: strategyPtr(1)},
 		},
 		AccessTargetsBySourceModelID: map[int][]DiagnosticsAccessTarget{
 			10: {{ID: 100, SourceModelConfigID: 10, TargetType: TargetTypeModel, TargetModelConfigID: ptr(11), Position: 0, IsEnabled: true}},
@@ -249,7 +297,7 @@ func TestAnalyzeRouteWitnessSnapshotRouteScheduleQualifier(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			graph := &DiagnosticsGraph{
 				ModelsByID: map[int]DiagnosticsModel{
-					1: {ConfigID: 1, ProfileID: 1, ModelID: "claude", APIFamily: "anthropic", IsEnabled: true, LoadbalanceStrategyID: strategyPtr(1)},
+					1: {ConfigID: 1, ProfileID: 1, ModelID: "claude", APIFamily: "anthropic", IsEnabled: true, DirectRequestEnabled: true, LoadbalanceStrategyID: strategyPtr(1)},
 				},
 				AccessTargetsBySourceModelID: map[int][]DiagnosticsAccessTarget{
 					1: {{ID: 10, SourceModelConfigID: 1, TargetType: TargetTypeTerminal, TargetConnectionID: ptr(20), Position: 0, IsEnabled: true}},
@@ -271,8 +319,8 @@ func TestAnalyzeRouteWitnessSnapshotRouteScheduleQualifier(t *testing.T) {
 func TestAnalyzeRouteWitnessSnapshotRejectsCrossFamilyModelChain(t *testing.T) {
 	graph := &DiagnosticsGraph{
 		ModelsByID: map[int]DiagnosticsModel{
-			1: {ConfigID: 1, ProfileID: 1, ModelID: "anthropic-parent", APIFamily: "anthropic", IsEnabled: true, LoadbalanceStrategyID: strategyPtr(1)},
-			2: {ConfigID: 2, ProfileID: 1, ModelID: "gemini-child", APIFamily: "gemini", IsEnabled: true, LoadbalanceStrategyID: strategyPtr(1)},
+			1: {ConfigID: 1, ProfileID: 1, ModelID: "anthropic-parent", APIFamily: "anthropic", IsEnabled: true, DirectRequestEnabled: true, LoadbalanceStrategyID: strategyPtr(1)},
+			2: {ConfigID: 2, ProfileID: 1, ModelID: "gemini-child", APIFamily: "gemini", IsEnabled: true, DirectRequestEnabled: true, LoadbalanceStrategyID: strategyPtr(1)},
 		},
 		AccessTargetsBySourceModelID: map[int][]DiagnosticsAccessTarget{
 			1: {{ID: 10, SourceModelConfigID: 1, TargetType: TargetTypeModel, TargetModelConfigID: ptr(2), Position: 0, IsEnabled: true}},
@@ -296,7 +344,7 @@ func TestAnalyzeRouteWitnessSnapshotRejectsCrossFamilyModelChain(t *testing.T) {
 func TestAnalyzeRouteWitnessSnapshotRequiresPositiveEndpointIdentity(t *testing.T) {
 	graph := &DiagnosticsGraph{
 		ModelsByID: map[int]DiagnosticsModel{
-			1: {ConfigID: 1, ProfileID: 1, ModelID: "claude", APIFamily: "anthropic", IsEnabled: true, LoadbalanceStrategyID: strategyPtr(1)},
+			1: {ConfigID: 1, ProfileID: 1, ModelID: "claude", APIFamily: "anthropic", IsEnabled: true, DirectRequestEnabled: true, LoadbalanceStrategyID: strategyPtr(1)},
 		},
 		AccessTargetsBySourceModelID: map[int][]DiagnosticsAccessTarget{
 			1: {{ID: 10, SourceModelConfigID: 1, TargetType: TargetTypeTerminal, TargetConnectionID: ptr(20), Position: 0, IsEnabled: true}},

@@ -51,6 +51,26 @@ func TestCompileRuntimeRoutingPlanBuildsCanonicalLookups(t *testing.T) {
 	}
 }
 
+func TestCompileRuntimeRoutingPlanSeparatesDirectEntriesFromGraphNodes(t *testing.T) {
+	snapshot := newRequestPlanSnapshot(
+		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "entry"},
+		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "internal-target"},
+	)
+	entry := snapshot.ModelsByID["entry"]
+	setRequestPlanModelDirectEntry(snapshot, "internal-target", false)
+	snapshot.DirectModelsByID = map[string]runtimeModelRecord{"entry": entry}
+	routingPlan, err := compileRuntimeRoutingPlan(snapshot)
+	if err != nil {
+		t.Fatalf("compile runtime routing plan: %v", err)
+	}
+	if _, ok := routingPlan.requestedModelByID("internal-target"); ok {
+		t.Fatal("non-entry model must not be directly requestable")
+	}
+	if _, ok := routingPlan.ModelsByID["internal-target"]; !ok {
+		t.Fatal("non-entry model must remain in the recursive graph lookup")
+	}
+}
+
 func TestCompileRuntimeRoutingPlanOrdersMixedEnabledTargetsByPositionThenID(t *testing.T) {
 	snapshot := newRequestPlanSnapshot(
 		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "router-openai"},
@@ -126,6 +146,8 @@ func TestCompileRuntimeRoutingPlanReportsStableValidationIssues(t *testing.T) {
 	}
 	want := []runtimeRoutingPlanValidationIssue{
 		{Code: "model_id_key_mismatch", Path: `plan.models_by_id["alias-openai"]`, Message: `model map key "alias-openai" does not match model_id "actual-openai"`},
+		{Code: "direct_model_missing", Path: `plan.models_by_id["alias-openai"]`, Message: `direct model "alias-openai" is missing from the direct model-id lookup`},
+		{Code: "direct_model_missing_full_lookup", Path: `plan.direct_models_by_id["actual-openai"]`, Message: `direct model "actual-openai" has no full model-id lookup`},
 		{Code: "model_config_missing_model_lookup", Path: "plan.models_by_config_id[1]", Message: `model config lookup for "actual-openai" has no model-id lookup`},
 	}
 	if len(issues) != len(want) {

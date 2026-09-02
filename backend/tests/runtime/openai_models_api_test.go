@@ -33,10 +33,17 @@ func TestOpenAIModelsAPIListsActiveEnabledOpenAIModelsOnly(t *testing.T) {
 	})
 	disabledOpenAIModelID := "models-api-disabled-" + suffix
 	disabledOpenAIConfigID := harness.seedModel(t, profileID, "openai", disabledOpenAIModelID, "native", nil)
+	var internalOpenAIConfigID int
+	if err := harness.conn.QueryRow(context.Background(), `SELECT id FROM model_configs WHERE profile_id = $1 AND model_id = $2`, profileID, openAIRoute.TargetModelID).Scan(&internalOpenAIConfigID); err != nil {
+		t.Fatalf("load internal OpenAI model: %v", err)
+	}
 	harness.seedModel(t, profileID, "anthropic", "models-api-anthropic-"+suffix, "native", nil)
 	harness.seedModel(t, profileID, "gemini", "models-api-gemini-"+suffix, "native", nil)
 	if _, err := harness.conn.Exec(context.Background(), `UPDATE model_configs SET is_enabled = FALSE WHERE id = $1`, disabledOpenAIConfigID); err != nil {
 		t.Fatalf("disable OpenAI model for /v1/models test: %v", err)
+	}
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE model_configs SET direct_request_enabled = FALSE WHERE id = $1`, internalOpenAIConfigID); err != nil {
+		t.Fatalf("mark internal OpenAI model non-direct for /v1/models test: %v", err)
 	}
 	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
 	harness.upstream.clear()
@@ -82,12 +89,12 @@ func TestOpenAIModelsAPIListsActiveEnabledOpenAIModelsOnly(t *testing.T) {
 				}
 				models[item.ID] = struct{}{}
 			}
-			for _, want := range []string{openAIRoute.PublicModelID, openAIRoute.TargetModelID} {
+			for _, want := range []string{openAIRoute.PublicModelID} {
 				if _, ok := models[want]; !ok {
 					t.Fatalf("expected /v1/models to include enabled OpenAI model %q, got %+v", want, payload.Data)
 				}
 			}
-			for _, unwanted := range []string{disabledOpenAIModelID, "models-api-anthropic-" + suffix, "models-api-gemini-" + suffix} {
+			for _, unwanted := range []string{openAIRoute.TargetModelID, disabledOpenAIModelID, "models-api-anthropic-" + suffix, "models-api-gemini-" + suffix} {
 				if _, ok := models[unwanted]; ok {
 					t.Fatalf("expected /v1/models to exclude %q, got %+v", unwanted, payload.Data)
 				}

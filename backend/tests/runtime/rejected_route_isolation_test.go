@@ -13,10 +13,11 @@ import (
 )
 
 type runtimeRejectedRoutePersistenceCounts struct {
-	RequestLogs int
-	AuditLogs   int
-	UsageEvents int
-	OutboxRows  int
+	RequestLogs       int
+	AuditLogs         int
+	UsageEvents       int
+	OutboxRows        int
+	LoadbalanceEvents int
 }
 
 func TestRejectedRouteIsolation_StaysOutsideTransportAdmissionSideEffectsAndPersistence(t *testing.T) {
@@ -219,13 +220,15 @@ func loadRuntimeRejectedRoutePersistenceCounts(t *testing.T, conn *pgx.Conn, pro
 			(SELECT COUNT(*) FROM request_logs WHERE profile_id = $1),
 			(SELECT COUNT(*) FROM audit_logs WHERE profile_id = $1),
 			(SELECT COUNT(*) FROM usage_request_events WHERE profile_id = $1),
-			(SELECT COUNT(*) FROM runtime_telemetry_outbox WHERE profile_id = $1)`,
+			(SELECT COUNT(*) FROM runtime_telemetry_outbox WHERE profile_id = $1),
+			(SELECT COUNT(*) FROM loadbalance_events WHERE profile_id = $1)`,
 		profileID,
 	).Scan(
 		&counts.RequestLogs,
 		&counts.AuditLogs,
 		&counts.UsageEvents,
 		&counts.OutboxRows,
+		&counts.LoadbalanceEvents,
 	); err != nil {
 		t.Fatalf("load rejected-route runtime persistence counts: %v", err)
 	}

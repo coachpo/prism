@@ -80,6 +80,7 @@ func loadRoutingDiagnosticsGraph(ctx context.Context, tx pgx.Tx, profileID int, 
 			ModelID:               record.ModelID,
 			APIFamily:             record.APIFamily,
 			IsEnabled:             record.IsEnabled,
+			DirectRequestEnabled:  record.DirectRequestEnabled,
 			OpenAIAcceptedFormat:  cloneStringPointer(record.OpenAIAcceptedFormat),
 			OpenAIImageOperations: cloneStringPointer(record.OpenAIImageOperations),
 			LoadbalanceStrategyID: cloneIntPointer(record.LoadbalanceStrategyID),
@@ -162,7 +163,13 @@ func (s *Service) handleGetRoutingDiagnostics(w http.ResponseWriter, r *http.Req
 		if err != nil {
 			return modelrouting.DiagnosticsResult{}, err
 		}
-		return modelrouting.Analyze(graph, modelConfigID, diagnosticsOperationListForModel(record)), nil
+		result := modelrouting.Analyze(graph, modelConfigID, diagnosticsOperationListForModel(record))
+		incomingCounts, err := listModelTargetIncomingCounts(r.Context(), tx, profile.ID)
+		if err != nil {
+			return modelrouting.DiagnosticsResult{}, err
+		}
+		result.ConfigurationWarnings = mergeConfigurationWarnings(result.ConfigurationWarnings, directRequestWarnings(record, incomingCounts[record.ID]))
+		return result, nil
 	})
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
@@ -197,6 +204,7 @@ func attachRoutingSummaries(records []modelRecord, accessTargets map[int][]acces
 			ModelID:               record.ModelID,
 			APIFamily:             record.APIFamily,
 			IsEnabled:             record.IsEnabled,
+			DirectRequestEnabled:  record.DirectRequestEnabled,
 			OpenAIAcceptedFormat:  cloneStringPointer(record.OpenAIAcceptedFormat),
 			OpenAIImageOperations: cloneStringPointer(record.OpenAIImageOperations),
 			LoadbalanceStrategyID: cloneIntPointer(record.LoadbalanceStrategyID),
@@ -275,7 +283,11 @@ func modelMutationWarnings(ctx context.Context, tx pgx.Tx, profileID int, modelC
 		return nil, err
 	}
 	result := modelrouting.Analyze(graph, modelConfigID, diagnosticsOperationListForModel(record))
-	return result.ConfigurationWarnings, nil
+	incomingCounts, err := listModelTargetIncomingCounts(ctx, tx, profileID)
+	if err != nil {
+		return nil, err
+	}
+	return mergeConfigurationWarnings(result.ConfigurationWarnings, directRequestWarnings(record, incomingCounts[record.ID])), nil
 }
 
 // translateConnectionWriterError converts the connections package's shared

@@ -37,6 +37,7 @@ import {
   OperatorSectionCard,
   OperatorStalenessBadge,
   OperatorStatusBadge,
+  OperatorTypeBadge,
 } from "@/shared/design-system";
 import { isOwnedConnectionTarget } from "@/pages/model-detail/modelAccessTargetProjection";
 import { useModelDetailFeatureData } from "./useModelDetailFeatureData";
@@ -307,6 +308,11 @@ export function ModelDetailFeaturePage({
               ? messages.modelDetail.enabled
               : messages.modelDetail.disabled
           }
+        />
+        <OperatorTypeBadge
+          intent={model.direct_request_enabled === true ? "accent" : "neutral"}
+          preserveLabel
+          label={model.direct_request_enabled === true ? messages.modelsPage.viewEntries : messages.modelsPage.viewModelTargets}
         />
         <Button
           type="button"

@@ -747,6 +747,7 @@ func newRequestPlanSnapshot(models ...runtimeModelRecord) *planningSnapshot {
 	strategy := loadbalance.RuntimeStrategy{ID: strategyID, Name: "test legacy", LegacyStrategyType: &legacyStrategyType}
 	snapshot := &planningSnapshot{
 		ModelsByID:                   map[string]runtimeModelRecord{},
+		DirectModelsByID:             map[string]runtimeModelRecord{},
 		AccessTargetsBySourceModelID: map[int][]runtimeAccessTargetRecord{},
 		TerminalTargetsByID:          map[int]runtimeConnection{},
 		StrategiesByModelID:          map[int]loadbalance.RuntimeStrategy{},
@@ -762,10 +763,12 @@ func newRequestPlanSnapshot(models ...runtimeModelRecord) *planningSnapshot {
 		if model.LoadbalanceStrategyID == nil {
 			model.LoadbalanceStrategyID = &strategyID
 		}
+		model.DirectRequestEnabled = true
 		if providerauth.IsOpenAI(model.APIFamily) && model.OpenAIAcceptedFormat == nil {
 			model.OpenAIAcceptedFormat = stringPtr(providerauth.OpenAITextCapabilityDualNative)
 		}
 		snapshot.ModelsByID[model.ModelID] = model
+		snapshot.DirectModelsByID[model.ModelID] = model
 		snapshot.StrategiesByModelID[model.ID] = strategy
 		connectionID := 1_000 + model.ID
 		var openAITextCapability *string
@@ -796,6 +799,17 @@ func newRequestPlanSnapshot(models ...runtimeModelRecord) *planningSnapshot {
 		}}
 	}
 	return snapshot
+}
+
+func setRequestPlanModelDirectEntry(snapshot *planningSnapshot, modelID string, enabled bool) {
+	model := snapshot.ModelsByID[modelID]
+	model.DirectRequestEnabled = enabled
+	snapshot.ModelsByID[modelID] = model
+	if enabled {
+		snapshot.DirectModelsByID[modelID] = model
+		return
+	}
+	delete(snapshot.DirectModelsByID, modelID)
 }
 
 func addRequestPlanProxyTarget(snapshot *planningSnapshot, proxyModelID string, targetModelID string) {

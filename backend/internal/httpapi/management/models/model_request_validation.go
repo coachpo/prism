@@ -45,6 +45,9 @@ func normalizeAccessTargets(values []modelAccessTargetRequest) []modelAccessTarg
 }
 
 func validateCreateRequest(requestBody modelCreateRequest) error {
+	if requestBody.DirectRequestEnabled.Null || requestBody.DirectRequestEnabled.Invalid {
+		return &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "direct_request_enabled must be a boolean when provided"}
+	}
 	if strings.TrimSpace(requestBody.APIFamily) == "" {
 		return &domainError{StatusCode: http.StatusBadRequest, Detail: "api_family is required"}
 	}
@@ -99,6 +102,9 @@ func isValidOpenAIAcceptedFormat(value string) bool {
 }
 
 func validateUpdateRequest(requestBody modelUpdateRequest) error {
+	if requestBody.DirectRequestEnabled.Null || requestBody.DirectRequestEnabled.Invalid {
+		return &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "direct_request_enabled must be a boolean when provided"}
+	}
 	if requestBody.APIFamily.Set {
 		if requestBody.APIFamily.Value == nil || !isValidAPIFamily(*requestBody.APIFamily.Value) {
 			return &domainError{StatusCode: http.StatusBadRequest, Detail: "api_family must be one of 'openai', 'anthropic', or 'gemini'"}

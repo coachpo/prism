@@ -45,6 +45,7 @@ const models: ModelConfigListItem[] = [
     display_name: "Luna",
     openai_accepted_format: "responses_only",
     openai_image_operations: null,
+    direct_request_enabled: true,
     loadbalance_strategy_id: null,
     loadbalance_strategy: null,
     access_targets: [],
@@ -54,6 +55,8 @@ const models: ModelConfigListItem[] = [
     health_success_rate: null,
     health_total_requests: 0,
     routing_summary: null,
+    incoming_model_target_count: 0,
+    configuration_warnings: [],
     created_at: "2026-08-09T00:00:00Z",
     updated_at: "2026-08-09T00:00:00Z",
   },
@@ -65,6 +68,7 @@ const models: ModelConfigListItem[] = [
     display_name: null,
     openai_accepted_format: null,
     openai_image_operations: null,
+    direct_request_enabled: true,
     loadbalance_strategy_id: null,
     loadbalance_strategy: null,
     access_targets: [],
@@ -74,6 +78,8 @@ const models: ModelConfigListItem[] = [
     health_success_rate: null,
     health_total_requests: 0,
     routing_summary: null,
+    incoming_model_target_count: 0,
+    configuration_warnings: [],
     created_at: "2026-08-09T00:00:00Z",
     updated_at: "2026-08-09T00:00:00Z",
   },
@@ -144,6 +150,13 @@ describe("ProxyKeySecretDialog unacknowledged session", () => {
     expect(curlBlock).toContain("pm-secret-value-1a2b3c4d5e6f")
     // The secret never appears in the URL (first curl line only).
     expect(curlBlock.split("\n")[0]).not.toContain("pm-secret-value")
+  })
+
+  it("excludes enabled model-target-only configs from self-test choices", () => {
+    renderDialog(session(), {
+      models: [{ ...models[0], direct_request_enabled: false }, models[1]],
+    })
+    expect(screen.getByLabelText("可用模型")).toHaveValue("claude-sonnet-4-5")
   })
 
   it("blocks close attempts until acknowledged (Escape/close request)", async () => {

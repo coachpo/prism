@@ -45,10 +45,13 @@ func buildOpenAIModelsListResponse(snapshot *planningSnapshot) openAIModelsListR
 	return openAIModelsListResponse{Object: "list", Data: data}
 }
 
+// enabledOpenAIModels returns only client-addressable OpenAI entries. The
+// planning snapshot deliberately retains non-entry nodes for recursive Model
+// Target routing, so this list must not iterate them as public IDs.
 func enabledOpenAIModels(snapshot *planningSnapshot) []runtimeModelRecord {
 	models := make([]runtimeModelRecord, 0)
 	if snapshot != nil {
-		for _, model := range snapshot.ModelsByID {
+		for _, model := range snapshot.DirectModelsByID {
 			if strings.EqualFold(strings.TrimSpace(model.APIFamily), "openai") && strings.TrimSpace(model.ModelID) != "" {
 				models = append(models, model)
 			}

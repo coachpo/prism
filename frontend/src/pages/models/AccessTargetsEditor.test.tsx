@@ -133,6 +133,7 @@ const modelOptions: ModelConfigListItem[] = [
     display_name: "Child Model",
     openai_accepted_format: "dual_native",
     openai_image_operations: null,
+    direct_request_enabled: false,
     loadbalance_strategy_id: 11,
     loadbalance_strategy: null,
     access_targets: [],
@@ -142,6 +143,8 @@ const modelOptions: ModelConfigListItem[] = [
     health_success_rate: null,
     health_total_requests: 0,
     routing_summary: null,
+    incoming_model_target_count: 1,
+    configuration_warnings: [],
     created_at: "2026-08-08T00:00:00Z",
     updated_at: "2026-08-08T00:00:00Z",
   },
@@ -532,6 +535,8 @@ describe("AccessTargetsEditor model target detail entry", () => {
     display_name: null,
     openai_accepted_format: "dual_native",
     openai_image_operations: null,
+    direct_request_enabled: false,
+    incoming_model_target_count: 0,
     loadbalance_strategy_id: 11,
     is_enabled: true,
   };
@@ -560,7 +565,7 @@ describe("AccessTargetsEditor model target detail entry", () => {
     openRowMenu("access-target-501").focus();
     await user.keyboard("{Enter}");
     const item = await screen.findByRole("menuitem", {
-      name: "查看入口模型 Child Model 的详情",
+      name: "查看模型配置 Child Model 的详情",
     });
     if (item.getAttribute("data-highlighted") == null) {
       await user.keyboard("{ArrowDown}");
@@ -595,7 +600,7 @@ describe("AccessTargetsEditor model target detail entry", () => {
     menu = await screen.findByRole("menu");
     expect(
       within(menu).getByRole("menuitem", {
-        name: /查看入口模型 Child Model 的详情/,
+        name: /查看模型配置 Child Model 的详情/,
       }),
     ).toBeTruthy();
     expect(onViewViewModelTargetDetail).not.toHaveBeenCalled();
@@ -640,7 +645,7 @@ describe("AccessTargetsEditor model target detail entry", () => {
     await user.click(openRowMenu("access-target-501"));
     await user.click(
       await screen.findByRole("menuitem", {
-        name: /查看入口模型 Child Model 的详情/,
+        name: /查看模型配置 Child Model 的详情/,
       }),
     );
 

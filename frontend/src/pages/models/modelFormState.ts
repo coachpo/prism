@@ -20,6 +20,7 @@ export interface ModelFormData {
   openai_image_operations: OpenAIImageOperations | "";
   loadbalance_strategy_id: number | null;
   is_enabled: boolean;
+  direct_request_enabled: boolean;
   last_auto_display_name?: string | null;
 }
 
@@ -53,6 +54,7 @@ export const DEFAULT_MODEL_FORM_DATA: ModelFormData = {
   openai_image_operations: "",
   loadbalance_strategy_id: null,
   is_enabled: false,
+  direct_request_enabled: true,
   last_auto_display_name: "",
 };
 
@@ -137,6 +139,7 @@ type EditableModelFormSource =
       | "openai_image_operations"
       | "loadbalance_strategy_id"
       | "is_enabled"
+      | "direct_request_enabled"
     >
   | Pick<
       ModelConfigListItem,
@@ -147,6 +150,7 @@ type EditableModelFormSource =
       | "openai_image_operations"
       | "loadbalance_strategy_id"
       | "is_enabled"
+      | "direct_request_enabled"
     >;
 
 export function createEditModelFormData(
@@ -168,6 +172,7 @@ export function createEditModelFormData(
     ),
     loadbalance_strategy_id: model.loadbalance_strategy_id,
     is_enabled: model.is_enabled,
+    direct_request_enabled: model.direct_request_enabled,
     last_auto_display_name:
       displayName === model.model_id ? model.model_id : displayName,
   };
@@ -184,6 +189,7 @@ export function createNewModelFormData(
     openai_image_operations: DEFAULT_MODEL_FORM_DATA.openai_image_operations,
     loadbalance_strategy_id: loadbalanceStrategyId,
     is_enabled: DEFAULT_MODEL_FORM_DATA.is_enabled,
+    direct_request_enabled: DEFAULT_MODEL_FORM_DATA.direct_request_enabled,
     last_auto_display_name: DEFAULT_MODEL_FORM_DATA.last_auto_display_name,
   };
 }
@@ -265,6 +271,7 @@ export function toModelCreatePayload(
     model_id: formData.model_id,
     display_name: normalizedDisplayName,
     is_enabled: formData.is_enabled,
+    direct_request_enabled: formData.direct_request_enabled,
     ...getNormalizedRoutingState(formData),
   };
   if (formData.api_family === "openai") {
@@ -288,6 +295,7 @@ export function toModelUpdatePayload(
     display_name: formData.display_name || null,
     model_id: formData.model_id,
     is_enabled: formData.is_enabled,
+    direct_request_enabled: formData.direct_request_enabled,
     ...getNormalizedOpenAIState(formData),
     ...getNormalizedRoutingState(formData),
   };

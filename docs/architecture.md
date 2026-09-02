@@ -149,7 +149,7 @@ Prism is proxy-first. It forwards only the provider-native operations registered
 
 Global CORS handling runs before the runtime branch. The runtime branch then applies HTTP proxy admission, runtime proxy-key authentication, and the operation registry in that order. The operation registry is the ingress contract inside the authenticated runtime handler. Each supported operation declares an exact HTTP method, path template, API family, model-binding source, streaming classification, canonical operation name, and `HookCollectionID`; it does not declare a provider adapter. The current canonical operation names are `openai.models`, `openai.chat_completions`, `openai.responses`, `openai.responses.input_tokens`, `openai.responses.compact`, `openai.images.generations`, `openai.images.edits`, `anthropic.messages`, `anthropic.count_tokens`, `gemini.generate_content`, `gemini.stream_generate_content`, and `gemini.count_tokens`. Requests that do not match that registry are rejected before body reads, planning, provider transport, telemetry, audit, feedback, or durable side effects.
 
-`GET /v1/models` is the exception: `openai.models` branches to the local models-list handler before provider request-body handling, planning, or provider execution core. Every other registered proxy operation enters the shared runtime and gateway path: it resolves against frozen Default profile id `1`, resolves ordered access targets, applies the attached Ban Policy strategy, claims local attempt state, builds an upstream request, and hands activity to telemetry seams. The provider adapter is selected during planned-upstream request construction, not registry resolution. Request, non-stream response, and stream hooks are looked up by `HookCollectionID`, allowing related operations such as token counting or compact Responses to use hook collections different from their canonical operation names. Those hooks own generation extraction and stream intent, non-stream parsing and token usage, and stream terminal classification and usage merge respectively.
+`GET /v1/models` is the exception: `openai.models` branches to the local models-list handler before provider request-body handling, planning, or provider execution core, and lists only enabled models whose `direct_request_enabled` bit is true. Every other registered proxy operation enters the shared runtime and gateway path: it resolves the exact client model ID through the direct-entry lookup, then resolves ordered access targets (including enabled non-entry Model Target nodes), applies the attached Ban Policy strategy, claims local attempt state, builds an upstream request, and hands activity to telemetry seams. A non-entry client ID therefore returns the existing 404 before provider transport or downstream side effects, while a direct parent can recursively route to that node. The provider adapter is selected during planned-upstream request construction, not registry resolution. Request, non-stream response, and stream hooks are looked up by `HookCollectionID`, allowing related operations such as token counting or compact Responses to use hook collections different from their canonical operation names. Those hooks own generation extraction and stream intent, non-stream parsing and token usage, and stream terminal classification and usage merge respectively.
 
 > **语义裁决（feature/observe 目标收敛）：** 本实现按目标输入保留 OpenAI 3×3 strict equality 与统一 mixed ordering（不可回退输入合同）；`artifacts/plans/` 下个别方案文档的 "Model-first→Terminal-fallback FULL|PARTIAL|NONE" 演进声明属另一目标的路线图，不适用于本实现（见追踪矩阵"路由语义裁决"）。
 
@@ -382,7 +382,7 @@ Dashboard and analytics updates use REST polling rather than a persistent browse
 ### 4.2 Runtime execution pipeline
 
 1. The operation registry resolves the exact runtime operation and hook collection before the request body is consumed.
-2. Request setup resolves the frozen Default profile id `1` model by exact `planningSnapshot.ModelsByID` lookup, ordered access targets, attached strategy, and one immutable effective strategy snapshot for the request.
+2. Request setup resolves the frozen Default profile id `1` model by exact direct-entry lookup (`DirectModelsByID`), then uses the all-enabled `ModelsByID` graph index for ordered access targets, recursive Model Targets, the attached strategy, and one immutable effective strategy snapshot for the request.
 3. Planner and runtime-state helpers use the production `LocalRuntimeStateStore` to build the current candidate set from admission counters, leases, round-robin cursors, and Ban Policy retry-window state. A connection carrying a routing schedule is additionally required to be inside one of its windows at the planning instant; the window check runs after Ban filtering, so a target excluded by its schedule is one already known to be otherwise usable.
 4. The shared execution core claims per-attempt local leases before any client-visible bytes are committed; outbound provider calls use the limit-free runtime HTTP client, while scheduler-owned runtime activity handoff work uses `runtime.sideEffects.attemptTimeout`.
 5. Operation request, response, and stream hooks interpret provider-native payload details by `HookCollectionID`, not necessarily operation name. Token-count and compact operations use their dedicated collections; passive outcomes feed back into process-local connection state while durable `loadbalance_events` retain transition history and model-policy snapshots, including `cycle_retry_attempt_limit` and `ban_cumulative_retry_attempt_threshold` when Ban Policy evaluation produced the event.
@@ -767,7 +767,10 @@ Prism exposes no standalone global catalog management surface (no catalog CRUD/n
 GET /api/models
 ```
 
-Response `200`: Array of model objects.
+Response `200`: Array of model objects. Each item includes required
+`direct_request_enabled`, `incoming_model_target_count`, and a non-persisted
+`configuration_warnings` array. A non-entry model with no incoming Model Target
+rows reports the explanatory `model_target_unreferenced` warning.
 
 ##### Get Model
 
@@ -775,7 +778,15 @@ Response `200`: Array of model objects.
 GET /api/models/{id}
 ```
 
-Response `200`: Full model object with required `api_family`, optional `loadbalance_strategy_id`, ordered `access_targets` (Model Target and Terminal Target rows share one global `position` order), and attached Terminal Target summaries in the effective profile scope. Model create/update does not author access targets; use `/api/models/{id}/targets` for mixed access-target authoring and model-owned Terminal Target ownership edges.
+Response `200`: Full model object with required `api_family` and
+`direct_request_enabled`, optional `loadbalance_strategy_id`, ordered
+`access_targets` (Model Target and Terminal Target rows share one global
+`position` order), `incoming_model_target_count`, and non-persisted
+`configuration_warnings`. Model create/update does not author access targets;
+use `/api/models/{id}/targets` for mixed access-target authoring and
+model-owned Terminal Target ownership edges. `direct_request_enabled=false`
+does not remove the node from the graph; it only removes the client-entry
+qualification.
 
 ##### Get Models by Endpoints (Batch)
 
@@ -815,6 +826,7 @@ Request:
   "model_id": "gpt-4o-public",
   "display_name": "GPT-4o Public",
   "loadbalance_strategy_id": 7,
+  "direct_request_enabled": true,
   "openai_accepted_format": "dual_native",
   "is_enabled": false,
   "initial_terminal_target": {
@@ -842,6 +854,7 @@ Validation rules:
 
 - `model_id` must be unique within the effective profile scope.
 - `api_family` is required on every model contract and remains the authoritative runtime compatibility field.
+- `direct_request_enabled` is optional on create (omitted defaults to `true`) and optional on update (omitted preserves the stored bit); explicit JSON `null` or a non-boolean is rejected with `422` before any write. It is the only persisted entry qualification—there is no three-state entry/outbound/both enum. A false model remains a valid recursive Model Target node and reports `model_target_unreferenced` when no incoming model-target row exists.
 - `is_enabled` defaults to `false` when omitted. Enabling a model still requires at least one enabled access target in the stored graph.
 - Create and update payloads reject `access_targets`, exact-facade fields, and retired model-owned context capability fields.
 - Ordered same-profile, same-`api_family`, same-`openai_accepted_format` model targets are managed through `/api/models/{id}/targets`. Cross-mode target authoring is rejected with `422 target_openai_mode_mismatch` (disabled targets included).
@@ -862,11 +875,12 @@ Request (all fields optional):
   "model_id": "gpt-4o-public-updated",
   "display_name": "GPT-4o Public (Updated)",
   "loadbalance_strategy_id": 9,
+  "direct_request_enabled": false,
   "is_enabled": true
 }
 ```
 
-Update payloads use the same field contract as create and do not mutate access targets. Existing access targets and private Terminal Targets are preserved and remain managed by model-scoped target and connection routes. Response `200`: Updated model object. Returns `409` if `model_id` conflicts within the effective profile. Changing `openai_accepted_format` that would break an existing mode-equal relation (own connection targets, outbound model targets, or inbound referrers) also returns `409`.
+Update payloads use the same field contract as create and do not mutate access targets. Existing access targets and private Terminal Targets are preserved and remain managed by model-scoped target and connection routes. Response `200`: Updated model object. Returns `409` if `model_id` conflicts within the effective profile. Changing `openai_accepted_format` that would break an existing mode-equal relation (own connection targets, outbound model targets, or inbound referrers) also returns `409`. Changing `direct_request_enabled` is a routing-affecting mutation and refreshes the last-good planning snapshot before the next request.
 
 ##### Delete Model
 
@@ -971,7 +985,7 @@ GET /api/models/exports/pi/source
 POST /api/models/exports/pi/render
 ```
 
-`source` does one best-effort pi.dev fetch outside any transaction and one `REPEATABLE READ` DB snapshot, returning every model with two independently-computed evidence layers: live catalog evidence (`pi_candidates`/`candidate_status`: `not_in_catalog`/`api_mismatch`/`single`/`multiple`/`catalog_unavailable`, including sanitized templates and dropped paths) and persisted binding evidence (`pi_selected`, `pi_binding_status`: `unbound`/`bound`/`bound_drifted`, `pi_binding_renderable`, `pi_binding_prism_model_id`, `pi_api`, source/override/effective metadata, dropped paths, bind source, revision, and stamps), so one row can honestly report `not_in_catalog` and `bound`/renderable at the same time, alongside layered `prism`/`merged` metadata and provenance, pricing risk and warnings, the pinned `0.84.3` target version, and a clock-free `source_digest`. A successful live fetch marks the binding drifted when its coordinate/API vanished or its sanitized template/dropped evidence differs; catalog unavailability never invents drift. Such live drift remains renderable from the frozen row, while a mismatch between the current Prism full-model-ID/final-Pi-API pair and the binding's frozen `prism_model_id_at_bind` snapshot makes `pi_binding_renderable=false` — the directory model id is never the identity gate, so a deliberate cross-directory bind renders normally. `render` performs no network I/O and reads no live or LKG pi.dev state: it accepts only `expected_source_digest`, `model_config_ids`, `base_url`, `provider_id`, `credential`, and exactly one `selections` coordinate assertion per selected model. Missing assertions return `422 candidate_unselected`; extra, mismatched, or incompatible assertions return `422 candidate_invalid`; both carry `model_config_id`. A digest mismatch returns `409 export_source_stale` before rendering.
+`source` does one best-effort pi.dev fetch outside any transaction and one `REPEATABLE READ` DB snapshot, returning only direct-request entries whose `direct_request_enabled = true`, each with two independently-computed evidence layers: live catalog evidence (`pi_candidates`/`candidate_status`: `not_in_catalog`/`api_mismatch`/`single`/`multiple`/`catalog_unavailable`, including sanitized templates and dropped paths) and persisted binding evidence (`pi_selected`, `pi_binding_status`: `unbound`/`bound`/`bound_drifted`, `pi_binding_renderable`, `pi_binding_prism_model_id`, `pi_api`, source/override/effective metadata, dropped paths, bind source, revision, and stamps), so one row can honestly report `not_in_catalog` and `bound`/renderable at the same time, alongside layered `prism`/`merged` metadata and provenance, pricing risk and warnings, the pinned `0.84.3` target version, and a clock-free `source_digest`. A successful live fetch marks the binding drifted when its coordinate/API vanished or its sanitized template/dropped evidence differs; catalog unavailability never invents drift. Such live drift remains renderable from the frozen row, while a mismatch between the current Prism full-model-ID/final-Pi-API pair and the binding's frozen `prism_model_id_at_bind` snapshot makes `pi_binding_renderable=false` — the directory model id is never the identity gate, so a deliberate cross-directory bind renders normally. `render` performs no network I/O and reads no live or LKG pi.dev state: it accepts only `expected_source_digest`, `model_config_ids`, `base_url`, `provider_id`, `credential`, and exactly one `selections` coordinate assertion per selected model. Missing assertions return `422 candidate_unselected`; extra, mismatched, or incompatible assertions return `422 candidate_invalid`; both carry `model_config_id`. A digest mismatch returns `409 export_source_stale` before rendering.
 
 The `source_digest` is `SHA-256` over canonical JSON of the sorted, clock-free fact set: target version, models, targets, pricing, Prism metadata, each model's bound `pi_selected` coordinate plus its frozen Prism identity snapshot and `catalog_revision`, and its effective `PiTemplate` including dropped-path evidence. It deliberately excludes the current live pi.dev fetch's revision/status/candidates, every directory-search result, and derived binding-drift status (`json:"-"` on `SourceFacts.PiCatalog` and the corresponding `ModelFact` fields): that transient fetch outcome never changes frozen rendered bytes. A different-coordinate bind/rebind, a same-coordinate bind that re-confirms a changed Prism identity, refresh commit, or override moves the digest; a same-coordinate same-identity bind is a no-op. Two coordinates therefore produce different digests even when their sanitized templates are identical.
 
@@ -1338,12 +1352,15 @@ under CI; this section describes intent rather than restating the payload.
 Setup/readiness route witnesses use the model-bound projection of the runtime
 operation registry as their sole operation catalog. OpenAI, Anthropic, and
 Gemini therefore share one family-aware graph traversal without copying route
-names into the domain. A witness carries the Terminal Target id, its actual
-Endpoint id, lowercase `full|partial|none` coverage, and the optional routing
-schedule qualifier. Non-positive identities and cross-family chains fail
-closed. The frontend preserves this projection and the list's authoritative
-`routing_summary`; model or target mutations refresh both diagnostics and the
-server-computed list/count projection.
+names into the domain. The graph retains every enabled model node so recursive
+Model Targets remain diagnosable, but profile/setup roots, the representative
+witness, and selected witness resolution are filtered to
+`direct_request_enabled=true`. A witness carries the Terminal Target id, its
+actual Endpoint id, lowercase `full|partial|none` coverage, and the optional
+routing-schedule qualifier. Non-positive identities and cross-family chains
+fail closed. The frontend preserves this projection and the list's
+authoritative `routing_summary`; model or target mutations refresh both
+diagnostics and the server-computed list/count projection.
 
 #### 1.6 Pricing Templates
 
@@ -1767,7 +1784,7 @@ When any planned Terminal Target candidate has custom request parameters configu
 
 #### 2.2A Routing Failures
 
-Runtime planning orders the model's enabled mixed access-target rows once by `(position, id)` and lets the attached strategy shape the effective peer sequence: `single` keeps only the first enabled mixed row, `fill-first` walks the authored mixed order, and `round-robin` rotates the direct mixed rows once per request. A Model Target row recursively resolves through the child model's own strategy and contributes one contiguous block; a Terminal Target row contributes its own attempt. Candidate-local misses (zero-leaf child, unavailable connection, operation incompatibility, routing window closed) skip to the next effective peer, while cycle, depth, and missing-strategy errors fail closed. If no eligible Terminal Target is available inside the current retry window, Prism returns a routing-availability error before opening an upstream request. If all otherwise eligible attempts are blocked by admission counters, Prism returns `503` with `error: "admission_exhausted"` plus route-reason metadata before upstream transport. An OpenAI text request whose requested model does not accept the ingress operation rejects immediately with `400 openai_request_translation_unsupported`. Terminal Target connections that do not natively support the operation are skipped so later native attempts remain eligible; if every otherwise eligible attempt is wire-incompatible, Prism returns the same typed `400` with `translation_mode: "none"` and `unsupported_reason: "operation_translation_unsupported"` before provider transport. Availability failures with no otherwise eligible attempt retain the ordinary `503` no-eligible-target response.
+Runtime planning keeps two explicit model indexes: all enabled models for recursive graph resolution, and only enabled `direct_request_enabled=true` models for client-bound operation lookup. A non-entry model ID therefore returns the existing `404` before provider transport, telemetry, audit, feedback, admission, or durable side effects; a direct parent may still resolve through that node. Once a direct root is accepted, planning orders its enabled mixed access-target rows once by `(position, id)` and lets the attached strategy shape the effective peer sequence: `single` keeps only the first enabled mixed row, `fill-first` walks the authored mixed order, and `round-robin` rotates the direct mixed rows once per request. A Model Target row recursively resolves through the child model's own strategy and contributes one contiguous block; a Terminal Target row contributes its own attempt. Candidate-local misses (zero-leaf child, unavailable connection, operation incompatibility, routing window closed) skip to the next effective peer, while cycle, depth, and missing-strategy errors fail closed. If no eligible Terminal Target is available inside the current retry window, Prism returns a routing-availability error before opening an upstream request. If all otherwise eligible attempts are blocked by admission counters, Prism returns `503` with `error: "admission_exhausted"` plus route-reason metadata before upstream transport. An OpenAI text request whose requested model does not accept the ingress operation rejects immediately with `400 openai_request_translation_unsupported`. Terminal Target connections that do not natively support the operation are skipped so later native attempts remain eligible; if every otherwise eligible attempt is wire-incompatible, Prism returns the same typed `400` with `translation_mode: "none"` and `unsupported_reason: "operation_translation_unsupported"` before provider transport. Availability failures with no otherwise eligible attempt retain the ordinary `503` no-eligible-target response.
 
 Two family-neutral planning codes describe routing-schedule rejections, and this section is their authoritative definition. `terminal_target_schedule_closed` is returned when every terminal target the request evaluated was excluded solely because it sits outside its configured routing window; `terminal_target_schedule_unresolvable` is returned when they were all excluded solely because their routing timezone could not be resolved. Both are `503`. Neither fires when any other cause contributed to the failure — a mixed failure keeps the ordinary response and appends an `N of M` sentence to the detail instead, so the stable codes never overstate what happened. The closed code carries `schedule_excluded_connection_ids`, `schedule_excluded_connection_ids_truncated`, `schedule_excluded_connection_count`, `schedule_reference_now`, `schedule_earliest_next_open_at`, and `schedule_earliest_next_open_at_known`; the unresolvable code carries the matching `schedule_unresolvable_*` trio plus `schedule_reference_now`. The `_at` keys are absent whenever the matching `_known` flag is false.
 
@@ -1835,7 +1852,7 @@ Model-scoped overflow replay and its authoring fields are retired. Runtime plann
 GET /v1/models
 ```
 
-Local OpenAI-shaped `{"object":"list","data":[...]}` list of enabled `api_family="openai"` models for frozen Default profile id `1`. Query parameters, including the retired `client_version`, do not select an alternate response shape. Prism does not contact configured model providers for this local operation.
+Local OpenAI-shaped `{"object":"list","data":[...]}` list of enabled `api_family="openai"` models with `direct_request_enabled=true` for frozen Default profile id `1`. Enabled non-entry Model Target nodes are omitted even though direct parents may route to them. Query parameters, including the retired `client_version`, do not select an alternate response shape. Prism does not contact configured model providers for this local operation.
 
 ##### Chat Completions
 
@@ -4022,6 +4039,8 @@ Maps a model ID to fixed api family and routing behavior within one profile.
 | display_name | VARCHAR(200) | NULLABLE | Human-readable name |
 | loadbalance_strategy_id | INTEGER | NULLABLE, FK -> loadbalance_strategies.id | Strategy used while planning this model's targets |
 | openai_accepted_format | TEXT | NULLABLE | OpenAI model ingress contract: `responses_only`, `chat_completions_only`, or `dual_native`; non-OpenAI models persist `NULL` |
+| openai_image_operations | TEXT | NULLABLE | OpenAI image operations accepted by the model; non-OpenAI models persist `NULL` |
+| direct_request_enabled | BOOLEAN | NOT NULL, DEFAULT TRUE | Whether clients may address this model ID as a direct runtime entry; false rows remain recursive Model Target nodes |
 | is_enabled | BOOLEAN | NOT NULL | Runtime availability; create defaults omitted values to `false` in application code |
 | created_at | TIMESTAMPTZ | NOT NULL | Creation timestamp; application-managed |
 | updated_at | TIMESTAMPTZ | NOT NULL | Last update timestamp; application-managed |

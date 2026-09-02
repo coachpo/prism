@@ -7,7 +7,7 @@ import (
 )
 
 func buildModelListResponse(record modelRecord, strategies map[int]strategyRecord, accessTargets map[int][]accessTargetRecord, counts map[int]modelConnectionCounts, health map[string]modelHealthStats, now time.Time) modelConfigListResponse {
-	response := modelConfigListResponse{ID: record.ID, ProfileID: record.ProfileID, APIFamily: record.APIFamily, ModelID: record.ModelID, DisplayName: record.DisplayName, LoadbalanceStrategyID: record.LoadbalanceStrategyID, OpenAIAcceptedFormat: record.OpenAIAcceptedFormat, OpenAIImageOperations: record.OpenAIImageOperations, AccessTargets: accessTargetResponsesFromRecords(accessTargets[record.ID], now), IsEnabled: record.IsEnabled, HealthTotalRequests: 0, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt}
+	response := modelConfigListResponse{ID: record.ID, ProfileID: record.ProfileID, APIFamily: record.APIFamily, ModelID: record.ModelID, DisplayName: record.DisplayName, LoadbalanceStrategyID: record.LoadbalanceStrategyID, OpenAIAcceptedFormat: record.OpenAIAcceptedFormat, OpenAIImageOperations: record.OpenAIImageOperations, DirectRequestEnabled: record.DirectRequestEnabled, AccessTargets: accessTargetResponsesFromRecords(accessTargets[record.ID], now), IsEnabled: record.IsEnabled, HealthTotalRequests: 0, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt}
 	if record.LoadbalanceStrategyID != nil {
 		if strategy, ok := strategies[*record.LoadbalanceStrategyID]; ok {
 			response.LoadbalanceStrategy = strategySummaryFromRecord(strategy)
@@ -25,7 +25,7 @@ func buildModelListResponse(record modelRecord, strategies map[int]strategyRecor
 }
 
 func buildModelDetailResponse(record modelRecord, strategies map[int]strategyRecord, accessTargets map[int][]accessTargetRecord, now time.Time) modelConfigResponse {
-	response := modelConfigResponse{ID: record.ID, ProfileID: record.ProfileID, APIFamily: record.APIFamily, ModelID: record.ModelID, DisplayName: record.DisplayName, LoadbalanceStrategyID: record.LoadbalanceStrategyID, OpenAIAcceptedFormat: record.OpenAIAcceptedFormat, OpenAIImageOperations: record.OpenAIImageOperations, AccessTargets: accessTargetResponsesFromRecords(accessTargets[record.ID], now), IsEnabled: record.IsEnabled, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt}
+	response := modelConfigResponse{ID: record.ID, ProfileID: record.ProfileID, APIFamily: record.APIFamily, ModelID: record.ModelID, DisplayName: record.DisplayName, LoadbalanceStrategyID: record.LoadbalanceStrategyID, OpenAIAcceptedFormat: record.OpenAIAcceptedFormat, OpenAIImageOperations: record.OpenAIImageOperations, DirectRequestEnabled: record.DirectRequestEnabled, AccessTargets: accessTargetResponsesFromRecords(accessTargets[record.ID], now), IsEnabled: record.IsEnabled, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt}
 	if record.LoadbalanceStrategyID != nil {
 		if strategy, ok := strategies[*record.LoadbalanceStrategyID]; ok {
 			response.LoadbalanceStrategy = strategySummaryFromRecord(strategy)
@@ -68,7 +68,7 @@ func accessTargetResponsesFromRecords(records []accessTargetRecord, now time.Tim
 }
 
 func modelTargetSummaryFromRecord(record modelRecord) *modelTargetSummary {
-	return &modelTargetSummary{ID: record.ID, ProfileID: record.ProfileID, APIFamily: record.APIFamily, ModelID: record.ModelID, DisplayName: record.DisplayName, LoadbalanceStrategyID: record.LoadbalanceStrategyID, OpenAIAcceptedFormat: record.OpenAIAcceptedFormat, OpenAIImageOperations: record.OpenAIImageOperations, IsEnabled: record.IsEnabled}
+	return &modelTargetSummary{ID: record.ID, ProfileID: record.ProfileID, APIFamily: record.APIFamily, ModelID: record.ModelID, DisplayName: record.DisplayName, LoadbalanceStrategyID: record.LoadbalanceStrategyID, OpenAIAcceptedFormat: record.OpenAIAcceptedFormat, OpenAIImageOperations: record.OpenAIImageOperations, DirectRequestEnabled: record.DirectRequestEnabled, IncomingModelTargetCount: record.IncomingModelTargetCount, IsEnabled: record.IsEnabled}
 }
 
 func copyIntPtr(value *int) *int {

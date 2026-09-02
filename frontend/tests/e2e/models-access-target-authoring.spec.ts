@@ -9,7 +9,7 @@ import {
 } from "./model-detail-catalog-fixtures";
 
 const timestamp = "2026-04-27T12:00:00Z";
-const newModelButton = /New Model|新建入口模型/;
+const newModelButton = /New Model|新建模型配置/;
 const newModelDialog = /New Model|新建入口模型/;
 const editModelDialog = /Edit Model|编辑入口模型/;
 const cancelButton = /Cancel|取消/;
@@ -60,9 +60,15 @@ function createModelListItem(
     api_family: apiFamily,
     model_id: modelId,
     display_name: displayName,
+    openai_accepted_format:
+      apiFamily === "openai" ? "dual_native" : null,
+    openai_image_operations: null,
     loadbalance_strategy_id: loadbalanceStrategyId,
     loadbalance_strategy: loadbalanceStrategy,
     access_targets: [],
+    direct_request_enabled: true,
+    incoming_model_target_count: 0,
+    configuration_warnings: [],
     is_enabled: true,
     connection_count: 0,
     active_connection_count: 0,
@@ -105,6 +111,7 @@ export async function mockModelRoutes(
     createModelListItem(3, "claude-sonnet", "Claude Sonnet", "anthropic"),
   ];
   const createdPayloads: unknown[] = [];
+  const updatedPayloads: Record<string, unknown>[] = [];
   const defaultsRequests: string[] = [];
 
   await page.route("**/*", async (route) => {
@@ -211,10 +218,24 @@ export async function mockModelRoutes(
           loadbalance_strategy_id: payload.loadbalance_strategy_id ?? null,
           loadbalance_strategy: createStrategy(),
           access_targets: payload.access_targets ?? [],
+          direct_request_enabled: payload.direct_request_enabled !== false,
+          incoming_model_target_count: 0,
+          configuration_warnings: [],
           is_enabled: payload.is_enabled ?? true,
           created_at: timestamp,
           updated_at: timestamp,
         },
+        configuration_warnings: [],
+      });
+    }
+    const modelUpdateMatch = pathname.match(/^\/api\/models\/(\d+)$/);
+    if (modelUpdateMatch && request.method() === "PUT") {
+      const id = Number(modelUpdateMatch[1]);
+      const payload = request.postDataJSON() as Record<string, unknown>;
+      const model = models.find((item) => item.id === id);
+      updatedPayloads.push(payload);
+      return fulfillJson({
+        model: { ...model, ...payload, updated_at: timestamp },
         configuration_warnings: [],
       });
     }
@@ -225,6 +246,7 @@ export async function mockModelRoutes(
   return {
     getCreatedPayloads: () => createdPayloads,
     getDefaultsRequests: () => defaultsRequests,
+    getUpdatedPayloads: () => updatedPayloads,
   };
 }
 
@@ -286,11 +308,18 @@ test("create model dialog creates default strategy and saves a configure-later d
   ).toBeVisible();
   await expect(submitButton).toBeDisabled();
 
+  const directEntrySwitch = dialog.getByRole("switch", {
+    name: "允许客户端直接请求",
+  });
+  await expect(directEntrySwitch).toBeChecked();
+  await directEntrySwitch.uncheck();
+
   await dialog.getByRole("button", { name: createDefaultsButton }).click();
 
   await expect(
     dialog.getByRole("button", { name: createDefaultsButton }),
   ).toHaveCount(0);
+  await expect(directEntrySwitch).not.toBeChecked();
   await expect(dialog.locator("#create-model-strategy")).toContainText(
     "Default fill-first routing",
   );
@@ -318,6 +347,7 @@ test("create model dialog creates default strategy and saves a configure-later d
       openai_image_operations: null,
       loadbalance_strategy_id: 11,
       is_enabled: false,
+      direct_request_enabled: false,
     },
   ]);
 });
@@ -477,6 +507,7 @@ test("create model dialog supports configure-later and a decoupled initial targe
       openai_image_operations: null,
       loadbalance_strategy_id: 11,
       is_enabled: false,
+      direct_request_enabled: true,
     },
   ]);
 
@@ -504,6 +535,19 @@ test("create model dialog supports configure-later and a decoupled initial targe
       endpoint_id: 1,
       upstream_model_id: "provider/Model-B",
     },
+  });
+  await page
+    .getByRole("button", { name: "编辑入口模型: Target Alpha" })
+    .click();
+  const editDialog = page.getByRole("dialog", { name: editModelDialog });
+  await editDialog
+    .getByRole("switch", { name: "允许客户端直接请求" })
+    .uncheck();
+  await editDialog.getByRole("button", { name: "保存", exact: true }).click();
+  await expect.poll(() => routes.getUpdatedPayloads().length).toBe(1);
+  expect(routes.getUpdatedPayloads()[0]).toMatchObject({
+    direct_request_enabled: false,
+    is_enabled: true,
   });
 });
 
@@ -743,6 +787,7 @@ function createDetailDiagnostics() {
 
 export async function mockModelDetailRoutes(page: Page) {
   const mutationPaths: string[] = [];
+  const targetPayloads: Record<string, unknown>[] = [];
   const connection15 = createDetailConnection(
     15,
     "Primary Responses",
@@ -763,6 +808,10 @@ export async function mockModelDetailRoutes(page: Page) {
     model_id: "detail-openai",
     display_name: "Detail OpenAI",
     openai_accepted_format: "dual_native",
+    openai_image_operations: null,
+    direct_request_enabled: true,
+    incoming_model_target_count: 0,
+    configuration_warnings: [],
     loadbalance_strategy_id: 11,
     loadbalance_strategy: strategy,
     access_targets: [
@@ -818,6 +867,15 @@ export async function mockModelDetailRoutes(page: Page) {
     is_enabled: true,
     created_at: detailTimestamp,
     updated_at: detailTimestamp,
+  };
+  const internalTargetModel = {
+    ...createModelListItem(
+      8,
+      "internal-detail-target",
+      "Internal Detail Target",
+    ),
+    direct_request_enabled: false,
+    incoming_model_target_count: 1,
   };
 
   await page.route("**/*", async (route) => {
@@ -882,6 +940,17 @@ export async function mockModelDetailRoutes(page: Page) {
       return fulfillJson(modelDetail);
     }
     if (
+      pathname === "/api/models/7/targets" &&
+      request.method() === "POST"
+    ) {
+      const payload = request.postDataJSON() as Record<string, unknown>;
+      targetPayloads.push(payload);
+      return fulfillJson({
+        access_targets: modelDetail.access_targets,
+        configuration_warnings: [],
+      });
+    }
+    if (
       pathname === "/api/models/7/connections" &&
       request.method() === "GET"
     ) {
@@ -897,6 +966,7 @@ export async function mockModelDetailRoutes(page: Page) {
           health_total_requests: 0,
           routing_summary: null,
         },
+        internalTargetModel,
       ]);
     }
     if (pathname === "/api/endpoints") {
@@ -915,7 +985,7 @@ export async function mockModelDetailRoutes(page: Page) {
     return fulfillJson({});
   });
 
-  return { mutationPaths };
+  return { mutationPaths, targetPayloads };
 }
 
 // A model pair for SPA navigation: model 16 holds one Terminal Target plus a
@@ -937,6 +1007,8 @@ function createLinkedPairModels() {
     display_name: "Beta Detail",
     openai_accepted_format: "dual_native",
     openai_image_operations: null,
+    direct_request_enabled: false,
+    incoming_model_target_count: 1,
     loadbalance_strategy_id: 11,
     is_enabled: true,
   };
@@ -947,6 +1019,10 @@ function createLinkedPairModels() {
     model_id: "detail-alpha",
     display_name: "Alpha Detail",
     openai_accepted_format: "dual_native",
+    openai_image_operations: null,
+    direct_request_enabled: true,
+    incoming_model_target_count: 0,
+    configuration_warnings: [],
     loadbalance_strategy_id: 11,
     loadbalance_strategy: strategy,
     access_targets: [
@@ -999,6 +1075,9 @@ function createLinkedPairModels() {
     id: 17,
     model_id: "detail-beta",
     display_name: "Beta Detail",
+    direct_request_enabled: false,
+    incoming_model_target_count: 1,
+    configuration_warnings: [],
     access_targets: [],
   };
   return { strategy, connection15, model16, model17 };
@@ -1176,7 +1255,7 @@ test("model target detail entry switches entities over SPA without stale state",
     .click();
   menu = page.getByRole("menu");
   const viewEntry = menu.getByRole("menuitem", {
-    name: /查看入口模型 Beta Detail 的详情/,
+    name: /查看模型配置 Beta Detail 的详情/,
   });
   await expect(viewEntry).toBeVisible();
   await viewEntry.click();
@@ -1283,6 +1362,22 @@ test("model detail canonicalizes dead tab and one-shot target actions", async ({
     .waitFor({ timeout: 15000 });
   await expect(page.getByTestId("access-target-92")).toHaveCount(1);
   await expect(page).toHaveURL(/\/models\/7$/);
+
+  await page.getByLabel("选择目标模型").click();
+  await page
+    .getByRole("option", {
+      name: "Internal Detail Target (internal-detail-target)",
+    })
+    .click();
+  await page.getByRole("button", { name: "添加目标" }).click();
+
+  await expect.poll(() => routes.targetPayloads.length).toBe(1);
+  expect(routes.targetPayloads[0]).toEqual({
+    target_type: "model",
+    target_model_id: "internal-detail-target",
+    position: 2,
+    is_enabled: true,
+  });
 });
 
 // Entry-model list journey extensions: sidebar/breadcrumb terminology, the
@@ -1454,4 +1549,45 @@ test("entry-model list journey: navigation, scope switch, and identity filters",
   await page.reload();
   await expect(page.getByTestId("models-table-row-1")).toBeVisible();
   await expect(page.getByTestId("models-table-row-2")).toHaveCount(0);
+});
+
+test("model inventory view deep links switch between entries, targets, and all", async ({
+  page,
+}) => {
+  await mockModelRoutes(page, {
+    models: [
+      createModelListItem(1, "entry-visible", "Entry Visible"),
+      {
+        ...createModelListItem(2, "internal-target", "Internal Target"),
+        direct_request_enabled: false,
+      },
+    ],
+  });
+
+  await page.goto("/route/models?view=model_targets");
+  const viewSwitch = page.getByRole("group", { name: "模型视图" });
+  const kpiValues = page.locator(
+    '[data-slot="kpi-card"] [data-slot="metric-value"]',
+  );
+  await expect(viewSwitch.getByRole("radio", { name: "仅模型目标" })).toBeChecked();
+  await expect(page).toHaveURL(/view=model_targets/);
+  await expect(page.getByTestId("models-table-row-1")).toHaveCount(0);
+  await expect(page.getByTestId("models-table-row-2")).toHaveCount(1);
+  await expect(kpiValues).toHaveText(["1", "1", "0", "0", "0"]);
+
+  await page.reload();
+  await expect(viewSwitch.getByRole("radio", { name: "仅模型目标" })).toBeChecked();
+  await expect(page.getByTestId("models-table-row-2")).toHaveCount(1);
+
+  await viewSwitch.getByRole("radio", { name: "全部模型配置" }).click();
+  await expect(page).toHaveURL(/view=all/);
+  await expect(page.getByTestId("models-table-row-1")).toHaveCount(1);
+  await expect(page.getByTestId("models-table-row-2")).toHaveCount(1);
+  await expect(kpiValues).toHaveText(["2", "2", "0", "0", "0"]);
+
+  await viewSwitch.getByRole("radio", { name: "入口模型" }).click();
+  await expect(page).not.toHaveURL(/view=/);
+  await expect(page.getByTestId("models-table-row-1")).toHaveCount(1);
+  await expect(page.getByTestId("models-table-row-2")).toHaveCount(0);
+  await expect(kpiValues).toHaveText(["1", "1", "0", "0", "0"]);
 });

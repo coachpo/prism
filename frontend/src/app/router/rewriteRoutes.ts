@@ -288,6 +288,9 @@ export const settingsSearchSchema = z.object({
 // a filtered view is a shareable link. `/route/models` previously accepted no
 // parameters, so every key here is additive.
 export const modelsListSearchSchema = z.object({
+  // Entry qualification view is URL-backed so operators can deep-link the
+  // default client-entry list, Model Target-only list, or the full inventory.
+  view: z.enum(["entries", "model_targets", "all"]).optional(),
   scope: z
     .enum(["ingress", "final_execution", "route_attempt"])
     .optional(),

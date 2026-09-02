@@ -36,6 +36,7 @@ runtime/
 ├── runtime_telemetry_outbox_test.go    # Durable telemetry outbox behavior
 ├── telemetry_outbox_poison_test.go     # Poison-row classification, quarantine, and backoff
 ├── proxy_key_attribution_failure_test.go # Proxy-key attribution derivation and ingestion-failure behavior
+├── direct_request_entry_runtime_test.go # Non-entry ingress isolation and recursive parent routing
 └── *_test.go                           # Focused runtime regressions
 ```
 
@@ -64,6 +65,7 @@ runtime/
 - Runtime recovery and restart persistence: `proxy_recovery_test.go`
 - Runtime-created log partitions and helper parity: `runtime_partitioned_logs_test.go`, `log_partition_helpers_test.go`
 - Cache invalidation and runtime snapshots: `runtime_cache_invalidation_test.go`, `runtime_phase1_snapshot_test.go`
+- Direct-entry lookup versus all-node recursive routing and `/v1/models` filtering: `direct_request_entry_runtime_test.go`
 - Streaming and telemetry durability: `runtime_streaming_buffering_test.go`, `runtime_telemetry_outbox_test.go`, `telemetry_outbox_poison_test.go`, `proxy_key_attribution_failure_test.go`
 
 ## CONVENTIONS

@@ -28,7 +28,7 @@ func LoadRouteWitnessGraph(ctx context.Context, exec RouteWitnessExecutor, profi
 		StrategiesByModelID:          map[int]DiagnosticsStrategy{},
 	}
 
-	modelRows, err := exec.Query(ctx, `SELECT id, profile_id, api_family, model_id, loadbalance_strategy_id, openai_accepted_format, openai_image_operations, is_enabled
+	modelRows, err := exec.Query(ctx, `SELECT id, profile_id, api_family, model_id, loadbalance_strategy_id, openai_accepted_format, openai_image_operations, direct_request_enabled, is_enabled
 		FROM model_configs WHERE profile_id = $1 ORDER BY id ASC`, profileID)
 	if err != nil {
 		return nil, fmt.Errorf("query route-witness models for profile %d: %w", profileID, err)
@@ -36,7 +36,7 @@ func LoadRouteWitnessGraph(ctx context.Context, exec RouteWitnessExecutor, profi
 	defer modelRows.Close()
 	for modelRows.Next() {
 		var model DiagnosticsModel
-		if err := modelRows.Scan(&model.ConfigID, &model.ProfileID, &model.APIFamily, &model.ModelID, &model.LoadbalanceStrategyID, &model.OpenAIAcceptedFormat, &model.OpenAIImageOperations, &model.IsEnabled); err != nil {
+		if err := modelRows.Scan(&model.ConfigID, &model.ProfileID, &model.APIFamily, &model.ModelID, &model.LoadbalanceStrategyID, &model.OpenAIAcceptedFormat, &model.OpenAIImageOperations, &model.DirectRequestEnabled, &model.IsEnabled); err != nil {
 			return nil, fmt.Errorf("scan route-witness model for profile %d: %w", profileID, err)
 		}
 		graph.ModelsByID[model.ConfigID] = model
@@ -62,7 +62,7 @@ func LoadRouteWitnessGraph(ctx context.Context, exec RouteWitnessExecutor, profi
 	}
 
 	modelTargetRows, err := exec.Query(ctx, `SELECT mat.id, mat.profile_id, mat.source_model_config_id, mat.target_model_config_id, mat.position, mat.is_enabled,
-		tm.id, tm.api_family, tm.model_id, tm.loadbalance_strategy_id, tm.openai_accepted_format, tm.openai_image_operations, tm.is_enabled
+		 tm.id, tm.api_family, tm.model_id, tm.loadbalance_strategy_id, tm.openai_accepted_format, tm.openai_image_operations, tm.direct_request_enabled, tm.is_enabled
 		FROM model_access_targets mat
 		JOIN model_configs tm ON tm.id = mat.target_model_config_id
 		WHERE mat.profile_id = $1 AND mat.target_model_config_id IS NOT NULL
@@ -75,7 +75,7 @@ func LoadRouteWitnessGraph(ctx context.Context, exec RouteWitnessExecutor, profi
 		var target DiagnosticsAccessTarget
 		var child DiagnosticsModel
 		if err := modelTargetRows.Scan(&target.ID, &target.ProfileID, &target.SourceModelConfigID, &target.TargetModelConfigID, &target.Position, &target.IsEnabled,
-			&child.ConfigID, &child.APIFamily, &child.ModelID, &child.LoadbalanceStrategyID, &child.OpenAIAcceptedFormat, &child.OpenAIImageOperations, &child.IsEnabled); err != nil {
+			&child.ConfigID, &child.APIFamily, &child.ModelID, &child.LoadbalanceStrategyID, &child.OpenAIAcceptedFormat, &child.OpenAIImageOperations, &child.DirectRequestEnabled, &child.IsEnabled); err != nil {
 			return nil, fmt.Errorf("scan route-witness model target for profile %d: %w", profileID, err)
 		}
 		target.TargetType = TargetTypeModel

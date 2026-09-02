@@ -84,7 +84,7 @@ func listEndpointModelRows(ctx context.Context, exec queryExecutor, profileID in
 			AND (model_access_targets.target_connection_id IS NOT NULL OR (model_access_targets.target_model_config_id IS NOT NULL AND NOT model_access_targets.target_model_config_id = ANY(terminal_reachability.path)))
 	)
 	SELECT DISTINCT connections.endpoint_id, connections.id, connections.is_active,
-		source_models.id, source_models.profile_id, source_models.api_family, source_models.model_id, source_models.display_name, source_models.loadbalance_strategy_id, source_models.openai_accepted_format, source_models.openai_image_operations, source_models.is_enabled, source_models.created_at, source_models.updated_at
+		source_models.id, source_models.profile_id, source_models.api_family, source_models.model_id, source_models.display_name, source_models.loadbalance_strategy_id, source_models.openai_accepted_format, source_models.openai_image_operations, source_models.direct_request_enabled, source_models.is_enabled, source_models.created_at, source_models.updated_at
 	FROM terminal_reachability
 	JOIN connections ON connections.id = terminal_reachability.terminal_connection_id AND connections.profile_id = $1
 	JOIN model_configs AS source_models ON source_models.id = terminal_reachability.root_model_config_id AND source_models.profile_id = $1
@@ -105,7 +105,7 @@ func listEndpointModelRows(ctx context.Context, exec queryExecutor, profileID in
 		var loadbalanceStrategyID sql.NullInt32
 		var openAIAcceptedFormat sql.NullString
 		var openAIImageOperations sql.NullString
-		if err := rows.Scan(&row.EndpointID, &row.TerminalConnectionID, &row.ConnectionIsActive, &row.ReachableModelData.ID, &row.ReachableModelData.ProfileID, &row.ReachableModelData.APIFamily, &row.ReachableModelData.ModelID, &displayName, &loadbalanceStrategyID, &openAIAcceptedFormat, &openAIImageOperations, &row.ReachableModelData.IsEnabled, &row.ReachableModelData.CreatedAt, &row.ReachableModelData.UpdatedAt); err != nil {
+		if err := rows.Scan(&row.EndpointID, &row.TerminalConnectionID, &row.ConnectionIsActive, &row.ReachableModelData.ID, &row.ReachableModelData.ProfileID, &row.ReachableModelData.APIFamily, &row.ReachableModelData.ModelID, &displayName, &loadbalanceStrategyID, &openAIAcceptedFormat, &openAIImageOperations, &row.ReachableModelData.DirectRequestEnabled, &row.ReachableModelData.IsEnabled, &row.ReachableModelData.CreatedAt, &row.ReachableModelData.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan reachable endpoint model row: %w", err)
 		}
 		row.ReachableModelData.DisplayName = nullableStringValue(displayName)

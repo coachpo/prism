@@ -35,6 +35,10 @@ func (s *Service) handleListModels(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return nil, err
 		}
+		incomingCounts, err := listModelTargetIncomingCounts(r.Context(), tx, profile.ID)
+		if err != nil {
+			return nil, err
+		}
 		strategies, accessTargets, health, err := loadModelRelations(r.Context(), tx, profile.ID, records)
 		if err != nil {
 			return nil, err
@@ -52,7 +56,10 @@ func (s *Service) handleListModels(w http.ResponseWriter, r *http.Request) {
 				return nil, err
 			}
 			for _, record := range records {
-				response = append(response, buildModelListResponse(record, strategies, accessTargets, counts, health, s.now().UTC()))
+				item := buildModelListResponse(record, strategies, accessTargets, counts, health, s.now().UTC())
+				item.IncomingModelTargetCount = incomingCounts[record.ID]
+				item.ConfigurationWarnings = directRequestWarnings(record, item.IncomingModelTargetCount)
+				response = append(response, item)
 			}
 			for index := range response {
 				if summary, ok := readinessSummaries[response[index].ID]; ok {
@@ -68,6 +75,8 @@ func (s *Service) handleListModels(w http.ResponseWriter, r *http.Request) {
 		}
 		for _, record := range records {
 			item := buildModelListResponse(record, strategies, accessTargets, counts, health, s.now().UTC())
+			item.IncomingModelTargetCount = incomingCounts[record.ID]
+			item.ConfigurationWarnings = directRequestWarnings(record, item.IncomingModelTargetCount)
 			if summary, ok := summaries[record.ID]; ok {
 				summary := summary
 				item.RoutingSummary = &summary
@@ -106,6 +115,12 @@ func (s *Service) handleGetModel(w http.ResponseWriter, r *http.Request) {
 			return modelConfigResponse{}, err
 		}
 		detail := buildModelDetailResponse(record, strategies, accessTargets, s.now().UTC())
+		incomingCounts, err := listModelTargetIncomingCounts(r.Context(), tx, profile.ID)
+		if err != nil {
+			return modelConfigResponse{}, err
+		}
+		detail.IncomingModelTargetCount = incomingCounts[record.ID]
+		detail.ConfigurationWarnings = directRequestWarnings(record, detail.IncomingModelTargetCount)
 		binding, _, err := loadCatalogBinding(r.Context(), tx, profile.ID, modelConfigID)
 		if err != nil {
 			return modelConfigResponse{}, err
@@ -172,7 +187,11 @@ func (s *Service) handleCreateModel(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		now := s.nowUTC()
-		record := modelRecord{ProfileID: profile.ID, APIFamily: requestBody.APIFamily, ModelID: requestBody.ModelID, DisplayName: resolvePersistedDisplayName(requestBody.ModelID, requestBody.DisplayName), LoadbalanceStrategyID: requestBody.LoadbalanceStrategyID, OpenAIAcceptedFormat: requestBody.OpenAIAcceptedFormat.Value, OpenAIImageOperations: requestBody.OpenAIImageOperations.Value, IsEnabled: modelEnabled, CreatedAt: now, UpdatedAt: now}
+		directRequestEnabled := true
+		if requestBody.DirectRequestEnabled.Set {
+			directRequestEnabled = requestBody.DirectRequestEnabled.Value
+		}
+		record := modelRecord{ProfileID: profile.ID, APIFamily: requestBody.APIFamily, ModelID: requestBody.ModelID, DisplayName: resolvePersistedDisplayName(requestBody.ModelID, requestBody.DisplayName), LoadbalanceStrategyID: requestBody.LoadbalanceStrategyID, OpenAIAcceptedFormat: requestBody.OpenAIAcceptedFormat.Value, OpenAIImageOperations: requestBody.OpenAIImageOperations.Value, DirectRequestEnabled: directRequestEnabled, IsEnabled: modelEnabled, CreatedAt: now, UpdatedAt: now}
 		created, err := insertModel(r.Context(), tx, record)
 		if err != nil {
 			return modelMutationEnvelope{}, err
@@ -193,6 +212,12 @@ func (s *Service) handleCreateModel(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return modelMutationEnvelope{}, err
 		}
+		incomingCounts, err := listModelTargetIncomingCounts(r.Context(), tx, profile.ID)
+		if err != nil {
+			return modelMutationEnvelope{}, err
+		}
+		detail.IncomingModelTargetCount = incomingCounts[created.ID]
+		detail.ConfigurationWarnings = append([]modelrouting.ConfigurationWarning(nil), warnings...)
 		envelope := modelMutationEnvelope{
 			Model:                 &detail,
 			ConfigurationWarnings: warnings,
@@ -267,6 +292,9 @@ func (s *Service) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 		if requestBody.IsEnabled.Set {
 			next.IsEnabled = requestBody.IsEnabled.Value
 		}
+		if requestBody.DirectRequestEnabled.Set {
+			next.DirectRequestEnabled = requestBody.DirectRequestEnabled.Value
+		}
 		if requestBody.LoadbalanceStrategyID.Set {
 			next.LoadbalanceStrategyID = requestBody.LoadbalanceStrategyID.Value
 		}
@@ -322,6 +350,12 @@ func (s *Service) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 			return modelMutationEnvelope{}, err
 		}
 		detail := buildModelDetailResponse(updated, strategies, accessTargets, s.now().UTC())
+		incomingCounts, err := listModelTargetIncomingCounts(r.Context(), tx, profile.ID)
+		if err != nil {
+			return modelMutationEnvelope{}, err
+		}
+		detail.IncomingModelTargetCount = incomingCounts[updated.ID]
+		detail.ConfigurationWarnings = append([]modelrouting.ConfigurationWarning(nil), warnings...)
 		return modelMutationEnvelope{Model: &detail, ConfigurationWarnings: warnings}, nil
 	})
 	if err != nil {

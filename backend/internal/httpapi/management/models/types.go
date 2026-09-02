@@ -47,6 +47,7 @@ type modelCreateRequest struct {
 	OpenAIAcceptedFormat  optionalString                     `json:"openai_accepted_format"`
 	OpenAIImageOperations optionalString                     `json:"openai_image_operations"`
 	IsEnabled             *bool                              `json:"is_enabled"`
+	DirectRequestEnabled  optionalDirectRequestBool          `json:"direct_request_enabled"`
 	InitialTerminalTarget *modelInitialTerminalTargetRequest `json:"initial_terminal_target"`
 }
 
@@ -156,19 +157,44 @@ type optionalBool struct {
 	Value bool
 }
 
+// optionalDirectRequestBool preserves the distinction between an omitted
+// create/update field and an explicitly supplied JSON null. The persisted
+// column is NOT NULL, so null is rejected rather than silently becoming false.
+type optionalDirectRequestBool struct {
+	Set     bool
+	Null    bool
+	Invalid bool
+	Value   bool
+}
+
+func (value *optionalDirectRequestBool) UnmarshalJSON(data []byte) error {
+	value.Set = true
+	trimmed := bytes.TrimSpace(data)
+	if bytes.Equal(trimmed, []byte("null")) {
+		value.Null = true
+		return nil
+	}
+	if err := json.Unmarshal(trimmed, &value.Value); err != nil {
+		value.Invalid = true
+		return nil
+	}
+	return nil
+}
+
 func (value *optionalBool) UnmarshalJSON(data []byte) error {
 	value.Set = true
 	return json.Unmarshal(bytes.TrimSpace(data), &value.Value)
 }
 
 type modelUpdateRequest struct {
-	APIFamily             optionalString `json:"api_family"`
-	ModelID               optionalString `json:"model_id"`
-	DisplayName           optionalString `json:"display_name"`
-	LoadbalanceStrategyID optionalInt    `json:"loadbalance_strategy_id"`
-	OpenAIAcceptedFormat  optionalString `json:"openai_accepted_format"`
-	OpenAIImageOperations optionalString `json:"openai_image_operations"`
-	IsEnabled             optionalBool   `json:"is_enabled"`
+	APIFamily             optionalString            `json:"api_family"`
+	ModelID               optionalString            `json:"model_id"`
+	DisplayName           optionalString            `json:"display_name"`
+	LoadbalanceStrategyID optionalInt               `json:"loadbalance_strategy_id"`
+	OpenAIAcceptedFormat  optionalString            `json:"openai_accepted_format"`
+	OpenAIImageOperations optionalString            `json:"openai_image_operations"`
+	IsEnabled             optionalBool              `json:"is_enabled"`
+	DirectRequestEnabled  optionalDirectRequestBool `json:"direct_request_enabled"`
 }
 
 type loadbalanceStrategySummary struct {
@@ -249,15 +275,17 @@ type connectionTargetSummary struct {
 type terminalTargetSummary = connectionTargetSummary
 
 type modelTargetSummary struct {
-	ID                    int     `json:"id"`
-	ProfileID             int     `json:"profile_id"`
-	APIFamily             string  `json:"api_family"`
-	ModelID               string  `json:"model_id"`
-	DisplayName           *string `json:"display_name"`
-	LoadbalanceStrategyID *int    `json:"loadbalance_strategy_id"`
-	OpenAIAcceptedFormat  *string `json:"openai_accepted_format"`
-	OpenAIImageOperations *string `json:"openai_image_operations"`
-	IsEnabled             bool    `json:"is_enabled"`
+	ID                       int     `json:"id"`
+	ProfileID                int     `json:"profile_id"`
+	APIFamily                string  `json:"api_family"`
+	ModelID                  string  `json:"model_id"`
+	DisplayName              *string `json:"display_name"`
+	LoadbalanceStrategyID    *int    `json:"loadbalance_strategy_id"`
+	OpenAIAcceptedFormat     *string `json:"openai_accepted_format"`
+	OpenAIImageOperations    *string `json:"openai_image_operations"`
+	DirectRequestEnabled     bool    `json:"direct_request_enabled"`
+	IncomingModelTargetCount int     `json:"incoming_model_target_count"`
+	IsEnabled                bool    `json:"is_enabled"`
 }
 
 type modelAccessTargetResponse struct {
@@ -276,25 +304,28 @@ type modelAccessTargetResponse struct {
 }
 
 type modelConfigListResponse struct {
-	ID                    int                                      `json:"id"`
-	ProfileID             int                                      `json:"profile_id"`
-	APIFamily             string                                   `json:"api_family"`
-	ModelID               string                                   `json:"model_id"`
-	DisplayName           *string                                  `json:"display_name"`
-	LoadbalanceStrategyID *int                                     `json:"loadbalance_strategy_id"`
-	LoadbalanceStrategy   *loadbalanceStrategySummary              `json:"loadbalance_strategy"`
-	OpenAIAcceptedFormat  *string                                  `json:"openai_accepted_format"`
-	OpenAIImageOperations *string                                  `json:"openai_image_operations"`
-	AccessTargets         []modelAccessTargetResponse              `json:"access_targets"`
-	IsEnabled             bool                                     `json:"is_enabled"`
-	ConnectionCount       int                                      `json:"connection_count"`
-	ActiveConnectionCount int                                      `json:"active_connection_count"`
-	HealthSuccessRate     *float64                                 `json:"health_success_rate"`
-	HealthTotalRequests   int                                      `json:"health_total_requests"`
-	RoutingSummary        *modelrouting.RoutingSummary             `json:"routing_summary"`
-	RouteReadiness        *modelrouting.ModelRouteReadinessSummary `json:"route_readiness,omitempty"`
-	CreatedAt             time.Time                                `json:"created_at"`
-	UpdatedAt             time.Time                                `json:"updated_at"`
+	ID                       int                                      `json:"id"`
+	ProfileID                int                                      `json:"profile_id"`
+	APIFamily                string                                   `json:"api_family"`
+	ModelID                  string                                   `json:"model_id"`
+	DisplayName              *string                                  `json:"display_name"`
+	LoadbalanceStrategyID    *int                                     `json:"loadbalance_strategy_id"`
+	LoadbalanceStrategy      *loadbalanceStrategySummary              `json:"loadbalance_strategy"`
+	OpenAIAcceptedFormat     *string                                  `json:"openai_accepted_format"`
+	OpenAIImageOperations    *string                                  `json:"openai_image_operations"`
+	DirectRequestEnabled     bool                                     `json:"direct_request_enabled"`
+	AccessTargets            []modelAccessTargetResponse              `json:"access_targets"`
+	IsEnabled                bool                                     `json:"is_enabled"`
+	IncomingModelTargetCount int                                      `json:"incoming_model_target_count"`
+	ConfigurationWarnings    []modelrouting.ConfigurationWarning      `json:"configuration_warnings"`
+	ConnectionCount          int                                      `json:"connection_count"`
+	ActiveConnectionCount    int                                      `json:"active_connection_count"`
+	HealthSuccessRate        *float64                                 `json:"health_success_rate"`
+	HealthTotalRequests      int                                      `json:"health_total_requests"`
+	RoutingSummary           *modelrouting.RoutingSummary             `json:"routing_summary"`
+	RouteReadiness           *modelrouting.ModelRouteReadinessSummary `json:"route_readiness,omitempty"`
+	CreatedAt                time.Time                                `json:"created_at"`
+	UpdatedAt                time.Time                                `json:"updated_at"`
 }
 
 // accessTargetMutationEnvelope is the fixed response envelope for Access
@@ -305,17 +336,20 @@ type accessTargetMutationEnvelope struct {
 }
 
 type modelConfigResponse struct {
-	ID                    int                         `json:"id"`
-	ProfileID             int                         `json:"profile_id"`
-	APIFamily             string                      `json:"api_family"`
-	ModelID               string                      `json:"model_id"`
-	DisplayName           *string                     `json:"display_name"`
-	LoadbalanceStrategyID *int                        `json:"loadbalance_strategy_id"`
-	LoadbalanceStrategy   *loadbalanceStrategySummary `json:"loadbalance_strategy"`
-	OpenAIAcceptedFormat  *string                     `json:"openai_accepted_format"`
-	OpenAIImageOperations *string                     `json:"openai_image_operations"`
-	AccessTargets         []modelAccessTargetResponse `json:"access_targets"`
-	IsEnabled             bool                        `json:"is_enabled"`
+	ID                       int                                 `json:"id"`
+	ProfileID                int                                 `json:"profile_id"`
+	APIFamily                string                              `json:"api_family"`
+	ModelID                  string                              `json:"model_id"`
+	DisplayName              *string                             `json:"display_name"`
+	LoadbalanceStrategyID    *int                                `json:"loadbalance_strategy_id"`
+	LoadbalanceStrategy      *loadbalanceStrategySummary         `json:"loadbalance_strategy"`
+	OpenAIAcceptedFormat     *string                             `json:"openai_accepted_format"`
+	OpenAIImageOperations    *string                             `json:"openai_image_operations"`
+	DirectRequestEnabled     bool                                `json:"direct_request_enabled"`
+	AccessTargets            []modelAccessTargetResponse         `json:"access_targets"`
+	IsEnabled                bool                                `json:"is_enabled"`
+	IncomingModelTargetCount int                                 `json:"incoming_model_target_count"`
+	ConfigurationWarnings    []modelrouting.ConfigurationWarning `json:"configuration_warnings"`
 	// Catalog carries the models.dev binding (source/override/effective
 	// metadata plus coordinates, fetch stamp, and revision) alongside the
 	// runtime identity fields. It is management-only projection data: nothing

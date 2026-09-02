@@ -269,6 +269,33 @@ func exportSourceRow(t *testing.T, source map[string]any, modelConfigID int) map
 	return nil
 }
 
+func exportSourceContainsModel(t *testing.T, source map[string]any, modelConfigID int) bool {
+	t.Helper()
+	for _, raw := range source["models"].([]any) {
+		if jsonInt(t, asMap(t, raw)["model_config_id"]) == modelConfigID {
+			return true
+		}
+	}
+	return false
+}
+
+func TestModelExportSourceExcludesNonDirectModels(t *testing.T) {
+	harness := newExportContractHarness(t, exportServingCatalog, piServingCatalogHandler)
+	directID, _ := exportSeedModel(t, harness, "gpt-export", "openai", "responses_only")
+	nonDirectID, _ := exportSeedModel(t, harness, "gpt-internal", "openai", "responses_only")
+
+	if _, err := harness.conn.Exec(t.Context(), `UPDATE model_configs SET direct_request_enabled = FALSE WHERE id = $1`, nonDirectID); err != nil {
+		t.Fatalf("mark export fixture model non-direct: %v", err)
+	}
+	source := exportFetchSource(t, harness)
+	if !exportSourceContainsModel(t, source, directID) {
+		t.Fatalf("expected direct model %d in Pi export source", directID)
+	}
+	if exportSourceContainsModel(t, source, nonDirectID) {
+		t.Fatalf("non-direct model %d must be absent from Pi export source: %+v", nonDirectID, source["models"])
+	}
+}
+
 // exportBindPi binds a model to its single exact pi.dev candidate.
 func exportBindPi(t *testing.T, harness *contractHarness, modelConfigID int) map[string]any {
 	t.Helper()

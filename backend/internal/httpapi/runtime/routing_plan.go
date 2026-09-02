@@ -9,6 +9,7 @@ import (
 
 type runtimeRoutingPlan struct {
 	ModelsByID                     map[string]runtimeRoutingPlanModel
+	DirectModelsByID               map[string]runtimeRoutingPlanModel
 	ModelsByConfigID               map[int]runtimeRoutingPlanModel
 	TerminalTargetsByID            map[int]runtimeConnection
 	AuthoredTargetsBySourceModelID map[int][]runtimeAccessTargetRecord
@@ -33,8 +34,8 @@ func (plan *runtimeRoutingPlan) requestedModelByID(modelID string) (runtimeModel
 	if plan == nil {
 		return runtimeModelRecord{}, false
 	}
-	compiled, ok := plan.ModelsByID[modelID]
-	if !ok {
+	compiled, ok := plan.DirectModelsByID[modelID]
+	if !ok || !compiled.Model.DirectRequestEnabled {
 		return runtimeModelRecord{}, false
 	}
 	return compiled.Model, true
@@ -82,7 +83,8 @@ func (plan *runtimeRoutingPlan) modelForAccessTarget(sourceModel runtimeModelRec
 	if target.TargetModelProfileID != sourceModel.ProfileID || !modelrouting.SameAPIFamily(target.TargetModelAPIFamily, sourceModel.APIFamily) {
 		return runtimeModelRecord{}, false, nil
 	}
-	childModel, ok := plan.requestedModelByID(target.TargetModelID)
+	compiledChild, ok := plan.ModelsByID[target.TargetModelID]
+	childModel := compiledChild.Model
 	if !ok || childModel.ID != *target.TargetModelConfigID {
 		return runtimeModelRecord{}, false, nil
 	}

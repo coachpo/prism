@@ -19,6 +19,7 @@ function route(operationName: string, overrides: Partial<RoutingDiagnosticRoute>
 function diagnostics(routes: RoutingDiagnosticRoute[]): RoutingDiagnosticsResponse {
   return {
     model_config_id: 10,
+    direct_request_enabled: true,
     openai_accepted_format: "chat_completions_only",
     strategy: { id: 3, type: "fill-first" },
     accepted_operations: routes.filter((item) => item.accepted).map((item) => item.operation_name),

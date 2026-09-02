@@ -11,6 +11,7 @@ import (
 // codes; message text lives in the frontend dictionary.
 const (
 	unselectableModelDisabled    = "model_disabled"
+	unselectableModelNotDirect   = "model_not_direct_entry"
 	unselectableNoTerminalTarget = "no_reachable_terminal_target"
 	unselectableNoTextOperations = "no_accepted_text_operations"
 )
@@ -20,6 +21,8 @@ const (
 func exportSelectable(model exportModelRow, primaryRoutable bool) (bool, *string) {
 	reason := func(code string) *string { return &code }
 	switch {
+	case !model.DirectRequestEnabled:
+		return false, reason(unselectableModelNotDirect)
 	case !model.IsEnabled:
 		return false, reason(unselectableModelDisabled)
 	case model.APIFamily == "openai" && isBlankPointer(model.OpenAIAcceptedFormat):

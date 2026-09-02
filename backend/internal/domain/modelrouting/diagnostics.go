@@ -50,11 +50,14 @@ type DiagnosticsGraph struct {
 }
 
 type DiagnosticsModel struct {
-	ConfigID              int
-	ProfileID             int
-	ModelID               string
-	APIFamily             string
-	IsEnabled             bool
+	ConfigID  int
+	ProfileID int
+	ModelID   string
+	APIFamily string
+	IsEnabled bool
+	// DirectRequestEnabled is the client-facing entry qualification. Model
+	// Target resolution still includes enabled nodes regardless of this bit.
+	DirectRequestEnabled  bool
 	OpenAIAcceptedFormat  *string
 	OpenAIImageOperations *string
 	LoadbalanceStrategyID *int
@@ -96,6 +99,7 @@ type DiagnosticsStrategy struct {
 // model config, computed by Analyze.
 type DiagnosticsResult struct {
 	ModelConfigID         int                            `json:"model_config_id"`
+	DirectRequestEnabled  bool                           `json:"direct_request_enabled"`
 	OpenAIAcceptedFormat  *string                        `json:"openai_accepted_format"`
 	Strategy              DiagnosticsStrategyResult      `json:"strategy"`
 	AcceptedOperations    []string                       `json:"accepted_operations"`
@@ -174,6 +178,7 @@ func Analyze(graph *DiagnosticsGraph, rootModelConfigID int, acceptedOperations 
 	if !ok {
 		return result
 	}
+	result.DirectRequestEnabled = modelIsDirectEntry(root)
 	result.OpenAIAcceptedFormat = cloneStringPointer(root.OpenAIAcceptedFormat)
 	rootStrategy := graph.strategyForModel(root)
 	result.Strategy = DiagnosticsStrategyResult{ID: rootStrategy.ID, Type: rootStrategy.Subtype}

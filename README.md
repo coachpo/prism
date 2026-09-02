@@ -9,7 +9,7 @@ A single Go binary, a React dashboard, and PostgreSQL are all it needs.
 ## Features
 
 - Speaks three API styles through one gateway: OpenAI (chat completions, responses, models), Anthropic (messages), and Gemini (generateContent), streaming included.
-- Routes by model name: a public model ID resolves through an ordered list of targets, where a *Terminal Target* is the final binding of a model to a specific provider endpoint. Swap or chain providers behind a stable model name.
+- Routes by model name: a direct-entry model ID resolves through an ordered list of targets, where a *Terminal Target* is the final binding of a model to a specific provider endpoint. Models with `direct_request_enabled=false` remain valid recursive Model Targets but are not client-addressable. Swap or chain providers behind a stable model name.
 - Load-balances across endpoints with `single`, `fill-first`, or `round-robin` strategies, with automatic retries.
 - Applies *ban policies*: an endpoint that keeps failing is benched, either temporarily or until you reset it, so retries stop hammering a dead provider.
 - Records request logs, token usage, and spending in PostgreSQL, with per-model success rate and latency on the dashboard.

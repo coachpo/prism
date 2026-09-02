@@ -1995,9 +1995,11 @@ export const zhCNMessages = {
   modelsPage: {
     allFamilies: "全部分族",
     countDescription: (count: MessageArg) => `${count} 个入口模型`,
-    newModel: "新建入口模型",
-    searchModels: "搜索入口模型...",
-    title: "入口模型",
+    modelTargetCountDescription: (count: MessageArg) => `${count} 个仅模型目标`,
+    allCountDescription: (count: MessageArg) => `${count} 个模型配置`,
+    newModel: "新建模型配置",
+    searchModels: "搜索模型配置...",
+    title: "模型配置",
     metricsScopeLabel: "统计口径",
     scopeIngress: "入口请求",
     scopeFinalExecution: "最终承载",
@@ -2061,7 +2063,7 @@ export const zhCNMessages = {
       `已有 ${known} 个可信成本样本，另有 ${missing} 个观测缺少可信成本。`,
 
     // 工具条筛选（此前是硬编码英文字面量）。
-    searchLabel: "搜索入口模型",
+    searchLabel: "搜索模型配置",
     apiFamilyLabel: "API 家族",
     apiFamilyAll: "全部家族",
     statusLabel: "状态",
@@ -2075,21 +2077,33 @@ export const zhCNMessages = {
     flagUpstreamDecoupled: "上游 ID 已解耦",
     flagHasModelTarget: "包含模型目标",
     clearFilters: "清除筛选",
+    viewLabel: "模型视图",
+    viewEntries: "入口模型",
+    viewModelTargets: "仅模型目标",
+    viewAll: "全部模型配置",
+    unreferencedModelTarget: "未被模型目标引用",
+    noModelsMatchFilters: "当前视图没有匹配的模型配置",
+    tryDifferentFilters: "请调整搜索或筛选条件后重试。",
+    noModelTargetsConfigured: "还没有仅模型目标",
+    addModelTargetFromEntry: "在入口模型的目标列表中添加模型目标后，它会出现在这里。",
 
     // 五张可点击 KPI 卡，点击即写入下方筛选。
     kpiTotal: "入口模型总数",
     kpiTotalDetail: "当前配置的入口模型",
     kpiEnabled: "已启用",
-    kpiEnabledDetail: "参与路由的入口模型",
+    kpiEnabledDetail: "当前视图中参与路由的模型配置",
     kpiDisabled: "已停用",
-    kpiDisabledDetail: "保留配置但不接受流量",
+    kpiDisabledDetail: "当前视图中已停用但仍保留的配置",
     kpiNeedsTarget: "缺终端目标",
     kpiNeedsTargetDetail: "没有任何访问目标，无法路由",
     kpiSingleTruncated: "single 截断",
     kpiSingleTruncatedDetail: "single 策略下多余的启用目标不会被使用",
+    directRequestEnabled: "允许客户端直接请求",
+    directRequestEnabledDescription:
+      "关闭后仍可作为模型目标被入口模型路由，但不会出现在客户端入口、导出或自测选择器中。",
 
     // 列头与口径。指标列必须写清时间窗，因为它们各不相同。
-    columnModel: "入口模型",
+    columnModel: "模型配置",
     columnApiFamily: "API 家族",
     columnStatus: "状态",
     columnTargets: "出口映射",
@@ -2113,11 +2127,14 @@ export const zhCNMessages = {
       `${enabled} 启用 / ${total} 总计`,
     targetsNone: "需要目标",
     targetsNoneReason: "该模型没有任何访问目标，请求无法路由。",
-    targetsLinkAria: (name: MessageArg) => `打开入口模型 ${name} 的详情`,
+    targetsLinkAria: (name: MessageArg) => `打开模型配置 ${name} 的详情`,
     exitSummaryUnavailable: "路由摘要读取失败，无法展示出口映射。",
     exitRemainder: (count: MessageArg) => `还有 ${count} 项，见详情`,
-    exitDecoupled: "已解耦",
-    exitDecoupledReason: (entry: MessageArg, upstream: MessageArg) =>
+    exitEntrySame: "入口同名",
+    exitEntrySameReason: (entry: MessageArg) =>
+      `上游模型 ID 与入口模型 ID 均为「${entry}」（精确、区分大小写）。`,
+    exitUpstreamOnly: "仅上游",
+    exitUpstreamOnlyReason: (entry: MessageArg, upstream: MessageArg) =>
       `上游模型 ID「${upstream}」与入口模型 ID「${entry}」精确比较不一致（区分大小写）。`,
     exitNotParticipating: "未参与",
     exitNotParticipatingReason: "该目标未启用，不参与路由。",
@@ -2138,11 +2155,11 @@ export const zhCNMessages = {
       `策略为 single，但该模型有 ${count} 个启用目标；除首个之外都不会被使用。`,
 
     // 行内开关与批量操作。
-    toggleModelAria: (name: MessageArg) => `启用或停用入口模型 ${name}`,
-    toggleFailed: "更新入口模型启用状态失败",
-    selectModelAria: (name: MessageArg) => `选择入口模型 ${name}`,
-    selectAllAria: "选择本页全部入口模型",
-    selectionCount: (count: MessageArg) => `已选 ${count} 个入口模型`,
+    toggleModelAria: (name: MessageArg) => `启用或停用模型配置 ${name}`,
+    toggleFailed: "更新模型配置启用状态失败",
+    selectModelAria: (name: MessageArg) => `选择模型配置 ${name}`,
+    selectAllAria: "选择本页全部模型配置",
+    selectionCount: (count: MessageArg) => `已选 ${count} 个模型配置`,
     bulkEnable: "批量启用",
     bulkDisable: "批量停用",
     bulkClear: "取消选择",
@@ -2480,6 +2497,9 @@ export const zhCNMessages = {
   },
 
   modelsUi: {
+    directRequestEnabled: "允许客户端直接请求",
+    directRequestEnabledDescription:
+      "关闭后仍可作为模型目标被入口模型路由，但不会出现在客户端入口、导出或自测选择器中。",
     // 时段徽标的六态。每一态都必须有服务端来源，前端不做任何窗口推算。
     routingScheduleOpen: "时段内",
     routingScheduleClosed: "时段外",
@@ -2492,15 +2512,15 @@ export const zhCNMessages = {
     routingScheduleStaleReason: "该结论的有效期已过，请刷新后再判断。",
     copyTargetTitle: "复制终端目标",
     copyTargetDescription: (name: MessageArg) =>
-      `将终端目标「${name}」复制到选定的入口模型（单事务、各模型私有连接）。`,
+      `将终端目标「${name}」复制到选定的模型配置（单事务、各模型私有连接）。`,
     copyDestinationModels: "目标模型（同家族；OpenAI 必须模式完全相同）",
-    copyDestinationDisabled: "（入口模型已停用）",
+    copyDestinationDisabled: "（模型配置已停用）",
     copyNoCandidates: "没有可复制的同模式目标模型。",
     copyModeMismatchNote: "以下模型的文本或图片能力要求不兼容，不可作为目标：",
     copyModeMismatchLabel: "能力维度不兼容",
     copyEnableLabel: "将新目标设为参与路由",
     copyEnableDescription:
-      "默认不参与路由（不改变目标模型现有流量）；开启后按各目标模型策略生效，但不会启用已停用的模型。",
+      "默认不参与路由（不改变目标模型现有流量）；开启后按各目标模型策略生效，但不会启用已停用的模型配置。",
     copySelectDestinationRequired: "请至少选择一个目标模型",
     copySubmit: "复制",
     copyFailed: "复制失败",
@@ -2655,7 +2675,7 @@ export const zhCNMessages = {
     targetMoveDown: (id: MessageArg) => `将目标 ${id} 下移`,
     targetMoveUp: (id: MessageArg) => `将目标 ${id} 上移`,
     targetRemove: (id: MessageArg) => `移除目标 ${id}`,
-    viewModelDetails: (name: MessageArg) => `查看入口模型 ${name} 的详情`,
+    viewModelDetails: (name: MessageArg) => `查看模型配置 ${name} 的详情`,
     tryDifferentModelNameOrId: "请尝试不同的入口模型名称或入口模型 ID",
     createFirstModel: "创建你的第一个入口模型以开始使用",
     activeConnections: (active: MessageArg, total: MessageArg) =>

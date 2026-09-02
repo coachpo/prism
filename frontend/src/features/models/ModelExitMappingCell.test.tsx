@@ -3,7 +3,7 @@
 // operator actually sees per the DESIGN.md honesty contract: real endpoint +
 // upstream identity for Terminal Targets, the logical id for Model Targets,
 // reasoned `—` for missing evidence, and textual (never color-only)
-// 已解耦/未参与 states.
+// 入口同名/仅上游/未参与 states.
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
@@ -44,7 +44,7 @@ describe("ModelExitMappingCell", () => {
     expect(screen.queryByText(ENTRY_MODEL_ID)).not.toBeInTheDocument();
   });
 
-  it("marks a case-sensitive decoupled upstream identity with the full reason", () => {
+  it("marks a case-sensitive upstream-only identity with the full reason", () => {
     renderCell(
       entryModelListItem([
         terminalTargetRow(11, 0, {
@@ -53,7 +53,7 @@ describe("ModelExitMappingCell", () => {
         }),
       ]),
     );
-    const decoupled = screen.getByText("已解耦");
+    const decoupled = screen.getByText("仅上游");
     expect(decoupled).toBeInTheDocument();
     expect(decoupled).toHaveAttribute(
       "title",
@@ -61,13 +61,17 @@ describe("ModelExitMappingCell", () => {
     );
   });
 
-  it("never marks a matching-case upstream identity as decoupled", () => {
+  it("marks an exact matching-case upstream identity as entry-same", () => {
     renderCell(
       entryModelListItem([
         terminalTargetRow(11, 0, { upstreamModelId: "Entry-A" }),
       ]),
     );
-    expect(screen.queryByText("已解耦")).not.toBeInTheDocument();
+    const same = screen.getByText("入口同名");
+    expect(same).toHaveAttribute(
+      "title",
+      `上游模型 ID 与入口模型 ID 均为「${ENTRY_MODEL_ID}」（精确、区分大小写）。`,
+    );
   });
 
   it("shows a Model Target row as the logical target, not an exit", () => {

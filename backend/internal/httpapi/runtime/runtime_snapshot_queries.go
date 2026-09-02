@@ -89,12 +89,16 @@ func runtimeConnectionRefs(connections []runtimeConnection) []loadbalance.Runtim
 	return refs
 }
 
-func listEnabledModelsForProfile(ctx context.Context, tx pgx.Tx, profileID int) (map[string]runtimeModelRecord, error) {
+// listEnabledModelsForProfile returns both the complete enabled graph and the
+// direct-entry subset. Keeping the two maps separate prevents a client from
+// addressing an internal Model Target while preserving recursive routing.
+func listEnabledModelsForProfile(ctx context.Context, tx pgx.Tx, profileID int) (map[string]runtimeModelRecord, map[string]runtimeModelRecord, error) {
 	rows, err := tx.Query(
 		ctx,
 		`SELECT model_configs.id, model_configs.profile_id, model_configs.api_family, model_configs.model_id,
 			model_configs.loadbalance_strategy_id, model_configs.openai_accepted_format,
 			model_configs.openai_image_operations,
+			model_configs.direct_request_enabled,
 			model_configs.created_at,
 			COALESCE(audit_settings.audit_enabled, FALSE),
 			COALESCE(audit_settings.audit_enabled, FALSE) AND COALESCE(audit_settings.audit_capture_bodies, FALSE)
@@ -106,19 +110,22 @@ func listEnabledModelsForProfile(ctx context.Context, tx pgx.Tx, profileID int) 
 		profileID,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("query enabled models for profile %d: %w", profileID, err)
+		return nil, nil, fmt.Errorf("query enabled models for profile %d: %w", profileID, err)
 	}
 	defer rows.Close()
 
 	items := make(map[string]runtimeModelRecord)
+	directItems := make(map[string]runtimeModelRecord)
 	for rows.Next() {
 		var strategyID sql.NullInt32
 		var openAIAcceptedFormat sql.NullString
 		var openAIImageOperations sql.NullString
+		var directRequestEnabled bool
 		item := runtimeModelRecord{}
-		if err := rows.Scan(&item.ID, &item.ProfileID, &item.APIFamily, &item.ModelID, &strategyID, &openAIAcceptedFormat, &openAIImageOperations, &item.CreatedAt, &item.AuditEnabled, &item.AuditCaptureBodies); err != nil {
-			return nil, fmt.Errorf("scan enabled model for profile %d: %w", profileID, err)
+		if err := rows.Scan(&item.ID, &item.ProfileID, &item.APIFamily, &item.ModelID, &strategyID, &openAIAcceptedFormat, &openAIImageOperations, &directRequestEnabled, &item.CreatedAt, &item.AuditEnabled, &item.AuditCaptureBodies); err != nil {
+			return nil, nil, fmt.Errorf("scan enabled model for profile %d: %w", profileID, err)
 		}
+		item.DirectRequestEnabled = directRequestEnabled
 		if _, exists := items[item.ModelID]; exists {
 			continue
 		}
@@ -129,11 +136,14 @@ func listEnabledModelsForProfile(ctx context.Context, tx pgx.Tx, profileID int) 
 		item.OpenAIAcceptedFormat = nullableString(openAIAcceptedFormat)
 		item.OpenAIImageOperations = nullableString(openAIImageOperations)
 		items[item.ModelID] = item
+		if item.DirectRequestEnabled {
+			directItems[item.ModelID] = item
+		}
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate enabled models for profile %d: %w", profileID, err)
+		return nil, nil, fmt.Errorf("iterate enabled models for profile %d: %w", profileID, err)
 	}
-	return items, nil
+	return items, directItems, nil
 }
 
 func listAccessTargetsForProfile(ctx context.Context, tx pgx.Tx, profileID int) (map[int][]runtimeAccessTargetRecord, error) {

@@ -52,8 +52,10 @@ test("new model defaults seed model CRUD fields only", () => {
   assert.equal(DEFAULT_MODEL_FORM_DATA.is_enabled, false);
   assert.equal(DEFAULT_MODEL_FORM_DATA.openai_accepted_format, "dual_native");
   assert.equal(DEFAULT_MODEL_FORM_DATA.openai_image_operations, "");
+  assert.equal(DEFAULT_MODEL_FORM_DATA.direct_request_enabled, true);
   assert.deepEqual(Object.keys(DEFAULT_MODEL_FORM_DATA).sort(), [
     "api_family",
+    "direct_request_enabled",
     "display_name",
     "is_enabled",
     "last_auto_display_name",
@@ -256,6 +258,7 @@ test("payload shaping preserves model CRUD fields only", () => {
     model_id: "live-model",
     display_name: "Live Model",
     is_enabled: true,
+    direct_request_enabled: true,
     openai_accepted_format: "dual_native",
     openai_image_operations: null,
     loadbalance_strategy_id: 17,
@@ -265,6 +268,7 @@ test("payload shaping preserves model CRUD fields only", () => {
     display_name: "  Live Model  ",
     model_id: "live-model",
     is_enabled: true,
+    direct_request_enabled: true,
     openai_accepted_format: "dual_native",
     openai_image_operations: null,
     loadbalance_strategy_id: 17,
@@ -275,6 +279,7 @@ test("non-OpenAI model payloads omit both OpenAI capability dimensions", () => {
   const payload = toModelCreatePayload({ ...setApiFamilyOnForm(createNewModelFormData(17), "anthropic"), model_id: "claude-model", display_name: "Claude Model" });
 
   assert.equal(payload.api_family, "anthropic");
+  assert.equal(payload.direct_request_enabled, true);
   assert.equal(Object.hasOwn(payload, "openai_accepted_format"), false);
   assert.equal(Object.hasOwn(payload, "openai_image_operations"), false);
 });

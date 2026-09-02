@@ -1,6 +1,10 @@
 import type { ManagedModelConfigListItem } from "@/lib/api/models"
 import { getTerminalTarget, isTerminalTargetAccessTargetType } from "@/lib/types/target-compatibility"
 
+export function isDirectRequestEntry(model: Pick<ManagedModelConfigListItem, "direct_request_enabled">) {
+  return model.direct_request_enabled === true
+}
+
 /**
  * A `single` strategy uses the first enabled target and nothing else, so any
  * further enabled targets on that model are configured but unreachable. The

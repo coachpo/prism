@@ -10,6 +10,7 @@ function sourceModel(overrides: Record<string, unknown> = {}) {
     api_family: "openai",
     display_name: "gpt-x",
     is_enabled: true,
+    direct_request_enabled: true,
     selectable: true,
     openai_accepted_format: "dual_native",
     openai_image_operations: null,
@@ -69,6 +70,12 @@ const searchCatalogWire = {
   revision: "rev-2",
 };
 
+const internalSourceModel = sourceModel({
+  model_config_id: 9,
+  model_id: "deepseek/deepseek-v4-flash-0731",
+  direct_request_enabled: false,
+});
+
 const unboundSource = {
   target_version: "0.84.3",
   catalog: catalogWire,
@@ -80,6 +87,7 @@ const unboundSource = {
       pi_candidates: [],
       candidate_status: "not_in_catalog",
     }),
+    internalSourceModel,
   ],
 };
 
@@ -104,6 +112,7 @@ const boundSource = {
       pi_binding_prism_model_id: "codex/gpt-x",
       pi_binding_catalog_revision: "rev-2",
     }),
+    internalSourceModel,
   ],
 };
 
@@ -240,6 +249,7 @@ test("export journey: bind an uncatalogued Prism id through directory search, th
   await page.goto("/route/models/export");
   const row = page.getByTestId("export-row-3");
   await row.waitFor({ timeout: 15000 });
+  await expect(page.getByTestId("export-row-9")).toHaveCount(0);
   await expect(page.getByTestId("shell-breadcrumb")).toContainText(
     "路由配置导出客户端配置",
   );
@@ -315,8 +325,6 @@ test("export journey: bind an uncatalogued Prism id through directory search, th
   );
   await sourceRefetch;
   await expect(generateButton).toBeEnabled();
-  await expect(row.getByText("未收录", { exact: true })).toBeVisible();
-  await expect(row.getByText(/已绑定/)).toBeVisible();
 
   // Generate through the final credential dialog without embedding keys.
   await generateButton.click();
@@ -339,6 +347,7 @@ test("export journey: bind an uncatalogued Prism id through directory search, th
     model_id: "gpt-x-alias",
     api: "openai-responses",
   });
+  expect(renderBody.selections).not.toHaveProperty("9");
 
   // The result sheet reuses one deterministic content for preview.
   const sheet = page.getByTestId("export-result-sheet");

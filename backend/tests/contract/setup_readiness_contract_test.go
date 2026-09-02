@@ -188,6 +188,18 @@ func TestSetupReadinessPricingProjection(t *testing.T) {
 		t.Fatalf("expected canonical model ref in matching projection, got %+v", modelRef)
 	}
 
+	update := harness.requestJSON(t, harness.client, http.MethodPut, fmt.Sprintf("/api/models/%d", modelID), map[string]any{"direct_request_enabled": false}, modelHeader(profileID))
+	assertStatus(t, update, http.StatusOK)
+	nonEntryReadiness := modelJSON[map[string]any](t, harness, profileID, http.MethodGet, "/api/models?include=route_readiness", nil, http.StatusOK)
+	nonEntryGeneration := fmt.Sprintf("%v", nonEntryReadiness["route_readiness"].(map[string]any)["route_witness_generation"])
+	nonEntryPricing := modelJSON[map[string]any](t, harness, profileID, http.MethodGet, "/api/pricing-templates?limit=1&include=setup_readiness&expected_route_witness_generation="+nonEntryGeneration, nil, http.StatusOK)
+	if intValue(nonEntryPricing["route_witness_count"]) != 0 || intValue(nonEntryPricing["applied_witness_count"]) != 0 || intValue(nonEntryPricing["cost_ready_witness_count"]) != 0 {
+		t.Fatalf("expected non-entry model to contribute no pricing setup witnesses, got %+v", nonEntryPricing)
+	}
+	if nonEntryPricing["application"].(map[string]any)["state"] != "not_ready" || nonEntryPricing["cost_ready"] != nil || nonEntryPricing["representative_matching"] != nil {
+		t.Fatalf("expected direct-only pricing setup readiness to be empty, got %+v", nonEntryPricing)
+	}
+
 	// Stale generation -> typed 409.
 	stale := harness.requestJSON(t, harness.client, http.MethodGet, "/api/pricing-templates?limit=1&include=setup_readiness&expected_route_witness_generation=999999", nil, modelHeader(profileID))
 	assertStatus(t, stale, http.StatusConflict)
@@ -244,6 +256,18 @@ func TestSetupReadinessProxyProjection(t *testing.T) {
 	}
 	if intValue(proxyEnabled["matching_witness_count"]) < 1 {
 		t.Fatalf("expected matching witnesses with effective key + route-ready model, got %+v", proxyEnabled)
+	}
+
+	update := harness.requestJSON(t, harness.client, http.MethodPut, fmt.Sprintf("/api/models/%d", modelID), map[string]any{"direct_request_enabled": false}, modelHeader(profileID))
+	assertStatus(t, update, http.StatusOK)
+	nonEntryReadiness := modelJSON[map[string]any](t, harness, profileID, http.MethodGet, "/api/models?include=route_readiness", nil, http.StatusOK)
+	nonEntryGeneration := fmt.Sprintf("%v", nonEntryReadiness["route_readiness"].(map[string]any)["route_witness_generation"])
+	nonEntryProxy := modelJSON[map[string]any](t, harness, profileID, http.MethodGet, "/api/settings/auth/proxy-keys?include=setup_readiness&expected_route_witness_generation="+nonEntryGeneration, nil, http.StatusOK)
+	if nonEntryProxy["configuration"].(map[string]any)["state"] != "ready" || nonEntryProxy["application"].(map[string]any)["state"] != "not_ready" {
+		t.Fatalf("expected proxy key configuration to remain ready while direct-only application is not ready, got %+v", nonEntryProxy)
+	}
+	if intValue(nonEntryProxy["route_witness_count"]) != 0 || intValue(nonEntryProxy["matching_witness_count"]) != 0 || nonEntryProxy["representative_matching"] != nil {
+		t.Fatalf("expected non-entry model to contribute no proxy setup witnesses, got %+v", nonEntryProxy)
 	}
 }
 

@@ -32,8 +32,10 @@ describe("models feature contracts", () => {
       display_name: "Claude Test",
       loadbalance_strategy_id: 11,
       is_enabled: true,
+      direct_request_enabled: true,
       initial_terminal_target: { endpoint_id: 3, is_active: true },
     })
     expect(JSON.stringify(payload)).not.toContain("openai_")
   })
+
 })

@@ -30,6 +30,10 @@ test("composite model create sends the nested initial terminal target", async ()
           model_id: "composite-model",
           display_name: "Composite",
           openai_accepted_format: "dual_native",
+          openai_image_operations: null,
+          direct_request_enabled: true,
+          incoming_model_target_count: 0,
+          configuration_warnings: [],
           loadbalance_strategy_id: 11,
           loadbalance_strategy: null,
           access_targets: [{ id: 1, target_type: "connection", connection_id: 15 }],
@@ -83,7 +87,7 @@ test("configure-later omits the nested target and forces disabled", async () => 
     return {
       ok: true,
       status: 201,
-      text: async () => JSON.stringify({ model: { id: 8, profile_id: 1, api_family: "openai", model_id: "later-model", display_name: "Later", openai_accepted_format: "dual_native", loadbalance_strategy_id: 11, loadbalance_strategy: null, access_targets: [], is_enabled: false, created_at: "2026-08-08T00:00:00Z", updated_at: "2026-08-08T00:00:00Z" }, configuration_warnings: [] }),
+      text: async () => JSON.stringify({ model: { id: 8, profile_id: 1, api_family: "openai", model_id: "later-model", display_name: "Later", openai_accepted_format: "dual_native", openai_image_operations: null, direct_request_enabled: true, incoming_model_target_count: 0, configuration_warnings: [], loadbalance_strategy_id: 11, loadbalance_strategy: null, access_targets: [], is_enabled: false, created_at: "2026-08-08T00:00:00Z", updated_at: "2026-08-08T00:00:00Z" }, configuration_warnings: [] }),
     };
   };
 

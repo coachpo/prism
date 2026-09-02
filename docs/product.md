@@ -25,7 +25,7 @@ Single operator (developer/power user) running the application locally or on a l
 - Supports both streaming (SSE) and non-streaming responses
 - Preserves native request/response formats per API family
 - Runtime compatibility is fixed by `api_family`
-- `GET /v1/models` is local and returns the OpenAI `object`/`data` list for enabled OpenAI models; query parameters do not select an alternate response shape
+- `GET /v1/models` is local and returns the OpenAI `object`/`data` list for enabled OpenAI models whose `model_configs.direct_request_enabled` is true; query parameters do not select an alternate response shape
 
 ### 4.2 Model Configuration
 
@@ -43,6 +43,7 @@ Single operator (developer/power user) running the application locally or on a l
 - Model Target rows and Terminal Target rows are type-neutral peers of the same authored mixed order; `single`, `fill-first`, and `round-robin` run once over the enabled mixed rows, and no target type holds a hidden priority tier
 - Model-target entries must stay within the same `api_family`, cannot target themselves, and cannot introduce cycles
 - A Model Target row is an atomic parent peer: entering it recursively resolves the child model with the child's own strategy, and the child's attempts stay one contiguous block in the parent result
+- `model_configs.direct_request_enabled` is the only persisted client-entry qualification. It is `BOOLEAN NOT NULL DEFAULT TRUE`; it is not an `entry_only`/`outbound_only`/`both` state. A false row remains a valid enabled Model Target and may be reached recursively by a direct parent. Direct runtime requests for that ID return the existing model-not-configured `404` before side effects; `/v1/models` and Pi export omit it, setup readiness does not count it as a root, and proxy-key self-tests do not offer it.
 - A Terminal Target outside its routing window is skipped exactly like any other candidate-local miss: planning moves on to the next peer in effective order rather than failing the request
 - Each model owns its reusable load-balance strategy, so nested model targets evaluate strategy and Ban Policy at their own graph level
 - Model IDs are unique within a profile; the same model ID can exist in different profiles without collision
@@ -91,8 +92,8 @@ Single operator (developer/power user) running the application locally or on a l
 
 ### 4.7 Web UI (Management Dashboard)
 
-- View all configured entry models (the `/route/models` management surface for `model_configs`) and their reachable exits. The list's 出口映射 column projects the direct `access_targets` rows in `(position, id)` order and shows the first two: Terminal Target rows as endpoint → persisted `upstream_model_id`, Model Target rows as the logical target id; rows beyond the second are a `还有 N 项，见详情` pointer to the entry-model detail, and the projection never follows Model Target rows recursively. Missing endpoint or upstream evidence renders a reasoned `—` and is never backfilled from the entry `model_id`; disabled rows stay visible with a 未参与 state and case-sensitive upstream decoupling is a textual state, never a color-only one.
-- Add/edit/delete entry-model configurations with ordered access targets. The page's stats switch is a controlled single-select segmented control over the three named metric scopes (`ingress`/`final_execution`/`route_attempt`, URL-backed through `scope`) with a fixed attribution note per scope, and re-selecting the active scope never clears it. Identity filters (`flag`) cover `upstream_decoupled` (a direct Terminal Target's persisted upstream identity differs from the entry `model_id` by exact, case-sensitive comparison), `has_model_target` (at least one direct Model Target row), plus the retained `needs_target` and `single_truncated` states.
+- View configured model entries and their reachable exits (the `/route/models` management surface for `model_configs`). The default view shows only direct entries; a URL-backed segmented selector switches to only non-entry Model Target rows or the full inventory. KPI/counts and search operate on the selected view. The list's 出口映射 column projects the direct `access_targets` rows in `(position, id)` order and shows the first two: Terminal Target rows as endpoint → persisted `upstream_model_id`, Model Target rows as the logical target id; rows beyond the second are a `还有 N 项，见详情` pointer to model detail, and the projection never follows Model Target rows recursively. Missing endpoint or upstream evidence renders a reasoned `—` and is never backfilled from the entry `model_id`; disabled rows stay visible with a 未参与 state. Terminal Target identities use exact, case-sensitive `入口同名` and `仅上游` classifications rather than health colors. Non-entry rows expose their incoming Model Target count and a warning when that count is zero.
+- Add/edit/delete model configurations with ordered access targets. The form exposes the direct-entry switch; omission on create defaults to true and omission on update preserves the stored bit. The page's stats switch is a controlled single-select segmented control over the three named metric scopes (`ingress`/`final_execution`/`route_attempt`, URL-backed through `scope`) with a fixed attribution note per scope, and re-selecting the active scope never clears it. Identity filters (`flag`) cover `upstream_decoupled` (a direct Terminal Target's persisted upstream identity differs from the entry `model_id` by exact, case-sensitive comparison), `has_model_target` (at least one direct Model Target row), plus the retained `needs_target` and `single_truncated` states.
 - Add/edit/delete profile-scoped endpoints
 - Model detail renders one mixed access-target list ordered by the shared `position`; Model and Terminal rows share a continuous "位置 N" numbering, adjacent rows of either type can be moved up/down with the same controls, and reloads never restore type grouping
 - Add/edit/delete Terminal Targets from model detail; the Terminal Target dialog includes an “高级请求设置” group with request limits, custom headers, and the custom request parameters JSON editor
@@ -943,7 +944,7 @@ Runtime auth follows the latest proxy-key snapshot immediately after auth and pr
 - `POST /v1beta/models/{model}:countTokens`
 
 These 12 allowlisted runtime routes are defined in `backend/internal/httpapi/runtime/operations.go` and are intentionally separate from `/api/*` management routes. Prism does not treat `/v1` or `/v1beta` as catch-all prefixes.
-`GET /v1/models` remains local and always returns the OpenAI-shaped list of enabled OpenAI models. Query parameters, including the retired `client_version`, do not select an alternate response shape.
+`GET /v1/models` remains local and always returns the OpenAI-shaped list of enabled direct-entry OpenAI models. Enabled non-entry Model Target rows stay routable through a direct parent but are omitted. Query parameters, including the retired `client_version`, do not select an alternate response shape.
 
 ### 9. Priority Operations Runbook
 

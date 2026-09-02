@@ -72,6 +72,15 @@ type RouteWitnessSnapshot struct {
 	Witnesses                    []RouteWitnessRef
 	ByModelConfigID              map[int][]RouteWitnessRef
 	ByModelID                    map[string][]RouteWitnessRef
+	// DirectWitnesses and the direct counters are the client-entry projection.
+	// Witnesses/ByModel* intentionally retain every enabled graph node so model
+	// target diagnostics and configuration views can still inspect non-entry
+	// nodes without making them directly addressable.
+	DirectWitnesses                    []RouteWitnessRef
+	DirectConfigurationReadyModelCount int
+	DirectRouteReadyModelCount         int
+	DirectRouteWitnessCount            int
+	DirectScheduleLimitedWitnessCount  int
 	// Schedule-limited witness counts. A witness is schedule-limited when its
 	// terminal target has windows that do not cover the whole week, i.e. the
 	// route it proves exists only during part of the week. Purely a
@@ -159,6 +168,7 @@ func AnalyzeRouteWitnessSnapshotWithOperations(graph *DiagnosticsGraph, generati
 		ConfigurationReadyByModel: map[int]bool{},
 		ByModelConfigID:           map[int][]RouteWitnessRef{},
 		ByModelID:                 map[string][]RouteWitnessRef{},
+		DirectWitnesses:           []RouteWitnessRef{},
 		operationRanks:            operationRanks,
 	}
 	if graph == nil {
@@ -187,6 +197,9 @@ func AnalyzeRouteWitnessSnapshotWithOperations(graph *DiagnosticsGraph, generati
 			continue
 		}
 		analyzer.snapshot.ConfigurationReadyModelCount++
+		if modelIsDirectEntry(model) {
+			analyzer.snapshot.DirectConfigurationReadyModelCount++
+		}
 		for _, operation := range analyzer.acceptedOperations(model) {
 			analyzer.resolveTerminalFallback(model, operation)
 		}
@@ -219,13 +232,13 @@ func (snapshot RouteWitnessSnapshot) GenerationLabel() string {
 }
 
 // RepresentativeWitnessRef returns the stable representative witness for the
-// snapshot (the first entry of the canonically ordered witness list), or nil
-// when the snapshot has no witnesses.
+// client-entry projection (the first entry of the canonically ordered direct
+// witness list), or nil when no direct root has a witness.
 func (snapshot RouteWitnessSnapshot) RepresentativeWitnessRef() *RouteWitnessRef {
-	if len(snapshot.Witnesses) == 0 {
+	if len(snapshot.DirectWitnesses) == 0 {
 		return nil
 	}
-	representative := snapshot.Witnesses[0]
+	representative := snapshot.DirectWitnesses[0]
 	representative.Generation = snapshot.GenerationLabel()
 	return &representative
 }
@@ -266,9 +279,10 @@ func (snapshot RouteWitnessSnapshot) ModelSummary(modelConfigID int) ModelRouteR
 // Unknown (analyzer failure / generation unavailable) is expressed by the
 // caller; here only authoritative results are produced.
 func (snapshot RouteWitnessSnapshot) ProfileReadiness() ProfileRouteReadiness {
-	configurationReadyCount := snapshot.ConfigurationReadyModelCount
-	routeReadyCount := snapshot.RouteReadyModelCount
-	witnessCount := snapshot.RouteWitnessCount
+	configurationReadyCount := snapshot.DirectConfigurationReadyModelCount
+	routeReadyCount := snapshot.DirectRouteReadyModelCount
+	witnessCount := snapshot.DirectRouteWitnessCount
+	scheduleLimitedWitnessCount := snapshot.DirectScheduleLimitedWitnessCount
 	configuration := ReadinessAxis{State: "not_ready", ReasonCodes: []string{"no_ready_model"}}
 	if configurationReadyCount > 0 {
 		configuration = ReadinessAxis{State: "ready", ReasonCodes: []string{}}
@@ -280,8 +294,8 @@ func (snapshot RouteWitnessSnapshot) ProfileReadiness() ProfileRouteReadiness {
 	return ProfileRouteReadiness{
 		RouteWitnessGeneration: snapshot.GenerationLabel(),
 		RouteSchedule: RouteScheduleQualifier{
-			ScheduleLimited:     snapshot.ScheduleLimitedWitnessCount > 0,
-			LimitedWitnessCount: snapshot.ScheduleLimitedWitnessCount,
+			ScheduleLimited:     scheduleLimitedWitnessCount > 0,
+			LimitedWitnessCount: scheduleLimitedWitnessCount,
 			TotalWitnessCount:   witnessCount,
 		},
 		Configuration:                configuration,
@@ -429,6 +443,9 @@ func (analyzer *routeWitnessAnalyzer) addWitness(modelConfigID int, operation st
 	analyzer.snapshot.Witnesses = append(analyzer.snapshot.Witnesses, witness)
 	analyzer.snapshot.ByModelConfigID[modelConfigID] = append(analyzer.snapshot.ByModelConfigID[modelConfigID], witness)
 	analyzer.snapshot.ByModelID[model.ModelID] = append(analyzer.snapshot.ByModelID[model.ModelID], witness)
+	if modelIsDirectEntry(model) {
+		analyzer.snapshot.DirectWitnesses = append(analyzer.snapshot.DirectWitnesses, witness)
+	}
 	// Pure configuration test: never IsOpenAt. Whether the window happens to be
 	// open at this instant is not a property of the generation.
 	if connection, ok := analyzer.graph.ConnectionsByID[terminalTargetID]; ok &&
@@ -438,6 +455,9 @@ func (analyzer *routeWitnessAnalyzer) addWitness(modelConfigID int, operation st
 			analyzer.snapshot.ScheduleLimitedByModelConfigID = map[int]int{}
 		}
 		analyzer.snapshot.ScheduleLimitedByModelConfigID[modelConfigID]++
+		if modelIsDirectEntry(model) {
+			analyzer.snapshot.DirectScheduleLimitedWitnessCount++
+		}
 	}
 }
 
@@ -466,6 +486,14 @@ func (analyzer *routeWitnessAnalyzer) finalizeSnapshot() {
 		return a.WitnessID < b.WitnessID
 	})
 	analyzer.snapshot.Witnesses = witnesses
+	directWitnesses := make([]RouteWitnessRef, 0, len(analyzer.snapshot.DirectWitnesses))
+	for _, witness := range witnesses {
+		modelConfigID := mustParseDecimalInt(witness.ModelConfigID)
+		if model, ok := analyzer.graph.ModelsByID[modelConfigID]; ok && modelIsDirectEntry(model) {
+			directWitnesses = append(directWitnesses, witness)
+		}
+	}
+	analyzer.snapshot.DirectWitnesses = directWitnesses
 	routeReadyModels := map[int]bool{}
 	for modelConfigID, modelWitnesses := range analyzer.snapshot.ByModelConfigID {
 		if len(modelWitnesses) > 0 {
@@ -475,9 +503,20 @@ func (analyzer *routeWitnessAnalyzer) finalizeSnapshot() {
 	analyzer.snapshot.ConfigurationReadyModelCount = len(analyzer.snapshot.ConfigurationReadyByModel)
 	analyzer.snapshot.RouteReadyModelCount = len(routeReadyModels)
 	analyzer.snapshot.RouteWitnessCount = len(witnesses)
+	directRouteReadyModels := map[int]bool{}
+	for _, witness := range analyzer.snapshot.DirectWitnesses {
+		configID := mustParseDecimalInt(witness.ModelConfigID)
+		directRouteReadyModels[configID] = true
+	}
+	analyzer.snapshot.DirectRouteReadyModelCount = len(directRouteReadyModels)
+	analyzer.snapshot.DirectRouteWitnessCount = len(analyzer.snapshot.DirectWitnesses)
 	for modelConfigID := range analyzer.snapshot.ByModelConfigID {
 		analyzer.snapshot.ByModelConfigID[modelConfigID] = sortWitnessesByRegistryRank(analyzer.snapshot.ByModelConfigID[modelConfigID], analyzer.operationRank)
 	}
+}
+
+func modelIsDirectEntry(model DiagnosticsModel) bool {
+	return model.DirectRequestEnabled
 }
 
 func (analyzer *routeWitnessAnalyzer) rank(operation string) int {

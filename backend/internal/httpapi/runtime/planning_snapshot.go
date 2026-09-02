@@ -15,7 +15,10 @@ import (
 )
 
 type planningSnapshot struct {
-	ModelsByID                   map[string]runtimeModelRecord
+	ModelsByID map[string]runtimeModelRecord
+	// DirectModelsByID is the exact client-ingress allowlist. ModelsByID stays
+	// complete so a direct parent can recurse through non-entry Model Targets.
+	DirectModelsByID             map[string]runtimeModelRecord
 	AccessTargetsBySourceModelID map[int][]runtimeAccessTargetRecord
 	TerminalTargetsByID          map[int]runtimeConnection
 	StrategiesByModelID          map[int]loadbalance.RuntimeStrategy
@@ -42,7 +45,7 @@ func (snapshot *planningSnapshot) compiledRoutingPlan() (*runtimeRoutingPlan, er
 }
 
 func buildPlanningSnapshot(ctx context.Context, tx pgx.Tx, profileID int, secretEncryptionKey string) (*planningSnapshot, error) {
-	modelsByID, err := listEnabledModelsForProfile(ctx, tx, profileID)
+	modelsByID, directModelsByID, err := listEnabledModelsForProfile(ctx, tx, profileID)
 	if err != nil {
 		return nil, err
 	}
@@ -87,6 +90,7 @@ func buildPlanningSnapshot(ctx context.Context, tx pgx.Tx, profileID int, secret
 
 	snapshot := &planningSnapshot{
 		ModelsByID:                   modelsByID,
+		DirectModelsByID:             directModelsByID,
 		AccessTargetsBySourceModelID: accessTargetsBySourceModelID,
 		TerminalTargetsByID:          connectionsByID,
 		StrategiesByModelID:          strategiesByModelID,

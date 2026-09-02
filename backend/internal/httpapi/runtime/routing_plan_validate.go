@@ -31,6 +31,9 @@ func validateRuntimeRoutingPlanIssues(plan *runtimeRoutingPlan) []runtimeRouting
 	if plan.ModelsByID == nil {
 		issues = appendRuntimeRoutingPlanValidationIssue(issues, "models_by_id_nil", "plan.models_by_id", "model-id lookup is nil")
 	}
+	if plan.DirectModelsByID == nil {
+		issues = appendRuntimeRoutingPlanValidationIssue(issues, "direct_models_by_id_nil", "plan.direct_models_by_id", "direct model-id lookup is nil")
+	}
 	if plan.ModelsByConfigID == nil {
 		issues = appendRuntimeRoutingPlanValidationIssue(issues, "models_by_config_id_nil", "plan.models_by_config_id", "model config-id lookup is nil")
 	}
@@ -43,6 +46,30 @@ func validateRuntimeRoutingPlanIssues(plan *runtimeRoutingPlan) []runtimeRouting
 		compiled := plan.ModelsByID[modelID]
 		path := fmt.Sprintf("plan.models_by_id[%q]", modelID)
 		issues = validateRuntimeRoutingPlanModelIssues(plan, issues, path, modelID, compiled)
+		directCompiled, isDirect := plan.DirectModelsByID[modelID]
+		if compiled.Model.DirectRequestEnabled && !isDirect {
+			issues = appendRuntimeRoutingPlanValidationIssue(issues, "direct_model_missing", path, fmt.Sprintf("direct model %q is missing from the direct model-id lookup", modelID))
+		}
+		if !compiled.Model.DirectRequestEnabled && isDirect {
+			issues = appendRuntimeRoutingPlanValidationIssue(issues, "non_direct_model_exposed", path, fmt.Sprintf("non-direct model %q appears in the direct model-id lookup", modelID))
+		}
+		if isDirect && directCompiled.Model.ID != compiled.Model.ID {
+			issues = appendRuntimeRoutingPlanValidationIssue(issues, "direct_model_lookup_disagrees", path, fmt.Sprintf("direct model lookup for %q points to model config id %d but full lookup points to %d", modelID, directCompiled.Model.ID, compiled.Model.ID))
+		}
+	}
+
+	directModelIDs := sortedRuntimeRoutingPlanModelIDs(plan.DirectModelsByID)
+	for _, modelID := range directModelIDs {
+		compiled := plan.DirectModelsByID[modelID]
+		path := fmt.Sprintf("plan.direct_models_by_id[%q]", modelID)
+		byModelID, ok := plan.ModelsByID[modelID]
+		if !ok {
+			issues = appendRuntimeRoutingPlanValidationIssue(issues, "direct_model_missing_full_lookup", path, fmt.Sprintf("direct model %q has no full model-id lookup", modelID))
+			continue
+		}
+		if compiled.Model.ID != byModelID.Model.ID {
+			issues = appendRuntimeRoutingPlanValidationIssue(issues, "direct_model_config_mismatch", path, fmt.Sprintf("direct model %q points to model config id %d but full lookup points to %d", modelID, compiled.Model.ID, byModelID.Model.ID))
+		}
 	}
 
 	configIDs := sortedRuntimeRoutingPlanConfigIDs(plan.ModelsByConfigID)

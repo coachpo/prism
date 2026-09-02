@@ -20,6 +20,7 @@ type runtimeModelRecord struct {
 	LoadbalanceStrategyID *int
 	OpenAIAcceptedFormat  *string
 	OpenAIImageOperations *string
+	DirectRequestEnabled  bool
 	CreatedAt             time.Time
 }
 

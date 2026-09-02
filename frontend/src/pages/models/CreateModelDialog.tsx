@@ -55,6 +55,7 @@ export function CreateModelDialog({
   const [imageOperations, setImageOperations] = useState<OpenAICapabilitySelectValue<OpenAIImageOperations>>(OPENAI_CAPABILITY_UNSET);
   const [strategyId, setStrategyId] = useState<number | null>(loadbalanceStrategies[0]?.id ?? null);
   const [configureLater, setConfigureLater] = useState(false);
+  const [directRequestEnabled, setDirectRequestEnabled] = useState(true);
   const [endpoints, setEndpoints] = useState<Endpoint[]>([]);
   const [endpointId, setEndpointId] = useState<number | null>(null);
   const [inlineEndpoint, setInlineEndpoint] = useState(false);
@@ -82,6 +83,13 @@ export function CreateModelDialog({
     }
     void endpointsApi.list().then(setEndpoints).catch(() => setEndpoints([]));
   }, [isOpen, loadbalanceStrategies, strategyId]);
+
+  // The dialog can receive the asynchronously-created default strategy while
+  // it is open. Reset the entry switch only for a new open session; changing
+  // the strategy must not silently undo the operator's choice.
+  useEffect(() => {
+    if (isOpen) setDirectRequestEnabled(true);
+  }, [isOpen]);
 
   const resolvedAcceptedFormat = fromSelectValue<OpenAIAcceptedFormat>(acceptedFormat) || null;
   const resolvedImageOperations = fromSelectValue<OpenAIImageOperations>(imageOperations) || null;
@@ -121,6 +129,7 @@ export function CreateModelDialog({
         displayName,
         loadbalanceStrategyId: strategyId,
         configureLater,
+        directRequestEnabled,
         openAIAcceptedFormat: resolvedAcceptedFormat,
         openAIImageOperations: resolvedImageOperations,
         initialTerminalTarget: configureLater
@@ -247,6 +256,13 @@ export function CreateModelDialog({
             onCheckedChange={setConfigureLater}
             label={copy.configureLaterLabel}
             description={copy.configureLaterDescription}
+          />
+
+          <OperatorSwitchField
+            checked={directRequestEnabled}
+            onCheckedChange={setDirectRequestEnabled}
+            label={copy.directRequestEnabled}
+            description={copy.directRequestEnabledDescription}
           />
 
           {!configureLater ? (

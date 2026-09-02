@@ -60,7 +60,7 @@ func (tx *frozenDefaultPlanningRefreshFakeTx) Query(ctx context.Context, query s
 			return nil, err
 		}
 		tx.planningProfileIDs = append(tx.planningProfileIDs, profileID)
-		return newRuntimePlanningRows([]any{11, profileID, "openai", "router-openai", sql.NullInt32{}, sql.NullString{}, sql.NullString{}, time.Unix(2, 0).UTC(), true, false}), nil
+		return newRuntimePlanningRows([]any{11, profileID, "openai", "router-openai", sql.NullInt32{}, sql.NullString{}, sql.NullString{}, true, time.Unix(2, 0).UTC(), true, false}), nil
 	case strings.Contains(query, "FROM model_access_targets"):
 		profileID, err := frozenDefaultProfileIDArg(args)
 		if err != nil {

@@ -13,6 +13,7 @@ contract/
 ├── contract_http_assertions.go         # HTTP response and envelope assertions
 ├── auth_control_plane_test.go         # Operator auth and proxy-key control plane
 ├── model_contract_test.go             # Model CRUD and access-target contracts
+├── direct_request_entry_contract_test.go # Direct-entry field, warning, and Model Target projection contracts
 ├── connection_contract_test.go        # Terminal Target compatibility connection contracts
 ├── endpoint_contract_test.go          # Endpoint CRUD and dependency behavior
 ├── s11_costing_timezone_contract_test.go # Costing and timezone contracts
@@ -35,7 +36,7 @@ contract/
 - Persistence snapshots and scan assertions: `contract_persistence_assertions.go`
 - HTTP response and envelope assertions: `contract_http_assertions.go`, `json_helpers_test.go`
 - Auth, session, proxy-key, and runtime-key usage contracts: `auth_control_plane_test.go`
-- Model, access-target, Terminal Target, and removed-field guards: `model_contract_test.go`, `connection_contract_test.go`, `connection_s10_contract_test.go`
+- Model, direct-entry, access-target, Terminal Target, and removed-field guards: `model_contract_test.go`, `direct_request_entry_contract_test.go`, `connection_contract_test.go`, `connection_s10_contract_test.go`
 - Endpoint ownership and dependency checks: `endpoint_contract_test.go`
 - S11 management resource contracts: `s11_costing_timezone_contract_test.go`, `s11_audit_settings_contract_test.go`, `s11_retention_contract_test.go`, `s11_loadbalance_contract_test.go`, `s11_config_rules_contract_test.go`, `s11_currency_migration_contract_test.go`
 - S15 observability contracts: `s15_stats_aggregates_contract_test.go`, `s15_audit_retention_contract_test.go`, `s15_loadbalance_contract_test.go`, `s15_request_log_chain_contract_test.go`, `s15_observability_harness_test.go`

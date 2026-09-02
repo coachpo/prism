@@ -386,19 +386,21 @@ func TestRuntimeRequestLogPersistsFailoverAttemptRowsAndSingleUsageEvent(t *test
 		t.Fatalf("expected secondary upstream to receive one failover attempt, got %d requests", got)
 	}
 	ingressRequestID := assertLatestRuntimeAttemptSequence(t, fixture.harness.conn, fixture.profileID, []runtimeRequestLogAttempt{{
-		AttemptNumber:   1,
-		ConnectionID:    fixture.primaryConnectionID,
-		EndpointID:      fixture.primaryEndpointID,
-		StatusCode:      http.StatusServiceUnavailable,
-		SuccessFlag:     false,
-		UpstreamModelID: fixture.primaryUpstreamModelID,
+		AttemptNumber:         1,
+		ConnectionID:          fixture.primaryConnectionID,
+		EndpointID:            fixture.primaryEndpointID,
+		StatusCode:            http.StatusServiceUnavailable,
+		SuccessFlag:           false,
+		ResolvedTargetModelID: fixture.targetModelID,
+		UpstreamModelID:       fixture.primaryUpstreamModelID,
 	}, {
-		AttemptNumber:   2,
-		ConnectionID:    fixture.secondaryConnectionID,
-		EndpointID:      fixture.secondaryEndpointID,
-		StatusCode:      http.StatusOK,
-		SuccessFlag:     true,
-		UpstreamModelID: fixture.secondaryUpstreamModelID,
+		AttemptNumber:         2,
+		ConnectionID:          fixture.secondaryConnectionID,
+		EndpointID:            fixture.secondaryEndpointID,
+		StatusCode:            http.StatusOK,
+		SuccessFlag:           true,
+		ResolvedTargetModelID: fixture.targetModelID,
+		UpstreamModelID:       fixture.secondaryUpstreamModelID,
 	}})
 	assertLatestRuntimeModelIdentity(t, fixture.harness.conn, fixture.profileID, fixture.publicModelID, fixture.targetModelID)
 	assertRuntimeUpstreamReadProjections(t, fixture.harness, fixture.profileID, ingressRequestID, fixture.primaryUpstreamModelID, fixture.secondaryUpstreamModelID)
@@ -415,13 +417,71 @@ func TestRuntimeRequestLogPersistsFailoverAttemptRowsAndSingleUsageEvent(t *test
 	assertRuntimePricingOwnerFixture(t, "final usage event", usagePersisted.owner, fixture.secondaryOwner)
 }
 
+func TestDeepSeekDirectEntryPreservesInternalLogicalAndExactUpstreamIdentities(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	strategyID := harness.seedLegacyStrategy(t, profileID, "deepseek-v4-flash-fill-first-"+randomSuffix(), "fill-first")
+
+	releaseRefresh := harness.suspendRuntimeSnapshotRefresh()
+	entryConfigID := harness.seedModel(t, profileID, "openai", "deepseek-v4-flash", "native", &strategyID)
+	caseConfigID := harness.seedModel(t, profileID, "openai", "DeepSeek-V4-Flash", "native", &strategyID)
+	versionedConfigID := harness.seedModel(t, profileID, "openai", "deepseek/deepseek-v4-flash-0731", "native", &strategyID)
+
+	entryUpstream := newScriptedUpstream(t, http.StatusServiceUnavailable, map[string]any{"error": "entry unavailable"})
+	caseUpstream := newScriptedUpstream(t, http.StatusServiceUnavailable, map[string]any{"error": "case variant unavailable"})
+	versionedUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "deepseek-v4-flash-success", "usage": map[string]any{"prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5}})
+
+	entryEndpointID := harness.seedEndpoint(t, profileID, "deepseek-entry-endpoint", entryUpstream.baseURL("/deepseek/entry"), "deepseek-entry-key")
+	caseEndpointID := harness.seedEndpoint(t, profileID, "deepseek-case-endpoint", caseUpstream.baseURL("/deepseek/case"), "deepseek-case-key")
+	versionedEndpointID := harness.seedEndpoint(t, profileID, "deepseek-versioned-endpoint", versionedUpstream.baseURL("/deepseek/versioned"), "deepseek-versioned-key")
+	entryConnectionID := harness.seedConnection(t, profileID, entryConfigID, entryEndpointID, "deepseek-entry-target", nil, nil, 0)
+	caseConnectionID := harness.seedConnection(t, profileID, caseConfigID, caseEndpointID, "deepseek-case-target", nil, nil, 0)
+	versionedConnectionID := harness.seedConnection(t, profileID, versionedConfigID, versionedEndpointID, "deepseek-versioned-target", nil, nil, 0)
+	harness.seedProxyTargetAtPosition(t, entryConfigID, caseConfigID, 1)
+	harness.seedProxyTargetAtPosition(t, entryConfigID, versionedConfigID, 2)
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE model_configs SET direct_request_enabled = FALSE WHERE id = ANY($1)`, []int32{int32(caseConfigID), int32(versionedConfigID)}); err != nil {
+		t.Fatalf("mark DeepSeek spelling variants non-direct: %v", err)
+	}
+	setRuntimeConnectionUpstreamModelID(t, harness.conn, entryConnectionID, "deepseek-v4-flash")
+	setRuntimeConnectionUpstreamModelID(t, harness.conn, caseConnectionID, "DeepSeek-V4-Flash")
+	setRuntimeConnectionUpstreamModelID(t, harness.conn, versionedConnectionID, "deepseek/deepseek-v4-flash-0731")
+	releaseRefresh()
+	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{
+		"messages": []map[string]any{{"role": "user", "content": "preserve all exact DeepSeek identities"}},
+		"model":    "deepseek-v4-flash",
+	}, nil)
+	assertStatus(t, response, http.StatusOK)
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 3, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+
+	if got := requestModelID(t, entryUpstream.lastRequest(t).Body); got != "deepseek-v4-flash" {
+		t.Fatalf("entry upstream model = %q", got)
+	}
+	if got := requestModelID(t, caseUpstream.lastRequest(t).Body); got != "DeepSeek-V4-Flash" {
+		t.Fatalf("case-variant upstream model = %q", got)
+	}
+	if got := requestModelID(t, versionedUpstream.lastRequest(t).Body); got != "deepseek/deepseek-v4-flash-0731" {
+		t.Fatalf("versioned upstream model = %q", got)
+	}
+
+	ingressRequestID := assertLatestRuntimeAttemptSequence(t, harness.conn, profileID, []runtimeRequestLogAttempt{
+		{AttemptNumber: 1, ConnectionID: entryConnectionID, EndpointID: entryEndpointID, StatusCode: http.StatusServiceUnavailable, SuccessFlag: false, ResolvedTargetModelID: "deepseek-v4-flash", UpstreamModelID: "deepseek-v4-flash"},
+		{AttemptNumber: 2, ConnectionID: caseConnectionID, EndpointID: caseEndpointID, StatusCode: http.StatusServiceUnavailable, SuccessFlag: false, ResolvedTargetModelID: "DeepSeek-V4-Flash", UpstreamModelID: "DeepSeek-V4-Flash"},
+		{AttemptNumber: 3, ConnectionID: versionedConnectionID, EndpointID: versionedEndpointID, StatusCode: http.StatusOK, SuccessFlag: true, ResolvedTargetModelID: "deepseek/deepseek-v4-flash-0731", UpstreamModelID: "deepseek/deepseek-v4-flash-0731"},
+	})
+	assertLatestRuntimeModelIdentity(t, harness.conn, profileID, "deepseek-v4-flash", "deepseek/deepseek-v4-flash-0731")
+	assertRuntimeUpstreamReadProjections(t, harness, profileID, ingressRequestID, "deepseek-v4-flash", "DeepSeek-V4-Flash", "deepseek/deepseek-v4-flash-0731")
+}
+
 type runtimeRequestLogAttempt struct {
-	AttemptNumber   int
-	ConnectionID    int
-	EndpointID      int
-	StatusCode      int
-	SuccessFlag     bool
-	UpstreamModelID string
+	AttemptNumber         int
+	ConnectionID          int
+	EndpointID            int
+	StatusCode            int
+	SuccessFlag           bool
+	ResolvedTargetModelID string
+	UpstreamModelID       string
 }
 
 func assertLatestRuntimeAttemptCounts(t *testing.T, conn *pgx.Conn, profileID int, wantRequestLogAttempt int, wantUsageEventAttempt int) {
@@ -522,7 +582,7 @@ func assertLatestRuntimeAttemptSequence(t *testing.T, conn *pgx.Conn, profileID 
 
 	rows, err := conn.Query(
 		context.Background(),
-		`SELECT attempt_number, connection_id, endpoint_id, upstream_status_code, success_flag, upstream_model_id FROM request_logs WHERE profile_id = $1 AND ingress_request_id = $2 AND row_kind = 'upstream' ORDER BY attempt_number ASC, id ASC`,
+		`SELECT attempt_number, connection_id, endpoint_id, upstream_status_code, success_flag, resolved_target_model_id, upstream_model_id FROM request_logs WHERE profile_id = $1 AND ingress_request_id = $2 AND row_kind = 'upstream' ORDER BY attempt_number ASC, id ASC`,
 		profileID,
 		ingressRequestID,
 	)
@@ -534,7 +594,7 @@ func assertLatestRuntimeAttemptSequence(t *testing.T, conn *pgx.Conn, profileID 
 	got := make([]runtimeRequestLogAttempt, 0, len(want))
 	for rows.Next() {
 		var attempt runtimeRequestLogAttempt
-		if err := rows.Scan(&attempt.AttemptNumber, &attempt.ConnectionID, &attempt.EndpointID, &attempt.StatusCode, &attempt.SuccessFlag, &attempt.UpstreamModelID); err != nil {
+		if err := rows.Scan(&attempt.AttemptNumber, &attempt.ConnectionID, &attempt.EndpointID, &attempt.StatusCode, &attempt.SuccessFlag, &attempt.ResolvedTargetModelID, &attempt.UpstreamModelID); err != nil {
 			t.Fatalf("scan runtime request-log attempt sequence: %v", err)
 		}
 		got = append(got, attempt)

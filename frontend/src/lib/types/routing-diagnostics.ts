@@ -85,6 +85,7 @@ export interface DiagnosticsOperationCoverage {
 
 export interface RoutingDiagnosticsResponse {
   model_config_id: number;
+  direct_request_enabled: boolean;
   openai_accepted_format: string | null;
   strategy: { id: number; type: string };
   accepted_operations: string[];

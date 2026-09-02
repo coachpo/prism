@@ -104,7 +104,7 @@ func (s *Service) handleGetRouteWitnesses(w http.ResponseWriter, r *http.Request
 		snapshot := modelrouting.AnalyzeRouteWitnessSnapshotWithOperations(graph, currentGeneration, runtime.ModelBoundRouteWitnessOperations())
 		var witness *modelrouting.RouteWitnessRef
 		if selectedID != "" {
-			for _, candidate := range snapshot.Witnesses {
+			for _, candidate := range snapshot.DirectWitnesses {
 				if candidate.WitnessID == selectedID {
 					witness = &candidate
 					break

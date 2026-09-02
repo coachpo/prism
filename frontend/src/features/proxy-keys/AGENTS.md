@@ -32,4 +32,5 @@ The shared runtime self-test is not here; it lives in `../runtime-self-test/`.
 - Keep server-backed ledger/query state in `useProxyKeyLedger.ts`; keep create/issue, edit, rotate, and delete state in their respective named mutation hooks. `useProxyKeyMutations.ts` only composes their return values.
 - Keep cache patching in `proxyKeyMutationReconciliation.ts` and error-to-toast mapping in `proxyKeyMutationErrors.ts`; mutation hooks must reuse those owners rather than copying either policy.
 - Create and rotate may hand their response to `useProxyKeySecretSession.ts`, but only that session owns the raw key after handoff; no query cache, ledger item, URL, storage, or error path may retain it.
+- Runtime self-test model selectors use only enabled models with `direct_request_enabled=true`; non-entry Model Targets remain routable by a parent but are never offered as client verification choices.
 - `ProxyKeysFeaturePage.tsx` owns the standing access-verification dialog's open state; it is not part of any credential mutation lifecycle.

@@ -50,6 +50,7 @@ var expectedPrismMigrationVersions = []string{
 	"000029_pricing_catalog_source_live_uniqueness",
 	"000030_output_delivery_rate_evidence",
 	"000031_terminal_target_upstream_model_identity",
+	"000032_model_direct_request_enabled",
 }
 
 func TestSingleBaselineAppliesToFreshDatabase(t *testing.T) {

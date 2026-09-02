@@ -29,10 +29,13 @@ const model: ModelConfig = {
   display_name: "GPT Test",
   openai_accepted_format: "dual_native",
   openai_image_operations: null,
+  direct_request_enabled: true,
   loadbalance_strategy_id: 3,
   loadbalance_strategy: null,
   access_targets: [],
   is_enabled: false,
+  incoming_model_target_count: 0,
+  configuration_warnings: [],
   created_at: "2026-08-28T00:00:00Z",
   updated_at: "2026-08-28T00:00:00Z",
 };

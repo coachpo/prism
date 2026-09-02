@@ -87,6 +87,10 @@ function createModelDetail(connection: ReturnType<typeof createConnection> | nul
     model_id: "router-model",
     display_name: "Router Model",
     openai_accepted_format: "dual_native",
+    openai_image_operations: null,
+    direct_request_enabled: true,
+    incoming_model_target_count: 0,
+    configuration_warnings: [],
     loadbalance_strategy_id: 11,
     loadbalance_strategy: createStrategy(),
     access_targets: connection

@@ -86,6 +86,7 @@ func assemblePiSourceResponse(facts modelexport.SourceFacts, templates map[int]m
 			APIFamily:             fact.APIFamily,
 			DisplayName:           fact.DisplayName,
 			IsEnabled:             fact.IsEnabled,
+			DirectRequestEnabled:  true,
 			Selectable:            fact.Selectable,
 			UnselectableReason:    fact.UnselectableReason,
 			OpenAIAcceptedFormat:  fact.OpenAIAcceptedFormat,

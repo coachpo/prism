@@ -26,6 +26,7 @@ import { OperatorCallout, OperatorErrorState, OperatorRetryButton } from "@/shar
 import { buildSelfTestCurl } from "@/features/runtime-self-test/curlBuilder";
 import { RuntimeSelfTestDialog } from "@/features/runtime-self-test/RuntimeSelfTestDialog";
 import type { SelfTestRequestSpec } from "@/features/runtime-self-test/selfTestTypes";
+import { runtimeSelfTestModelCandidates } from "@/features/runtime-self-test/modelCandidates";
 
 interface ProxyKeyVerifyAccessDialogProps {
   models: ModelConfigListItem[];
@@ -60,7 +61,7 @@ export function ProxyKeyVerifyAccessDialog({
   const [operation, setOperation] = useState<"responses" | "chat_completions">("responses");
   const [selfTestOpen, setSelfTestOpen] = useState(false);
 
-  const candidates = useMemo(() => models.filter((model) => model.is_enabled), [models]);
+  const candidates = useMemo(() => runtimeSelfTestModelCandidates(models), [models]);
   const selectedModel = useMemo(
     () => candidates.find((model) => model.model_id === selectedModelId) ?? candidates[0] ?? null,
     [candidates, selectedModelId],

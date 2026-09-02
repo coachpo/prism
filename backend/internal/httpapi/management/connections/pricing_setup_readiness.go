@@ -88,7 +88,7 @@ func buildPricingSetupReadinessTx(ctx context.Context, tx pgx.Tx, profileID int,
 	application := modelrouting.ReadinessAxis{State: "not_ready", ReasonCodes: []string{"no_applied_template"}}
 	appliedCount := 0
 	costReadyCount := 0
-	for _, witness := range snapshot.Witnesses {
+	for _, witness := range snapshot.DirectWitnesses {
 		if state.appliedTerminalTargetIDs[parseWitnessTerminalID(witness)] {
 			appliedCount++
 		}
@@ -100,7 +100,7 @@ func buildPricingSetupReadinessTx(ctx context.Context, tx pgx.Tx, profileID int,
 		application = modelrouting.ReadinessAxis{State: "ready", ReasonCodes: []string{}}
 	}
 	var costReady *bool
-	if len(snapshot.Witnesses) > 0 {
+	if len(snapshot.DirectWitnesses) > 0 {
 		// The aggregate is authoritative over the complete server-side
 		// witness set: zero matching is false, any unknown/mismatch is null.
 		if appliedCount == 0 {
@@ -121,7 +121,7 @@ func buildPricingSetupReadinessTx(ctx context.Context, tx pgx.Tx, profileID int,
 		PricingReferenceGeneration:      referenceGeneration,
 		Configuration:                   configuration,
 		Application:                     application,
-		RouteWitnessCount:               snapshot.RouteWitnessCount,
+		RouteWitnessCount:               snapshot.DirectRouteWitnessCount,
 		AppliedWitnessCount:             appliedCount,
 		CostReadyWitnessCount:           costReadyCount,
 		CostReady:                       costReady,
@@ -219,11 +219,11 @@ func resolvePricingSetupReadinessState(ctx context.Context, exec queryExecutor, 
 		appliedTerminalTargetIDs:   map[int]bool{},
 		costReadyTerminalTargetIDs: map[int]bool{},
 	}
-	if len(snapshot.Witnesses) == 0 {
+	if len(snapshot.DirectWitnesses) == 0 {
 		return state, nil
 	}
 	terminalIDs := map[int]bool{}
-	for _, witness := range snapshot.Witnesses {
+	for _, witness := range snapshot.DirectWitnesses {
 		terminalIDs[parseWitnessTerminalID(witness)] = true
 	}
 	var currentEpoch *int
@@ -310,7 +310,7 @@ func isCostReadyPricingRow(currentEpoch *int, revisionEpoch *int, templateKind *
 // the first cost-ready witness, else nil. The Model ref is resolved from the
 // witness's model identity in the same cut with name provenance.
 func resolvePricingMatchingProjection(ctx context.Context, exec queryExecutor, profileID int, snapshot modelrouting.RouteWitnessSnapshot, state pricingSetupReadinessState) (*SetupMatchingWitnessProjection, error) {
-	for _, witness := range snapshot.Witnesses {
+	for _, witness := range snapshot.DirectWitnesses {
 		if !state.costReadyTerminalTargetIDs[parseWitnessTerminalID(witness)] {
 			continue
 		}

@@ -25,11 +25,14 @@ const (
 )
 
 type ModelNode struct {
-	ConfigID              int
-	ProfileID             int
-	ModelID               string
-	APIFamily             string
-	IsEnabled             bool
+	ConfigID  int
+	ProfileID int
+	ModelID   string
+	APIFamily string
+	IsEnabled bool
+	// DirectRequestEnabled is the client-facing entry qualification. Model
+	// Target resolution still includes enabled nodes regardless of this bit.
+	DirectRequestEnabled  bool
 	OpenAIAcceptedFormat  *string
 	OpenAIImageOperations *string
 }

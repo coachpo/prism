@@ -97,7 +97,7 @@ func (s *Service) handleListProxyKeysWithSetupReadiness(w http.ResponseWriter, r
 		if effectiveKeyExists {
 			configuration = modelrouting.ReadinessAxis{State: "ready", ReasonCodes: []string{}}
 		}
-		witnessCount := snapshot.RouteWitnessCount
+		witnessCount := snapshot.DirectRouteWitnessCount
 		application := modelrouting.ReadinessAxis{State: "not_ready", ReasonCodes: []string{"no_route_witness"}}
 		matchingCount := 0
 		if witnessCount > 0 && effectiveKeyExists {

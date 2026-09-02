@@ -593,6 +593,10 @@ test("connection dialog visual evidence at 1440x900 and 390x844", async ({
     model_id: "router-model",
     display_name: "Router Model",
     openai_accepted_format: "dual_native",
+    openai_image_operations: null,
+    direct_request_enabled: true,
+    incoming_model_target_count: 0,
+    configuration_warnings: [],
     loadbalance_strategy_id: 11,
     loadbalance_strategy: strategy,
     access_targets: [
@@ -770,6 +774,11 @@ test("narrow 390x844 entry-model list keeps scope switch keyboard operable and l
     api_family: "openai",
     model_id: "entry-model-a",
     display_name: "Entry Model A",
+    openai_accepted_format: "dual_native",
+    openai_image_operations: null,
+    direct_request_enabled: true,
+    incoming_model_target_count: 0,
+    configuration_warnings: [],
     loadbalance_strategy_id: 11,
     loadbalance_strategy: strategy,
     access_targets: [
@@ -870,16 +879,26 @@ test("narrow 390x844 entry-model list keeps scope switch keyboard operable and l
   await expect(scopeRadios.nth(1)).toBeChecked();
   await expect(page).toHaveURL(/scope=final_execution/);
 
+  const inventoryRadios = page
+    .getByRole("group", { name: "模型视图" })
+    .getByRole("radio");
+  await inventoryRadios.nth(0).focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(inventoryRadios.nth(1)).toBeFocused();
+  await page.keyboard.press("Space");
+  await expect(page).toHaveURL(/view=model_targets/);
+  await inventoryRadios.nth(0).click();
+
   // Long upstream identity: the visible cell truncates, the full value stays
   // in the tooltip, and the wrapping detail link is keyboard reachable.
   const exitLink = page.getByRole("link", {
-    name: "打开入口模型 Entry Model A 的详情",
+    name: "打开模型配置 Entry Model A 的详情",
   });
   await expect(exitLink).toBeVisible();
   await exitLink.focus();
   await expect(exitLink).toBeFocused();
   // The visible text truncates, so the full value lives in the tooltip. Scope
-  // to the mono value span: the 已解耦 badge's title also contains this string,
+  // to the mono value span: the 仅上游 badge's title also contains this string,
   // and only the value span is the truncating one.
   const upstreamValue = page.locator(
     `span.font-mono[title="${longUpstreamModelId}"]`,

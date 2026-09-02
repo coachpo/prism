@@ -61,7 +61,7 @@ export function useModelExportSource() {
     () =>
       new Set(
         models
-          .filter((m: ExportSourceModelRow) => m.selectable)
+          .filter((m: ExportSourceModelRow) => m.direct_request_enabled === true && m.selectable)
           .map((m: ExportSourceModelRow) => m.model_config_id),
       ),
     [models],
@@ -95,6 +95,7 @@ export function useModelExportSource() {
   const visibleModels = useMemo(() => {
     const needle = searchText.trim().toLowerCase();
     return models.filter((model) => {
+      if (model.direct_request_enabled !== true) return false;
       const mergedName = (model.merged_metadata as Record<string, unknown>)
         ?.name;
       const searchable = [

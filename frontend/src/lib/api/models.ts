@@ -64,6 +64,34 @@ function unsupportedManagementModel(reason: string): never {
   throw new Error(`Unsupported model contract from management API: ${reason}`);
 }
 
+function assertDirectRequestProjection(
+  value: {
+    direct_request_enabled: unknown;
+    incoming_model_target_count: unknown;
+  },
+  path: string,
+): void {
+  if (typeof value.direct_request_enabled !== "boolean") {
+    unsupportedManagementModel(`${path}.direct_request_enabled`);
+  }
+  if (
+    !Number.isInteger(value.incoming_model_target_count) ||
+    Number(value.incoming_model_target_count) < 0
+  ) {
+    unsupportedManagementModel(`${path}.incoming_model_target_count`);
+  }
+}
+
+function requireConfigurationWarnings(
+  value: unknown,
+  path: string,
+): ConfigurationWarning[] {
+  if (!Array.isArray(value)) {
+    unsupportedManagementModel(path);
+  }
+  return value as ConfigurationWarning[];
+}
+
 function normalizeModelAccessTarget(
   target: RawModelAccessTarget,
 ): ModelAccessTarget {
@@ -81,6 +109,13 @@ function normalizeModelAccessTarget(
     unsupportedManagementModel(`access_targets.${obsoleteTargetPriority}`);
   }
 
+  if (target.target_model) {
+    assertDirectRequestProjection(
+      target.target_model,
+      "access_targets.target_model",
+    );
+  }
+
   return {
     id: target.id,
     target_type: target.target_type,
@@ -89,7 +124,14 @@ function normalizeModelAccessTarget(
     terminal_target_id: target.terminal_target_id,
     position: target.position,
     is_enabled: target.is_enabled,
-    target_model: target.target_model,
+    target_model: target.target_model
+      ? {
+          ...target.target_model,
+          direct_request_enabled: target.target_model.direct_request_enabled,
+          incoming_model_target_count:
+            target.target_model.incoming_model_target_count,
+        }
+      : null,
     connection: target.connection,
     terminal_target: target.terminal_target,
     created_at: target.created_at,
@@ -193,6 +235,10 @@ function normalizeConnectionMutationEnvelope(
 function normalizeModelConfigListItem(
   model: RawModelConfigListItem,
 ): ManagedModelConfigListItem {
+  assertDirectRequestProjection(model, "model");
+  if (!Array.isArray(model.configuration_warnings)) {
+    unsupportedManagementModel("model.configuration_warnings");
+  }
   return {
     id: model.id,
     profile_id: model.profile_id,
@@ -201,6 +247,7 @@ function normalizeModelConfigListItem(
     display_name: model.display_name,
     openai_accepted_format: model.openai_accepted_format,
     openai_image_operations: model.openai_image_operations,
+    direct_request_enabled: model.direct_request_enabled,
     loadbalance_strategy_id: model.loadbalance_strategy_id,
     loadbalance_strategy: normalizeLoadbalanceStrategySummary(
       model.loadbalance_strategy,
@@ -212,12 +259,18 @@ function normalizeModelConfigListItem(
     health_success_rate: model.health_success_rate,
     health_total_requests: model.health_total_requests,
     routing_summary: model.routing_summary,
+    incoming_model_target_count: model.incoming_model_target_count,
+    configuration_warnings: model.configuration_warnings,
     created_at: model.created_at,
     updated_at: model.updated_at,
   };
 }
 
 function normalizeModelConfig(model: RawModelConfig): ManagedModelConfig {
+  assertDirectRequestProjection(model, "model");
+  if (!Array.isArray(model.configuration_warnings)) {
+    unsupportedManagementModel("model.configuration_warnings");
+  }
   return {
     id: model.id,
     profile_id: model.profile_id,
@@ -226,12 +279,15 @@ function normalizeModelConfig(model: RawModelConfig): ManagedModelConfig {
     display_name: model.display_name,
     openai_accepted_format: model.openai_accepted_format,
     openai_image_operations: model.openai_image_operations,
+    direct_request_enabled: model.direct_request_enabled,
     loadbalance_strategy_id: model.loadbalance_strategy_id,
     loadbalance_strategy: normalizeLoadbalanceStrategySummary(
       model.loadbalance_strategy,
     ),
     access_targets: model.access_targets.map(normalizeModelAccessTarget),
     is_enabled: model.is_enabled,
+    incoming_model_target_count: model.incoming_model_target_count,
+    configuration_warnings: model.configuration_warnings,
     created_at: model.created_at,
     updated_at: model.updated_at,
   };
@@ -266,7 +322,10 @@ export const models = {
       body: JSON.stringify(data),
     }).then((response) => ({
       model: normalizeModelConfig(response.model),
-      configuration_warnings: response.configuration_warnings ?? [],
+      configuration_warnings: requireConfigurationWarnings(
+        response.configuration_warnings,
+        "configuration_warnings",
+      ),
     })),
   update: (id: number, data: ManagedModelConfigUpdate) =>
     request<ModelMutationEnvelope>(`/api/models/${id}`, {
@@ -274,7 +333,10 @@ export const models = {
       body: JSON.stringify(data),
     }).then((response) => ({
       model: normalizeModelConfig(response.model),
-      configuration_warnings: response.configuration_warnings ?? [],
+      configuration_warnings: requireConfigurationWarnings(
+        response.configuration_warnings,
+        "configuration_warnings",
+      ),
     })),
   delete: (id: number) =>
     request<{ deleted: true }>(`/api/models/${id}`, { method: "DELETE" }),

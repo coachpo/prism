@@ -19,6 +19,7 @@ type exportModelRow struct {
 	APIFamily             string
 	DisplayName           *string
 	IsEnabled             bool
+	DirectRequestEnabled  bool
 	OpenAIAcceptedFormat  *string
 	OpenAIImageOperations *string
 }
@@ -35,7 +36,8 @@ type exportTargetRow struct {
 	Pricing              *modelexport.TargetPriceSnapshot
 }
 
-// loadExportSnapshot reads every model in one effective profile plus its
+// loadExportSnapshot reads only direct-request entries whose
+// direct_request_enabled value is true in one effective profile, plus their
 // reachable Terminal Targets, endpoints, and current pricing revisions inside
 // one read-only transaction. Pi export deliberately does not read the
 // independent models.dev binding table.
@@ -58,9 +60,9 @@ func loadExportSnapshot(ctx context.Context, tx pgx.Tx, profileID int) ([]export
 func loadExportModels(ctx context.Context, exec queryExecutor, profileID int) ([]exportModelRow, error) {
 	rows, err := exec.Query(ctx, `
 		SELECT id, model_id, api_family, display_name, is_enabled,
-		       openai_accepted_format, openai_image_operations
+		       direct_request_enabled, openai_accepted_format, openai_image_operations
 		FROM model_configs
-		WHERE profile_id = $1
+		WHERE profile_id = $1 AND direct_request_enabled = TRUE
 		ORDER BY id ASC`, profileID)
 	if err != nil {
 		return nil, fmt.Errorf("query export models: %w", err)
@@ -70,7 +72,7 @@ func loadExportModels(ctx context.Context, exec queryExecutor, profileID int) ([
 	for rows.Next() {
 		var row exportModelRow
 		if err := rows.Scan(&row.ID, &row.ModelID, &row.APIFamily, &row.DisplayName, &row.IsEnabled,
-			&row.OpenAIAcceptedFormat, &row.OpenAIImageOperations); err != nil {
+			&row.DirectRequestEnabled, &row.OpenAIAcceptedFormat, &row.OpenAIImageOperations); err != nil {
 			return nil, fmt.Errorf("scan export model: %w", err)
 		}
 		models = append(models, row)

@@ -2,7 +2,7 @@
 
 ## OVERVIEW
 
-`management/models/` owns model configuration routes under `/api/models*` pinned to Default profile id `1`. It manages model CRUD, public same-family model-target authoring with exact `target_model_id`, `position`, and `is_enabled`, private connection target preservation/mutation, obsolete nested create/update field rejection, and model lookups by endpoint for endpoint detail surfaces. `X-Profile-Id` may be accepted but is ignored; storage `profile_id` columns remain.
+`management/models/` owns model configuration routes under `/api/models*` pinned to Default profile id `1`. It manages model CRUD, the persisted `direct_request_enabled` client-entry bit, public same-family model-target authoring with exact `target_model_id`, `position`, and `is_enabled`, private connection target preservation/mutation, obsolete nested create/update field rejection, and model lookups by endpoint for endpoint detail surfaces. `X-Profile-Id` may be accepted but is ignored; storage `profile_id` columns remain.
 
 ## STRUCTURE
 
@@ -20,6 +20,7 @@ models/
 ├── model_routing_validation.go   # Model routing validation
 ├── store.go                      # pgx type boundary
 ├── model_rows.go                 # Model SQL rows
+├── direct_request.go             # Direct-entry projection, incoming references, and unreferenced warnings
 ├── model_queries.go              # Model query composition
 ├── strategy_queries.go           # Strategy read queries
 ├── reachability_queries.go       # Reachability queries
@@ -93,6 +94,7 @@ models/
 - Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `frontend/DESIGN.md`; keep backend docs focused on the Go runtime contract instead of repeating design-system rules.
 - Keep model `api_family` as runtime compatibility truth.
 - Keep model IDs unique inside Default profile id `1`.
+- Keep `direct_request_enabled` as the sole persisted client-entry qualification: create omission defaults to true, update omission preserves the current value, and explicit null is rejected before a write. Non-entry models remain valid recursive Model Target nodes; list/detail projections include incoming Model Target counts and the structured `model_target_unreferenced` warning when that count is zero.
 - Keep model load-balance strategy checks in this package, but strategy CRUD in `loadbalance/`.
 - Keep owner-scoped private connection routes in `connections/`, even when model detail responses include owned private connections.
 - Keep access targets ordered, same-profile, same-family, and acyclic.

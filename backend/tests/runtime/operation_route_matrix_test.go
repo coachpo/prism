@@ -56,8 +56,8 @@ type routeMatrixPersistedAttributionExpectation struct {
 	upstreamRequestPath   string
 }
 
-func TestRuntimeTypedPricingOperationMatrix(t *testing.T) {
-	tests := []runtimeOperationRouteMatrixCase{
+func runtimeOperationRouteMatrixCases() []runtimeOperationRouteMatrixCase {
+	return []runtimeOperationRouteMatrixCase{
 		{
 			name:          "OpenAIChatCompletions",
 			apiFamily:     "openai",
@@ -300,6 +300,11 @@ func TestRuntimeTypedPricingOperationMatrix(t *testing.T) {
 			responseContains:  "totalTokens",
 		},
 	}
+
+}
+
+func TestRuntimeTypedPricingOperationMatrix(t *testing.T) {
+	tests := runtimeOperationRouteMatrixCases()
 	if len(tests) != 11 {
 		t.Fatalf("route matrix must cover exactly 11 registered POST operations, got %d", len(tests))
 	}

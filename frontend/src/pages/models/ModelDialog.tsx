@@ -273,6 +273,13 @@ export function ModelDialog({
                 onCheckedChange={(checked) => setFormData((prev) => ({ ...prev, is_enabled: checked }))}
                 className="border-border bg-inset"
               />
+              <OperatorSwitchField
+                label={copy.directRequestEnabled}
+                description={copy.directRequestEnabledDescription}
+                checked={formData.direct_request_enabled}
+                onCheckedChange={(checked) => setFormData((prev) => ({ ...prev, direct_request_enabled: checked }))}
+                className="border-border bg-inset"
+              />
             </OperatorInsetPanel>
           </DialogBody>
 

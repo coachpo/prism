@@ -37,9 +37,15 @@ func (s *Service) handleModelsByEndpoint(w http.ResponseWriter, r *http.Request)
 		if err := attachRoutingSummaries(records, accessTargets, strategies, summaries); err != nil {
 			return nil, err
 		}
+		incomingCounts, err := listModelTargetIncomingCounts(r.Context(), tx, profile.ID)
+		if err != nil {
+			return nil, err
+		}
 		response := make([]modelConfigListResponse, 0, len(records))
 		for _, record := range records {
 			item := buildModelListResponse(record, strategies, accessTargets, counts, health, s.now().UTC())
+			item.IncomingModelTargetCount = incomingCounts[record.ID]
+			item.ConfigurationWarnings = directRequestWarnings(record, item.IncomingModelTargetCount)
 			if summary, ok := summaries[record.ID]; ok {
 				summary := summary
 				item.RoutingSummary = &summary
@@ -83,6 +89,10 @@ func (s *Service) handleModelsByEndpoints(w http.ResponseWriter, r *http.Request
 		if err := attachRoutingSummaries(allRecords, accessTargets, strategies, summaries); err != nil {
 			return endpointModelsBatchResponse{}, err
 		}
+		incomingCounts, err := listModelTargetIncomingCounts(r.Context(), tx, profile.ID)
+		if err != nil {
+			return endpointModelsBatchResponse{}, err
+		}
 		for _, endpointID := range requestBody.EndpointIDs {
 			records := byEndpointRecords[endpointID]
 			sort.Slice(records, func(left int, right int) bool {
@@ -91,6 +101,8 @@ func (s *Service) handleModelsByEndpoints(w http.ResponseWriter, r *http.Request
 			models := make([]modelConfigListResponse, 0, len(records))
 			for _, record := range records {
 				item := buildModelListResponse(record, strategies, accessTargets, byEndpointCounts[endpointID], health, s.now().UTC())
+				item.IncomingModelTargetCount = incomingCounts[record.ID]
+				item.ConfigurationWarnings = directRequestWarnings(record, item.IncomingModelTargetCount)
 				if summary, ok := summaries[record.ID]; ok {
 					summary := summary
 					item.RoutingSummary = &summary

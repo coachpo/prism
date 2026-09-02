@@ -61,6 +61,7 @@ frontend/
 - Treat `src/app/router/appRouter.tsx` and `src/app/router/rewriteRoutes.ts` as the source of truth for mounted routes, search schemas, and route scopes; `src/App.tsx` stays the thin wrapper.
 - Keep `src/components/` focused on shared shell chrome, shared widgets, and design-system wrappers, and keep the leaf ownership documented below it.
 - Keep model CRUD, access-target authoring, accepted-format controls, and typed/import validation in their owning leaves without reintroducing deleted model-owned context routing fields.
+- Keep `direct_request_enabled` as the single model entry qualification. The models route defaults to direct entries but can URL-switch to non-entry Model Targets or all configurations; proxy-key self-tests and client exports never offer non-entry rows, while recursive routing and configuration authoring still do.
 - Keep backend access on the typed `src/lib/api.ts` boundary and the modules it re-exports.
 - Keep backend startup configuration out of the dashboard after R2. Operators edit `config.json` and restart; `VITE_API_BASE` plus launcher proxy envs are transport wiring only.
 - Keep reporting-currency provider state in `src/context/ReportingCurrencyContext.tsx` and shared cache, `prime()` or `refresh()` behavior, and normalization in `src/lib/reportingCurrency.ts` instead of duplicating settings-side currency bootstrap in pages.

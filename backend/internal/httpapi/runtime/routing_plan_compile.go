@@ -8,6 +8,7 @@ func compileRuntimeRoutingPlan(snapshot *planningSnapshot) (*runtimeRoutingPlan,
 	}
 	plan := &runtimeRoutingPlan{
 		ModelsByID:                     make(map[string]runtimeRoutingPlanModel, len(snapshot.ModelsByID)),
+		DirectModelsByID:               make(map[string]runtimeRoutingPlanModel, len(snapshot.DirectModelsByID)),
 		ModelsByConfigID:               make(map[int]runtimeRoutingPlanModel, len(snapshot.ModelsByID)),
 		TerminalTargetsByID:            make(map[int]runtimeConnection, len(snapshot.TerminalTargetsByID)),
 		AuthoredTargetsBySourceModelID: make(map[int][]runtimeAccessTargetRecord, len(snapshot.AccessTargetsBySourceModelID)),
@@ -34,6 +35,18 @@ func compileRuntimeRoutingPlan(snapshot *planningSnapshot) (*runtimeRoutingPlan,
 		compiled.OrderedTerminalTargets = compileRuntimeRoutingPlanTerminalTargets(compiled.OrderedEnabledTargets)
 		plan.ModelsByID[modelID] = compiled
 		plan.ModelsByConfigID[model.ID] = compiled
+	}
+	directModelIDs := make([]string, 0, len(snapshot.DirectModelsByID))
+	for modelID := range snapshot.DirectModelsByID {
+		directModelIDs = append(directModelIDs, modelID)
+	}
+	sort.Strings(directModelIDs)
+	for _, modelID := range directModelIDs {
+		if compiled, ok := plan.ModelsByID[modelID]; ok {
+			plan.DirectModelsByID[modelID] = compiled
+			continue
+		}
+		plan.DirectModelsByID[modelID] = runtimeRoutingPlanModel{Model: snapshot.DirectModelsByID[modelID]}
 	}
 
 	connectionIDs := make([]int, 0, len(snapshot.TerminalTargetsByID))

@@ -21,6 +21,7 @@ type piSourceModelRow struct {
 	APIFamily             string  `json:"api_family"`
 	DisplayName           *string `json:"display_name"`
 	IsEnabled             bool    `json:"is_enabled"`
+	DirectRequestEnabled  bool    `json:"direct_request_enabled"`
 	Selectable            bool    `json:"selectable"`
 	UnselectableReason    *string `json:"unselectable_reason,omitempty"`
 	OpenAIAcceptedFormat  *string `json:"openai_accepted_format,omitempty"`

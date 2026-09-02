@@ -11,6 +11,7 @@ export interface CompositeModelCreatePayloadInput {
   displayName: string;
   loadbalanceStrategyId: number;
   configureLater: boolean;
+  directRequestEnabled?: boolean;
   openAIAcceptedFormat: OpenAIAcceptedFormat | null;
   openAIImageOperations: OpenAIImageOperations | null;
   initialTerminalTarget?: {
@@ -40,6 +41,7 @@ export function buildCompositeModelCreatePayload(
     display_name: input.displayName.trim() || null,
     loadbalance_strategy_id: input.loadbalanceStrategyId,
     is_enabled: !input.configureLater,
+    direct_request_enabled: input.directRequestEnabled !== false,
   };
   const initialTarget = input.configureLater
     ? undefined
