@@ -26,14 +26,18 @@ import { CreateModelDialog } from "@/pages/models/CreateModelDialog";
 import { DeleteModelDialog } from "@/pages/models/DeleteModelDialog";
 import { ModelDialog } from "@/pages/models/ModelDialog";
 import { ModelsTable } from "./ModelsTable";
-import { isSingleTruncated } from "./modelRoutingFlags";
+import { ModelsMetricsScopeSwitch } from "./ModelsMetricsScopeSwitch";
+import {
+  hasModelTarget,
+  isSingleTruncated,
+  isUpstreamDecoupled,
+} from "./modelRoutingFlags";
 import { useModelsPageData } from "@/pages/models/useModelsPageData";
 import {
   DEFAULT_MODELS_LIST_FILTERS,
   modelsQueryKeys,
   normalizeModelsListFilters,
 } from "./queryKeys";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export function ModelsFeaturePage() {
   const { formatNumber, messages } = useLocale();
@@ -100,6 +104,10 @@ export function ModelsFeaturePage() {
           return false;
         if (flagFilter === "single_truncated" && !isSingleTruncated(model))
           return false;
+        if (flagFilter === "upstream_decoupled" && !isUpstreamDecoupled(model))
+          return false;
+        if (flagFilter === "has_model_target" && !hasModelTarget(model))
+          return false;
         return true;
       },
     );
@@ -121,7 +129,6 @@ export function ModelsFeaturePage() {
       singleTruncated: data.models.filter(isSingleTruncated).length,
     };
   }, [data.models]);
-
   const filters = normalizeModelsListFilters({
     search: searchText,
     api_family: apiFamilyFilter,
@@ -228,24 +235,24 @@ export function ModelsFeaturePage() {
 
       <Card className="operator-table-shell gap-0 overflow-hidden rounded-lg">
         <CardHeader className="border-b">
-          <Tabs
-            value={scope}
-            onValueChange={(value) =>
-              patchSearch({
-                scope: value === "ingress" ? undefined : value,
-              })
-            }
+          {/* 三选一统计口径：受控单选分段控件 + 固定归因说明。选择写入 URL，
+              重复点击已选中项不会清空（组件内丢弃空值）。 */}
+          <div
+            className="flex flex-col gap-1"
+            data-testid="models-scope-switcher"
           >
-            <TabsList aria-label={copy.metricsScopeLabel}>
-              <TabsTrigger value="ingress">{copy.scopeIngress}</TabsTrigger>
-              <TabsTrigger value="final_execution">
-                {copy.scopeFinalExecution}
-              </TabsTrigger>
-              <TabsTrigger value="route_attempt">
-                {copy.scopeRouteAttempt}
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
+            <ModelsMetricsScopeSwitch
+              onScopeChange={(value) =>
+                patchSearch({
+                  scope: value === "ingress" ? undefined : value,
+                })
+              }
+              scope={scope}
+            />
+            <p className="text-xs text-muted-foreground">
+              {copy.metricsScopeBasis(scope)}
+            </p>
+          </div>
           <FieldGroup className="gap-4 md:flex-row md:items-end">
             <Field className="md:max-w-sm">
               <FieldLabel htmlFor="models-search">
@@ -327,6 +334,12 @@ export function ModelsFeaturePage() {
                     </SelectItem>
                     <SelectItem value="single_truncated">
                       {copy.flagSingleTruncated}
+                    </SelectItem>
+                    <SelectItem value="upstream_decoupled">
+                      {copy.flagUpstreamDecoupled}
+                    </SelectItem>
+                    <SelectItem value="has_model_target">
+                      {copy.flagHasModelTarget}
                     </SelectItem>
                   </SelectGroup>
                 </SelectContent>

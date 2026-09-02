@@ -372,10 +372,7 @@ test("narrow 390x844 observe page has no horizontal overflow and all tabs reacha
   await terminalScopes.nth(0).focus();
   await page.keyboard.press("ArrowRight");
   await expect(terminalScopes.nth(1)).toBeFocused();
-  await expect(terminalScopes.nth(1)).toHaveAttribute(
-    "data-state",
-    "active",
-  );
+  await expect(terminalScopes.nth(1)).toHaveAttribute("data-state", "active");
 });
 
 /**
@@ -707,4 +704,204 @@ test("connection dialog visual evidence at 1440x900 and 390x844", async ({
   await page.screenshot({
     path: "artifacts/evidence/connection-dialog-390.png",
   });
+});
+
+/**
+ * Entry-model list at 390×844: the exit-mapping cell, scope switch, and
+ * identity filter stay scannable and keyboard operable, and long identities
+ * keep their full value in a tooltip (DESIGN.md Tables + Honesty rules) rather
+ * than widening the page.
+ */
+test("narrow 390x844 entry-model list keeps scope switch keyboard operable and long identities fully hinted", async ({
+  page,
+}) => {
+  const timestamp = "2026-08-08T12:00:00Z";
+  const strategy = {
+    id: 11,
+    profile_id: 1,
+    name: "Default fill-first routing",
+    legacy_strategy_type: "fill-first",
+    failure_status_codes: [429, 500],
+    ban_mode: "off",
+    retry_base_delay_ms: 1000,
+    retry_backoff_multiplier: 2,
+    retry_jitter_ratio: 0.2,
+    retry_max_delay_ms: 8000,
+    cycle_retry_attempt_limit: 3,
+    ban_cumulative_retry_attempt_threshold: 0,
+    ban_duration_seconds: 0,
+    attached_model_count: 0,
+    created_at: timestamp,
+    updated_at: timestamp,
+  };
+  // One connection object projected into both wire keys — the backend fills
+  // connection and terminal_target from the same struct, and terminal_target
+  // carries the persisted upstream identity.
+  const longUpstreamModelId =
+    "provider/very-long-upstream-model-identifier-0123456789-abcdefghij";
+  const terminalTarget = {
+    id: 311,
+    profile_id: 1,
+    api_family: "openai",
+    endpoint_id: 1,
+    endpoint: {
+      id: 1,
+      name: "OpenAI Primary",
+      base_url: "https://api.openai.com/v1",
+    },
+    is_active: true,
+    priority: 0,
+    name: "conn-311",
+    auth_type: null,
+    upstream_model_id: longUpstreamModelId,
+    custom_headers: null,
+    openai_text_capability: "dual_native",
+    openai_image_capability: null,
+    pricing_template_id: null,
+    qps_limit: null,
+    max_in_flight_non_stream: null,
+    max_in_flight_stream: null,
+    created_at: timestamp,
+    updated_at: timestamp,
+  };
+  const modelListItem = {
+    id: 1,
+    profile_id: 1,
+    api_family: "openai",
+    model_id: "entry-model-a",
+    display_name: "Entry Model A",
+    loadbalance_strategy_id: 11,
+    loadbalance_strategy: strategy,
+    access_targets: [
+      {
+        id: 301,
+        target_type: "connection",
+        target_model_id: null,
+        connection_id: 311,
+        terminal_target_id: 311,
+        position: 0,
+        is_enabled: true,
+        target_model: null,
+        connection: terminalTarget,
+        terminal_target: terminalTarget,
+        created_at: timestamp,
+        updated_at: timestamp,
+      },
+    ],
+    is_enabled: true,
+    connection_count: 1,
+    active_connection_count: 1,
+    health_success_rate: null,
+    health_total_requests: 0,
+    routing_summary: {
+      enabled_access_target_count: 1,
+      total_access_target_count: 1,
+      openai_mode: "dual_native",
+      coverage: "full",
+      operation_groups: [],
+      single_truncated_access_target_ids: [],
+      warning_codes: [],
+    },
+    created_at: timestamp,
+    updated_at: timestamp,
+  };
+  await page.route("**/*", async (route) => {
+    const request = route.request();
+    const pathname = new URL(request.url()).pathname;
+    if (!pathname.startsWith("/api/")) {
+      return route.continue();
+    }
+    const fulfillJson = (body: unknown, status = 200) =>
+      route.fulfill({
+        status,
+        contentType: "application/json",
+        body: JSON.stringify(body),
+      });
+    if (pathname === "/api/auth/status")
+      return fulfillJson({
+        state: "disabled",
+        transition_state: null,
+        login_available: false,
+        effective_generation: "1",
+        retry_after_seconds: null,
+      });
+    if (pathname === "/api/settings/costing")
+      return fulfillJson({
+        report_currency_code: "USD",
+        report_currency_symbol: "$",
+        endpoint_fx_mappings: [],
+        timezone_preference: null,
+      });
+    if (pathname === "/api/settings/timezone")
+      return fulfillJson({ timezone_preference: "UTC" });
+    if (pathname === "/api/models" && request.method() === "GET")
+      return fulfillJson([modelListItem]);
+    if (pathname === "/api/endpoints") return fulfillJson([]);
+    if (pathname === "/api/pricing-templates") return fulfillJson([]);
+    if (pathname === "/api/loadbalance/strategies")
+      return fulfillJson([strategy]);
+    if (pathname === "/api/stats/models/metrics")
+      return fulfillJson({ items: [] });
+    return fulfillJson({});
+  });
+
+  await page.setViewportSize(NARROW_VIEWPORT);
+  await page.goto("/route/models");
+  await expect(page.getByTestId("models-feature-page")).toBeVisible();
+
+  // The page stays scannable without horizontal page scroll; the table shell
+  // owns its own scroll instead of widening the document.
+  const noHorizontalOverflow = await page.evaluate(() => {
+    const root = document.documentElement;
+    return root.scrollWidth <= root.clientWidth + 1;
+  });
+  expect(noHorizontalOverflow).toBe(true);
+
+  // Scope switch: keyboard operable single-select segmented control whose
+  // selection round-trips through the scope URL.
+  const scopeRadios = page
+    .getByRole("group", { name: "统计口径" })
+    .getByRole("radio");
+  await expect(scopeRadios).toHaveCount(3);
+  await scopeRadios.nth(0).focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(scopeRadios.nth(1)).toBeFocused();
+  await page.keyboard.press("Space");
+  await expect(scopeRadios.nth(1)).toBeChecked();
+  await expect(page).toHaveURL(/scope=final_execution/);
+
+  // Long upstream identity: the visible cell truncates, the full value stays
+  // in the tooltip, and the wrapping detail link is keyboard reachable.
+  const exitLink = page.getByRole("link", {
+    name: "打开入口模型 Entry Model A 的详情",
+  });
+  await expect(exitLink).toBeVisible();
+  await exitLink.focus();
+  await expect(exitLink).toBeFocused();
+  // The visible text truncates, so the full value lives in the tooltip. Scope
+  // to the mono value span: the 已解耦 badge's title also contains this string,
+  // and only the value span is the truncating one.
+  const upstreamValue = page.locator(
+    `span.font-mono[title="${longUpstreamModelId}"]`,
+  );
+  await expect(upstreamValue).toHaveAttribute("title", longUpstreamModelId);
+  // Truncation is load-bearing, not decorative: the visible span is narrower
+  // than the same text measured unwrapped offscreen, while the document
+  // itself never grows (asserted above).
+  const truncation = await upstreamValue.evaluate((element, value) => {
+    const probe = document.createElement("span");
+    const style = getComputedStyle(element);
+    probe.style.font = style.font;
+    probe.style.whiteSpace = "nowrap";
+    probe.style.position = "absolute";
+    probe.style.visibility = "hidden";
+    probe.textContent = value;
+    document.body.appendChild(probe);
+    const natural = probe.getBoundingClientRect().width;
+    probe.remove();
+    return element.clientWidth < natural;
+  }, longUpstreamModelId);
+  // At 390px the full identity cannot fit, so the cell must be the truncating
+  // one — proving the tooltip is load-bearing, not decorative.
+  expect(truncation).toBe(true);
 });

@@ -560,7 +560,7 @@ describe("AccessTargetsEditor model target detail entry", () => {
     openRowMenu("access-target-501").focus();
     await user.keyboard("{Enter}");
     const item = await screen.findByRole("menuitem", {
-      name: "查看模型 Child Model 的详情",
+      name: "查看入口模型 Child Model 的详情",
     });
     if (item.getAttribute("data-highlighted") == null) {
       await user.keyboard("{ArrowDown}");
@@ -595,7 +595,7 @@ describe("AccessTargetsEditor model target detail entry", () => {
     menu = await screen.findByRole("menu");
     expect(
       within(menu).getByRole("menuitem", {
-        name: /查看模型 Child Model 的详情/,
+        name: /查看入口模型 Child Model 的详情/,
       }),
     ).toBeTruthy();
     expect(onViewViewModelTargetDetail).not.toHaveBeenCalled();
@@ -640,7 +640,7 @@ describe("AccessTargetsEditor model target detail entry", () => {
     await user.click(openRowMenu("access-target-501"));
     await user.click(
       await screen.findByRole("menuitem", {
-        name: /查看模型 Child Model 的详情/,
+        name: /查看入口模型 Child Model 的详情/,
       }),
     );
 

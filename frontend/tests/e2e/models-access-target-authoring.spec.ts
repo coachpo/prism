@@ -9,9 +9,9 @@ import {
 } from "./model-detail-catalog-fixtures";
 
 const timestamp = "2026-04-27T12:00:00Z";
-const newModelButton = /New Model|新建模型/;
-const newModelDialog = /New Model|新建模型/;
-const editModelDialog = /Edit Model|编辑模型/;
+const newModelButton = /New Model|新建入口模型/;
+const newModelDialog = /New Model|新建入口模型/;
+const editModelDialog = /Edit Model|编辑入口模型/;
 const cancelButton = /Cancel|取消/;
 const createDefaultsButton = /Create Defaults|创建默认策略/;
 const modelIdLabel = /Entry Model ID|入口模型 ID/;
@@ -258,7 +258,7 @@ test("create model dialog disables submit when no loadbalance strategies exist",
   await dialog.getByRole("button", { name: cancelButton }).click();
   await page
     .getByRole("button", {
-      name: /Edit Model: Target Alpha|编辑模型: Target Alpha/,
+      name: /Edit Model: Target Alpha|编辑入口模型: Target Alpha/,
     })
     .click();
 
@@ -392,7 +392,7 @@ test("create model dialog does not apply delayed defaults response to edit dialo
 
   await page
     .getByRole("button", {
-      name: /Edit Model: Edit No Strategy|编辑模型: Edit No Strategy/,
+      name: /Edit Model: Edit No Strategy|编辑入口模型: Edit No Strategy/,
     })
     .click();
   const editDialog = page.getByRole("dialog", { name: editModelDialog });
@@ -1153,7 +1153,9 @@ test("model target detail entry switches entities over SPA without stale state",
     .getByRole("button", { name: /更多操作/ })
     .click();
   let menu = page.getByRole("menu");
-  await expect(menu.getByRole("menuitem", { name: /查看模型/ })).toHaveCount(0);
+  await expect(
+    menu.getByRole("menuitem", { name: /查看入口模型/ }),
+  ).toHaveCount(0);
   await expect(
     menu.getByRole("menuitem", { name: /复制终端目标 Primary Responses/ }),
   ).toBeVisible();
@@ -1161,9 +1163,9 @@ test("model target detail entry switches entities over SPA without stale state",
     .getByRole("menuitem", { name: /复制终端目标 Primary Responses/ })
     .click();
   const copyDialog = page.getByRole("dialog", { name: "复制终端目标" });
-  await expect(copyDialog.getByTestId("copy-upstream-model-note")).toContainText(
-    "保留源终端目标的上游模型 ID",
-  );
+  await expect(
+    copyDialog.getByTestId("copy-upstream-model-note"),
+  ).toContainText("保留源终端目标的上游模型 ID");
   await copyDialog.getByRole("button", { name: "取消" }).click();
 
   // The model-target row offers the entry and lands on the canonical detail
@@ -1174,7 +1176,7 @@ test("model target detail entry switches entities over SPA without stale state",
     .click();
   menu = page.getByRole("menu");
   const viewEntry = menu.getByRole("menuitem", {
-    name: /查看模型 Beta Detail 的详情/,
+    name: /查看入口模型 Beta Detail 的详情/,
   });
   await expect(viewEntry).toBeVisible();
   await viewEntry.click();
@@ -1219,8 +1221,8 @@ test("model detail canonicalizes dead tab and one-shot target actions", async ({
       .getByTestId("access-target-91")
       .getByTitle("上游模型 ID: provider/Responses-Primary"),
   ).toBeVisible();
-  await page.getByRole("button", { name: "编辑模型" }).click();
-  const modelSettings = page.getByRole("dialog", { name: "模型设置" });
+  await page.getByRole("button", { name: "编辑入口模型" }).click();
+  const modelSettings = page.getByRole("dialog", { name: "入口模型设置" });
   await expect(
     modelSettings.getByText(
       /修改入口模型 ID 不会改写已有终端目标的上游模型 ID/,
@@ -1259,9 +1261,7 @@ test("model detail canonicalizes dead tab and one-shot target actions", async ({
     page.getByRole("dialog", { name: /终端目标|Terminal Target/ }),
   ).toHaveCount(0);
 
-  await page
-    .getByRole("button", { name: "编辑 Primary Responses" })
-    .click();
+  await page.getByRole("button", { name: "编辑 Primary Responses" }).click();
   const editDialog = page.getByRole("dialog", { name: "编辑终端目标" });
   const editUpstreamModelId = editDialog.getByRole("textbox", {
     name: "上游模型 ID",
@@ -1283,4 +1283,175 @@ test("model detail canonicalizes dead tab and one-shot target actions", async ({
     .waitFor({ timeout: 15000 });
   await expect(page.getByTestId("access-target-92")).toHaveCount(1);
   await expect(page).toHaveURL(/\/models\/7$/);
+});
+
+// Entry-model list journey extensions: sidebar/breadcrumb terminology, the
+// URL-backed stats scope switch, and the identity flag filters. The exit
+// mapping is asserted at the projection boundary (see
+// src/features/models/modelExitMapping.test.ts); Playwright stays at the
+// route-flow level per tests/e2e/AGENTS.md.
+test("entry-model list journey: navigation, scope switch, and identity filters", async ({
+  page,
+}) => {
+  await mockModelRoutes(page, {
+    models: [
+      // entry-with-targets: one Terminal Target whose upstream identity is
+      // decoupled from the entry id (case-sensitive), plus a Model Target.
+      {
+        ...createModelListItem(1, "Entry-A", "Entry A"),
+        access_targets: [
+          {
+            id: 301,
+            target_type: "connection",
+            target_model_id: null,
+            connection_id: 311,
+            terminal_target_id: 311,
+            position: 0,
+            is_enabled: true,
+            target_model: null,
+            connection: {
+              id: 311,
+              profile_id: 1,
+              api_family: "openai",
+              endpoint_id: 1,
+              endpoint: {
+                id: 1,
+                name: "OpenAI Primary",
+                base_url: "https://api.openai.com/v1",
+              },
+              is_active: true,
+              priority: 0,
+              name: "conn-311",
+              auth_type: null,
+              upstream_model_id: "entry-a",
+              custom_headers: null,
+              openai_text_capability: "dual_native",
+              openai_image_capability: null,
+              pricing_template_id: null,
+              qps_limit: null,
+              max_in_flight_non_stream: null,
+              max_in_flight_stream: null,
+              created_at: timestamp,
+              updated_at: timestamp,
+            },
+            terminal_target: {
+              id: 311,
+              profile_id: 1,
+              api_family: "openai",
+              endpoint_id: 1,
+              endpoint: {
+                id: 1,
+                name: "OpenAI Primary",
+                base_url: "https://api.openai.com/v1",
+              },
+              is_active: true,
+              priority: 0,
+              name: "conn-311",
+              auth_type: null,
+              upstream_model_id: "entry-a",
+              custom_headers: null,
+              openai_text_capability: "dual_native",
+              openai_image_capability: null,
+              pricing_template_id: null,
+              qps_limit: null,
+              max_in_flight_non_stream: null,
+              max_in_flight_stream: null,
+              created_at: timestamp,
+              updated_at: timestamp,
+            },
+            created_at: timestamp,
+            updated_at: timestamp,
+          },
+          {
+            id: 302,
+            target_type: "model",
+            target_model_id: "Entry-B",
+            connection_id: null,
+            terminal_target_id: null,
+            position: 1,
+            is_enabled: true,
+            target_model: {
+              id: 2,
+              profile_id: 1,
+              api_family: "openai",
+              model_id: "Entry-B",
+              display_name: "Entry B",
+              openai_accepted_format: null,
+              openai_image_operations: null,
+              loadbalance_strategy_id: 11,
+              is_enabled: true,
+            },
+            connection: null,
+            terminal_target: null,
+            created_at: timestamp,
+            updated_at: timestamp,
+          },
+        ],
+        routing_summary: {
+          enabled_access_target_count: 2,
+          total_access_target_count: 2,
+          openai_mode: "dual_native",
+          coverage: "full",
+          operation_groups: [],
+          single_truncated_access_target_ids: [],
+          warning_codes: [],
+        },
+      },
+      createModelListItem(2, "Entry-B", "Entry B"),
+    ],
+  });
+
+  // The sidebar names the management surface 入口模型, and the breadcrumb
+  // carries the same fixed term under the routing group.
+  await page.goto("/route/models");
+  await expect(page.getByTestId("models-feature-page")).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: new RegExp("^入口模型$") }),
+  ).toHaveAttribute("href", /\/route\/models$/);
+  await expect(page.getByTestId("shell-breadcrumb")).toContainText(
+    "路由配置入口模型",
+  );
+
+  // Stats scope: a controlled single-select segmented control with the
+  // attribution note; each selection round-trips through the scope URL.
+  const scopeSwitch = page.getByTestId("models-scope-switcher");
+  await expect(
+    scopeSwitch.getByRole("radio", { name: "入口请求" }),
+  ).toHaveAttribute("aria-checked", "true");
+  await expect(page).not.toHaveURL(/scope=/);
+  await scopeSwitch.getByRole("radio", { name: "最终承载" }).click();
+  await expect(page).toHaveURL(/[?&]scope=final_execution/);
+  await expect(
+    scopeSwitch.getByRole("radio", { name: "最终承载" }),
+  ).toHaveAttribute("aria-checked", "true");
+  // Re-clicking the active scope must not clear the selection.
+  await scopeSwitch.getByRole("radio", { name: "最终承载" }).click();
+  await expect(
+    scopeSwitch.getByRole("radio", { name: "最终承载" }),
+  ).toHaveAttribute("aria-checked", "true");
+  await scopeSwitch.getByRole("radio", { name: "路由尝试" }).click();
+  await expect(page).toHaveURL(/[?&]scope=route_attempt/);
+  // The scope note names the attribution basis for the active scope.
+  await expect(
+    page.getByText("口径：按实际路由尝试计数，失败重试也计入。"),
+  ).toBeVisible();
+
+  // Identity flag filter: upstream_decoupled matches the case-sensitive
+  // decoupled entry and URL round-trips.
+  await page.getByRole("combobox", { name: "身份筛选" }).click();
+  await page.getByRole("option", { name: "上游 ID 已解耦" }).click();
+  await expect(page).toHaveURL(/[?&]flag=upstream_decoupled/);
+  await expect(page.getByTestId("models-table-row-1")).toBeVisible();
+  await expect(page.getByTestId("models-table-row-2")).toHaveCount(0);
+
+  // The model-target filter matches the entry carrying a Model Target row.
+  await page.getByRole("combobox", { name: "身份筛选" }).click();
+  await page.getByRole("option", { name: "包含模型目标" }).click();
+  await expect(page).toHaveURL(/[?&]flag=has_model_target/);
+  await expect(page.getByTestId("models-table-row-1")).toBeVisible();
+
+  // Deep-linking the flag directly applies the same filter after reload.
+  await page.reload();
+  await expect(page.getByTestId("models-table-row-1")).toBeVisible();
+  await expect(page.getByTestId("models-table-row-2")).toHaveCount(0);
 });

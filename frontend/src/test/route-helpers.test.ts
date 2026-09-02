@@ -65,6 +65,33 @@ describe("rewrite route helpers", () => {
     })
     expect(modelsListSearchSchema.parse({ scope: "final_execution" })).toEqual({ scope: "final_execution" })
     expect(modelsListSearchSchema.parse({ scope: "route_attempt" })).toEqual({ scope: "route_attempt" })
+    // Identity flags: the two new flags parse alongside the retained ones and
+    // survive a URL round-trip; `all` is a valid input but the list page never
+    // persists it (patchSearch drops "all" values from the URL).
+    for (const flag of [
+      "needs_target",
+      "single_truncated",
+      "upstream_decoupled",
+      "has_model_target",
+    ] as const) {
+      const parsed = modelsListSearchSchema.parse({ flag })
+      expect(parsed).toEqual({ flag })
+      expect(modelsListSearchSchema.parse(parsed)).toEqual(parsed)
+    }
+    expect(modelsListSearchSchema.parse({ flag: "all" })).toEqual({ flag: "all" })
+    // A full filtered view round-trips: scope + flag + sort + paging survive
+    // parse(serialize(parse(input))) unchanged.
+    const filteredView = {
+      scope: "route_attempt",
+      flag: "upstream_decoupled",
+      status: "enabled",
+      api_family: "openai",
+      sort_by: "targets",
+      sort_order: "desc",
+      page: 2,
+      page_size: 50,
+    } as const
+    expect(modelsListSearchSchema.parse(modelsListSearchSchema.parse(filteredView))).toEqual(filteredView)
     expect(requestLogSearchSchema.parse({
       client_rule_id: "123",
       limit: "300",

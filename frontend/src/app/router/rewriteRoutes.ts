@@ -294,7 +294,19 @@ export const modelsListSearchSchema = z.object({
   search: z.string().optional(),
   api_family: z.enum(["all", "openai", "anthropic", "gemini"]).optional(),
   status: z.enum(["all", "enabled", "disabled"]).optional(),
-  flag: z.enum(["all", "needs_target", "single_truncated"]).optional(),
+  // Identity filters: upstream_decoupled matches entry models whose direct
+  // Terminal Targets hold a persisted upstream identity differing from the
+  // entry model_id (case-sensitive); has_model_target matches entries with at
+  // least one Model Target row. `all` never persists to the URL.
+  flag: z
+    .enum([
+      "all",
+      "needs_target",
+      "single_truncated",
+      "upstream_decoupled",
+      "has_model_target",
+    ])
+    .optional(),
   sort_by: z
     .enum([
       "name",

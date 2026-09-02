@@ -51,6 +51,7 @@ import { formatLatencyForDisplay } from "@/pages/model-detail/modelDetailMetrics
 import type { ModelDerivedMetric } from "@/pages/models/modelTableContracts"
 import type { ObservabilityScope } from "@/lib/types/model-stats"
 import { isSingleTruncated } from "./modelRoutingFlags"
+import { ModelExitMappingCell } from "./ModelExitMappingCell"
 
 const MODEL_PAGE_SIZES = [25, 50, 100] as const
 const MODEL_COLUMN_COUNT = 10
@@ -387,7 +388,6 @@ export function ModelsTable({
               const metrics = modelMetrics24h[model.id]
               const spend = modelSpend30dMicros[model.id] ?? null
               const enabledTargets = model.routing_summary?.enabled_access_target_count
-              const totalTargets = model.routing_summary?.total_access_target_count
               const truncated = isSingleTruncated(model)
 
               return (
@@ -429,34 +429,16 @@ export function ModelsTable({
                     />
                   </TableCell>
                   <TableCell className="align-top">
-                    {/* The whole cell links to detail: counts alone never answer
-                        "which target", so the first one is named here. */}
+                    {/* The whole cell links to detail: counts name the scale,
+                        the first two (position,id) rows name the actual exits,
+                        and the remainder is a pointer, not a summary. */}
                     <Link
                       to="/route/models/$modelId"
                       params={{ modelId: String(model.id) }}
                       aria-label={copy.targetsLinkAria(title)}
                       className="flex min-w-40 flex-col gap-0.5 underline-offset-2 hover:underline"
                     >
-                      {totalTargets == null ? (
-                        <OperatorMissingValue />
-                      ) : totalTargets === 0 ? (
-                        <OperatorStatusBadge intent="failing" preserveLabel label={copy.targetsNone} />
-                      ) : (
-                        <>
-                          <span className="font-mono text-xs tabular-nums">
-                            {copy.targetsCount(
-                              formatNumber(enabledTargets ?? 0),
-                              formatNumber(totalTargets),
-                            )}
-                          </span>
-                          <span className="truncate text-xs text-muted-foreground">
-                            {model.access_targets[0]?.connection?.name
-                              ?? model.access_targets[0]?.target_model?.model_id
-                              ?? model.access_targets[0]?.target_model_id
-                              ?? ""}
-                          </span>
-                        </>
-                      )}
+                      <ModelExitMappingCell model={model} />
                     </Link>
                   </TableCell>
                   <TableCell className="align-top">

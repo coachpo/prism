@@ -1,9 +1,11 @@
 # FRONTEND MODELS COMPATIBILITY CLUSTER
 
 ## OVERVIEW
-`pages/models/` keeps model dialogs, toolbar, form state, metric hydration, and shared-cache helpers still imported by the feature-owned `/models` route under `src/features/models/`. The feature route owns page orchestration and table rendering.
+
+`pages/models/` keeps model dialogs, toolbar, form state, metric hydration, and shared-cache helpers still imported by the feature-owned `/models` route under `src/features/models/`. The feature route owns page orchestration and table rendering. The management surface is named 入口模型 (entry model) everywhere — sidebar, breadcrumbs, page title, search, filters, KPI cards, and CRUD copy; 模型目标 (Model Target), 最终目标模型 (final target model), and 上游模型 ID (upstream model ID) keep their own distinct terms and are never rewritten to 入口模型.
 
 ## STRUCTURE
+
 ```
 models/
 ├── ModelDialog.tsx         # Edit dialog and backend errors
@@ -43,6 +45,7 @@ models/
 - 24h metrics and spend overlays: `useModelMetrics24h.ts`
 
 ## CONVENTIONS
+
 - For UI/UX, frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation changes, follow `frontend/DESIGN.md`: use `@/shared/design-system` before `@/components/ui`, preserve the Google Admin Console / Material Design 3 operator direction, use semantic tokens, operator surface classes, density variables, and required operator components, keep route state and API calls out of design-system components, and avoid adding compatibility wrappers under `@/components`.
 - Do not add decorative gradients, blur blobs, heavy shadows, marketing hero layouts, raw Tailwind status colors, page-local color blends, or ad hoc dark-mode overrides outside the `frontend/DESIGN.md` contract.
 
@@ -52,13 +55,15 @@ models/
 - Keep model CRUD form validation, strategy attachment, `api_family`, and independent OpenAI text/image dimensions in `modelFormState.ts`; keep mixed access-target draft/order rules in `accessTargetFormState.ts`.
 - Model create payloads are family-discriminated: Anthropic/Gemini omit every OpenAI-only key rather than sending explicit nulls.
 - `AccessTargetsEditor.tsx` consumes persisted access targets through mutation-shaped rows and renders one mixed Model Target/Terminal Target list with global "位置 N" numbering. Moves use the shared runtime order; row mutations address the persisted access-target row ID (never a position in `access_targets`, which the drag draft can reorder) and connection actions use the connection ID.
+- The models-list exit-mapping cell (`features/models/ModelExitMappingCell.tsx` + `modelExitMapping.ts`) projects the DIRECT `access_targets` rows in shared `(position, id)` order and shows only the first two: Terminal Target rows as endpoint → persisted upstream identity, Model Target rows as the logical target id. The remainder is a detail-pointer, not a summary; the projection never follows Model Target rows recursively and never backfills missing endpoint/upstream evidence from the entry `model_id` (missing values render a reasoned `—`). Identity flags (`modelRoutingFlags.ts`): `upstream_decoupled` compares upstream identity against the entry `model_id` exactly (case-sensitive; missing evidence is unknown, never decoupled), and `has_model_target` detects direct Model Target rows.
 - Hydrate 24h metrics separately from the base model list so CRUD flows do not own observability queries.
-- Hydrate all three named metric blocks (`ingress`, `final_execution`, `route_attempt`) in one batch read. The table switch is URL-backed and selects a local block; it must not issue one request per tab. Route-attempt cost stays absent with a reason.
+- Hydrate all three named metric blocks (`ingress`, `final_execution`, `route_attempt`) in one batch read. The table switch is a controlled single-select segmented control (`ModelsMetricsScopeSwitch`, never tabs) that is URL-backed through `scope` and selects a local block; it must not issue one request per tab, and re-selecting the active scope never clears the selection. Route-attempt cost stays absent with a reason.
 - Keep the grouped models table keyed by `api_family` while still rendering the per-row `api_family` metadata.
 
 - Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
 
 ## LLM UPSTREAM MATRIX
+
 - When work touches LLM upstream request or response logic, evaluate streaming and non-streaming coverage across operation shapes, not just provider families: OpenAI Chat Completions (`/v1/chat/completions`) and Responses (`/v1/responses`), Gemini, and Anthropic.
 
 ## ANTI-PATTERNS

@@ -153,3 +153,68 @@ export function buildAccessTargetSummary(
     enabledTerminalTargetCount: enabledTerminalTargets.length,
   };
 }
+
+/**
+ * Read-only projection of the upstream identities held by this entry model's
+ * DIRECT Terminal Targets. Model Target rows are logical edges and never
+ * contribute identities, and the projection never follows them recursively —
+ * the detail summary answers "how many distinct exits", not "the full exit
+ * graph".
+ *
+ * Identity comparison against the entry `model_id` is exact and case-sensitive:
+ * provider-facing strings, so `Entry-A` and `entry-a` are different upstream
+ * identities. A Terminal Target without a readable identity is unknown
+ * evidence — it counts as neither consistent nor decoupled.
+ */
+export interface UpstreamIdentitySummary {
+  hasDirectTerminalTargets: boolean;
+  /** Known identities only: missing/blank upstream values are excluded. */
+  distinctUpstreamModelIdCount: number;
+  /** Known identities that differ from the entry `model_id` exactly. */
+  decoupledUpstreamModelIdCount: number;
+  /** Direct Terminal Targets carrying no readable upstream identity. */
+  unknownUpstreamModelIdCount: number;
+}
+
+function knownUpstreamModelId(target: ModelAccessTarget): string | null {
+  const upstreamModelId = getTerminalTarget(target)?.upstream_model_id;
+  return upstreamModelId?.trim() ? upstreamModelId : null;
+}
+
+export function buildUpstreamIdentitySummary(
+  model: Pick<ModelConfig, "model_id" | "access_targets"> | null,
+): UpstreamIdentitySummary {
+  const entryModelId = model?.model_id ?? null;
+  const terminalTargets = (model?.access_targets ?? []).filter((target) =>
+    isTerminalTargetAccessTargetType(target.target_type),
+  );
+
+  if (!entryModelId || terminalTargets.length === 0) {
+    return {
+      hasDirectTerminalTargets: false,
+      distinctUpstreamModelIdCount: 0,
+      decoupledUpstreamModelIdCount: 0,
+      unknownUpstreamModelIdCount: 0,
+    };
+  }
+
+  const knownIdentities = new Set<string>();
+  let decoupledCount = 0;
+  let unknownCount = 0;
+  for (const target of terminalTargets) {
+    const upstreamModelId = knownUpstreamModelId(target);
+    if (upstreamModelId === null) {
+      unknownCount += 1;
+      continue;
+    }
+    knownIdentities.add(upstreamModelId);
+    if (upstreamModelId !== entryModelId) decoupledCount += 1;
+  }
+
+  return {
+    hasDirectTerminalTargets: true,
+    distinctUpstreamModelIdCount: knownIdentities.size,
+    decoupledUpstreamModelIdCount: decoupledCount,
+    unknownUpstreamModelIdCount: unknownCount,
+  };
+}
