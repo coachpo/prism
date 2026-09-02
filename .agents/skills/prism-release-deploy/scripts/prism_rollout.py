@@ -44,6 +44,10 @@ def deploy_main():
     if safe_state(inspect(topology["app_id"]))["status"] == "running":
         raise RuntimeError("verified backup must leave the app stopped before deploy")
     deploy_image(topology, args["image_ref"])
+    # Compose recreation replaces the app container identity. Re-discover the
+    # project before health, state, and post-deploy checks so no gate inspects
+    # the removed pre-deploy container ID.
+    topology = discover(args["service"], args.get("backup_root"))
     health = wait_health(topology, expected_version=args["version"])
     post = database_evidence(topology)
     pre = args["preflight_database"]
