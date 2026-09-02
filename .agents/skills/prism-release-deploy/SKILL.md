@@ -7,28 +7,32 @@ metadata:
 
 # Prism Release Deploy
 
-Use a two-stage contract: publish an immutable release manifest, then consume that manifest for rollout. Authorization for one stage does not authorize the other.
+## Outcome
+
+Publish an immutable Prism release manifest, then consume it in a separately authorized A-before-B rollout. Complete only after every configured backup, migration, health, smoke, observation, and retention gate passes.
+
+## Authorization
+
+- `plan` is read-only and may inspect repository, GitHub, registry, and deployment state.
+- Release execution requires current release/tag/push/package authorization plus `--confirm-release vX.Y.Z`.
+- Rollout requires current deployment authorization plus `--confirm-rollout <tag>@<release-sha-prefix>`. Provider traffic additionally requires `--allow-provider-smoke`; prune requires one exact confirmation per service.
+- Confirmation flags record authorization but never create it. Do not reuse authorization from another task or stage.
 
 ## Release stage
 
 1. Run `scripts/prism_release.py plan --spec <patch|minor|major|X.Y.Z>`.
-2. Before `execute`, require explicit release/tag/push/package authorization and the exact `--confirm-release vX.Y.Z` token.
-3. Execute the repository `release.sh`, then wait for the release commit's CI and tag-triggered Docker Image workflow. Do not reuse the pre-release commit's CI.
-4. Verify OCI revision, version, OS, architecture, and manifest digest. Write a `status: published` manifest under `artifacts/evidence/prism-ops/releases/` only after every gate passes.
-
-Read [references/release-manifest.md](references/release-manifest.md) before release execution.
+2. Before execution, read [references/release-manifest.md](references/release-manifest.md).
+3. Run the repository `release.sh`; wait for the release commit's CI and tag-triggered Docker Image workflow, not the pre-release commit's CI.
+4. Verify repository, tag, release SHA, OCI revision/version/platform, and full manifest digest. Write `status: published` evidence under `artifacts/evidence/prism-ops/releases/` only after all gates pass.
 
 ## Rollout stage
 
 1. Run `scripts/prism_rollout.py plan --manifest <published.json> ...`.
-2. Require explicit deployment authorization and `--confirm-rollout <tag>@<release-sha-prefix>`. Provider traffic additionally requires `--allow-provider-smoke`. Retention requires one exact prune confirmation per service.
-3. Back up each service through the sibling `$prism-backup-restore` script, then deploy A before B. B is untouched until A passes every configured gate.
-4. On migration/health/smoke failure after schema advancement, stop the current app and preserve the database and backup. Never start an older binary or restore data without a new restore authorization.
+2. Read [references/rollout-gates.md](references/rollout-gates.md). For `capy`, also read [../prism-ops-inspect/references/capy.md](../prism-ops-inspect/references/capy.md).
+3. Create a verified backup through `$prism-backup-restore`; deploy A before B, and leave B untouched until A passes every gate.
+4. On failure after schema advancement, stop the affected app and preserve its database and backup for an explicit restore decision.
 
-Read [references/rollout-gates.md](references/rollout-gates.md). For `capy`, also read [../prism-ops-inspect/references/capy.md](../prism-ops-inspect/references/capy.md).
+## Completion
 
-## Boundaries
-
-- `plan` is read-only. `execute` flags are mechanical evidence of current-task authorization, not substitutes for obtaining it.
-- Do not create a GitHub Release, rerun failed workflows, force-push, use mutable `latest` for deployment, or call deployment `force` / `down -v`.
-- Do not collapse auxiliary Models or perform unrelated management writes as part of release rollout.
+- Never create a GitHub Release, rerun failed workflows, force-push, deploy `latest`, use `force` / `down -v`, collapse auxiliary Models, or perform unrelated management writes.
+- Lead the handoff with release SHA/tag, CI and image evidence, immutable image reference, per-service backup and migration results, smoke/observation results, stopped or unverified states, and required operator action.

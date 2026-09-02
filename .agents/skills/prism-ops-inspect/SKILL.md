@@ -7,20 +7,24 @@ metadata:
 
 # Prism Ops Inspect
 
-Collect a bounded, secret-safe snapshot before making operational claims or proposing mutations.
+## Outcome
 
-## Workflow
+Produce a timestamped, secret-safe snapshot and a concise report of current facts, drift, limitations, and the next safe action. This skill never mutates a repository or deployment.
+
+## Inspect
 
 1. Resolve the repository root and read the root `AGENTS.md`, `STATUS.md`, `release.sh`, container contract, and relevant deployment adapter.
-2. Run `scripts/prism_ops_snapshot.py` with the requested host and services. Default to stdout JSON; write `--output` only when the user requested retained evidence.
-3. Treat discovered Compose labels, mounts, image references, health, migration history, and counts as authoritative for the observation time. Treat adapter values as expectations to verify, never as live truth.
-4. Report secrets as presence/hash metadata only. Never read or return config content, environment values, database URLs, keys, tokens, credentials, or provider response bodies.
-5. If `--check` fails or evidence conflicts, return the drift and the smallest missing evidence. Do not repair it under this skill.
+2. Read [references/evidence-contract.md](references/evidence-contract.md). Read [references/capy.md](references/capy.md) only for `capy`, `prism-a`, or `prism-b` work.
+3. Run `scripts/prism_ops_snapshot.py` with the requested host and services. Use stdout by default; use `--output` only when retained evidence was requested.
+4. Treat discovered Compose labels, mounts, image identity, health, migration history, and counts as observation-time truth. Treat adapter values as assertions to verify.
 
-Read [references/evidence-contract.md](references/evidence-contract.md) for the output and redaction contract. For the home-LAN environment, also read [references/capy.md](references/capy.md).
+## Autonomy
 
-## Boundaries
+- Read-only files, Git, logs, SSH inventory, Docker/Compose inspection, health requests, and read-only SQL are in scope without further confirmation.
+- Do not execute release, deployment, provider smoke, backup, restore, prune, migration, or service-lifecycle actions. Route authorized mutations to `$prism-release-deploy` or `$prism-backup-restore`.
+- Return config and credential evidence only as presence, mode, size, timestamp, or hash. Never expose config contents, environment values, database URLs, credentials, auth material, or provider payloads.
 
-- Read-only shell, Git, SSH, Docker inspect, Compose inventory, HTTP health, and `BEGIN TRANSACTION READ ONLY` SQL are allowed.
-- Do not run `pull`, `up`, `stop`, `restart`, `down`, `pg_dump`, `pg_restore`, migrations, release helpers, workflow reruns, provider smoke traffic, or backup deletion.
-- A previous task's authorization never converts this skill into a mutation workflow. Route authorized release/deploy work to `$prism-release-deploy` and backup/restore work to `$prism-backup-restore`.
+## Completion
+
+- If `--check` fails or sources conflict, stop at diagnosis and identify the exact drift and smallest missing evidence.
+- Lead the report with the operational conclusion. Include supporting identities/counts, material caveats, unverified scope, and the next safe action; omit raw command noise and repeated facts.
