@@ -101,7 +101,7 @@ function modelTitle(model: ManagedModelConfigListItem) {
 }
 
 function ModelIdentityCell({ model }: { model: ManagedModelConfigListItem }) {
-  const { messages } = useLocale()
+  const { formatNumber, messages } = useLocale()
   const title = modelTitle(model)
   const showModelId = title !== model.model_id
 
@@ -126,12 +126,16 @@ function ModelIdentityCell({ model }: { model: ManagedModelConfigListItem }) {
         />
       </div>
       {showModelId ? <span className="truncate font-mono text-xs text-muted-foreground">{model.model_id}</span> : null}
-      {model.direct_request_enabled === false && model.incoming_model_target_count === 0 ? (
+      {model.direct_request_enabled === false ? (
         <span
           className="text-xs text-muted-foreground"
-          title={model.configuration_warnings?.find((warning) => warning.code === "model_target_unreferenced")?.message}
+          title={model.incoming_model_target_count === 0
+            ? model.configuration_warnings?.find((warning) => warning.code === "model_target_unreferenced")?.message
+            : undefined}
         >
-          {messages.modelsPage.unreferencedModelTarget}
+          {model.incoming_model_target_count > 0
+            ? messages.modelsPage.incomingModelTargetCount(formatNumber(model.incoming_model_target_count))
+            : messages.modelsPage.unreferencedModelTarget}
         </span>
       ) : null}
     </div>

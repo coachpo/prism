@@ -2081,6 +2081,7 @@ export const zhCNMessages = {
     viewEntries: "入口模型",
     viewModelTargets: "仅模型目标",
     viewAll: "全部模型配置",
+    incomingModelTargetCount: (count: MessageArg) => `被 ${count} 个模型目标引用`,
     unreferencedModelTarget: "未被模型目标引用",
     noModelsMatchFilters: "当前视图没有匹配的模型配置",
     tryDifferentFilters: "请调整搜索或筛选条件后重试。",
