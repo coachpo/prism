@@ -204,7 +204,7 @@ Four sidebar groups collapse to three so that **path prefix = sidebar group = fi
 | Group | Prefix | Pages |
 | --- | --- | --- |
 | 可观测性 | `/observe/*` | 仪表盘, 请求日志, 请求审计, 路由健康 |
-| 路由配置 | `/route/*` | 端点 → 价格模板 → 路由策略 → 入口模型 → 入口模型详情 |
+| 路由配置 | `/route/*` | 端点 → 价格模板 → 路由策略 → 模型配置 → 模型配置详情 |
 | 系统 | `/system/*` | 设置, 代理密钥 |
 
 Two structural moves:
@@ -216,7 +216,7 @@ Shell:
 
 - Sidebar 240px, `panel` ground, 1px right outline. Group labels 11px `text-muted`. Items 32px tall, 6px radius, 16px icon plus 13px label. Active item: `primary-soft` ground, `on-primary-soft` text, 2px primary bar on the left edge — not a solid blue reverse fill. Collapses to a 56px icon rail, not off-canvas. Render the eight icons already declared in `useShellNavigation.ts`.
 - Header 48px, `panel` ground, 1px bottom outline. Breadcrumb on the left at 12px. Right side: global search, density toggle, theme toggle, account menu. Theme and account move up from the sidebar footer.
-- Breadcrumbs are fixed at **group › page › entity**. A detail page leaf must be the entity name, not a generic word: `路由配置 › 入口模型 › GPT-4o Mini 主线`, never `入口模型 › 配置`.
+- Breadcrumbs are fixed at **group › page › entity**. A detail page leaf must be the entity name, not a generic word: `路由配置 › 模型配置 › GPT-4o Mini 主线`, never `模型配置 › 配置`.
 
 ### Freshness Bar
 
@@ -292,7 +292,7 @@ Shared specification, applied by every list page:
 - **Status stripe**: a 2px status-colored bar on the row's left edge, **for runtime state only**. Idle rows get no stripe. Never encode a non-runtime attribute (such as "has references") as a runtime status color.
 - **Alignment**: text left; values, currency, latency, and token counts right-aligned in mono with tabular numerals; status badge columns fixed-width and left-aligned.
 - **Identifier columns**: mono 13px, middle-elided when long (`gpt-4o-mini-2024…0718`), full value plus a copy control on hover.
-- **Entry-model exit mapping** (models list): the targets cell projects the DIRECT `access_targets` rows in shared `(position, id)` order and shows the first two — Terminal Target rows as `端点 → 实际上游模型 ID`, Model Target rows as the logical target only — and folds the remainder into a `还有 N 项，见详情` pointer to the entry-model detail. Decoupled (`上游 ID 已解耦`) and non-participating (`未参与`) rows carry a textual state, never a color-only one. A missing endpoint or upstream identity renders a reasoned `—`; the entry `model_id` is never substituted for it, and the summary never follows Model Target rows recursively.
+- **Model-config exit mapping** (models list): the targets cell projects the DIRECT `access_targets` rows in shared `(position, id)` order and shows the first two — Terminal Target rows as `端点 → 实际上游模型 ID`, Model Target rows as the logical target only — and folds the remainder into a `还有 N 项，见详情` pointer to the model-config detail. Exact same-id (`入口同名`), upstream-only (`仅上游`), and non-participating (`未参与`) rows carry a textual state, never a color-only one. A missing endpoint or upstream identity renders a reasoned `—`; the owning model configuration's `model_id` is never substituted for it, and the summary never follows Model Target rows recursively.
 - **Row actions**: hidden by default, faded in on row hover or focus, reachable by keyboard. More than three actions collapse into an overflow menu.
 - **Pagination**: `共 N 条` on the left, page controls and page size on the right.
 - **Fill the table.** A list that claims eight rows renders eight rows.
@@ -376,7 +376,7 @@ Feedback routing: while a dialog stays open, report inline only; once it closes,
 
 Interface language is Simplified Chinese, single locale. All visible strings and every `aria-label` / `sr-only` string go through `messages`; no new hard-coded literals.
 
-Fixed terminology: 端点, 终端目标, 终端配置 (孤立时称孤立终端配置), 访问目标, 模型目标, 上游模型 ID, 入口模型, 最终目标模型, 价格模板, 路由策略, 路由时段, 代理密钥, 最终承载, 路由尝试, 参与路由, 已知成本, 定价状态, 覆盖, 口径, 可信成本, 未归因. The entry-model management surface (`model_configs`) is named 入口模型 everywhere (sidebar, breadcrumbs, page titles, search, filters, KPI cards, CRUD); 入口模型, 模型目标, and 上游模型 ID are distinct terms and never substitute for each other.
+Fixed terminology: 端点, 终端目标, 终端配置 (孤立时称孤立终端配置), 访问目标, 模型配置, 模型目标, 上游模型 ID, 入口模型, 仅模型目标, 最终目标模型, 价格模板, 路由策略, 路由时段, 代理密钥, 最终承载, 路由尝试, 参与路由, 已知成本, 定价状态, 覆盖, 口径, 可信成本, 未归因. The inventory, detail, and CRUD surfaces for `model_configs` are named 模型配置. A model configuration with `direct_request_enabled=true` is classified as 入口模型; one with `direct_request_enabled=false` is classified as 仅模型目标. 模型配置, 入口模型, 仅模型目标, 模型目标, and 上游模型 ID are distinct terms and never substitute for each other.
 
 Left untranslated: Prism, Gateway, API family, epoch, cutoff, generation, FX, preflight, curl, OpenAI, Anthropic, Gemini.
 
