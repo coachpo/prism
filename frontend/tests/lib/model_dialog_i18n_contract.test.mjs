@@ -18,7 +18,7 @@ test("model detail access target copy avoids fallback wording", () => {
   assert.equal(zhCNMessages.modelsUi.selectSameFamilyModel, "选择目标模型");
   assert.equal(
     zhCNMessages.modelsUi.noSameFamilyModelsAvailable,
-    "没有其他可用的同家族模型。现在可以先以禁用状态保存，稍后在启用前再添加模型目标。",
+    "没有其他可用的同家族模型配置。现在可以先以禁用状态保存，稍后在启用前再添加模型目标。",
   );
 
   const chineseModelTargetCopy = [
