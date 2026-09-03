@@ -21,7 +21,7 @@ export function DeleteModelDialog({ deleteTarget, onDelete, setDeleteTarget }: P
       title={copy.deleteModel}
       description={copy.deleteModelDescription(deleteTarget?.display_name || deleteTarget?.model_id || "")}
       cancelLabel={messages.settingsDialogs.cancel}
-      confirmLabel={messages.settingsDialogs.delete}
+      confirmLabel={copy.deleteModel}
       onCancel={() => setDeleteTarget(null)}
       onConfirm={onDelete}
     >
@@ -43,7 +43,7 @@ export function DeleteModelDialog({ deleteTarget, onDelete, setDeleteTarget }: P
               <p className="truncate text-sm text-foreground">{deleteTarget.api_family}</p>
             </div>
             <div className="flex min-w-0 flex-col gap-1">
-              <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Access targets</p>
+              <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{copy.accessTargets}</p>
               <p className="truncate text-sm text-foreground">{deleteTarget.access_targets.length}</p>
             </div>
           </div>

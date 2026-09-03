@@ -238,8 +238,8 @@ export const zhCNMessages = {
     endpoints: "端点",
     loadbalanceStrategies: "路由策略",
     modelExport: "导出客户端配置",
-    // 管理面语义统一：这一页管理的是入口模型（model_configs），不是实际供应商出口。
-    models: "入口模型",
+    // 管理面库存与 CRUD 对象是模型配置；入口资格由行内角色单独表达。
+    models: "模型配置",
     pricingTemplates: "价格模板",
     requestAudit: "请求审计",
     requestLogs: "请求日志",
@@ -582,7 +582,7 @@ export const zhCNMessages = {
     banUntilResetPolicy: (threshold: MessageArg) =>
       `累计阈值 ${threshold} 次会封禁直到重置`,
     description:
-      "在多个模型之间复用终端目标选择族与 Ban Policy，而不是为每个入口模型重复定义路由与重试行为。",
+      "在多个模型之间复用终端目标选择族与 Ban Policy，而不是为每个模型配置重复定义路由与重试行为。",
     disabled: "已禁用",
     edit: "编辑",
     enabled: "已启用",
@@ -1428,27 +1428,27 @@ export const zhCNMessages = {
     // 页头与路由就绪卡（三处重复的路由信息合并到这里）。
     routeReadinessTitle: "路由就绪",
     routeReadinessDescription:
-      "这个入口模型现在能不能把请求送出去，以及送到哪里。",
+      "这个模型配置现在能不能把请求送出去，以及送到哪里。",
     targetsCount: (enabled: MessageArg, total: MessageArg) =>
       `${enabled} 启用 / ${total} 总计`,
     strategyLabel: "路由策略",
     strategyUnassignedReason: "该模型没有绑定路由策略。",
 
-    // 直接身份摘要：只汇总本入口模型的直接终端/模型目标，不跟随模型目标
+    // 直接身份摘要：只汇总本模型配置的直接终端/模型目标，不跟随模型目标
     // 递归，也不重复完整出口映射。上游身份只由终端目标持有。
-    entryModelIdBasis: "客户端请求使用的稳定入口标识；与各终端目标的上游模型 ID 相互独立。",
+    entryModelIdBasis: "模型配置的稳定逻辑标识；允许直接请求时也是客户端入口 ID，并始终与各终端目标的上游模型 ID 相互独立。",
     upstreamIdentityDistinctLabel: "不同上游标识",
     upstreamIdentityDistinctReason:
       "直接终端目标上已知的上游模型 ID 去重后的个数；缺失证据不计入。",
     upstreamDecoupledLabel: "上游解耦",
     upstreamDecoupledReason:
-      "与入口模型 ID 精确比较（区分大小写）不一致的直接终端目标数；缺失证据不计入。",
+      "与模型配置 ID 精确比较（区分大小写）不一致的直接终端目标数；缺失证据不计入。",
     upstreamUnknownLabel: "未知上游标识",
     upstreamUnknownReason:
       "这些直接终端目标没有可读的上游模型 ID，既不能算一致也不能算解耦。",
     noDirectTerminalTargets: "无直接终端目标",
     noDirectTerminalTargetsReason:
-      "该入口模型没有直接终端目标；上游身份只由终端目标持有，模型目标是逻辑边，不在此推断。",
+      "该模型配置没有直接终端目标；上游身份只由终端目标持有，模型目标是逻辑边，不在此推断。",
 
     // 路由诊断的四态。读失败必须与「后端确实没有诊断」区分开，
     // 否则一次失败的读取看起来就像一个干净的空结果。
@@ -1554,7 +1554,7 @@ export const zhCNMessages = {
     addConnectionToStartRouting: "新增一个终端目标以开始路由请求",
     addHeader: "新增请求头",
     avgCostPerRequest: "平均每次请求成本",
-    backToModels: "返回模型列表",
+    backToModels: "返回模型配置",
     banned: "已封禁",
     cancel: "取消",
     connectionActions: "终端目标操作",
@@ -1565,16 +1565,16 @@ export const zhCNMessages = {
     connectionDisplayNamePlaceholder: "终端目标显示名称",
     upstreamModelId: "上游模型 ID",
     upstreamModelIdHint: (ownerModelId: MessageArg) =>
-      `已预填入口模型 ID（${ownerModelId}）；如供应商要求不同标识，请填写其精确模型 ID。`,
+      `已预填模型配置 ID（${ownerModelId}）；如供应商要求不同标识，请填写其精确模型 ID。`,
     upstreamModelIdHintDecoupled: (ownerModelId: MessageArg) =>
-      `发送给供应商的精确模型 ID，已与入口模型 ID（${ownerModelId}）脱钩。`,
+      `发送给供应商的精确模型 ID，已与模型配置 ID（${ownerModelId}）脱钩。`,
     upstreamModelIdPlaceholder: "例如：provider/model-a",
     upstreamModelIdBlank: "上游模型 ID 不能为空白",
     upstreamModelIdTooLong: "上游模型 ID 最多 200 个字符",
     upstreamModelIdRequired:
-      "上游模型 ID 不能清空；如需改回入口模型 ID，请显式填写。",
+      "上游模型 ID 不能清空；如需改回模型配置 ID，请显式填写。",
     upstreamModelIdDefaultSummary: (ownerModelId: MessageArg) =>
-      `跟随入口模型（${ownerModelId}）`,
+      `跟随模型配置（${ownerModelId}）`,
     upstreamModelIdMissingHistory:
       "该行没有实际上游模型证据；不会用当前配置或逻辑目标模型代填。",
     prefillFromExisting: "从已有终端目标填充",
@@ -1591,7 +1591,7 @@ export const zhCNMessages = {
     cooldownMinutesSeconds: (minutes: MessageArg, seconds: MessageArg) =>
       `${minutes} 分 ${seconds} 秒`,
     cooldownSeconds: (seconds: MessageArg) => `${seconds} 秒`,
-    copyModelIdAria: (modelId: MessageArg) => `复制入口模型 ID ${modelId}`,
+    copyModelIdAria: (modelId: MessageArg) => `复制模型配置 ID ${modelId}`,
     costOverview: "成本概览",
     createNew: "新建端点",
     created: "创建时间",
@@ -1630,7 +1630,7 @@ export const zhCNMessages = {
     edit: "编辑",
     editable: "可编辑",
     editConnection: "编辑终端目标",
-    editModel: "编辑入口模型",
+    editModel: "编辑模型配置",
     enabled: "已启用",
     endpointApiKey: "API 密钥",
     endpointApiKeyPlaceholder: "sk-...",
@@ -1664,13 +1664,13 @@ export const zhCNMessages = {
     maxInFlightNonStream: "最大并发（非流式）",
     maxInFlightStream: "最大并发（流式）",
     modelConfigurationAndConnectionRouting:
-      "为此入口模型选择失败重试与目标轮换方式。",
-    modelIdLabel: "入口模型 ID",
+      "为此模型配置选择失败重试与目标轮换方式。",
+    modelIdLabel: "模型配置 ID",
     modelRoutingAccessTargetsAndTerminalTargets:
-      "入口模型路由覆盖分组后的访问目标、同家族模型目标，以及模型私有终端目标。",
+      "模型配置路由覆盖分组后的访问目标、同家族模型目标，以及模型私有终端目标。",
     modelSettingsDescription:
-      "更新入口模型、路由默认值，以及它到达终端目标时使用的策略。修改入口模型 ID 不会改写已有终端目标的上游模型 ID。",
-    modelSettingsTitle: "入口模型设置",
+      "更新模型配置、路由默认值，以及它到达终端目标时使用的策略。修改模型配置 ID 不会改写已有终端目标的上游模型 ID。",
+    modelSettingsTitle: "模型配置设置",
     noConnectionsConfigured: "还没有配置终端目标",
     noConnectionsMatchFilter: "没有终端目标匹配你的筛选条件",
     noCustomHeadersConfigured: "尚未配置自定义请求头。",
@@ -2086,7 +2086,12 @@ export const zhCNMessages = {
     noModelsMatchFilters: "当前视图没有匹配的模型配置",
     tryDifferentFilters: "请调整搜索或筛选条件后重试。",
     noModelTargetsConfigured: "还没有仅模型目标",
-    addModelTargetFromEntry: "在入口模型的目标列表中添加模型目标后，它会出现在这里。",
+    createModelTargetOnlyDescription:
+      "新建或编辑模型配置并关闭“允许客户端直接请求”后，它会出现在这里，并可供其他模型配置引用。",
+    noEntryModelsConfigured: "还没有配置入口模型",
+    createFirstEntryModel: "先新建或编辑模型配置，并允许客户端直接请求。",
+    noModelConfigsConfigured: "还没有模型配置",
+    createFirstModelConfig: "创建第一个模型配置以开始使用。",
 
     // 五张可点击 KPI 卡，点击即写入下方筛选。
     kpiTotal: "入口模型总数",
@@ -2137,16 +2142,18 @@ export const zhCNMessages = {
     exitUpstreamOnly: "仅上游",
     exitUpstreamOnlyReason: (entry: MessageArg, upstream: MessageArg) =>
       `上游模型 ID「${upstream}」与入口模型 ID「${entry}」精确比较不一致（区分大小写）。`,
+    exitUpstreamOnlyNonEntryReason: (model: MessageArg, upstream: MessageArg) =>
+      `模型配置「${model}」不可由客户端直接请求，因此上游模型 ID「${upstream}」仅作为上游身份。`,
     exitNotParticipating: "未参与",
     exitNotParticipatingReason: "该目标未启用，不参与路由。",
     exitUpstreamMissingReason:
-      "该终端目标没有可读的上游模型 ID 证据；不会用入口模型 ID 代填。",
+      "该终端目标没有可读的上游模型 ID 证据；不会用模型配置 ID 代填。",
     exitEndpointMissingReason:
       "该终端目标行没有端点引用，因此无法显示端点。",
     exitModelTargetReason: (id: MessageArg) =>
       `模型目标 ${id}：逻辑目标；实际供应商出口由它解析到的终端目标持有。`,
     exitModelTargetMissing:
-      "该模型目标行没有可读的逻辑目标标识；不会用入口模型 ID 代填。",
+      "该模型目标行没有可读的逻辑目标标识；不会用模型配置 ID 代填。",
 
     // 路由策略列。
     strategyMissing: "未绑定策略",
@@ -2538,12 +2545,12 @@ export const zhCNMessages = {
     terminalStateBanned: "冷却/封禁中",
     terminalStateRetryWait: "重试等待中",
     terminalStateAvailable: "当前无冷却限制",
-    createModelTitle: "新建入口模型",
+    createModelTitle: "新建模型配置",
     createModelDescription:
-      "一次提交创建入口模型与第一个终端目标（可选择现有端点或内联新建）。",
+      "一次提交创建模型配置与第一个终端目标（可选择现有端点或内联新建）。",
     configureLaterLabel: "稍后配置",
     configureLaterDescription:
-      "暂不创建首个终端目标；入口模型会以停用状态保存，稍后可在详情页配置。",
+      "暂不创建首个终端目标；模型配置会以停用状态保存，稍后可在详情页配置。",
     initialTargetTitle: "首个终端目标",
     initialTargetUseExisting: "选择现有端点",
     initialTargetCreateInline: "内联新建端点",
@@ -2556,20 +2563,20 @@ export const zhCNMessages = {
     targetNameLabel: "终端目标名称",
     initialTargetUpstreamModelIdLabel: "上游模型 ID",
     initialTargetUpstreamModelIdHint: (modelId: MessageArg) =>
-      `已预填入口模型 ID（${modelId}）；如供应商要求不同标识，请填写其精确模型 ID。`,
+      `已预填模型配置 ID（${modelId}）；如供应商要求不同标识，请填写其精确模型 ID。`,
     initialTargetUpstreamModelIdPlaceholder: "例如：provider/model-a",
     copyUpstreamModelNote:
       "副本会保留源终端目标的上游模型 ID；副本创建后可单独修改。",
     terminalUpstreamModelId: "上游模型 ID",
     terminalUpstreamModelIdShort: "上游模型 ·",
-    modelIdRequired: "入口模型 ID 必填",
+    modelIdRequired: "模型配置 ID 必填",
     selectLoadbalanceStrategy: "请选择路由策略",
     initialTargetEndpointRequired: "请选择端点或内联新建",
     initialTargetInlineEndpointRequired: "内联端点需要名称与 Base URL",
     submitCreateModel: "创建模型",
     submitConfigureLater: "创建为停用",
     apiFamilyLabel: "API 家族",
-    modelIdLabel: "入口模型 ID",
+    modelIdLabel: "模型配置 ID",
     displayNameLabel: "显示名称",
     openaiAcceptedFormatLabel: "OpenAI 接受格式",
     loadbalanceStrategyLabel: "路由策略",
@@ -2577,14 +2584,14 @@ export const zhCNMessages = {
       "未找到默认的 fill-first 策略；请显式选择一个策略，或先创建默认策略。",
     configureLater: "稍后配置",
     configureLaterSavedAsDisabled:
-      "将创建为停用模型；保存后可在模型详情中添加终端目标并启用。",
+      "将创建为停用模型配置；保存后可在模型配置详情中添加终端目标并启用。",
     createAndEnable: "创建并启用",
     createDisabledModel: "创建为停用",
     selectStrategyRequired: "请选择路由策略",
     existingEndpoint: "选择已有端点",
     initialTerminalTarget: "首个终端目标",
     initialTerminalTargetDescription:
-      "模型与首个终端目标将在一次原子提交中一起创建；任一步失败都不会留下半成品。",
+      "模型配置与首个终端目标将在一次原子提交中一起创建；任一步失败都不会留下半成品。",
     removeHeader: "删除请求头",
     accessTargets: "访问目标",
     accessTargetsDescription:
@@ -2615,7 +2622,7 @@ export const zhCNMessages = {
       `${apiFamily} 家族不使用 OpenAI 能力矩阵，因此这一列不适用。`,
     targetCapabilityUnknown: "该终端目标没有声明任何 OpenAI 文本或图像能力。",
     targetConnectionOutOfScope:
-      "该终端目标不在本模型的同族可选集合内，无法读取它的配置。",
+      "该终端目标不在本模型配置的同族可选集合内，无法读取它的配置。",
     targetMoreActions: (name: MessageArg) => `目标 ${name} 的更多操作`,
     targetDragHandle: (name: MessageArg) => `拖动以调整目标 ${name} 的顺序`,
     targetOrderPending: (count: MessageArg) =>
@@ -2631,29 +2638,29 @@ export const zhCNMessages = {
     modelFallbackTargets: "模型目标",
     connectionTarget: "终端目标",
     currentApiFamily: (apiFamily: MessageArg) => `当前 API 家族：${apiFamily}`,
-    deleteModel: "删除入口模型",
+    deleteModel: "删除模型配置",
     deleteModelDescription: (name: MessageArg) =>
-      `确定要删除入口模型“${name}”吗？这也会移除其拥有的终端目标。端点仍可复用。`,
+      `确定要删除模型配置“${name}”吗？这也会移除其拥有的终端目标。端点仍可复用。`,
     displayNameOptional: "显示名称",
-    editModel: "编辑入口模型",
+    editModel: "编辑模型配置",
     editModelEnabledDescription:
-      "当模型详情中已经有已启用的访问目标时，可启用此入口模型。",
+      "当模型详情中已经有已启用的访问目标时，可启用此模型配置。",
     enableAccessTarget: (value: MessageArg) => `启用访问目标 ${value}`,
-    modelId: "入口模型 ID",
+    modelId: "模型配置 ID",
     modelIdPlaceholder: "例如：gpt-4o",
     modelTarget: "模型目标",
     needsTarget: "需要目标",
     newConnection: "新建终端目标",
     newModelDescription:
-      "定义入口模型、路由默认值，以及它将用来抵达终端目标的策略。",
+      "定义模型配置、路由默认值，以及它将用来抵达终端目标的策略。",
     newModelEnabledDescription:
-      "新模型默认以禁用状态创建，稍后可从模型详情附加目标后再启用运行时流量。",
+      "新模型配置默认以禁用状态创建，稍后可从模型配置详情附加目标后再启用运行时流量。",
     noAccessTargetsSelected:
       "尚未选择模型目标。现在可以先以禁用状态保存，或在启用前向某个目标层添加同家族模型目标。",
-    noModelsMatchSearch: "没有匹配的入口模型",
-    noModelsConfigured: "还没有配置入口模型",
+    noModelsMatchSearch: "没有匹配的模型配置",
+    noModelsConfigured: "还没有模型配置",
     noSameFamilyModelsAvailable:
-      "没有其他可用的同家族模型。现在可以先以禁用状态保存，稍后在启用前再添加模型目标。",
+      "没有其他可用的同家族模型配置。现在可以先以禁用状态保存，稍后在启用前再添加模型目标。",
     noTerminalTargetsSelected: "还没有附加终端目标。请在此处添加终端目标。",
     openaiAcceptedFormat: "OpenAI 接受格式",
     openaiAcceptedFormatChatCompletionsOnly: "仅 Chat Completions",
@@ -2668,7 +2675,7 @@ export const zhCNMessages = {
     optionalFriendlyName: "可选的友好名称",
     position: (value: MessageArg) => `位置 ${value}`,
     priority: (value: MessageArg) => `位置 ${value}`,
-    routingTypeDescription: "选择此入口模型在目标之间失败重试与轮换的方式。",
+    routingTypeDescription: "选择此模型配置在目标之间失败重试与轮换的方式。",
     save: "保存",
     selectSameFamilyModel: "选择目标模型",
     strategyNotConfigured: "未配置策略",
@@ -2677,8 +2684,8 @@ export const zhCNMessages = {
     targetMoveUp: (id: MessageArg) => `将目标 ${id} 上移`,
     targetRemove: (id: MessageArg) => `移除目标 ${id}`,
     viewModelDetails: (name: MessageArg) => `查看模型配置 ${name} 的详情`,
-    tryDifferentModelNameOrId: "请尝试不同的入口模型名称或入口模型 ID",
-    createFirstModel: "创建你的第一个入口模型以开始使用",
+    tryDifferentModelNameOrId: "请尝试不同的模型配置名称或模型配置 ID",
+    createFirstModel: "创建你的第一个模型配置以开始使用",
     activeConnections: (active: MessageArg, total: MessageArg) =>
       `${active}/${total} 活跃`,
     successLabel: "成功率",
@@ -2690,21 +2697,21 @@ export const zhCNMessages = {
     modelCount: (count: MessageArg) => `${count} 个模型`,
   },
   modelsData: {
-    created: "入口模型已创建",
-    deleted: "入口模型已删除",
-    deleteFailed: "删除入口模型失败",
+    created: "模型配置已创建",
+    deleted: "模型配置已删除",
+    deleteFailed: "删除模型配置失败",
     fetchFailed: "获取数据失败",
     openaiAcceptedFormatInvalid:
       "OpenAI 接受格式必须是仅 Responses、仅 Chat Completions 或双原生。",
     openaiImageOperationsInvalid:
       "OpenAI 图片能力必须是仅生图、仅改图或生图 + 改图。",
     openaiCapabilityRequired: "OpenAI 模型至少需要选择一项文本格式或图片能力。",
-    modelIdRequired: "入口模型 ID 为必填项。",
-    saveFailed: "保存入口模型失败",
+    modelIdRequired: "模型配置 ID 为必填项。",
+    saveFailed: "保存模型配置失败",
     selectApiFamily: "请选择 API 家族",
     selectLoadbalanceStrategy: "请为启用的模型选择路由策略",
     selectVendor: "请选择供应商",
-    updated: "入口模型已更新",
+    updated: "模型配置已更新",
   },
   pricing: {
     connectionMissingTemplateBadge: "缺模板",

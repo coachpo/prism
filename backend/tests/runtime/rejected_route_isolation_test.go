@@ -2,6 +2,7 @@ package runtimetest
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"sync/atomic"
 	"testing"
@@ -60,6 +61,9 @@ func TestRejectedRouteIsolation_StaysOutsideTransportAdmissionSideEffectsAndPers
 		EndpointBaseURL: harness.upstream.baseURL("/rejected/gemini"),
 		EndpointAPIKey:  "rejected-gemini-key",
 	})
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE model_configs SET direct_request_enabled = FALSE WHERE profile_id = $1 AND model_id = $2`, profileID, openAIRoute.TargetModelID); err != nil {
+		t.Fatalf("mark rejected-route child non-direct: %v", err)
+	}
 	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
 	assertRuntimeRejectedRouteNoAdmissionState(t, harness, profileID, openAIRoute.ConnectionID, anthropicRoute.ConnectionID, geminiRoute.ConnectionID)
 	baseline := loadRuntimeRejectedRoutePersistenceCounts(t, harness.conn, profileID)
@@ -87,6 +91,17 @@ func TestRejectedRouteIsolation_StaysOutsideTransportAdmissionSideEffectsAndPers
 			wantStatus: http.StatusMethodNotAllowed,
 			wantDetail: "Method not allowed for runtime operation",
 			wantAllow:  http.MethodGet,
+		},
+		{
+			name:   "supported operation with non-entry model",
+			method: http.MethodPost,
+			path:   "/v1/chat/completions",
+			body: map[string]any{
+				"model":    openAIRoute.TargetModelID,
+				"messages": []map[string]any{},
+			},
+			wantStatus: http.StatusNotFound,
+			wantDetail: fmt.Sprintf("Model '%s' not configured or disabled", openAIRoute.TargetModelID),
 		},
 		{
 			name:   "unsupported Anthropic route",

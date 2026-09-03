@@ -19,10 +19,10 @@ The runbook is bound to the reviewed SQL payload:
 SQL SHA-256: d4afecb631dc70fa974d96cf0a877958ee3187c64675092260c6729b0fd396d0
 ```
 
-The canonical disposable acceptance runner is
-`artifacts/plans/direct-request-entry-reclassification-test.py`. It refuses to
-start PostgreSQL unless this runbook, the SQL, and the runner are all visible to
-`git ls-files`, the SQL hash matches the value above, and `STATUS.md` describes
+The canonical disposable acceptance test is
+`backend/tests/integration/direct_request_entry_reclassification_plan_test.go`.
+It requires this runbook, the SQL, and the Go test to be visible to
+`git ls-files`, verifies the SQL hash above, and requires `STATUS.md` to describe
 the bundle as shipped rather than ignored or unshipped.
 
 ## Accepted identity set
@@ -60,8 +60,8 @@ non-entry spelling as `target_model_config_id`:
 ```text
 deepseek-v4-flash --Model Target--> DeepSeek-V4-Flash
 deepseek-v4-flash --Model Target--> deepseek/deepseek-v4-flash-0731
-deepseek-v4-pro   --Model Target--> deepseek/deepseek-v4-pro
-glm-5.3-flash     --Model Target--> z-ai/glm-5.3-flash
+deepseek-v4-pro --Model Target--> deepseek/deepseek-v4-pro
+glm-5.3-flash --Model Target--> z-ai/glm-5.3-flash
 ```
 
 The four right-hand IDs become `direct_request_enabled=false`. Existing edges
@@ -163,17 +163,21 @@ the verified backup/restore procedure; do not improvise another SQL repair.
 
 ## Disposable acceptance runner
 
-The canonical runner exercises this SQL without reading the home-LAN database
-or opening port 8088. It starts an unexposed disposable
-`postgres:16-alpine` container, verifies preview, existing-edge and missing-edge
-success, verifies a second apply is a true no-op, and proves every precondition,
-inventory, compatibility, edge-state, position, cycle, and DeepSeek-identity
-failure leaves both business rows and generation rows unchanged:
+The canonical Go test executes these exact SQL bytes through `psql` against the
+integration suite's shared disposable PostgreSQL and real migrated template. It
+uses `psql` inside the harness container by default, falling back to the host
+client only for an explicitly external harness without a container name. It
+never reads the home-LAN database or opens port 8088. Its 19 table-driven
+scenarios verify source binding plus preview, existing-edge and missing-edge
+success, a true second-apply no-op, and every precondition, inventory,
+compatibility, edge-state, position, cycle, and DeepSeek-identity failure with
+byte-equivalent business and generation snapshots:
 
 ```bash
-python3 -B artifacts/plans/direct-request-entry-reclassification-test.py
+cd backend
+go test -timeout 30m ./tests/integration \
+  -run '^TestDirectRequestEntryReclassificationPlan$' -count=1
 ```
 
-When `CLOSED_LOOP_EVIDENCE_DIR` is set, the runner writes the concise
-`c7-summary.json` evidence file there. The runner is local acceptance support,
-not a production migration command.
+The Steward case runner retains the command's stdout as acceptance evidence.
+This Go test is acceptance support, not a production migration command.

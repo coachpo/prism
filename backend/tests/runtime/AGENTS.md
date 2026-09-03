@@ -16,8 +16,8 @@ runtime/
 ├── runtime_http_assertions.go          # HTTP, concurrency, and runtime-state assertions
 ├── proxy_key_record.go                 # Shared proxy-key record helper used by attribution tests
 ├── testdata/                           # Runtime fixtures
-├── operation_route_matrix_test.go      # Supported method/path matrix and operation names
-├── rejected_route_isolation_test.go    # Unsupported/wrong-method isolation before side effects
+├── operation_route_matrix_test.go      # Supported operation matrix, direct-entry rejection, and recursive routing
+├── rejected_route_isolation_test.go    # Unsupported/wrong-method/non-entry isolation before side effects
 ├── request_logs_list_detail_filter_contract_test.go # Request-log list, detail, and filter contracts
 ├── request_logs_runtime_attribution_identity_failover_contract_test.go # Runtime attribution, identity, and failover-row contracts
 ├── request_logs_pricing_unpriced_tier_contract_test.go # Pricing, unpriced, and tier-evidence contracts
@@ -36,7 +36,6 @@ runtime/
 ├── runtime_telemetry_outbox_test.go    # Durable telemetry outbox behavior
 ├── telemetry_outbox_poison_test.go     # Poison-row classification, quarantine, and backoff
 ├── proxy_key_attribution_failure_test.go # Proxy-key attribution derivation and ingestion-failure behavior
-├── direct_request_entry_runtime_test.go # Non-entry ingress isolation and recursive parent routing
 └── *_test.go                           # Focused runtime regressions
 ```
 
@@ -48,8 +47,8 @@ runtime/
 - Runtime operation request bodies: `runtime_operation_request_body_test.go`
 - Upstream test server plumbing: `runtime_upstream_fakes.go`
 - HTTP, concurrency, and state assertions: `runtime_http_assertions.go`
-- Operation route matrix and OpenAI native-compatibility coverage: `operation_route_matrix_test.go`, `operation_route_matrix_openai_compatibility_test.go`
-- Rejected-route isolation before body reads, provider transport, telemetry, audit, feedback, or side effects: `rejected_route_isolation_test.go`
+- Operation route matrix, direct-entry rejection, recursive non-entry Model Targets, and OpenAI native compatibility: `operation_route_matrix_test.go`, `operation_route_matrix_openai_compatibility_test.go`
+- Rejected-route and representative non-entry isolation before provider transport, telemetry, audit, feedback, or side effects: `rejected_route_isolation_test.go`
 - Request-log list/detail/filter contracts: `request_logs_list_detail_filter_contract_test.go`
 - Runtime attribution, identity, and failover-row contracts: `request_logs_runtime_attribution_identity_failover_contract_test.go`
 - Pricing, unpriced, and tier-evidence contracts: `request_logs_pricing_unpriced_tier_contract_test.go`
@@ -65,7 +64,7 @@ runtime/
 - Runtime recovery and restart persistence: `proxy_recovery_test.go`
 - Runtime-created log partitions and helper parity: `runtime_partitioned_logs_test.go`, `log_partition_helpers_test.go`
 - Cache invalidation and runtime snapshots: `runtime_cache_invalidation_test.go`, `runtime_phase1_snapshot_test.go`
-- Direct-entry lookup versus all-node recursive routing and `/v1/models` filtering: `direct_request_entry_runtime_test.go`
+- Direct-entry cache transitions and `/v1/models` filtering: `runtime_cache_invalidation_test.go`, `openai_models_api_test.go`
 - Streaming and telemetry durability: `runtime_streaming_buffering_test.go`, `runtime_telemetry_outbox_test.go`, `telemetry_outbox_poison_test.go`, `proxy_key_attribution_failure_test.go`
 
 ## CONVENTIONS

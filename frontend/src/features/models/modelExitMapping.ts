@@ -5,11 +5,11 @@ import { getTerminalTarget } from "@/lib/types/target-compatibility"
 /**
  * The models list exit-mapping projection.
  *
- * The list cell answers "where does this entry model exit" from the DIRECT
+ * The list cell answers "where does this model configuration exit" from the DIRECT
  * `access_targets` rows only: Terminal Target rows carry the actual provider
  * exit (endpoint + persisted `upstream_model_id`), Model Target rows are
  * logical edges that resolve further. The projection never follows Model
- * Target rows and never infers an identity from the entry `model_id`.
+ * Target rows and never infers an identity from the owning `model_id`.
  *
  * Ordering is the shared runtime order `(position, id)`; the backend already
  * returns rows sorted this way, but the projection sorts defensively because

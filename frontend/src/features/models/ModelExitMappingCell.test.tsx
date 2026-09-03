@@ -40,7 +40,7 @@ describe("ModelExitMappingCell", () => {
     expect(screen.getByTitle("OpenAI Primary")).toHaveTextContent(
       "OpenAI Primary",
     );
-    // The entry id is never substituted for the upstream identity.
+    // The owning model-config id is never substituted for upstream evidence.
     expect(screen.queryByText(ENTRY_MODEL_ID)).not.toBeInTheDocument();
   });
 
@@ -74,6 +74,20 @@ describe("ModelExitMappingCell", () => {
     );
   });
 
+  it("keeps an exact same-id upstream as upstream-only for a non-entry config", () => {
+    renderCell({
+      ...entryModelListItem([
+        terminalTargetRow(11, 0, { upstreamModelId: ENTRY_MODEL_ID }),
+      ]),
+      direct_request_enabled: false,
+    });
+    expect(screen.queryByText("入口同名")).not.toBeInTheDocument();
+    expect(screen.getByText("仅上游")).toHaveAttribute(
+      "title",
+      `模型配置「${ENTRY_MODEL_ID}」不可由客户端直接请求，因此上游模型 ID「${ENTRY_MODEL_ID}」仅作为上游身份。`,
+    );
+  });
+
   it("shows a Model Target row as the logical target, not an exit", () => {
     renderCell(
       entryModelListItem([
@@ -104,7 +118,7 @@ describe("ModelExitMappingCell", () => {
     // Screen readers get the reason, sighted operators the tooltip.
     expect(
       screen.getByText(
-        "该终端目标没有可读的上游模型 ID 证据；不会用入口模型 ID 代填。",
+        "该终端目标没有可读的上游模型 ID 证据；不会用模型配置 ID 代填。",
       ),
     ).toHaveClass("sr-only");
     expect(

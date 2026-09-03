@@ -12,6 +12,7 @@ integration/
 ├── launcher_startup_contract_test.go       # Root launcher and local bootstrap contract
 ├── migrations_test.go                      # Fresh-install baseline and schema-history guards
 ├── direct_request_enabled_migration_test.go # 000032 fresh/upgrade preservation and default checks
+├── direct_request_entry_reclassification_plan_test.go # Tracked 12+4 operator SQL acceptance
 ├── dockerfile_contract_test.go             # Single-image ownership/path contract
 ├── partitioned_log_retention_test.go       # Partitioned runtime/audit/usage/loadbalance retention
 ├── alerting_outbox_test.go                 # Webhook outbox persistence contract
@@ -22,7 +23,7 @@ integration/
 ## WHERE TO LOOK
 - Startup bootstrap, canonical defaults, and parse-compatible retired fields: `startup_test.go`
 - Launcher-local config, PostgreSQL host port, and preservation behavior: `launcher_startup_contract_test.go`
-- Migration baseline, schema history, normalized dumps, and direct-entry upgrade preservation: `migrations_test.go`, `direct_request_enabled_migration_test.go`, `testdata/migrations/schema.sql`
+- Migration baseline, schema history, normalized dumps, direct-entry upgrade preservation, and disposable 12+4 operator-plan acceptance: `migrations_test.go`, `direct_request_enabled_migration_test.go`, `direct_request_entry_reclassification_plan_test.go`, `testdata/migrations/schema.sql`
 - Container ownership and backend bootstrap path: `dockerfile_contract_test.go`
 - Partitioned log retention and platform store behavior: `partitioned_log_retention_test.go`, `logretention_store_test.go`
 - Alert webhook outbox durability: `alerting_outbox_test.go`

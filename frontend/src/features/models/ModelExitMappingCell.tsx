@@ -10,11 +10,11 @@ import { projectExitMapping } from "./modelExitMapping"
 /**
  * Content of the models-list exit-mapping cell. ModelsTable wraps this in the
  * detail Link, so everything rendered here — including the remainder line —
- * navigates to the entry-model detail.
+ * navigates to the model-config detail.
  *
  * Honesty rules from frontend/DESIGN.md apply per value: a missing endpoint or
  * upstream identity renders `—` with a reason and is never backfilled with the
- * entry `model_id`; decoupling and non-participation are textual states, never
+ * owning `model_id`; identity and non-participation are textual states, never
  * color-only.
  */
 export function ModelExitMappingCell({ model }: { model: ManagedModelConfigListItem }) {
@@ -49,9 +49,10 @@ export function ModelExitMappingCell({ model }: { model: ManagedModelConfigListI
       </span>
       {visible.map((item) => (
         <ExitMappingItemLine
-          entryModelId={model.model_id}
+          directRequestEnabled={model.direct_request_enabled}
           item={item}
           key={item.accessTargetId}
+          ownerModelId={model.model_id}
         />
       ))}
       {remainingCount > 0 ? (
@@ -64,11 +65,13 @@ export function ModelExitMappingCell({ model }: { model: ManagedModelConfigListI
 }
 
 function ExitMappingItemLine({
-  entryModelId,
+  directRequestEnabled,
   item,
+  ownerModelId,
 }: {
-  entryModelId: string
+  directRequestEnabled: boolean
   item: ReturnType<typeof projectExitMapping>["visible"][number]
+  ownerModelId: string
 }) {
   const { messages } = useLocale()
   const copy = messages.modelsPage
@@ -106,7 +109,7 @@ function ExitMappingItemLine({
   }
 
   const { endpointName, upstreamModelId } = item.identity
-  const decoupled = upstreamModelId !== null && upstreamModelId !== entryModelId
+  const entrySame = directRequestEnabled && upstreamModelId === ownerModelId
   return (
     <span className="flex min-w-0 items-center gap-1 text-xs">
       {endpointName ? (
@@ -137,13 +140,15 @@ function ExitMappingItemLine({
       )}
       {upstreamModelId ? (
         <OperatorTypeBadge
-          intent={decoupled ? "accent" : "neutral"}
-          label={decoupled ? copy.exitUpstreamOnly : copy.exitEntrySame}
+          intent={entrySame ? "neutral" : "accent"}
+          label={entrySame ? copy.exitEntrySame : copy.exitUpstreamOnly}
           preserveLabel
           title={
-            decoupled
-              ? copy.exitUpstreamOnlyReason(entryModelId, upstreamModelId)
-              : copy.exitEntrySameReason(entryModelId)
+            entrySame
+              ? copy.exitEntrySameReason(ownerModelId)
+              : directRequestEnabled
+                ? copy.exitUpstreamOnlyReason(ownerModelId, upstreamModelId)
+                : copy.exitUpstreamOnlyNonEntryReason(ownerModelId, upstreamModelId)
           }
         />
       ) : null}

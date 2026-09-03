@@ -801,17 +801,6 @@ func newRequestPlanSnapshot(models ...runtimeModelRecord) *planningSnapshot {
 	return snapshot
 }
 
-func setRequestPlanModelDirectEntry(snapshot *planningSnapshot, modelID string, enabled bool) {
-	model := snapshot.ModelsByID[modelID]
-	model.DirectRequestEnabled = enabled
-	snapshot.ModelsByID[modelID] = model
-	if enabled {
-		snapshot.DirectModelsByID[modelID] = model
-		return
-	}
-	delete(snapshot.DirectModelsByID, modelID)
-}
-
 func addRequestPlanProxyTarget(snapshot *planningSnapshot, proxyModelID string, targetModelID string) {
 	proxyModel := snapshot.ModelsByID[proxyModelID]
 	snapshot.AccessTargetsBySourceModelID[proxyModel.ID] = nil

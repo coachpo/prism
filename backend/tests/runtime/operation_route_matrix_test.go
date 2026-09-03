@@ -14,6 +14,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	runtimeapi "github.com/coachpo/prism/backend/internal/httpapi/runtime"
 )
 
 type runtimeOperationRouteMatrixCase struct {
@@ -300,14 +302,41 @@ func runtimeOperationRouteMatrixCases() []runtimeOperationRouteMatrixCase {
 			responseContains:  "totalTokens",
 		},
 	}
+}
 
+func assertRuntimeOperationRouteMatrixCoverage(t *testing.T, tests []runtimeOperationRouteMatrixCase) {
+	t.Helper()
+	covered := make(map[string]bool, len(tests))
+	for _, test := range tests {
+		covered[test.operationName] = true
+	}
+	for _, operation := range runtimeapi.RuntimeOperationCatalog() {
+		if operation.ModelBindingSource == runtimeapi.RuntimeOperationModelBindingNone {
+			continue
+		}
+		if !covered[operation.Name] {
+			t.Fatalf("model-bound operation %q has no route-matrix scenario", operation.Name)
+		}
+		delete(covered, operation.Name)
+	}
+	if len(covered) != 0 {
+		t.Fatalf("route matrix contains operations outside the runtime registry: %+v", covered)
+	}
+}
+
+func performRuntimeOperationRouteMatrixRequest(t *testing.T, harness *runtimeHarness, test runtimeOperationRouteMatrixCase, route seededRuntimeRoute, ignoredBodyModel string) *http.Response {
+	t.Helper()
+	requestPath := test.requestPath(route)
+	if test.rawRequestBody != nil {
+		rawBody, contentType := test.rawRequestBody(t, route)
+		return performRuntimeRawRequest(t, harness, http.MethodPost, requestPath, rawBody, contentType)
+	}
+	return harness.requestJSON(t, http.MethodPost, requestPath, test.requestBody(route, ignoredBodyModel), nil)
 }
 
 func TestRuntimeTypedPricingOperationMatrix(t *testing.T) {
 	tests := runtimeOperationRouteMatrixCases()
-	if len(tests) != 11 {
-		t.Fatalf("route matrix must cover exactly 11 registered POST operations, got %d", len(tests))
-	}
+	assertRuntimeOperationRouteMatrixCoverage(t, tests)
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -327,20 +356,24 @@ func TestRuntimeTypedPricingOperationMatrix(t *testing.T) {
 				OpenAITextCapability:  routeMatrixOpenAITextCapability(test.operationName),
 				OpenAIImageOperations: routeMatrixOpenAIImageOperations(test.operationName),
 			})
+			if _, err := harness.conn.Exec(context.Background(), `UPDATE model_configs SET direct_request_enabled = FALSE WHERE profile_id = $1 AND model_id = $2`, profileID, route.TargetModelID); err != nil {
+				t.Fatalf("mark route-matrix child %q non-direct: %v", route.TargetModelID, err)
+			}
 			pricingTemplateID := insertRuntimePricingTemplate(t, harness.conn, profileID, "route-matrix-pricing-"+slug+"-"+randomSuffix(), "", "2", "5", "1", "3", "4")
 			advanceRuntimePricingTemplateRevisionWithTier(t, harness.conn, pricingTemplateID)
 			attachRuntimeConnectionPricingTemplate(t, harness, route.ConnectionID, pricingTemplateID)
 			ignoredBodyModel := "route-matrix-body-model-" + slug
 			requestPath := test.requestPath(route)
 
-			var response *http.Response
-			if test.rawRequestBody != nil {
-				rawBody, contentType := test.rawRequestBody(t, route)
-				response = performRuntimeRawRequest(t, harness, http.MethodPost, requestPath, rawBody, contentType)
-			} else {
-				response = harness.requestJSON(t, http.MethodPost, requestPath, test.requestBody(route, ignoredBodyModel), nil)
+			internalRoute := route
+			internalRoute.PublicModelID = route.TargetModelID
+			rejected := performRuntimeOperationRouteMatrixRequest(t, harness, test, internalRoute, ignoredBodyModel)
+			assertStatus(t, rejected, http.StatusNotFound)
+			if got := len(upstream.requestsSnapshot()); got != 0 {
+				t.Fatalf("non-entry %s ingress reached provider transport: %d requests", test.operationName, got)
 			}
 
+			response := performRuntimeOperationRouteMatrixRequest(t, harness, test, route, ignoredBodyModel)
 			assertStatus(t, response, http.StatusOK)
 			responseBody := readResponseBody(t, response)
 			if test.responseContains != "" && !strings.Contains(responseBody, test.responseContains) {

@@ -16,19 +16,22 @@ vi.mock("@/context/ReportingCurrencyContext", () => ({
   useReportingCurrencyContext: () => ({ currencyState: { currency: { symbol: "$" } } }),
 }))
 
-function renderModels(models: ManagedModelConfigListItem[]) {
+function renderModels(
+  models: ManagedModelConfigListItem[],
+  view: ComponentProps<typeof ModelsTable>["view"] = "model_targets",
+) {
   const noop = vi.fn()
   const props: ComponentProps<typeof ModelsTable> = {
     scope: "ingress", filtered: models, hasActiveFilters: false,
     metricsFailed: false, metricsLoading: false,
     modelMetrics24h: {}, modelSpend30dMicros: {}, page: 1,
     selectedIds: new Set(), sortBy: "name", sortOrder: "asc",
-    togglingModelIds: new Set(), view: "model_targets",
+    togglingModelIds: new Set(), view,
     onClearFilters: noop, onCreate: noop, onEdit: noop,
     onPageChange: noop, onPageSizeChange: noop, onSelectionChange: noop,
     onSetEnabled: vi.fn(async () => true),
     onSetManyEnabled: vi.fn(async () => undefined),
-    onShowEntries: noop, onSort: noop, setDeleteTarget: noop,
+    onSort: noop, setDeleteTarget: noop,
   }
   render(
     <LocaleProvider>
@@ -51,6 +54,15 @@ describe("ModelsTable internal-model identity", () => {
 
     const row = within(screen.getByTestId("models-table-row-1"))
     expect(row.getByText(expected)).toBeVisible()
+  })
+
+  it.each([
+    ["entries", "还没有配置入口模型"],
+    ["model_targets", "还没有仅模型目标"],
+    ["all", "还没有模型配置"],
+  ] as const)("keeps the %s empty state distinct", (view, title) => {
+    renderModels([], view)
+    expect(screen.getByText(title)).toBeVisible()
   })
 
 })

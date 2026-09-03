@@ -9,16 +9,16 @@ import {
 } from "./model-detail-catalog-fixtures";
 
 const timestamp = "2026-04-27T12:00:00Z";
-const newModelButton = /New Model|新建模型配置/;
-const newModelDialog = /New Model|新建入口模型/;
-const editModelDialog = /Edit Model|编辑入口模型/;
+const newModelButton = /New Model Config|新建模型配置/;
+const newModelDialog = /New Model Config|新建模型配置/;
+const editModelDialog = /Edit Model Config|编辑模型配置/;
 const cancelButton = /Cancel|取消/;
 const createDefaultsButton = /Create Defaults|创建默认策略/;
-const modelIdLabel = /Entry Model ID|入口模型 ID/;
+const modelIdLabel = /Model Config ID|模型配置 ID/;
 const displayNameLabel = /Display Name|显示名称/;
 const noStrategiesCopy =
   /No loadbalance strategies are available\. Create one on the Loadbalance Strategies page first\.|没有可用的路由策略。请先在路由策略页面创建一个。/;
-const modelCreatedToast = /Model created|模型已创建/;
+const modelCreatedToast = /Model config created|模型配置已创建/;
 const defaultStrategiesCreatedToast =
   /Default loadbalance strategies created|默认路由策略已创建/;
 
@@ -280,7 +280,7 @@ test("create model dialog disables submit when no loadbalance strategies exist",
   await dialog.getByRole("button", { name: cancelButton }).click();
   await page
     .getByRole("button", {
-      name: /Edit Model: Target Alpha|编辑入口模型: Target Alpha/,
+      name: /Edit Model Config: Target Alpha|编辑模型配置: Target Alpha/,
     })
     .click();
 
@@ -422,7 +422,7 @@ test("create model dialog does not apply delayed defaults response to edit dialo
 
   await page
     .getByRole("button", {
-      name: /Edit Model: Edit No Strategy|编辑入口模型: Edit No Strategy/,
+      name: /Edit Model Config: Edit No Strategy|编辑模型配置: Edit No Strategy/,
     })
     .click();
   const editDialog = page.getByRole("dialog", { name: editModelDialog });
@@ -537,7 +537,7 @@ test("create model dialog supports configure-later and a decoupled initial targe
     },
   });
   await page
-    .getByRole("button", { name: "编辑入口模型: Target Alpha" })
+    .getByRole("button", { name: "编辑模型配置: Target Alpha" })
     .click();
   const editDialog = page.getByRole("dialog", { name: editModelDialog });
   await editDialog
@@ -1233,7 +1233,7 @@ test("model target detail entry switches entities over SPA without stale state",
     .click();
   let menu = page.getByRole("menu");
   await expect(
-    menu.getByRole("menuitem", { name: /查看入口模型/ }),
+    menu.getByRole("menuitem", { name: /查看模型配置/ }),
   ).toHaveCount(0);
   await expect(
     menu.getByRole("menuitem", { name: /复制终端目标 Primary Responses/ }),
@@ -1247,7 +1247,7 @@ test("model target detail entry switches entities over SPA without stale state",
   ).toContainText("保留源终端目标的上游模型 ID");
   await copyDialog.getByRole("button", { name: "取消" }).click();
 
-  // The model-target row offers the entry and lands on the canonical detail
+  // The model-target row offers the detail action and lands on the canonical
   // URL of the TARGET config id (17), not this row's or option list's ids.
   await page
     .getByTestId("access-target-162")
@@ -1300,15 +1300,15 @@ test("model detail canonicalizes dead tab and one-shot target actions", async ({
       .getByTestId("access-target-91")
       .getByTitle("上游模型 ID: provider/Responses-Primary"),
   ).toBeVisible();
-  await page.getByRole("button", { name: "编辑入口模型" }).click();
-  const modelSettings = page.getByRole("dialog", { name: "入口模型设置" });
+  await page.getByRole("button", { name: "编辑模型配置" }).click();
+  const modelSettings = page.getByRole("dialog", { name: "模型配置设置" });
   await expect(
     modelSettings.getByText(
-      /修改入口模型 ID 不会改写已有终端目标的上游模型 ID/,
+      /修改模型配置 ID 不会改写已有终端目标的上游模型 ID/,
     ),
   ).toBeVisible();
   await expect(
-    modelSettings.getByRole("textbox", { name: "入口模型 ID" }),
+    modelSettings.getByRole("textbox", { name: "模型配置 ID" }),
   ).toBeVisible();
   await modelSettings.getByRole("button", { name: "取消" }).click();
 
@@ -1350,7 +1350,7 @@ test("model detail canonicalizes dead tab and one-shot target actions", async ({
   await editDialog.getByRole("button", { name: "保存终端目标" }).click();
   await expect(
     editDialog.getByText(
-      "上游模型 ID 不能清空；如需改回入口模型 ID，请显式填写。",
+      "上游模型 ID 不能清空；如需改回模型配置 ID，请显式填写。",
     ),
   ).toBeVisible();
   expect(routes.mutationPaths).toHaveLength(0);
@@ -1501,15 +1501,14 @@ test("entry-model list journey: navigation, scope switch, and identity filters",
     ],
   });
 
-  // The sidebar names the management surface 入口模型, and the breadcrumb
-  // carries the same fixed term under the routing group.
+  // The sidebar and breadcrumb use the managed-inventory term 模型配置.
   await page.goto("/route/models");
   await expect(page.getByTestId("models-feature-page")).toBeVisible();
   await expect(
-    page.getByRole("link", { name: new RegExp("^入口模型$") }),
+    page.getByRole("link", { name: new RegExp("^模型配置$") }),
   ).toHaveAttribute("href", /\/route\/models$/);
   await expect(page.getByTestId("shell-breadcrumb")).toContainText(
-    "路由配置入口模型",
+    "路由配置模型配置",
   );
 
   // Stats scope: a controlled single-select segmented control with the

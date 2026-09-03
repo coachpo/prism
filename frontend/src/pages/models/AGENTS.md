@@ -2,7 +2,7 @@
 
 ## OVERVIEW
 
-`pages/models/` keeps model dialogs, toolbar, form state, metric hydration, and shared-cache helpers still imported by the feature-owned `/models` route under `src/features/models/`. The feature route owns page orchestration and table rendering. The management surface defaults to 入口模型 (direct entry model) and exposes URL-backed 入口模型 / 仅模型目标 / 全部模型配置 views; 模型目标 (Model Target), 最终目标模型 (final target model), and 上游模型 ID (upstream model ID) keep their own distinct terms and are never rewritten to 入口模型.
+`pages/models/` keeps model dialogs, toolbar, form state, metric hydration, and shared-cache helpers still imported by the feature-owned `/models` route under `src/features/models/`. The feature route owns page orchestration and table rendering. The 模型配置 management surface defaults to the 入口模型 (direct entry) view and exposes URL-backed 入口模型 / 仅模型目标 / 全部模型配置 views; 模型目标 (Model Target), 最终目标模型 (final target model), and 上游模型 ID (upstream model ID) keep their own distinct terms.
 
 ## STRUCTURE
 

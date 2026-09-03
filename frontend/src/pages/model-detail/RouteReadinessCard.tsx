@@ -29,7 +29,7 @@ interface RouteReadinessCardProps {
 /**
  * One card for "can this model route, and where does it exit".
  *
- * The summary aggregates only DIRECT facts from this entry model's mixed
+ * The summary aggregates only DIRECT facts from this model config's mixed
  * access-target list: Terminal Target rows carry the actual upstream identity,
  * Model Target rows are logical edges that never contribute identities, and
  * nothing here follows them recursively or repeats the full mapping — the

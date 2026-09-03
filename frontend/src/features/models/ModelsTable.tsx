@@ -84,7 +84,6 @@ type Props = {
   onSelectionChange: (ids: Set<number>) => void
   onSetEnabled: (model: ManagedModelConfigListItem, enabled: boolean) => Promise<boolean>
   onSetManyEnabled: (models: ManagedModelConfigListItem[], enabled: boolean) => Promise<void>
-  onShowEntries: () => void
   onSort: (column: ModelSortColumn, direction: OperationalSortDirection) => void
   page: number
   pageSize?: number
@@ -252,7 +251,6 @@ export function ModelsTable({
   onSelectionChange,
   onSetEnabled,
   onSetManyEnabled,
-  onShowEntries,
   onSort,
   page,
   pageSize,
@@ -317,20 +315,22 @@ export function ModelsTable({
             ? copy.noModelsMatchFilters
             : modelTargetViewEmpty
               ? copy.noModelTargetsConfigured
-              : messages.modelsUi.noModelsConfigured
+              : view === "entries"
+                ? copy.noEntryModelsConfigured
+                : copy.noModelConfigsConfigured
         }
         description={
           hasActiveFilters
             ? copy.tryDifferentFilters
             : modelTargetViewEmpty
-              ? copy.addModelTargetFromEntry
-              : messages.modelsUi.createFirstModel
+              ? copy.createModelTargetOnlyDescription
+              : view === "entries"
+                ? copy.createFirstEntryModel
+                : copy.createFirstModelConfig
         }
         action={
           hasActiveFilters ? (
             <Button variant="outline" onClick={onClearFilters}>{copy.clearFilters}</Button>
-          ) : modelTargetViewEmpty ? (
-            <Button variant="outline" onClick={onShowEntries}>{copy.viewEntries}</Button>
           ) : (
             // Same entry point as the page header: one way to create a model.
             <Button onClick={onCreate}><Plus data-icon="inline-start" />{copy.newModel}</Button>

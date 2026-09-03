@@ -155,13 +155,13 @@ export function buildAccessTargetSummary(
 }
 
 /**
- * Read-only projection of the upstream identities held by this entry model's
+ * Read-only projection of the upstream identities held by this model config's
  * DIRECT Terminal Targets. Model Target rows are logical edges and never
  * contribute identities, and the projection never follows them recursively —
  * the detail summary answers "how many distinct exits", not "the full exit
  * graph".
  *
- * Identity comparison against the entry `model_id` is exact and case-sensitive:
+ * Identity comparison against the owning `model_id` is exact and case-sensitive:
  * provider-facing strings, so `Entry-A` and `entry-a` are different upstream
  * identities. A Terminal Target without a readable identity is unknown
  * evidence — it counts as neither consistent nor decoupled.
@@ -170,7 +170,7 @@ export interface UpstreamIdentitySummary {
   hasDirectTerminalTargets: boolean;
   /** Known identities only: missing/blank upstream values are excluded. */
   distinctUpstreamModelIdCount: number;
-  /** Known identities that differ from the entry `model_id` exactly. */
+  /** Known identities that differ from the owning `model_id` exactly. */
   decoupledUpstreamModelIdCount: number;
   /** Direct Terminal Targets carrying no readable upstream identity. */
   unknownUpstreamModelIdCount: number;

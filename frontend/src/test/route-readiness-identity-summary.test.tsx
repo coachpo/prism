@@ -135,7 +135,7 @@ describe("RouteReadinessCard direct identity summary", () => {
     // no-direct-terminal conclusion — not fabricated zeros, not recursion.
     expect(screen.getByText("无直接终端目标")).toBeInTheDocument();
     expect(screen.getAllByText(
-      "该入口模型没有直接终端目标；上游身份只由终端目标持有，模型目标是逻辑边，不在此推断。",
+      "该模型配置没有直接终端目标；上游身份只由终端目标持有，模型目标是逻辑边，不在此推断。",
     ).length).toBeGreaterThan(0);
   });
 
@@ -143,7 +143,7 @@ describe("RouteReadinessCard direct identity summary", () => {
     renderCard(makeModel([makeTarget(1, "model", null)]));
     expect(screen.getByText("无直接终端目标")).toBeInTheDocument();
     expect(screen.getAllByText(
-      "该入口模型没有直接终端目标；上游身份只由终端目标持有，模型目标是逻辑边，不在此推断。",
+      "该模型配置没有直接终端目标；上游身份只由终端目标持有，模型目标是逻辑边，不在此推断。",
     ).length).toBeGreaterThan(0);
   });
 

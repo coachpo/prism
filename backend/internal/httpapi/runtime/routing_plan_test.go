@@ -21,6 +21,10 @@ func TestCompileRuntimeRoutingPlanBuildsCanonicalLookups(t *testing.T) {
 	snapshot.AccessTargetsBySourceModelID[1] = nil
 	addRequestPlanModelTargetWithMetadata(snapshot, "router-openai", "target-b-openai", 2)
 	addRequestPlanModelTargetWithMetadata(snapshot, "router-openai", "target-a-openai", 1)
+	targetB := snapshot.ModelsByID["target-b-openai"]
+	targetB.DirectRequestEnabled = false
+	snapshot.ModelsByID[targetB.ModelID] = targetB
+	delete(snapshot.DirectModelsByID, targetB.ModelID)
 
 	routingPlan, err := compileRuntimeRoutingPlan(snapshot)
 	if err != nil {
@@ -36,6 +40,12 @@ func TestCompileRuntimeRoutingPlanBuildsCanonicalLookups(t *testing.T) {
 	if _, ok := routingPlan.requestedModelByID("Router-OpenAI"); ok {
 		t.Fatal("expected requested model lookup to remain exact and case-sensitive")
 	}
+	if _, ok := routingPlan.requestedModelByID(targetB.ModelID); ok {
+		t.Fatal("expected non-entry target to be absent from direct lookup")
+	}
+	if _, ok := routingPlan.ModelsByID[targetB.ModelID]; !ok {
+		t.Fatal("expected non-entry target to remain in the recursive graph lookup")
+	}
 	compiledRouter := routingPlan.ModelsByID["router-openai"]
 	if len(compiledRouter.OrderedEnabledTargets) != 2 {
 		t.Fatalf("expected two ordered router targets, got %+v", compiledRouter.OrderedEnabledTargets)
@@ -48,26 +58,6 @@ func TestCompileRuntimeRoutingPlanBuildsCanonicalLookups(t *testing.T) {
 	}
 	if connection, ok := routingPlan.TerminalTargetsByID[1_002]; !ok || connection.ModelConfigID != 2 {
 		t.Fatalf("expected target-b terminal connection in compiled lookup, got connection=%+v ok=%v", connection, ok)
-	}
-}
-
-func TestCompileRuntimeRoutingPlanSeparatesDirectEntriesFromGraphNodes(t *testing.T) {
-	snapshot := newRequestPlanSnapshot(
-		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "entry"},
-		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "internal-target"},
-	)
-	entry := snapshot.ModelsByID["entry"]
-	setRequestPlanModelDirectEntry(snapshot, "internal-target", false)
-	snapshot.DirectModelsByID = map[string]runtimeModelRecord{"entry": entry}
-	routingPlan, err := compileRuntimeRoutingPlan(snapshot)
-	if err != nil {
-		t.Fatalf("compile runtime routing plan: %v", err)
-	}
-	if _, ok := routingPlan.requestedModelByID("internal-target"); ok {
-		t.Fatal("non-entry model must not be directly requestable")
-	}
-	if _, ok := routingPlan.ModelsByID["internal-target"]; !ok {
-		t.Fatal("non-entry model must remain in the recursive graph lookup")
 	}
 }
 

@@ -16,7 +16,7 @@ prism/
 ├── backend/       # Go backend, migrations, Go tests
 ├── frontend/      # React/Vite dashboard, shadcn config, frontend tests
 ├── docs/          # Durable reference docs only
-├── artifacts/     # Ignored local run evidence and scratch plans
+├── artifacts/     # Normally ignored evidence/scratch; tracked direct-entry runbook and SQL
 └── .github/workflows/{ci,docker-images,cleanup}.yml
 ```
 
@@ -56,7 +56,7 @@ prism/
 
 - `start.sh` reads the root `.env`, supports `headless` and `full`, defaults `PRISM_CONFIG_PATH` to repo-local `config.json`, keeps frontend `5173` and PostgreSQL `15432`, and follows the selected bootstrap file's backend port; fresh seeds default that port to `8000`.
 - `start.sh` keeps a local launcher contract by using plaintext bootstrap ownership and the local PostgreSQL DSN, and in `full` mode keeping browser traffic same-origin by unsetting `VITE_API_BASE` and starting Vite with `PRISM_VITE_PROXY_ENABLED=1` plus `PRISM_VITE_PROXY_TARGET` pointed at the effective backend port from the selected bootstrap file.
-- Local scratch plans and execution artifacts live under ignored `artifacts/`; run evidence uses `artifacts/evidence/`.
+- Local scratch plans and execution artifacts normally live under ignored `artifacts/`; run evidence uses `artifacts/evidence/`. The shipped operator exceptions are `artifacts/plans/direct-request-entry-reclassification.md` and `artifacts/plans/direct-request-entry-reclassification.sql`; their tracked acceptance test is `backend/tests/integration/direct_request_entry_reclassification_plan_test.go`.
 - Model detail is the federated management entry for independent models.dev metadata/pricing provenance and pi.dev export-template bindings. The UI shares candidate paging/evidence interaction only; the two backend clients, binding tables, revisions/CAS, migrations, and downstream pricing/render consumers remain separate. `/route/pricing` and `/route/models/export` retain their scenario-specific shortcuts.
 - The root `docker-compose.yml` is the only local/self-hosted bundle. It builds the single-image app, runs PostgreSQL as a separate service, publishes the public Prism HTTP port plus the launcher database port, and persists `prism_postgres_data` plus `prism_config` volumes.
 - The root `Dockerfile` always builds the single app image with the Go backend, backend migrations/version, React static assets, Nginx, and `docker/entrypoint.sh`.
@@ -67,7 +67,7 @@ prism/
 - `usage_request_events.endpoint_label_snapshot` is the retained endpoint label source for usage snapshots, spending, and Top Endpoints while public stats JSON continues to expose `endpoint_label`.
 - Request-log browsing supports `client_rule_id` against caller User-Agent Client Rules only, plus `resolved_target_model_id` for final target filtering.
 - Owner-backed Terminal Targets persist a non-empty `upstream_model_id` independently from the entry and resolved logical model identities; orphan compatibility connections may remain NULL and never enter runtime. Runtime snapshots freeze the value per attempt; request logs expose `upstream_model_id`, finalized usage/chain summaries expose `final_upstream_model_id`, and missing historical evidence remains NULL rather than being inferred.
-- `model_configs.direct_request_enabled` is the sole persisted client-entry qualification (000032, `BOOLEAN NOT NULL DEFAULT TRUE`): generic upgrade keeps existing rows true, updates preserve on omission, and no `entry_only`/`outbound_only`/`both` enum is stored. Runtime keeps all enabled nodes for recursive Model Target routing but direct operation lookup, `/v1/models`, route-witness/setup roots and representatives, Pi export, and proxy-key self-tests use only direct entries. Non-entry nodes remain configurable Model Targets and surface incoming-reference counts plus an explanatory warning when unreferenced; the one-off 12-entry/four-mapping reclassification is an operator-run preview plan, not startup SQL.
+- `model_configs.direct_request_enabled` is the sole persisted client-entry qualification (000032, `BOOLEAN NOT NULL DEFAULT TRUE`): generic upgrade keeps existing rows true, updates preserve on omission, and no `entry_only`/`outbound_only`/`both` enum is stored. Runtime keeps all enabled nodes for recursive Model Target routing but direct operation lookup, `/v1/models`, route-witness/setup roots and representatives, Pi export, and proxy-key self-tests use only direct entries. Non-entry nodes remain configurable Model Targets and surface incoming-reference counts plus an explanatory warning when unreferenced; the tracked one-off 12-entry/four-mapping runbook and SQL are operator-invoked only, never startup work, and the integration suite owns their disposable acceptance contract.
 - Model-owned context routing, overflow-promotion authoring, exact facade routing, and OpenAI sibling-operation translation were hard-deleted. OpenAI text attempts are native-only and use operation-set coverage: the model accepted format and Terminal Target capability may be FULL, PARTIAL, or NONE, with valid differences surfaced as structured warnings and no translation. Invalid enum/nullability remains a management 422; runtime planning uses the stable native-operation errors and ordinary dynamic 503 family. Keep ordinary operation-registered routing, the single mixed peer sequence of Model Target and Terminal Target rows (see `docs/architecture.md`), Ban Policy strategies, per-Terminal-Target routing schedules (recurring weekly windows evaluated per request after Ban filtering; no schedule means no restriction), flat final-target observability, and historical `operation_translation_mode` reads as the live contract.
 - Plaintext bootstrap startup is file-backed. Backend-owned canonical defaults are the source of truth for fresh seeds: `0.0.0.0:8000`, standalone database URL `postgres://prism:prism@localhost:5432/prism?sslmode=disable` unless `DATABASE_URL` is set, CORS `5173`, PostgreSQL pools and admission derived from CPU count via `unit = clamp(GOMAXPROCS, 8, 16)` (management `unit+1`, execution `unit`, telemetry `unit/2`, feedback/cache/jobs `unit/4`, total = lane sum 27–53, admission m2 `unit` / m3 `unit/2`), and side-effect timeout `10s`; the root launcher sets `DATABASE_URL` to local PostgreSQL on host port `15432`. The `runtime.transport` section was removed outright: outbound provider requests carry no connection or timeout limits (the upstream transport sets only `DisableCompression: true` and explicit unlimited `MaxIdleConnsPerHost`), and a leftover `runtime.transport` block fails startup with a readable migration error. Runtime buffering is automatic and internal. Existing valid files are preserved until manual reset by stop, remove or relocate, and restart.
 - Mail config fields are parsed for live `config.json` compatibility only. Mail delivery and transport behavior are removed.
@@ -82,7 +82,7 @@ prism/
 ## WHERE TO LOOK
 
 - Operator-facing launcher, release, and local bundle helpers: `README.md`, `start.sh`, `release.sh`, `docker-compose.yml`, `Dockerfile`, `docker/`, `frontend/.env.example`
-- Local scratch plans and retained execution evidence: `artifacts/plans/`, `artifacts/evidence/`
+- Local scratch plans, retained execution evidence, the tracked direct-entry reclassification runbook/SQL, and its acceptance test: `artifacts/plans/`, `artifacts/evidence/`, `backend/tests/integration/direct_request_entry_reclassification_plan_test.go`
 - Backend/frontend version surfaces: `backend/VERSION`, `frontend/VERSION`, `frontend/package.json`
 - Container contract: `Dockerfile`, `backend/tests/integration/dockerfile_contract_test.go`
 - Runtime operation registry, hook residency, rejection semantics, and `operation_name` persistence: `backend/internal/httpapi/runtime/`, `backend/tests/runtime/`, `docs/architecture.md` (§14 API Reference, §15 Data Model Reference)
@@ -98,7 +98,7 @@ prism/
 - Product, requests-page, and workflow surfaces: `docs/product.md` (§8 Requests Page Specification, §9 Workflows Reference)
 - Backend ownership tree: start at `backend/AGENTS.md` and `backend/internal/AGENTS.md`, then follow the nested `AGENTS.md` files under `backend/internal/{platform,domain,gateway,httpapi}/` and `backend/tests/`. Each router names its own leaves, so enumerate the current set with `find backend -name AGENTS.md` rather than trusting a list here.
 - Frontend ownership tree: start at `frontend/AGENTS.md` and `frontend/src/AGENTS.md`, then follow the nested `AGENTS.md` files under `frontend/src/` and `frontend/tests/`. Enumerate with `find frontend -name AGENTS.md -not -path '*/node_modules/*'`.
-- Docs provenance, scratch-plan handoff, and live evidence routing: `docs/AGENTS.md`, `artifacts/plans/`, `artifacts/evidence/`
+- Docs provenance, scratch-plan handoff, live evidence routing, and the tracked direct-entry operator bundle exception: `docs/AGENTS.md`, `artifacts/plans/`, `artifacts/evidence/`
 
 ## COMMANDS
 

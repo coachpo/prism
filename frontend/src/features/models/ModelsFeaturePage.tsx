@@ -394,7 +394,6 @@ export function ModelsFeaturePage() {
             onSelectionChange={setSelectedIds}
             onSetEnabled={data.setModelEnabled}
             onSetManyEnabled={data.setModelsEnabled}
-            onShowEntries={() => patchSearch({ view: undefined })}
             onSort={(column, direction) =>
               patchSearch({ sort_by: column, sort_order: direction })
             }
