@@ -8,7 +8,7 @@ runbook applies the operator-approved 12/4 classification without turning the
 instance IDs into a generic migration rule.
 
 The executable companion is
-`artifacts/plans/direct-request-entry-reclassification.sql`. It defaults to a
+`scripts/operations/direct-request-entry-reclassification.sql`. It defaults to a
 read-only, serializable preview. Apply mode is impossible unless the operator
 supplies the exact apply, verified-backup, quiesce, and database-name tokens.
 This task does not execute either mode against the home-LAN instance.
@@ -106,7 +106,7 @@ tokens:
 ```bash
 psql "$DATABASE_URL" \
   -v ON_ERROR_STOP=1 \
-  -f artifacts/plans/direct-request-entry-reclassification.sql
+  -f scripts/operations/direct-request-entry-reclassification.sql
 ```
 
 The preview rolls back. It prints all 16 current/desired entry bits, all four
@@ -126,7 +126,7 @@ psql "$DATABASE_URL" \
   -v backup_token=BACKUP_VERIFIED \
   -v quiesce_token=PRISM_STOPPED \
   -v expected_database=prism \
-  -f artifacts/plans/direct-request-entry-reclassification.sql
+  -f scripts/operations/direct-request-entry-reclassification.sql
 ```
 
 The transaction updates only mismatched qualification bits and inserts only

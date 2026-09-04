@@ -16,7 +16,8 @@ prism/
 ├── backend/       # Go backend, migrations, Go tests
 ├── frontend/      # React/Vite dashboard, shadcn config, frontend tests
 ├── docs/          # Durable reference docs only
-├── artifacts/     # Normally ignored evidence/scratch; tracked direct-entry runbook and SQL
+├── scripts/operations/ # Versioned operator scripts, exercised by integration tests
+├── artifacts/     # Ignored evidence and scratch
 └── .github/workflows/{ci,docker-images,cleanup}.yml
 ```
 
@@ -56,7 +57,7 @@ prism/
 
 - `start.sh` reads the root `.env`, supports `headless` and `full`, defaults `PRISM_CONFIG_PATH` to repo-local `config.json`, keeps frontend `5173` and PostgreSQL `15432`, and follows the selected bootstrap file's backend port; fresh seeds default that port to `8000`.
 - `start.sh` keeps a local launcher contract by using plaintext bootstrap ownership and the local PostgreSQL DSN, and in `full` mode keeping browser traffic same-origin by unsetting `VITE_API_BASE` and starting Vite with `PRISM_VITE_PROXY_ENABLED=1` plus `PRISM_VITE_PROXY_TARGET` pointed at the effective backend port from the selected bootstrap file.
-- Local scratch plans and execution artifacts normally live under ignored `artifacts/`; run evidence uses `artifacts/evidence/`. The shipped operator exceptions are `artifacts/plans/direct-request-entry-reclassification.md` and `artifacts/plans/direct-request-entry-reclassification.sql`; their tracked acceptance test is `backend/tests/integration/direct_request_entry_reclassification_plan_test.go`.
+- Local scratch plans and execution artifacts normally live under ignored `artifacts/`; run evidence uses `artifacts/evidence/`. The versioned operator runbook and SQL are `docs/operations/direct-request-entry-reclassification.md` and `scripts/operations/direct-request-entry-reclassification.sql`; their tracked acceptance test is `backend/tests/integration/direct_request_entry_reclassification_plan_test.go`.
 - Model detail is the federated management entry for independent models.dev metadata/pricing provenance and pi.dev export-template bindings. The UI shares candidate paging/evidence interaction only; the two backend clients, binding tables, revisions/CAS, migrations, and downstream pricing/render consumers remain separate. `/route/pricing` and `/route/models/export` retain their scenario-specific shortcuts.
 - The root `docker-compose.yml` is the only local/self-hosted bundle. It builds the single-image app, runs PostgreSQL as a separate service, publishes the public Prism HTTP port plus the launcher database port, and persists `prism_postgres_data` plus `prism_config` volumes.
 - The root `Dockerfile` always builds the single app image with the Go backend, backend migrations/version, React static assets, Nginx, and `docker/entrypoint.sh`.
@@ -82,7 +83,8 @@ prism/
 ## WHERE TO LOOK
 
 - Operator-facing launcher, release, and local bundle helpers: `README.md`, `start.sh`, `release.sh`, `docker-compose.yml`, `Dockerfile`, `docker/`, `frontend/.env.example`
-- Local scratch plans, retained execution evidence, the tracked direct-entry reclassification runbook/SQL, and its acceptance test: `artifacts/plans/`, `artifacts/evidence/`, `backend/tests/integration/direct_request_entry_reclassification_plan_test.go`
+- Local scratch plans and retained execution evidence: `artifacts/plans/`, `artifacts/evidence/`
+- Tracked direct-entry reclassification runbook/SQL and acceptance test: `docs/operations/direct-request-entry-reclassification.md`, `scripts/operations/direct-request-entry-reclassification.sql`, `backend/tests/integration/direct_request_entry_reclassification_plan_test.go`
 - Backend/frontend version surfaces: `backend/VERSION`, `frontend/VERSION`, `frontend/package.json`
 - Container contract: `Dockerfile`, `backend/tests/integration/dockerfile_contract_test.go`
 - Runtime operation registry, hook residency, rejection semantics, and `operation_name` persistence: `backend/internal/httpapi/runtime/`, `backend/tests/runtime/`, `docs/architecture.md` (§14 API Reference, §15 Data Model Reference)
@@ -98,7 +100,7 @@ prism/
 - Product, requests-page, and workflow surfaces: `docs/product.md` (§8 Requests Page Specification, §9 Workflows Reference)
 - Backend ownership tree: start at `backend/AGENTS.md` and `backend/internal/AGENTS.md`, then follow the nested `AGENTS.md` files under `backend/internal/{platform,domain,gateway,httpapi}/` and `backend/tests/`. Each router names its own leaves, so enumerate the current set with `find backend -name AGENTS.md` rather than trusting a list here.
 - Frontend ownership tree: start at `frontend/AGENTS.md` and `frontend/src/AGENTS.md`, then follow the nested `AGENTS.md` files under `frontend/src/` and `frontend/tests/`. Enumerate with `find frontend -name AGENTS.md -not -path '*/node_modules/*'`.
-- Docs provenance, scratch-plan handoff, live evidence routing, and the tracked direct-entry operator bundle exception: `docs/AGENTS.md`, `artifacts/plans/`, `artifacts/evidence/`
+- Docs provenance, operator runbooks, scratch-plan handoff, and live evidence routing: `docs/AGENTS.md`, `docs/operations/`, `scripts/operations/`, `artifacts/plans/`, `artifacts/evidence/`
 
 ## COMMANDS
 

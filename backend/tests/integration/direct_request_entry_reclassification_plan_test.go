@@ -40,7 +40,7 @@ func c7Require(t *testing.T, ok bool, format string, args ...any) {
 func TestDirectRequestEntryReclassificationPlan(t *testing.T) {
 	ctx := t.Context()
 	root := filepath.Clean("../../..")
-	sqlBytes, err := os.ReadFile(filepath.Join(root, "artifacts/plans/direct-request-entry-reclassification.sql"))
+	sqlBytes, err := os.ReadFile(filepath.Join(root, "scripts/operations/direct-request-entry-reclassification.sql"))
 	c7Require(t, err == nil, "read operator SQL: %v", err)
 	harness := newPostgresHarness(t)
 
@@ -97,7 +97,7 @@ func TestDirectRequestEntryReclassificationPlan(t *testing.T) {
 }
 
 func assertC7SourceContract(t *testing.T, root string, sqlBytes []byte) {
-	paths := []string{"artifacts/plans/direct-request-entry-reclassification.md", "artifacts/plans/direct-request-entry-reclassification.sql", "backend/tests/integration/direct_request_entry_reclassification_plan_test.go"}
+	paths := []string{"docs/operations/direct-request-entry-reclassification.md", "scripts/operations/direct-request-entry-reclassification.sql", "backend/tests/integration/direct_request_entry_reclassification_plan_test.go"}
 	for _, path := range paths {
 		c7Require(t, exec.Command("git", "-C", root, "ls-files", "--error-unmatch", "--", path).Run() == nil, "C7 source is not Git-visible: %s", path)
 	}

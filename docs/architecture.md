@@ -6,6 +6,8 @@ Client (5173) → Prism (Management APIs + Proxy Engine → PostgreSQL) → Prov
 
 *Local `./start.sh` keeps frontend `5173` and PostgreSQL `15432` fixed, and follows the selected bootstrap file's backend port. Freshly seeded repo-local bootstrap files use backend port `8000`. Standalone frontend containers commonly expose `3000`.*
 
+Maintained operator SQL lives in root `scripts/operations/`, with companion runbooks in `docs/operations/` and acceptance tests in `backend/tests/integration/`. These scripts run only through explicit operator invocation; startup migrations remain owned by `backend/migrations/`. Local plans and execution evidence stay under ignored `artifacts/`.
+
 ## 2. Component Architecture
 
 ### 2.1 Backend (Go runtime)

@@ -24,6 +24,7 @@ integration/
 - Startup bootstrap, canonical defaults, and parse-compatible retired fields: `startup_test.go`
 - Launcher-local config, PostgreSQL host port, and preservation behavior: `launcher_startup_contract_test.go`
 - Migration baseline, schema history, normalized dumps, direct-entry upgrade preservation, and disposable 12+4 operator-plan acceptance: `migrations_test.go`, `direct_request_enabled_migration_test.go`, `direct_request_entry_reclassification_plan_test.go`, `testdata/migrations/schema.sql`
+- The operator-plan acceptance reads the versioned SQL at `../../../scripts/operations/direct-request-entry-reclassification.sql` and its runbook at `../../../docs/operations/direct-request-entry-reclassification.md`.
 - Container ownership and backend bootstrap path: `dockerfile_contract_test.go`
 - Partitioned log retention and platform store behavior: `partitioned_log_retention_test.go`, `logretention_store_test.go`
 - Alert webhook outbox durability: `alerting_outbox_test.go`

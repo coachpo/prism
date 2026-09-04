@@ -1,7 +1,7 @@
 # DOCS REFERENCE MAP
 
 ## OVERVIEW
-`docs/` holds the canonical documentation set (index, product, architecture, development rules, and size policy) plus this instruction file. Active working plans live outside `docs/` under `../artifacts/plans/`; live execution artifacts belong in `../artifacts/evidence/`; transient run notes never outrank live docs or owning code AGENTS files.
+`docs/` holds the canonical documentation set (index, product, architecture, development rules, and size policy) plus maintained operator runbooks and this instruction file. Active working plans live outside `docs/` under `../artifacts/plans/`; live execution artifacts belong in `../artifacts/evidence/`; transient run notes never outrank live docs or owning code AGENTS files.
 
 ## STRUCTURE
 ```text
@@ -10,6 +10,7 @@ docs/
 ├── README.md                        # Documentation index and authority map
 ├── product.md                       # Product spec; merged requests-page spec and workflows reference
 ├── architecture.md                  # Architecture; merged API reference (§14) and data model reference (§15)
+├── operations/                      # Maintained operator runbooks for scripts/operations
 ├── development-rules.md             # Project-specific implementation rules
 └── source-code-size-and-responsibility-rules.md  # Unified size and responsibility policy
 ```
@@ -20,6 +21,7 @@ docs/
 - `architecture.md` owns the current architecture, components and responsibilities, dependency direction, interfaces, data model, security boundaries, and local run model, including the merged API reference (section 14) and data model reference (section 15).
 - `development-rules.md` owns project- and technology-specific implementation rules; its size-rules block is managed by the `write-project-docs` tooling and must not be hand-edited.
 - `source-code-size-and-responsibility-rules.md` is the standalone unified size policy rendered from the shared asset; keep it byte-identical to the asset rendering.
+- `operations/` owns maintained operator runbooks; executable companions live in `../scripts/operations/` and their acceptance tests in `../backend/tests/integration/`.
 - Active working plans belong in `../artifacts/plans/`, not under `docs/`.
 - Live execution evidence and LLM test-run records belong in `../artifacts/evidence/`, not under `docs/`.
 
@@ -38,6 +40,7 @@ docs/
 - Endpoint label snapshots and request-log filter semantics: `architecture.md` (§14 API Reference, §15 Data Model Reference), `product.md` (§8 Requests Page Specification)
 - Operator workflow map grounded in the mounted route and API surface: `product.md` (§9 Workflows Reference)
 - Active working plans and live execution evidence: `../artifacts/plans/`, `../artifacts/evidence/`
+- Maintained direct-entry operator procedure and executable SQL: `operations/direct-request-entry-reclassification.md`, `../scripts/operations/direct-request-entry-reclassification.sql`
 
 ## CONVENTIONS
 - `docs/architecture.md` §14.2.2A is the single authoritative definition of the routing-schedule planning codes and their wire fields; other sections and `docs/product.md` describe behavior and must not restate the field list.

@@ -14,13 +14,17 @@ Routing page for the Prism documentation set, maintained in English.
 | [development-rules.md](development-rules.md) | Project-specific code style, review, and technical implementation rules; links the shared rules in `CONTRIBUTING.md`. |
 | [source-code-size-and-responsibility-rules.md](source-code-size-and-responsibility-rules.md) | The unified, project-agnostic source size and responsibility policy; a standalone authoritative document. |
 
+## Operator Runbooks
+
+- [Direct-request entry reclassification](operations/direct-request-entry-reclassification.md): the maintained 12-entry/four-mapping operator procedure, with its versioned SQL under `../scripts/operations/` and disposable integration acceptance.
+
 ## How the Pieces Fit
 
 - `CONTRIBUTING.md` is the entry point for development workflow, shared principles, and the Definition of Done.
 - `development-rules.md` is the authority for project- and technology-specific implementation rules.
 - `source-code-size-and-responsibility-rules.md` is the standalone size and responsibility policy; it is linked, not copied.
 - The architecture document carries the merged API reference (section 14) and data model reference (section 15); the product document carries the merged requests-page specification (section 8) and workflows reference (section 9).
-- OpenAI text contract (native operation-set coverage, structured Partial/None warnings, runtime `openai_operation_not_supported`/`openai_no_compatible_terminal_target`/`openai_no_eligible_terminal_target` planning codes, and no Chat/Responses translation) lives in `architecture.md` §2.2B/§15 and `product.md` §4.2/§9; upgrade and backup-before-fix runbooks are kept as local execution records under `../artifacts/plans/` and `../artifacts/evidence/`.
+- OpenAI text contract (native operation-set coverage, structured Partial/None warnings, runtime `openai_operation_not_supported`/`openai_no_compatible_terminal_target`/`openai_no_eligible_terminal_target` planning codes, and no Chat/Responses translation) lives in `architecture.md` §2.2B/§15 and `product.md` §4.2/§9; instance-specific upgrade plans and backup-before-fix execution records are kept under `../artifacts/plans/` and `../artifacts/evidence/`.
 
 ## Instruction Files
 

@@ -9,11 +9,7 @@ build/
 # Local environment
 .env
 config.json
-/artifacts/*
-!/artifacts/plans/
-/artifacts/plans/*
-!/artifacts/plans/direct-request-entry-reclassification.md
-!/artifacts/plans/direct-request-entry-reclassification.sql
+artifacts/
 
 # Virtual environments
 backend/.venv/
