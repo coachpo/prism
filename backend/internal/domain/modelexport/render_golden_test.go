@@ -218,6 +218,37 @@ func TestPiAPIAndGatewayBaseURLMapping(t *testing.T) {
 	}
 }
 
+func TestRenderPiBaseURLPlacementFollowsUniformity(t *testing.T) {
+	facts := fixtureFacts()
+	uniform, err := RenderPi(PiInput{Facts: facts, Selection: []int{3, 9}, BaseURL: "https://prism.example"})
+	if err != nil {
+		t.Fatalf("uniform render: %v", err)
+	}
+	if got := strings.Count(uniform.Content, `"baseUrl"`); got != 1 {
+		t.Fatalf("uniform selection must carry one provider-level baseUrl, got %d: %s", got, uniform.Content)
+	}
+	if !strings.Contains(uniform.Content, `"baseUrl": "https://prism.example/v1"`) {
+		t.Fatalf("provider must carry the shared gateway URL: %s", uniform.Content)
+	}
+
+	mixed, err := RenderPi(PiInput{Facts: facts, Selection: []int{3, 5, 8}, BaseURL: "https://prism.example"})
+	if err != nil {
+		t.Fatalf("mixed render: %v", err)
+	}
+	if got := strings.Count(mixed.Content, `"baseUrl"`); got != 3 {
+		t.Fatalf("mixed families must keep per-model baseUrls, got %d: %s", got, mixed.Content)
+	}
+	warned := false
+	for _, warning := range mixed.Warnings {
+		if warning == WarningMixedBaseURLs {
+			warned = true
+		}
+	}
+	if !warned {
+		t.Fatalf("mixed selection must warn about mixed base URLs: %v", mixed.Warnings)
+	}
+}
+
 func TestRenderUsesPersistedPiTemplateWithoutLiveCandidate(t *testing.T) {
 	facts := fixtureFacts()
 	facts.Models = facts.Models[:1]

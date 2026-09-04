@@ -526,8 +526,11 @@ func TestModelExportSourceAndRenderContracts(t *testing.T) {
 	if providerModels["api"] != "openai-responses" {
 		t.Fatalf("dual_native pins Responses: %+v", providerModels)
 	}
-	if providerModels["baseUrl"] != "https://prism-client.example/v1" || provider["apiKey"] != "proxy-key" {
+	if provider["baseUrl"] != "https://prism-client.example/v1" || provider["apiKey"] != "proxy-key" {
 		t.Fatalf("base URL and credential must come only from final operator input: %+v", provider)
+	}
+	if _, hasModelBaseURL := providerModels["baseUrl"]; hasModelBaseURL {
+		t.Fatalf("a uniform base URL must live only on the provider definition: %+v", providerModels)
 	}
 	if cost, ok := providerModels["cost"].(map[string]any); !ok || cost["input"].(float64) != 3 {
 		t.Fatalf("complete flat price must render: %+v", providerModels["cost"])

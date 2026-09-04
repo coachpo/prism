@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocale } from "@/i18n/useLocale";
+import { copyTextToClipboard } from "@/lib/clipboard";
 import {
   Sheet,
   SheetContent,
@@ -63,14 +64,16 @@ export function ExportResultSheet(props: {
   };
 
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(props.result!.content);
-    setCopiedSha(sha);
+    if (await copyTextToClipboard(props.result!.content)) {
+      setCopiedSha(sha);
+    }
   };
 
   const handleCopyPiProviderFragment = async () => {
     if (!piProvidersFragment) return;
-    await navigator.clipboard.writeText(piProvidersFragment);
-    setCopiedPiFragmentSha(sha);
+    if (await copyTextToClipboard(piProvidersFragment)) {
+      setCopiedPiFragmentSha(sha);
+    }
   };
 
   const handleDownload = () => {

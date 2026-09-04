@@ -412,11 +412,15 @@ describe("ModelExportPage Pi-only", () => {
     await user.type(searchInput, "GPT-X");
     await user.click(screen.getByRole("button", { name: "搜索目录" }));
     await waitFor(() =>
-      expect(searchModelPiCatalog).toHaveBeenCalledWith(3, {
-        model_id_query: "GPT-X",
-        limit: 20,
-        offset: 0,
-      }, expect.any(AbortSignal)),
+      expect(searchModelPiCatalog).toHaveBeenCalledWith(
+        3,
+        {
+          model_id_query: "GPT-X",
+          limit: 20,
+          offset: 0,
+        },
+        expect.any(AbortSignal),
+      ),
     );
     expect(searchInput).not.toHaveAttribute("aria-invalid", "true");
     expect(screen.getByText("目录搜索失败")).toBeVisible();
@@ -435,9 +439,7 @@ describe("ModelExportPage Pi-only", () => {
 
     expect(screen.getByText("已选目录坐标")).toBeVisible();
     expect(
-      within(screen.getByRole("dialog")).getAllByText(
-        "openai/gpt-x",
-      ).length,
+      within(screen.getByRole("dialog")).getAllByText("openai/gpt-x").length,
     ).toBeGreaterThan(0);
     expect(screen.getByText(/跨目录绑定/)).toBeVisible();
     expect(screen.getAllByText(/200000/).length).toBeGreaterThan(0);
@@ -591,9 +593,7 @@ describe("ModelExportPage Pi-only", () => {
 
     const row = await screen.findByTestId("export-row-3");
     expect(within(row).getByText("（绑定身份快照缺失）")).toBeVisible();
-    expect(
-      within(row).getByText(/不能用当前 model_id 代替/),
-    ).toBeVisible();
+    expect(within(row).getByText(/不能用当前 model_id 代替/)).toBeVisible();
   });
 
   it("requires an explicit coordinate choice for identical multi-candidate templates", async () => {
@@ -988,6 +988,49 @@ describe("ExportResultSheet Pi-only", () => {
       screen.getByText(/pi\.dev 来源包含不安全或不受支持的字段/),
     ).toBeVisible();
     unmount();
+  });
+
+  it("falls back to execCommand copy on insecure origins", async () => {
+    // http://LAN-IP origins have no navigator.clipboard at all; the sheet
+    // must still copy through the shared textarea/execCommand fallback.
+    const user = userEvent.setup();
+    Object.defineProperty(navigator, "clipboard", {
+      value: undefined,
+      configurable: true,
+      writable: true,
+    });
+    const execCommand = vi.fn(() => true);
+    Object.defineProperty(document, "execCommand", {
+      value: execCommand,
+      configurable: true,
+      writable: true,
+    });
+    const result: ExportRenderResponse = {
+      target_version: "0.84.3",
+      content: '{"providers":{"home":{"name":"Prism","models":[]}}}\n',
+      content_sha256: "f".repeat(64),
+      file_name: "prism-pi-models.json",
+      mime_type: "application/json;charset=utf-8",
+      model_results: [],
+      source_digest: "a".repeat(64),
+      warnings: [],
+    };
+    render(
+      <LocaleProvider>
+        <TooltipProvider>
+          <ExportResultSheet result={result} onClose={vi.fn()} />
+        </TooltipProvider>
+      </LocaleProvider>,
+    );
+    await user.click(screen.getByRole("button", { name: "复制" }));
+    expect(execCommand).toHaveBeenCalledWith("copy");
+    expect(screen.getByRole("button", { name: "已复制" })).toBeDisabled();
+    delete (document as unknown as Record<string, unknown>).execCommand;
+    Object.defineProperty(navigator, "clipboard", {
+      value: undefined,
+      configurable: true,
+      writable: true,
+    });
   });
 
   it("revokes raw-view Blob URLs when content clears and on unmount", async () => {

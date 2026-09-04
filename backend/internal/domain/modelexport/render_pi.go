@@ -125,6 +125,13 @@ func RenderPi(input PiInput) (*RenderResult, error) {
 		for url := range baseURLs {
 			provider["baseUrl"] = url
 		}
+		// One shared client URL lives on the provider definition only: Pi
+		// models inherit it when they omit baseUrl, so repeating it per
+		// model is redundant noise. Per-model entries are emitted solely
+		// when families disagree and the provider cannot carry a single URL.
+		for _, model := range models {
+			delete(model.(map[string]any), "baseUrl")
+		}
 	} else if len(baseURLs) > 1 {
 		documentWarnings[WarningMixedBaseURLs] = struct{}{}
 	}
