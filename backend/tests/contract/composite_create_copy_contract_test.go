@@ -57,6 +57,12 @@ func TestCompositeModelCreateContract(t *testing.T) {
 		if len(warnings) != 0 {
 			t.Fatalf("expected no warnings for full coverage, got %+v", warnings)
 		}
+		// An empty warning set still has to project as an array on the model
+		// itself: the frontend rejects the whole contract when it is null.
+		if _, ok := model["configuration_warnings"].([]any); !ok {
+			t.Fatalf("expected warning-free model to project a configuration_warnings array, got %+v", model["configuration_warnings"])
+		}
+		modelMutationModel(t, harness, profileID, http.MethodPut, modelPath(jsonInt(t, model["id"])), map[string]any{"direct_request_enabled": true}, http.StatusOK)
 		// secrets must not be echoed in the response (header values stay on the
 		// connection detail for editing, per existing contract)
 		raw := fmt.Sprintf("%+v", payload)

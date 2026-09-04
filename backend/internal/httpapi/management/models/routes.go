@@ -217,7 +217,7 @@ func (s *Service) handleCreateModel(w http.ResponseWriter, r *http.Request) {
 			return modelMutationEnvelope{}, err
 		}
 		detail.IncomingModelTargetCount = incomingCounts[created.ID]
-		detail.ConfigurationWarnings = append([]modelrouting.ConfigurationWarning(nil), warnings...)
+		detail.ConfigurationWarnings = cloneConfigurationWarnings(warnings)
 		envelope := modelMutationEnvelope{
 			Model:                 &detail,
 			ConfigurationWarnings: warnings,
@@ -355,7 +355,7 @@ func (s *Service) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 			return modelMutationEnvelope{}, err
 		}
 		detail.IncomingModelTargetCount = incomingCounts[updated.ID]
-		detail.ConfigurationWarnings = append([]modelrouting.ConfigurationWarning(nil), warnings...)
+		detail.ConfigurationWarnings = cloneConfigurationWarnings(warnings)
 		return modelMutationEnvelope{Model: &detail, ConfigurationWarnings: warnings}, nil
 	})
 	if err != nil {

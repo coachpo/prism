@@ -45,6 +45,14 @@ func directRequestWarnings(record modelRecord, incomingModelTargetCount int) []m
 	)}
 }
 
+// cloneConfigurationWarnings copies warnings into a non-nil slice so the JSON
+// projection always carries an array. Appending to a nil slice keeps it nil
+// when there is nothing to copy, which would serialize as null and break the
+// management contract.
+func cloneConfigurationWarnings(warnings []modelrouting.ConfigurationWarning) []modelrouting.ConfigurationWarning {
+	return append(make([]modelrouting.ConfigurationWarning, 0, len(warnings)), warnings...)
+}
+
 func mergeConfigurationWarnings(primary, extra []modelrouting.ConfigurationWarning) []modelrouting.ConfigurationWarning {
 	if len(primary) == 0 && len(extra) == 0 {
 		return []modelrouting.ConfigurationWarning{}

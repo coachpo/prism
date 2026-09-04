@@ -46,8 +46,13 @@ func modelMutationModel(t *testing.T, harness *contractHarness, profileID int, m
 	if !ok {
 		t.Fatalf("expected model mutation envelope to include model, got %+v", envelope)
 	}
-	if _, ok := envelope["configuration_warnings"]; !ok {
-		t.Fatalf("expected model mutation envelope to include configuration_warnings, got %+v", envelope)
+	if _, ok := envelope["configuration_warnings"].([]any); !ok {
+		t.Fatalf("expected model mutation envelope to include a configuration_warnings array, got %+v", envelope)
+	}
+	// The management model projection must always carry an array here: the
+	// frontend rejects the whole contract when it is null.
+	if _, ok := model["configuration_warnings"].([]any); !ok {
+		t.Fatalf("expected mutated model to include a configuration_warnings array, got %+v", model["configuration_warnings"])
 	}
 	return model
 }
