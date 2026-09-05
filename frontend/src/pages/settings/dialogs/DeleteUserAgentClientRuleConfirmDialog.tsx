@@ -41,7 +41,7 @@ export function DeleteUserAgentClientRuleConfirmDialog({
         }
       }}
     >
-      <DialogContent className="sm:max-w-md" showCloseButton={false}>
+      <DialogContent size="sm" showCloseButton={false}>
         <DialogHeader>
           <DialogTitle>{copy.deleteRuleTitle}</DialogTitle>
           <DialogDescription>

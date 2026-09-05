@@ -521,6 +521,6 @@ describe("ObserveMainChart honest chart states", () => {
       },
     ]);
     expect(screen.getByText("可比 500 / 请求 1,000")).toBeInTheDocument();
-    expect(screen.getByText(/部分覆盖/)).toBeInTheDocument();
+    expect(screen.getByText(/样本不全/)).toBeInTheDocument();
   });
 });

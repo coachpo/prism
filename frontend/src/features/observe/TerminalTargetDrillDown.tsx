@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
+import { Link } from "@tanstack/react-router";
 import { ChevronDown, ChevronRight, RefreshCw } from "lucide-react";
 import { useLocale } from "@/i18n/useLocale";
 import { Button } from "@/components/ui/button";
@@ -203,6 +204,11 @@ export function TerminalTargetDrillDown({ preset }: { preset: ObservePreset }) {
         {endpoints.map((endpoint) => {
           const isOpen = expanded.has(endpoint.id);
           const detail = details.get(endpoint.id);
+          const endpointLabel = endpoint.name ?? endpoint.base_url;
+          // 展开的面板要声明自己是被这个触发器控制的区域，并借端点名做名字：
+          // 否则读屏用户知道「已展开」，却没法从触发器跳到被展开的内容。
+          const panelId = `tt-panel-${endpoint.id}`;
+          const panelLabelId = `tt-panel-label-${endpoint.id}`;
           return (
             <div key={endpoint.id} className="rounded-lg border border-border">
               <button
@@ -210,6 +216,7 @@ export function TerminalTargetDrillDown({ preset }: { preset: ObservePreset }) {
                 className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-inset"
                 onClick={() => toggleEndpoint(endpoint.id)}
                 aria-expanded={isOpen}
+                aria-controls={isOpen ? panelId : undefined}
                 data-testid={`tt-endpoint-${endpoint.id}`}
               >
                 {isOpen ? (
@@ -217,8 +224,8 @@ export function TerminalTargetDrillDown({ preset }: { preset: ObservePreset }) {
                 ) : (
                   <ChevronRight className="size-4 shrink-0" />
                 )}
-                <span className="min-w-0 flex-1 truncate">
-                  {endpoint.name ?? endpoint.base_url}
+                <span id={panelLabelId} className="min-w-0 flex-1 truncate">
+                  {endpointLabel}
                 </span>
                 {detail?.response ? (
                   <EndpointSummary response={detail.response} scope={scope} />
@@ -228,7 +235,12 @@ export function TerminalTargetDrillDown({ preset }: { preset: ObservePreset }) {
                 </span>
               </button>
               {isOpen ? (
-                <div className="border-t border-border px-3 py-2">
+                <div
+                  id={panelId}
+                  role="region"
+                  aria-labelledby={panelLabelId}
+                  className="border-t border-border px-3 py-2"
+                >
                   {!detail || detail.phase === "loading" ? (
                     <p
                       className="text-xs text-muted-foreground"
@@ -254,6 +266,7 @@ export function TerminalTargetDrillDown({ preset }: { preset: ObservePreset }) {
                     </div>
                   ) : detail.response ? (
                     <TerminalTargetTable
+                      endpointLabel={endpointLabel}
                       response={detail.response}
                       scope={scope}
                     />
@@ -312,9 +325,9 @@ function EndpointSummary({
             formatMoneyMicros(
               knownCost,
               currencyState.currency.symbol,
-              currencyState.currency.code,
+              undefined,
               2,
-              6,
+              2,
               locale,
             )
           )}
@@ -331,9 +344,11 @@ function EndpointSummary({
 }
 
 function TerminalTargetTable({
+  endpointLabel,
   response,
   scope,
 }: {
+  endpointLabel: string;
   response: TerminalTargetStatisticsResponse;
   scope: TerminalTargetScope;
 }) {
@@ -359,46 +374,48 @@ function TerminalTargetTable({
       ) : null}
       {/* 这个视图存在的理由就是横向比较；散文式的芯片行让同名字段的横坐标
           相差 200px，比 P95 或成本时只能逐行找标签再在脑中对齐。 */}
-      <div className="overflow-x-auto">
-        <Table aria-label={copy.ttTableLabel}>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{messages.routingHealth.targetColumn}</TableHead>
-              <TableHead className="text-right">
-                {scope === "final_execution"
-                  ? copy.finalRequestsShort
-                  : copy.attemptsShort}
-              </TableHead>
-              <TableHead className="text-right">
-                {copy.httpSuccessShort}
-              </TableHead>
-              <TableHead className="text-right">
-                {copy.httpFailedShort}
-              </TableHead>
-              <TableHead className="text-right">
-                {copy.finalFailedColumn}
-              </TableHead>
-              <TableHead className="text-right">
-                {copy.clientDisconnected}
-              </TableHead>
-              <TableHead className="text-right">
-                {copy.latencyP95Column}
-              </TableHead>
-              <TableHead className="text-right">{copy.cost}</TableHead>
-              <TableHead>{copy.pricingEvidenceColumn}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {response.items.map((item) => (
-              <TerminalTargetRow
-                key={item.connection_id}
-                item={item}
-                scope={scope}
-              />
-            ))}
-          </TableBody>
-        </Table>
-      </div>
+      {/* sticky 表头只对最近的滚动祖先生效：横竖两轴都交给表格自己的容器。 */}
+      <Table
+        aria-label={copy.ttTableLabelFor(endpointLabel)}
+        scrollAreaClassName="max-h-[60vh]"
+      >
+        <TableHeader>
+          <TableRow>
+            <TableHead>{messages.routingHealth.targetColumn}</TableHead>
+            <TableHead className="text-right">
+              {scope === "final_execution"
+                ? copy.finalRequestsShort
+                : copy.attemptsShort}
+            </TableHead>
+            <TableHead className="text-right">
+              {copy.httpSuccessShort}
+            </TableHead>
+            <TableHead className="text-right">
+              {copy.httpFailedShort}
+            </TableHead>
+            <TableHead className="text-right">
+              {copy.finalFailedColumn}
+            </TableHead>
+            <TableHead className="text-right">
+              {copy.clientDisconnected}
+            </TableHead>
+            <TableHead className="text-right">
+              {copy.latencyP95Column}
+            </TableHead>
+            <TableHead className="text-right">{copy.cost}</TableHead>
+            <TableHead>{copy.pricingEvidenceColumn}</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {response.items.map((item) => (
+            <TerminalTargetRow
+              key={item.connection_id}
+              item={item}
+              scope={scope}
+            />
+          ))}
+        </TableBody>
+      </Table>
       {response.total > response.items.length ? (
         <p className="text-xs text-muted-foreground">
           {copy.ttDrillDownMore(response.items.length, response.total)}
@@ -425,6 +442,11 @@ function TerminalTargetRow({
           <span className="min-w-0 truncate font-medium">
             {item.connection_label}
           </span>
+          {/* 活动表的出口列也印这个 #id：两个视图各给半个身份时，
+              操作者没有任何公共字段能把「终端目标 #25」对上「B.ai」。 */}
+          <span className="shrink-0 font-mono text-xs text-muted-foreground">
+            #{item.connection_id}
+          </span>
           {item.ban_event_count > 0 ? (
             <OperatorValueBadge
               label={copy.banEvents(item.ban_event_count)}
@@ -439,6 +461,18 @@ function TerminalTargetRow({
               className="text-[10px]"
             />
           ) : null}
+          {/* 展开的面板里此前一个焦点停靠点都没有，下钻链在这里断掉：
+              每一行给一个到该目标路由健康的链接，键盘也能继续往下走。 */}
+          <Link
+            to="/observe/routing-health"
+            search={{
+              event_terminal_target_id: String(item.connection_id),
+              runtime_terminal_target_id: String(item.connection_id),
+            }}
+            className="inline-flex min-h-7 shrink-0 items-center rounded-md px-1.5 text-xs font-medium text-primary underline-offset-4 hover:underline"
+          >
+            {copy.ttOpenRoutingHealth}
+          </Link>
         </div>
       </TableCell>
       {/* 零值渲染 0：整块消失的徽章把 genuinely zero 画成了 absent。 */}
@@ -487,12 +521,14 @@ function TerminalTargetRow({
         ) : item.known_cost_micros === null ? (
           <OperatorMissingValue reason={copy.noTrustedCostSample} />
         ) : (
+          // 同屏比较用的数字必须同精度：符号已经带了币种，再传 code 会
+          // 把单位写两遍（`$19.18757 USD`）。
           formatMoneyMicros(
             item.known_cost_micros,
             currencyState.currency.symbol,
-            currencyState.currency.code,
+            undefined,
             2,
-            6,
+            2,
             locale,
           )
         )}

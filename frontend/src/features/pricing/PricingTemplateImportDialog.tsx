@@ -111,7 +111,7 @@ export function PricingTemplateImportDialog({
         else onOpenChange(nextOpen);
       }}
     >
-      <DialogContent className="max-h-[90vh] sm:max-w-3xl">
+      <DialogContent size="lg">
         <DialogHeader>
           <DialogTitle>{copy.importTitle}</DialogTitle>
           <DialogDescription>{copy.importDescription}</DialogDescription>

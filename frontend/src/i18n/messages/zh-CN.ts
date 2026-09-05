@@ -892,6 +892,10 @@ export const zhCNMessages = {
       admissionMaxInFlightStream: "流式在途上限",
       admissionMaxInFlightNonStream: "非流式在途上限",
       unknownEvent: "记录了一条路由事件",
+      // 失败类型与准入原因各有自己的具名兜底：拿事件的兜底去填这两个位置，
+      // 会拼出「记录了一条路由事件 使本轮达到 1 次」这种读不通的句子。
+      unknownFailureKind: "未知失败类型",
+      unknownAdmissionReason: "未知准入原因",
       unknownEventCode: "原始事件代码：",
     },
   },
@@ -2356,6 +2360,8 @@ export const zhCNMessages = {
     listStatusAnomalies: (needsTarget: MessageArg, disabled: MessageArg) =>
       `${needsTarget} 缺访问目标 · ${disabled} 已停用`,
     listBasis: "指标 24 小时 · 成本 30 天",
+    strategyFilterChip: (name: MessageArg) => `仅看路由策略：${name}`,
+    strategyFilterClear: (name: MessageArg) => `解除「仅看路由策略：${name}」`,
     filtersToggle: (count: MessageArg) => `筛选（${count}）`,
     filtersToggleEmpty: "筛选",
     spendWindowClipped: (from: MessageArg) => `近 30 天（自 ${from} 起）`,
@@ -3622,6 +3628,10 @@ export const zhCNMessages = {
     chainColumnPricing: "定价状态",
     // 入口链行里同一个模型 ID 曾经渲染四次；完全同名时只留这一个短标记。
     chainSameAsIngress: "与入口同名",
+    // 入口链只能按 created_at 排序（后端 chain_sort_unsupported），不写出来的话
+    // 「其它列点不动」会被读成界面坏了。
+    chainSortBasis:
+      "入口链视图只支持按时间排序；要按首令牌时间、令牌数或已知成本排序，请切换到「尝试」视图。",
     chainToggleAria: (id: MessageArg) => `展开或收起入口请求 ${id} 的尝试链`,
     chainRowActions: "操作",
     chainOpenDetailAria: (id: MessageArg) => `打开入口请求 ${id} 的请求详情`,

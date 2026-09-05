@@ -382,7 +382,8 @@ test.describe("dedicated request-log audit page", () => {
     const counters = await mockPrismRoutes(page, "full");
 
     await page.goto("/observe/requests?view=attempts");
-    const requestLogRow = page.getByTestId("request-logs-table").getByRole("button").filter({ hasText: "GPT-4o mini" });
+    // 行现在带表格语义（role=row），可访问名就是它的可见内容。
+    const requestLogRow = page.getByTestId("request-logs-table").getByRole("row").filter({ hasText: "GPT-4o mini" });
     await requestLogRow.click();
 
     const drawer = page.getByTestId("request-log-detail-sheet");

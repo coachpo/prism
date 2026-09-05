@@ -531,7 +531,7 @@ test.describe("observe page regression", () => {
 
     await expect(page.getByTestId("observe-main-chart")).toBeVisible();
     await expect(page.getByTestId("window-kpi-grid")).toHaveCount(1);
-    await expect(page.getByText(/TTFT P95/).first()).toBeVisible();
+    await expect(page.getByText(/首字耗时 P95/).first()).toBeVisible();
     await expect(page.getByText(/97\.9%/)).toBeVisible();
 
     // The pricing enum never reaches the screen: four Chinese segments instead.

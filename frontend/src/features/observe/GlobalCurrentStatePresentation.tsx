@@ -37,6 +37,7 @@ import {
   OperatorClippedBadge,
   OperatorEmptyState,
   OperatorErrorState,
+  OperatorHelpHint,
   OperatorInsetPanel,
   OperatorSectionCard,
   OperatorStalenessBadge,
@@ -338,19 +339,27 @@ export function GlobalCurrentStatePresentation({
       ) : null}
 
       {showTableShell ? (
-        <div
-          id="runtime-current-state-table"
-          className="overflow-x-auto"
-          aria-busy={fragment.reading}
-        >
-          <Table aria-label={copy.currentStateTitle}>
+        <div id="runtime-current-state-table" aria-busy={fragment.reading}>
+          {/* sticky 表头只对最近的滚动祖先生效：Table 原语内部那层 overflow-x
+              就是包含块，高度上限必须落在同一个容器上，横竖两轴才同源。 */}
+          <Table
+            aria-label={copy.currentStateTitle}
+            scrollAreaClassName="max-h-[calc(100dvh-22rem)]"
+          >
             <TableHeader>
               <TableRow>
                 <TableHead>{copy.modelColumn}</TableHead>
                 <TableHead>{copy.targetColumn}</TableHead>
                 <TableHead>{copy.stateColumn}</TableHead>
+                {/* 一个列头装了两个基准：斜杠两侧各自从哪儿起算要说出来。 */}
                 <TableHead className="text-right">
-                  {copy.attemptsColumn}
+                  <span className="inline-flex items-center gap-1">
+                    {copy.attemptsColumn}
+                    <OperatorHelpHint
+                      label={copy.attemptsColumnHint}
+                      align="end"
+                    />
+                  </span>
                 </TableHead>
                 <TableHead>{copy.nextRetryColumn}</TableHead>
                 <TableHead>{copy.banUntilColumn}</TableHead>

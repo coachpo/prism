@@ -1,5 +1,6 @@
 import { ApiError, api } from "@/lib/api"
 import { SHELL_ROUTE_METADATA } from "@/components/layout/app-layout/useShellNavigation"
+import { getStaticMessages } from "@/i18n/staticMessages"
 import type {
   ModelRouteReadinessEnvelope,
   ProfileRouteReadiness,
@@ -67,14 +68,13 @@ const DEFAULT_SOURCES: SetupReadinessSources = {
   proxyKeys: (generation) => api.settings.auth.proxyKeys.setupReadiness(generation),
 }
 
-const FACT_LABELS: Record<SetupFactId, string> = {
-  endpoints: "端点",
-  pricing: "价格模板",
-  routing: "路由策略",
-  models: "模型",
-  terminal_targets: "终端目标",
-  proxy_keys: "代理密钥 / 访问模式",
-  runtime_self_test: "验证接入",
+/**
+ * 清单标签走 messages：这是非 hook 模块，用共享的 staticMessages 读同一份
+ * 字典。其中「模型配置」不能写成「模型」——这两个词在路由术语里指不同的东西，
+ * 而这一行的链接指向的正是侧栏那个「模型配置」。
+ */
+function factLabel(id: SetupFactId): string {
+  return getStaticMessages().setup.factLabels[id]
 }
 
 const FACT_ROUTE_IDS: Record<Exclude<SetupFactId, "runtime_self_test">, string> = {
@@ -276,7 +276,7 @@ function emptyFact(id: SetupFactId, kind: SetupFact["kind"]): SetupFact {
     result: null,
     fetch_quality: "loading",
     reason_codes: [],
-    label: FACT_LABELS[id],
+    label: factLabel(id),
     href: id === "runtime_self_test" ? null : factHref(id),
     detail: null,
     representative: null,
@@ -336,7 +336,7 @@ function factFromAxis(
     result: quality === "fresh" ? result : null,
     fetch_quality: quality,
     reason_codes: axis?.reason_codes ?? [],
-    label: FACT_LABELS[id],
+    label: factLabel(id),
     href: id === "runtime_self_test" ? null : factHref(id),
     detail,
     representative,

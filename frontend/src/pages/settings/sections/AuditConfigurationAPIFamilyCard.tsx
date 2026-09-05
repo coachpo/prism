@@ -143,7 +143,7 @@ export function AuditConfigurationAPIFamilyCard({
                 auditStorageSummary.freshness === "fresh" ? copy.storageFresh : copy.storagePartial,
               )}
             />
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid min-w-0 gap-3 @xl/main:grid-cols-2 @4xl/main:grid-cols-3">
               <StorageFact label={copy.retainedAuditRows} reason={copy.storageSummaryUnavailable} value={auditStorageSummary.retained_rows} />
               <StorageFact label={copy.logicalHeaderBytes} reason={copy.storageSummaryUnavailable} value={formatBytes(auditStorageSummary.logical_header_bytes)} />
               <StorageFact label={copy.logicalBodyBytes} reason={copy.storageSummaryUnavailable} value={formatBytes(auditStorageSummary.logical_body_bytes)} />

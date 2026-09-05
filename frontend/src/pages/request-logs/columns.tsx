@@ -357,17 +357,22 @@ export function getColumns(): ColumnDef[] {
     },
     {
       key: "terminal_target",
-      label: messages.terminalTarget ?? "Terminal Target",
+      label: messages.terminalTarget,
       width: 180,
       grow: 2,
-      render: (row) => (
-        <span className="block truncate text-xs font-medium">
-          {row.terminal_target_label ??
-            (row.terminal_target_id === null
-              ? "—"
-              : messages.terminalTargetId(row.terminal_target_id))}
-        </span>
-      ),
+      render: (row) => {
+        const label =
+          row.terminal_target_label ??
+          (row.terminal_target_id === null
+            ? null
+            : messages.terminalTargetId(row.terminal_target_id));
+        // 悬停要读得出全值：尾部省略砍掉的正是标识符的区分位。
+        return (
+          <span className="block truncate text-xs font-medium" title={label ?? undefined}>
+            {label ?? "—"}
+          </span>
+        );
+      },
     },
     {
       key: "client",

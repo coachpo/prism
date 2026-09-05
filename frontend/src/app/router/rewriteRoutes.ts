@@ -88,6 +88,12 @@ export const observeSearchSchema = z.object({
     .enum(["auto", "5m", "15m", "1h", "6h", "1d", "1w", "1mo", "1y"])
     .catch("auto"),
   cost_segment_key: searchStringSchema.catch(""),
+  // 终端目标明细的统计口径。它决定表里每个数字算的是哪一类事件，
+  // 属于「这一屏是什么」的一部分，必须能被链接与刷新带走。
+  tt_scope: z
+    .enum(["final_execution", "route_attempt"])
+    .optional()
+    .catch(undefined),
   // Shared event window (Events timeline only; never sent to Current State).
   // Absent values resolve to the 24h default at the data layer; the URL stays
   // clean so unrelated tabs do not gain noisy query params.
@@ -313,6 +319,9 @@ export const modelsListSearchSchema = z.object({
     .optional()
     .catch(undefined),
   status: z.enum(["all", "enabled", "disabled"]).optional().catch(undefined),
+  // 配置链上一环回链到这里用的定位参数：路由策略页的「已绑定模型配置」计数
+  // 点进来就是这一批。非法值折回全部，不把列表打空。
+  strategy_id: z.coerce.number().int().min(1).optional().catch(undefined),
   // Identity filters: upstream_decoupled matches entry models whose direct
   // Terminal Targets hold a persisted upstream identity differing from the
   // entry model_id (case-sensitive); has_model_target matches entries with at
@@ -353,6 +362,7 @@ export const MODELS_LIST_FALLBACK_SEARCH_KEYS = [
   "scope",
   "api_family",
   "status",
+  "strategy_id",
   "flag",
   "sort_by",
   "sort_order",

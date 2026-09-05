@@ -84,7 +84,7 @@ export function CatalogPricingDialog({
       onOpenChange={(open) => !open && !committing && onClose()}
     >
       <DialogContent
-        className="max-w-2xl"
+        size="lg"
         data-testid="catalog-pricing-dialog"
         onEscapeKeyDown={(event) => committing && event.preventDefault()}
         onPointerDownOutside={(event) => committing && event.preventDefault()}

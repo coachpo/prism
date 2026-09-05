@@ -115,24 +115,34 @@ export function GlobalCurrentStateRow({
       </TableCell>
       <TableCell className="text-right">
         {disabledReason ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span tabIndex={0}>
+          // 「为什么不能重置」是这一页唯一需要解释的状态。原来的写法把它挂在
+          // 只有打开时才挂载的 TooltipContent 上，而 disabled 按钮又不可聚焦，
+          // 于是这条解释对键盘和读屏完全不存在，外面那层无名 span 还多出一个
+          // 停靠点。改成 aria-disabled（可聚焦、无动作），理由常驻在 sr-only
+          // 节点上，aria-describedby 永远指向真实存在的元素。
+          <>
+            <Tooltip>
+              <TooltipTrigger asChild>
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
-                  disabled
+                  aria-disabled="true"
                   aria-describedby={`reset-reason-${item.terminal_target.id}`}
+                  className="aria-disabled:opacity-50"
                 >
                   {copy.resetCooldown}
                 </Button>
-              </span>
-            </TooltipTrigger>
-            <TooltipContent id={`reset-reason-${item.terminal_target.id}`}>
+              </TooltipTrigger>
+              <TooltipContent>{disabledReason}</TooltipContent>
+            </Tooltip>
+            <span
+              id={`reset-reason-${item.terminal_target.id}`}
+              className="sr-only"
+            >
               {disabledReason}
-            </TooltipContent>
-          </Tooltip>
+            </span>
+          </>
         ) : (
           <Button
             type="button"

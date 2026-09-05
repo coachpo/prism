@@ -22,6 +22,7 @@ import { cn, truncateIdentifier } from "@/lib/utils";
 import {
 	OperatorClippedBadge,
 	OperatorEmptyState,
+	OperatorHelpHint,
 	OperatorMissingValue,
 	OperatorStatusBadge,
 	OperatorTypeBadge,
@@ -159,12 +160,20 @@ export function IngressChainsTable({
 				message={showPendingRows ? tableCopy.loadingTargetPage : null}
 			/>
 			<div className="flex items-center justify-between gap-2 border-b border-border bg-inset px-[var(--density-card-pad-x)] py-2 text-xs">
-				<h2
-					id={headingId}
-					className="text-xs font-medium text-foreground"
-				>
-					{copy.viewIngressChains}
-				</h2>
+				<div className="flex items-center gap-1">
+					<h2
+						id={headingId}
+						className="text-xs font-medium text-foreground"
+					>
+						{copy.viewIngressChains}
+					</h2>
+					{/* 只有时间一列可排是后端的口径限制，不写出来的话
+					    「其它列点不动」看起来像坏了。 */}
+					<OperatorHelpHint
+						label={copy.chainSortBasis}
+						className="size-6"
+					/>
+				</div>
 				<span
 					className="text-muted-foreground"
 					data-testid="chain-page-counts"

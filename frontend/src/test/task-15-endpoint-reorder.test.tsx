@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event"
 import { http, HttpResponse } from "msw"
 import { beforeEach, describe, expect, it } from "vitest"
 import { EndpointsFeaturePage } from "@/features/endpoints/EndpointsFeaturePage"
+import { TooltipProvider } from "@/components/ui/tooltip"
 import { LocaleProvider } from "@/i18n/LocaleProvider"
 import { clearSharedReferenceData } from "@/lib/referenceData"
 import { clearUserTimezonePreference } from "@/lib/timezone"
@@ -34,9 +35,13 @@ function referenceDetail(overrides?: Partial<EndpointReferenceDetail>): Endpoint
 }
 
 function renderEndpointsPage() {
+  // 应用根在 main.tsx 里提供 TooltipProvider；纯图标行操作按钮现在带 tooltip，
+  // harness 必须同样提供，否则 Radix 会在挂载时抛错。
   render(
     <LocaleProvider>
-      <EndpointsFeaturePage />
+      <TooltipProvider>
+        <EndpointsFeaturePage />
+      </TooltipProvider>
     </LocaleProvider>,
   )
 }

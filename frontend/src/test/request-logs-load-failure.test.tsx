@@ -15,6 +15,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { LocaleProvider } from "@/i18n/LocaleProvider";
 import { getStaticMessages } from "@/i18n/staticMessages";
 import { ApiError } from "@/lib/api/request";
@@ -312,11 +313,14 @@ function renderRequestLogsPage(search = "?view=attempts") {
     defaultOptions: { queries: { retry: false } },
   });
 
+  // 口径提示与纯图标按钮走共享 Tooltip，应用根部已经提供 Provider。
   return render(
     <QueryClientProvider client={queryClient}>
-      <LocaleProvider>
-        <RouterProvider router={router} />
-      </LocaleProvider>
+      <TooltipProvider>
+        <LocaleProvider>
+          <RouterProvider router={router} />
+        </LocaleProvider>
+      </TooltipProvider>
     </QueryClientProvider>,
   );
 }

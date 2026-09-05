@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { ArrowDown, ArrowUp, Loader2, RefreshCw, SearchX } from "lucide-react";
+import { Loader2, RefreshCw, SearchX } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,7 +29,10 @@ import {
   OperatorSectionCard,
   OperatorStalenessBadge,
 } from "@/shared/design-system";
-import { OperationalTableSkeletonRows } from "@/shared/table/operationalTable";
+import {
+  OperationalTableSkeletonRows,
+  SortableTableHead,
+} from "@/shared/table/operationalTable";
 import { PaginationLiveStatus } from "@/shared/table/paginationControls";
 import {
   keepsCommittedRows,
@@ -302,26 +305,6 @@ export function LoadbalanceEventsPresentation({
               }
             }}
           />
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() =>
-              updateSearch({
-                event_sort_order: sortOrder === "desc" ? "asc" : "desc",
-                event_cursor: undefined,
-                event_id: undefined,
-              })
-            }
-            aria-label={copy.sortToggleLabel}
-          >
-            {sortOrder === "desc" ? (
-              <ArrowDown data-icon="inline-start" />
-            ) : (
-              <ArrowUp data-icon="inline-start" />
-            )}
-            {sortOrder === "desc" ? copy.sortNewestFirst : copy.sortOldestFirst}
-          </Button>
         </div>
       </div>
 
@@ -425,11 +408,30 @@ export function LoadbalanceEventsPresentation({
       ) : null}
 
       {showTableShell ? (
-        <div className="overflow-x-auto" aria-busy={fragment.reading}>
-          <Table aria-label={copy.eventsTitle}>
+        <div aria-busy={fragment.reading}>
+          {/* sticky 表头只对最近的滚动祖先生效：高度上限必须落在表格自己的
+              滚动容器上，横竖两轴同源，否则滚过十行就没有列义了。 */}
+          <Table
+            aria-label={copy.eventsTitle}
+            scrollAreaClassName="max-h-[calc(100dvh-22rem)]"
+          >
             <TableHeader>
               <TableRow>
-                <TableHead>{copy.timeColumn}</TableHead>
+                {/* 排序开关原来在筛选行最右，离它重新排序的那一列约 800px，
+                    列头上既没有 aria-sort 也没有方向字形。 */}
+                <SortableTableHead
+                  sortKey="created_at"
+                  sort={{ column: "created_at", direction: sortOrder }}
+                  onSort={() =>
+                    updateSearch({
+                      event_sort_order: sortOrder === "desc" ? "asc" : "desc",
+                      event_cursor: undefined,
+                      event_id: undefined,
+                    })
+                  }
+                >
+                  {copy.timeColumn}
+                </SortableTableHead>
                 <TableHead>{copy.eventColumn}</TableHead>
                 <TableHead>{copy.modelColumn}</TableHead>
                 <TableHead>{copy.targetColumn}</TableHead>

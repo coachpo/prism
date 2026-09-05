@@ -20,7 +20,7 @@ export function SettingsGlobalTab({
 }: SettingsGlobalTabProps) {
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex flex-col gap-4 lg:grid lg:grid-cols-[220px_minmax(0,1fr)] lg:gap-6">
+      <div className="flex min-w-0 flex-col gap-4 @3xl/main:grid @3xl/main:grid-cols-[220px_minmax(0,1fr)] @3xl/main:gap-6">
         <aside className="lg:sticky lg:top-4 lg:h-fit">
           <SettingsSectionsNav
             activeSectionId={activeSectionId ?? ""}

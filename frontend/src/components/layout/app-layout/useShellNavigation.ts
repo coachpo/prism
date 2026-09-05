@@ -180,7 +180,11 @@ type ShellBreadcrumbLeafId =
   | "settings-audit-configuration"
   | "settings-authentication"
   | "settings-billing-currency"
+  | "settings-client-rules"
+  | "settings-header-blocklist"
+  | "settings-manual-cleanup"
   | "settings-retention-deletion"
+  | "settings-retention-jobs"
   | "settings-timezone";
 
 export interface ShellBreadcrumbItem {
@@ -242,6 +246,24 @@ const SETTINGS_SECTION_BREADCRUMBS: Record<
   "retention-deletion": {
     id: "settings-retention-deletion",
     label: (messages) => messages.settingsPage.retentionDeletion,
+  },
+  // 九个分区都能被深链，面包屑第三段必须逐个说得出自己是哪一段；
+  // 标签与分区导航、卡标题取同一个键，三处永远不会互相漂移。
+  "header-blocklist": {
+    id: "settings-header-blocklist",
+    label: (messages) => messages.settingsAudit.headerBlocklist,
+  },
+  "client-rules": {
+    id: "settings-client-rules",
+    label: (messages) => messages.settingsAudit.userAgentClientRules,
+  },
+  "manual-cleanup": {
+    id: "settings-manual-cleanup",
+    label: (messages) => messages.settingsRetentionDeletion.manualCleanupTitle,
+  },
+  "retention-jobs": {
+    id: "settings-retention-jobs",
+    label: (messages) => messages.settingsRetentionDeletion.retentionJobsTitle,
   },
   timezone: {
     id: "settings-timezone",

@@ -6,7 +6,11 @@ import {
   OperatorMissingValue,
   OperatorTypeBadge,
 } from "@/shared/design-system";
-import { renderEventSummary } from "./eventSummary";
+import {
+  admissionReasonLabel,
+  failureKindLabel,
+  renderEventSummary,
+} from "./eventSummary";
 
 type RoutingHealthCopy = ReturnType<
   typeof useLocale
@@ -24,6 +28,29 @@ export function LoadbalanceEventRow({
   onOpenDetail: () => void;
 }) {
   const summary = renderEventSummary(item.summary, copy.eventSummary);
+  // 同一件事此前渲染三遍：标题行、原因句、再加一枚与标题逐字相同的徽章。
+  // 身份只留带形状标记的徽章（它带着「历史证据不完整」后缀），原因句降为第二行。
+  //
+  // 失败类型同理：原因句已经点名触发失败的行不再挂同义徽章；「已成功」与
+  // 「封禁已到期」的 failure_kind 说的是此前那一类失败，不加限定词并排读起来
+  // 像是这次成功里也有 HTTP 失败。
+  const failureIsPrior =
+    item.event_type === "recovered" || item.event_type === "unbanned";
+  const failureKind = item.failure_kind
+    ? failureKindLabel(item.failure_kind, copy.eventSummary)
+    : null;
+  const failureBadge =
+    failureKind === null
+      ? null
+      : failureIsPrior
+        ? copy.priorFailureBadge(failureKind)
+        : item.summary.params.failure_kind
+          ? null
+          : failureKind;
+  const admissionBadge =
+    item.admission_reason && !item.summary.params.admission_reason
+      ? admissionReasonLabel(item.admission_reason, copy.eventSummary)
+      : null;
   const modelLabel = item.model.label || item.model.model_id || null;
   const targetLabel =
     item.terminal_target.label || `#${item.terminal_target.id ?? "?"}`;
@@ -49,30 +76,26 @@ export function LoadbalanceEventRow({
       </TableCell>
       <TableCell>
         <div className="flex flex-col gap-1">
-          <span className="font-medium">{summary.label}</span>
-          <span className="text-xs text-muted-foreground">
-            {summary.reason}
-          </span>
           <div className="flex flex-wrap gap-1">
-            <OperatorTypeBadge
-              label={eventTypeLabel(item.event_type, copy)}
-              preserveLabel
-            />
-            {item.failure_kind ? (
+            <OperatorTypeBadge label={summary.label} preserveLabel />
+            {failureBadge ? (
               <OperatorTypeBadge
-                label={failureKindLabel(item.failure_kind, copy)}
+                label={failureBadge}
                 intent="degraded"
                 preserveLabel
               />
             ) : null}
-            {item.admission_reason ? (
+            {admissionBadge ? (
               <OperatorTypeBadge
-                label={admissionReasonLabel(item.admission_reason, copy)}
+                label={admissionBadge}
                 intent="degraded"
                 preserveLabel
               />
             ) : null}
           </div>
+          <span className="text-xs text-muted-foreground">
+            {summary.reason}
+          </span>
         </div>
       </TableCell>
       <TableCell>
@@ -117,49 +140,4 @@ export function LoadbalanceEventRow({
       </TableCell>
     </TableRow>
   );
-}
-
-function eventTypeLabel(value: string, copy: RoutingHealthCopy): string {
-  switch (value) {
-    case "retry_scheduled":
-      return copy.eventSummary.retryScheduled;
-    case "retry_exhausted":
-      return copy.eventSummary.retryExhausted;
-    case "banned":
-      return copy.eventSummary.banned;
-    case "unbanned":
-      return copy.eventSummary.unbanned;
-    case "recovered":
-      return copy.eventSummary.recovered;
-    case "admission_rejected":
-      return copy.eventSummary.admissionRejected;
-    default:
-      return copy.eventSummary.unknownEvent;
-  }
-}
-
-function failureKindLabel(value: string, copy: RoutingHealthCopy): string {
-  switch (value) {
-    case "transient_http":
-      return copy.eventSummary.failureTransientHttp;
-    case "connect_error":
-      return copy.eventSummary.failureConnectError;
-    case "timeout":
-      return copy.eventSummary.failureTimeout;
-    default:
-      return copy.eventSummary.unknownEvent;
-  }
-}
-
-function admissionReasonLabel(value: string, copy: RoutingHealthCopy): string {
-  switch (value) {
-    case "qps_limit":
-      return copy.eventSummary.admissionQpsLimit;
-    case "max_in_flight_stream":
-      return copy.eventSummary.admissionMaxInFlightStream;
-    case "max_in_flight_non_stream":
-      return copy.eventSummary.admissionMaxInFlightNonStream;
-    default:
-      return copy.eventSummary.unknownEvent;
-  }
 }
