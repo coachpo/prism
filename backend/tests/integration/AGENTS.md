@@ -1,41 +1,9 @@
-# BACKEND INTEGRATION TEST KNOWLEDGE BASE
+# Integration Tests
 
-## OVERVIEW
-`backend/tests/integration/` owns startup, migration, launcher, root single-image Dockerfile, partitioned-retention, alerting outbox, and cross-service integration checks. These tests verify process and persistence contracts that are broader than one handler or package.
+Use this suite for process and persistence boundaries broader than one handler/package; share `harness.go` instead of adding process/container setup inside tests.
 
-## STRUCTURE
-```text
-integration/
-├── harness.go                              # Shared integration database/process helpers
-├── testdata/                               # Golden dumps and integration fixtures
-├── startup_test.go                         # Startup config, seeding, bootstrap preservation
-├── launcher_startup_contract_test.go       # Root launcher and local bootstrap contract
-├── migrations_test.go                      # Fresh-install baseline and schema-history guards
-├── direct_request_enabled_migration_test.go # 000032 fresh/upgrade preservation and default checks
-├── direct_request_entry_reclassification_plan_test.go # Tracked 12+4 operator SQL acceptance
-├── dockerfile_contract_test.go             # Single-image ownership/path contract
-├── partitioned_log_retention_test.go       # Partitioned runtime/audit/usage/loadbalance retention
-├── alerting_outbox_test.go                 # Webhook outbox persistence contract
-├── process_control_test.go                 # Verification-process and child-process ownership
-└── *_test.go
-```
-
-## WHERE TO LOOK
-- Startup bootstrap, canonical defaults, and parse-compatible retired fields: `startup_test.go`
-- Launcher-local config, PostgreSQL host port, and preservation behavior: `launcher_startup_contract_test.go`
-- Migration baseline, schema history, normalized dumps, direct-entry upgrade preservation, and disposable 12+4 operator-plan acceptance: `migrations_test.go`, `direct_request_enabled_migration_test.go`, `direct_request_entry_reclassification_plan_test.go`, `testdata/migrations/schema.sql`
-- The operator-plan acceptance reads the versioned SQL at `../../../scripts/operations/direct-request-entry-reclassification.sql` and its runbook at `../../../docs/operations/direct-request-entry-reclassification.md`.
-- Container ownership and backend bootstrap path: `dockerfile_contract_test.go`
-- Partitioned log retention and platform store behavior: `partitioned_log_retention_test.go`, `logretention_store_test.go`
-- Alert webhook outbox durability: `alerting_outbox_test.go`
-
-## CONVENTIONS
-- Use these tests for cross-cutting process and persistence contracts that unit or contract suites cannot cover cleanly.
-- Keep Dockerfile tests aligned with the single-image non-root `prism:prism` UID/GID `1000:1000` and `/app/config/config.json` defaults.
-- Keep startup tests aligned with plaintext bootstrap v1, CPU-derived pool defaults, parse-only mail/telemetry compatibility, and restart-required external edits.
-- Keep partitioned-retention tests scoped to `request_logs`, `audit_logs`, `usage_request_events`, and `loadbalance_events`.
-
-## ANTI-PATTERNS
-- Do not move narrow handler assertions here when `../contract/` owns the API surface.
-- Do not assert PostgreSQL implementation minutiae unless the migration/schema contract is the product behavior under test.
-- Do not add test-local migrations or schema rewrites outside the checked-in migration runner path.
+- `startup_test.go` and `launcher_startup_contract_test.go` own bootstrap/default seeding, existing-file preservation, and the root launcher's local wiring. Keep restart-only configuration and parse-only retired fields covered.
+- `migrations_test.go` and `testdata/migrations/schema.sql` own migration history and normalized schema evidence. Use the checked-in migration runner, never test-local schema rewrites.
+- `direct_request_enabled_migration_test.go` preserves retained rows/defaults. `direct_request_entry_reclassification_plan_test.go` verifies the operator SQL at `../../../scripts/operations/direct-request-entry-reclassification.sql` on disposable fixtures; it does not authorize applying that SQL to an instance.
+- `dockerfile_contract_test.go` guards the single app image's non-root UID/GID, writable config ownership, and bootstrap path. `process_control_test.go` owns verification/child-process lifecycle.
+- Partitioned retention tests cover the four managed log datasets and their owning store/jobs; alerting outbox tests cover webhook durability. Do not move narrow management response tests here from the contract suite.

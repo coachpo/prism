@@ -1,137 +1,17 @@
-# FRONTEND REQUEST LOGS DOMAIN KNOWLEDGE BASE
+# Requests investigation
 
-## OVERVIEW
+- `queryParams.ts` owns retained browse URL parsing; `useRequestLogPageState.ts` owns URL transitions and exact-request focus. `useRequestLogsPageData.ts` composes separate attempt and ingress-chain read owners, while `requestLogChainProjection.ts` owns chain projection/deduplication.
+- Default browsing is retained ingress chains with `time_range=24h`. Send the selected range/custom bounds to the server; coverage and effective retained bounds are server-owned. Attempts use offset pagination, chains use signed chain/row cursors, and CSV carries no pagination.
+- `requestLogsCsv.ts` downloads the full filtered server export through `api.stats.exportCsv()`. Do not build CSV from currently loaded rows. Chain envelopes require `filter_options`; an absent field is not a loaded empty option set.
+- Keep ordinary triage unsigned. Signed Observe attempts preserve replay selectors, explicit final fields, null/list semantics, and transient token-bound complements; route-attempt links pin `row_kind=upstream`. Cohort changes clear pagination. Exact ingress lookup may let the server resolve retained all-time bounds.
+- `pricing_status` retains priced/unpriced/ineligible/unknown plus `all`; selection state and card role are independent filters. Status aliases, exact status, and error-substring filters must round-trip through URL and API/CSV projection.
+- Request-log IDs remain decimal strings. Render upstream/gateway/legacy status according to `row_kind`, without coalescing across scopes. Keep entry model, attempt target, final model, and actual Terminal Target/Endpoint distinct.
+- Attempt `upstream_model_id` is hidden by default; the finalized winner uses `final_upstream_model_id`. Render persisted values and reasoned missing evidence, never infer identity from live configuration. Keep saved views/column preferences versioned and exclude transient selection/pagination from saved views.
+- The retained chain is server-owned. Expanded attempts show only trusted winner cost; failed-attempt cost is unknown rather than zero, and parent/child amounts are not additive totals. Shared value formatting belongs to `requestLogMetricPresentation.ts`; pricing explanations retain independent kind/state/role/resolution/schedule evidence.
+- The overview drawer fetches request/chain evidence only. Audit payload reads belong to the dedicated `RequestLogAuditPage.tsx`, with separate request, list, and selected-detail hooks composed by `useDedicatedRequestLogAudit.ts`.
+- Audit visibility derives from request-time capture provenance: disabled capture must not trigger linked-audit fetches, and metadata-only capture is distinct from missing bodies. Keep request/window gating and cancellation in their owning lane.
+- `detail/requestLogPayloadDocuments.ts`, `detail/payloadDocumentViewModel.ts`, `detail/sseFraming.ts`, and `detail/streamTranscript.ts` own content-aware payload views. Streaming messages/JSON events/raw SSE must be real distinct projections; non-stream JSON and invalid/binary evidence retain their proper states.
+- `streamTelemetry.ts` owns TTFT/rate/outcome presentation. `useRequestLogProxyApiKeyOptions.ts` owns independent option-query state and selected-option reconciliation.
+- Copy actions reuse shared clipboard helpers. `RequestLogDetailSheet.tsx` supplies a fallback root inside the sheet's focus scope; do not replace it with a global DOM/download workaround. Keep `detail/` covered by this guide.
 
-`pages/request-logs/` owns the investigation flow for runtime traffic: retained browse filtering, exact-request focus mode, requested-model and final-target observability, request-time audit provenance, Default-profile spend rendering, stream telemetry, and detailed payload inspection. This parent also covers the local `detail/` cluster, while URL-state, exact-request behavior, and sheet-scoped clipboard fallback stay local here.
-
-## STRUCTURE
-
-```
-request-logs/
-├── queryParams.ts               # URL-state contract for retained browse filters, view, sort, and pagination
-├── useRequestLogPageState.ts    # Search-param orchestration and exact-request mode
-├── useRequestLogsPageData.ts    # Thin page coordinator for attempts and ingress-chain read owners
-├── requestLogQuery.ts           # URL-to-stats query projection and shared filter-option contract
-├── useRequestLogAttempts.ts     # Attempt-list query, replace state, generation, and retained filters
-├── useRequestLogIngressChains.ts # Ingress-chain query, cursor/append state, and row-read fencing
-├── requestLogChainProjection.ts # Chain envelope to attempt-row projection and append dedupe
-├── useRequestLogDetail.ts       # Exact-request detail fetch, not-found handling, and refresh
-├── useRequestLogChain.ts        # Retained ingress chain fetch for the detail sheet
-├── requestLogSavedViews.ts      # Versioned saved canonical views (localStorage)
-├── requestLogColumnPreferences.ts # v5 column-visibility preferences (localStorage)
-├── RequestLogAuditPage.tsx      # Dedicated full audit page
-├── useDedicatedRequestLogAudit.ts # Thin composition over dedicated audit read lanes
-├── useRequestLogAuditRequest.ts # Request detail, capture gating, and audit window
-├── useRequestLogAuditList.ts  # Audit list cursor page replacement
-├── useRequestLogAuditDetail.ts # Selected audit detail and missing selection
-├── requestLogAuditLanes.ts    # Dedicated audit lane state contracts
-├── requestLogAuditRoute.ts      # Audit-page id parsing and path building
-├── requestLogAuditWindow.ts     # Dedicated audit lookup window helper
-├── RequestLogAuditWindowBar.tsx # Permanent disclosure of the frontend-chosen audit query bound
-├── AuditCaptureLedger.tsx       # Bytes seen, kept, and dropped with the reason capture stopped
-├── requestLogAuditState.ts      # Audit capture mode and request-detail audit state helpers
-├── streamTelemetry.ts           # Stream-outcome, TTFT, and rate helpers for request-log views
-├── columns.tsx                  # Core plus optional retained-evidence columns and scoped status/duration helpers
-├── UpstreamModelIdValue.tsx     # Honest retained upstream-ID value/missing renderer
-├── pricingExplanation.ts        # Unpriced-cause, token-component, and typed selection-state/card-role classification for rows and detail
-├── RequestLogsViewToolbar.tsx   # View switcher plus the controls both views share (columns, page size, export)
-├── FiltersBar.tsx               # UI shell for retained browse filters plus refresh/clear actions
-├── FiltersBar.constants.ts      # Filter option constants and shared filter presentation helpers
-├── FiltersBarPrimaryFilters.tsx # Retained filter row composition (pricing_status four-state)
-├── useRequestLogProxyApiKeyOptions.ts # Proxy API-key filter query and selected-option reconciliation
-├── ActiveFilterChips.tsx        # Every filter actually in effect, as closable chips
-├── RequestLogsTable.tsx         # Adaptive-height virtualized attempt list
-├── ColumnToggleMenu.tsx         # Column visibility popover and reset-to-defaults action
-├── IngressChainsTable.tsx       # Default server-side retained ingress-chain view
-├── requestLogsCsv.ts            # Server-side full filtered CSV download helper
-├── RequestLogDetailSheet.tsx    # Overview-only request inspection drawer, retained-chain section, clipboard fallback root
-├── RequestFocusBanner.tsx       # Exact-request mode banner and exit action
-├── detail/                      # Parent-covered overview, payload, and shared detail helpers
-│   ├── RequestLogOverviewTab.tsx   # Overview tab: routing, timing, usage, spend
-│   ├── RequestLogPricingEvidence.tsx # Typed kind/state/role/resolution and schedule evidence
-│   ├── RequestLogPayloadBlock.tsx  # Payload viewer block with the content-aware view switch
-│   ├── requestLogPayloadDocuments.ts # Payload document model shared by the viewer
-│   ├── payloadDocumentViewModel.ts # Content-aware payload views (消息/JSON 事件/原始 SSE/JSON/原始文本/不可解析)
-│   ├── payloadViewLabels.ts     # View-label mapping
-│   ├── sseFraming.ts            # SSE framing (LF/CRLF/CR-only, BOM, multi-line data, [DONE], incomplete tails)
-│   ├── streamTranscript.ts      # Operation-aware stream accumulation with tool calls/results
-│   ├── requestLogDetailShared.tsx  # Shared detail rows, stats, section cards, API-family pill
-│   ├── requestLogStatus.ts       # Status intent/tone presentation
-│   └── requestLogClipboard.ts    # Detail clipboard action and localized toast side effect
-├── requestLogMetricPresentation.ts # Shared cost/token/TTFT/rate value formatting
-└── *.test.ts(x)                 # Query, lifecycle, saved-view, preference, and audit coverage
-```
-
-## WHERE TO LOOK
-
-- Investigation flow and state, including URL-state and exact-request mode: `useRequestLogPageState.ts`, `useRequestLogsPageData.ts`
-- Attempt-list and ingress-chain query lifecycles: `useRequestLogAttempts.ts`, `useRequestLogIngressChains.ts`, `requestLogChainProjection.ts`
-- Route-shell copy, empty-state messaging, and locale-aware detail labels: `../RequestLogsPage.tsx`, `@/i18n/useLocale`, `@/i18n/AGENTS.md`
-- Retained browse-filter contract and defaults: `queryParams.ts`
-- Table columns, row actions, detail-entry affordances, and column visibility: `columns.tsx`, `RequestLogsTable.tsx`, `ColumnToggleMenu.tsx`
-- Shared cost/token/TTFT/rate value presentation: `requestLogMetricPresentation.ts`
-- Filter-bar composition and shared filter constants: `FiltersBar.constants.ts`, `FiltersBarPrimaryFilters.tsx`, `FiltersBar.tsx`
-- Detail sheet, exact-request fetch, audit capture state, and sheet-scoped clipboard fallback: `RequestLogDetailSheet.tsx`, `useRequestLogDetail.ts`, `requestLogAuditState.ts`
-- Dedicated audit request/list/detail lanes: `useRequestLogAuditRequest.ts`, `useRequestLogAuditList.ts`, `useRequestLogAuditDetail.ts`; `useDedicatedRequestLogAudit.ts` only composes them
-- Proxy API-key filter query and selected-option reconciliation: `useRequestLogProxyApiKeyOptions.ts`
-- Stream telemetry helpers and TTFT/rate display logic: `streamTelemetry.ts`, `detail/RequestLogOverviewTab.tsx`
-- Cache-read share on the request detail row and unpriced-cause explanations: `detail/RequestLogOverviewTab.tsx`, `../../features/observe/cacheReadShare.ts`, `pricingExplanation.ts`
-- E2E seam for exact-request mode and dedicated audit-page states: `../../../tests/e2e/request-log-dedicated-audit-page.spec.ts`; shared request-log fixtures live in `../../../tests/e2e/request-log-dedicated-audit-fixtures.ts`.
-- Parent-covered detail cluster helpers: `detail/RequestLogOverviewTab.tsx`, `detail/RequestLogPayloadBlock.tsx`, `detail/requestLogDetailShared.tsx`, `detail/requestLogStatus.ts`, `detail/requestLogClipboard.ts`
-- Reporting-currency trust and spend display coupling: `../../context/ReportingCurrencyContext.tsx`, `../../lib/reportingCurrency.ts`, `detail/RequestLogOverviewTab.tsx`
-
-## CONVENTIONS
-
-- For UI/UX, frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation changes, follow `frontend/DESIGN.md`: use `@/shared/design-system` before `@/components/ui`, preserve the Google Admin Console / Material Design 3 operator direction, use semantic tokens, operator surface classes, density variables, and required operator components, keep route state and API calls out of design-system components, and avoid adding compatibility wrappers under `@/components`.
-- Do not add decorative gradients, blur blobs, heavy shadows, marketing hero layouts, raw Tailwind status colors, page-local color blends, or ad hoc dark-mode overrides outside the `frontend/DESIGN.md` contract.
-
-- For ordinary removal-only validation here, prefer manual confirmation over adding dedicated “proves not” tests unless the missing request-log surface is itself a shipped contract or guardrail.
-- Treat URL as the source of truth for the retained browse filters to support deep-linking.
-- Keep request-log browse defaults on the URL contract: `time_range=24h` is the page default and is omitted from generated default URLs.
-- Send the selected `time_range` (or `custom` with explicit bounds) to the backend for attempts, ingress chains, and CSV export; the Requests owner resolves the effective window from actual coverage, so a browser-generated `from_time` is not the coverage authority.
-- Keep status URL aliases and backend filters aligned: `status=success` round-trips to `status_family=2xx`, while `status=client_error` and `status=error` map to `4xx` and `5xx`.
-- Keep `status_code` as an exact numeric status filter and `error_text` as the backend `error_detail ILIKE` substring filter.
-- Keep `pricing_status` as the four-state request-log pricing filter (`all|priced|unpriced|ineligible|unknown`); never generate or accept the retired `priced` boolean alias. `unpriced_reason` stays aligned with backend reason codes: `PRICING_DISABLED`, `MISSING_TOKEN_USAGE`, `STREAM_USAGE_UNAVAILABLE`, and `MISSING_PRICE_DATA`.
-- Keep CSV export server-side: `api.stats.exportCsv()` downloads the full filtered file from `/api/stats/requests/export`; never assemble CSV from currently loaded table rows.
-- Keep the default view as the server-side retained ingress chain (`view=ingress_chains`) with signed chain cursors; the table paginates by `chain_cursor`, not by `offset`.
-- The chain envelope owns required `filter_options`; never mark them loaded when the field is absent. Attempts carry only limit/offset, chains only chain/row cursors, and CSV no pagination fields.
-- Keep row scoping strict: render `upstream_status_code`/`gateway_status_code`/`legacy_status_code` by `row_kind` and never COALESCE across scopes; the `pricing_state` column is first-class in the default column set.
-- `upstream_model_id` is the optional hidden-by-default retained attempt snapshot column; `finalized_summary.final_upstream_model_id` is the winner snapshot. Render persisted values in mono and a reasoned `—` for NULL, never inferring from live configuration. Column preferences use v5 so old v4 state falls back safely without exposing the new column by default.
-- Keep BIGINT request-log IDs as decimal strings end-to-end; never convert them to JS numbers.
-- Keep the payload viewer content-aware: streaming SSE offers 消息/JSON 事件/原始 SSE with real per-view content, non-stream JSON offers 消息/JSON, and binary/invalid-UTF-8 bodies are unparseable; never render the same stored text as two modes.
-- Keep saved views and column preferences versioned in localStorage with a schema version; saved views omit transient pagination/selection anchors.
-- Keep the filter bar compact: request-ID search + time + triage chips + More Filters toggle visible; the remaining controls collapse.
-- Keep the sheet's retained-chain section server-owned; never reconstruct the chain client-side from the current page.
-- Keep chain identity explicit: the parent renders entry model, final model, and actual Terminal Target/Endpoint separately; expanded rows render actual attempt target/exit, localized trigger/result, duration, tokens, and only trusted winner cost. Failed-attempt cost is unknown, never zero.
-- Keep audit payload fetching isolated to the dedicated full audit page. The overview drawer must not fetch audit payloads.
-- Use exact-request mode (`request_id`) to switch from paginated browsing to a single-request investigation workflow, and keep that mode local to the request-logs page.
-- Keep retained browse filtering on `ingress_request_id`, `ingress_model_id`, `attempt_target_model_id`, `row_kind`, `endpoint_id`, `terminal_target_id`, `client_rule_id`, `status_family`, `status_code`, `error_text`, `pricing_status`, `unpriced_reason`, `time_range`, `view`, `sort_by`, `sort_order`, and `chain_cursor`; finalized Observe deep links use signed `query_context` plus explicit `final_*` keys, while route-attempt deep links pin `row_kind=upstream`. URL stays the source of truth.
-- Ordinary triage is unsigned. Signed Observe lists preserve repeated/comma/`__null__` selectors in attempts view; the server-generated `final_exclude` complement stays transient like the other token-bound fields. Every cohort mutation, including removing a chip, clears offset and chain cursors. Exact ingress without an explicit non-default window lets the backend resolve retained `all` bounds.
-- Keep `pricing_card_role` and `pricing_selection_state` as independent retained-row filters, with typed options round-tripped through URL state and server-side CSV export.
-- Keep user-facing copy on the shared locale boundary through `useLocale()`, while timestamp formatting continues to flow through `useTimezone()`.
-- Keep audit capture mode and detail-state helpers in `requestLogAuditState.ts` instead of re-deriving them inside detail tabs or fetch hooks.
-- Keep dedicated audit request detail, audit list paging, and selected audit detail in their named hooks; retain cancellation and nonce retry inside the owning lane, with capture/window gating at the request boundary.
-- Derive audit visibility from request-time provenance: disabled audit means no linked-audit fetch; enabled without body capture is metadata-only; body presence alone is not the contract.
-- Keep stream telemetry in `streamTelemetry.ts` and parent detail helpers instead of recomputing TTFT or request-rate state in shared widgets.
-- Keep copy actions on shared clipboard helpers. `RequestLogDetailSheet.tsx` intentionally provides `[data-clipboard-fallback-root]` so browser fallback UI stays inside the sheet instead of triggering downloads.
-- Keep the proxy API-key option query and selected-option prepend in `useRequestLogProxyApiKeyOptions.ts`; filter control markup remains in `FiltersBarPrimaryFilters.tsx`.
-- Keep shared cost/token/TTFT/rate formatting in `requestLogMetricPresentation.ts`; `columns.tsx` owns table columns and table-specific status/pricing/stream semantics.
-- Keep request-log cost labels tied to `useReportingCurrencyContext()` so fallback or verified Default-profile reporting-currency trust is visible in detail views.
-- Keep attempts and ingress-chain reads in their named owners; `useRequestLogsPageData.ts` only selects the active view and combines page-facing state. Keep chain-envelope projection in `requestLogChainProjection.ts`, not in table components.
-- Render pricing evidence through `pricing_selection_state` and `pricing_card_role` independently. `unresolved` is a failure surface with `pricing_resolution_kind`; missing evidence is not a base-card decision. Peak/valley detail may show timezone, frozen decision time, local weekday/minute, and digest only when present. CSV column order must match the backend generic evidence columns.
-- Keep `detail/` parent-covered here. Those helpers support the request-log sheet only and should not get a separate AGENTS file.
-
-- Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
-
-## LLM UPSTREAM MATRIX
-
-- When work touches LLM upstream request or response logic, evaluate streaming and non-streaming coverage across operation shapes, not just provider families: OpenAI Chat Completions (`/v1/chat/completions`) and Responses (`/v1/responses`), Gemini, and Anthropic.
-
-## ANTI-PATTERNS
-
-- Do not stale-claim that request logs are missing from the route map.
-- Do not duplicate filter parsing outside `queryParams.ts`.
-- Do not fetch audit payloads during normal table browsing or from the overview drawer.
-- Do not split `request-logs/detail/` into a separate AGENTS file while this parent already owns that cluster.
-- Do not replace the sheet-scoped clipboard fallback with a global DOM fallback or a download-based workaround.
-- Do not render request-log spend independently from the Default-profile reporting-currency state.
+Use colocated filter/lifecycle/payload tests and `../../../tests/e2e/request-log-dedicated-audit-page.spec.ts` or `../../../tests/e2e/request-log-streaming-payloads.spec.ts` for the affected investigation boundary.

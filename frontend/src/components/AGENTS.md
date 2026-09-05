@@ -1,54 +1,6 @@
-# FRONTEND COMPONENTS KNOWLEDGE BASE
+# Shared components
 
-## OVERVIEW
-`src/components/` holds Prism's shared shell chrome and reusable UI. The dense shell-state cluster lives under `layout/app-layout/`, while this parent owns shared widgets and design-system leaves that compose checked-in shadcn/ui primitives without taking over route state.
-
-## STRUCTURE
-```text
-components/
-├── ApiFamilyIcon.tsx                                  # Shared API-family icon component
-├── apiFamilyPresentation.ts, ApiFamilySelect.tsx      # API-family labels and picker presentation
-├── CopyButton.tsx                                     # Shared copy affordance
-├── IconActionGroup.tsx                                # Shared icon action cluster
-├── ThemeToggle.tsx                                    # Theme menu items and standalone theme toggle
-├── layout/app-layout/AGENTS.md                        # Post-upgrade shell cluster behind the mounted page wrapper
-└── ui/AGENTS.md                                       # shadcn/ui primitives and local wrappers
-```
-
-## WHERE TO LOOK
-- Shell chrome and layout handoff: `layout/page.tsx`
-- Shell state cluster plus nav/version ownership: `layout/app-layout/AGENTS.md`
-- Shared theme control: `ThemeToggle.tsx`
-- Shared API-family icon/label presentation, picker, copy, and icon action widgets: `ApiFamilyIcon.tsx`, `apiFamilyPresentation.ts`, `ApiFamilySelect.tsx`, `CopyButton.tsx`, `IconActionGroup.tsx`
-- Shared loadbalance rendering is retired. The old badges/table/detail-sheet components and the `loadbalance/` folder that held them are deleted; the routing-policy config surface (`../features/loadbalance/`) and the Observe 路由健康 tab (`../features/observe/`) own the current renderers, with event summary localization in `../features/observe/eventSummary.ts`
-- Design-system primitives and local wrappers: `ui/`
-- shadcn registry source of truth for `ui/`: `../../components.json`, `../index.css`
-
-## CHILD DOCS
-- `layout/app-layout/AGENTS.md`: mounted shell chrome, sidebar navigation, user footer, and visible version-label ownership.
-- `ui/AGENTS.md`: shadcn/ui primitives and local wrappers in `src/components/ui/`.
-
-## CONVENTIONS
-- For UI/UX, frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation changes, follow `frontend/DESIGN.md`: use `@/shared/design-system` before `@/components/ui`, preserve the Google Admin Console / Material Design 3 operator direction, use semantic tokens, operator surface classes, density variables, and required operator components, keep route state and API calls out of design-system components, and avoid adding compatibility wrappers under `@/components`.
-- Do not add decorative gradients, blur blobs, heavy shadows, marketing hero layouts, raw Tailwind status colors, page-local color blends, or ad hoc dark-mode overrides outside the `frontend/DESIGN.md` contract.
-
-- For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
-- Keep shared components presentation-first.
-- Keep data fetching and route state out of this tree.
-- Keep shell-state ownership in `layout/app-layout/`; the direct components here should stay compositional or presentational.
-- Keep theme controls in shared preference widgets instead of duplicating them in auth pages or shell headers.
-- Reuse `ui/` primitives before adding one-off markup, and prefer local wrappers in `ui/` when a pattern belongs to the design system.
-- Keep semantic Tailwind tokens, `cn(...)` class composition, and shadcn variant/size props in shared components instead of raw color overrides or bespoke primitive copies.
-- Keep API-family icon rendering in `ApiFamilyIcon.tsx` and API-family label projection in `apiFamilyPresentation.ts`; `ApiFamilySelect.tsx` composes those owners without duplicating the mapping.
-- Keep the leaf docs in `ui/` for primitive-level wrappers, and keep this parent focused on the shared widgets above them.
-
-- Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
-
-## LLM UPSTREAM MATRIX
-- When work touches LLM upstream request or response logic, evaluate streaming and non-streaming coverage across operation shapes, not just provider families: OpenAI Chat Completions (`/v1/chat/completions`) and Responses (`/v1/responses`), Gemini, and Anthropic.
-
-## ANTI-PATTERNS
-- Do not move nav-link or version-label logic out of `layout/app-layout/`.
-- Do not put page-specific fetches or route-state parsing in shared components.
-- Do not refer to deleted shell files or the old shell wrapper, header, or profile popover surfaces as live shared components.
-- Do not recreate a `loadbalance/` folder here. New loadbalance UI belongs to `../features/loadbalance/` or `../features/observe/`.
+- Keep reusable widgets presentation-focused. Protected shell state belongs to [layout/app-layout](layout/app-layout/AGENTS.md); primitive composition belongs to [ui](ui/AGENTS.md).
+- `ApiFamilyIcon.tsx`, `apiFamilyPresentation.ts`, and `ApiFamilySelect.tsx` share the API-family icon/label mapping. Extend those owners rather than copying provider labels into pages.
+- Shared preference controls belong here; route-specific data, filters, and mutation state remain with feature/page owners.
+- Ban Policy configuration renders under `../features/loadbalance/`; routing-health presentation renders under `../features/routing-health/` and its retained helpers in `../features/observe/`.

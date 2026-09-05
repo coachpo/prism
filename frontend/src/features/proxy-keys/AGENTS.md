@@ -1,36 +1,10 @@
-# FRONTEND PROXY KEYS FEATURE
+# Proxy-key lifecycles
 
-## OVERVIEW
-`features/proxy-keys/` owns the `/system/proxy-keys` route orchestration: the ledger/query lifecycle, create/update/rotate/delete mutations, generated-secret session state machine, and the one-time-secret access panel (effective runtime origin, family base URL, model/operation-aware curl, shared runtime self-test entry, saved-acknowledgement gate).
+- Keep ledger/auth/capacity reads in `useProxyKeyLedger.ts`; create, edit, rotate, and delete have separate mutation hooks. Their cache reconciliation and error mapping belong to `proxyKeyMutationReconciliation.ts` and `proxyKeyMutationErrors.ts`.
+- Create/rotate responses use `no-store` and hand raw keys to `useProxyKeySecretSession.ts`/`generatedSecretSession.ts`; reset mutation-owned response data after handoff. The raw value never enters ledger/query cache, URL, persistent storage, logs, or error reporting.
+- Query refetches, failures, and list membership never close an unacknowledged secret session. Copy is not a saved acknowledgement. Finish requires acknowledgement; close/Escape/mask/navigation/refresh remain guarded with explicit abandon as the alternative.
+- `ProxyKeysFeaturePage.tsx` owns router/beforeunload guards and the standing verification dialog. It composes the named lifecycle owners instead of making verification part of a credential mutation.
+- Self-test/access selectors use enabled direct-entry models. The shared runner under `../runtime-self-test/` owns origin/curl/runtime calls.
+- `useProxyKeyUsage.ts` has independent visible-page usage state; a failed read must not manufacture zero usage or close a secret dialog.
 
-## STRUCTURE
-```text
-proxy-keys/
-├── ProxyKeysFeaturePage.tsx       # Route shell: navigation blocker, beforeunload guard, dialog wiring
-├── useProxyKeysFeatureData.ts     # Thin page coordinator for ledger, mutation, and secret-session values
-├── useProxyKeyLedger.ts            # Auth/key ledger queries, capacity, visible-key usage, and read retry
-├── useProxyKeyMutations.ts         # Thin composition of the four mutation lifecycles
-├── useProxyKeyCreateMutation.ts    # Create/issue form validation, mutation, and secret handoff
-├── useProxyKeyEditMutation.ts      # Edit form validation, mutation, and server-item patch
-├── useProxyKeyRotateMutation.ts    # Rotation confirmation, mutation, and secret handoff
-├── useProxyKeyDeleteMutation.ts    # Delete confirmation, mutation, and ledger removal
-├── proxyKeyMutationReconciliation.ts # Explicit Proxy-Key ledger cache reconciliation
-├── proxyKeyMutationErrors.ts       # Shared Proxy-Key mutation error-to-toast mapping
-├── useProxyKeySecretSession.ts     # One-time raw-secret handoff into the guarded session reducer
-├── generatedSecretSession.ts       # Unacknowledged session reducer (idle/unacknowledged/closing_confirm)
-├── ProxyKeySecretDialog.tsx       # One-time-secret access panel with ack gate and closing-confirm state
-└── useProxyKeyUsage.ts            # Per-key 7-day counts for the ledger column, with its own failure state
-```
-The shared runtime self-test is not here; it lives in `../runtime-self-test/`.
-
-## CONVENTIONS
-- The raw key exists only in the create/rotate response and the unacknowledged in-memory session; it never enters query cache, URL, storage, logs, or error reporting. Mutation-owned response data is reset after dispatch.
-- The session reducer is immune to list/auth/model/stats refetch events; query failures never close the dialog.
-- Escape, mask clicks, close, SPA navigation and refresh are blocked while unacknowledged; `useBlocker` + `beforeunload` cover navigation and refresh; closing-confirm offers keep-editing or explicit abandon.
-- Copy actions never auto-acknowledge; finish is enabled only after the saved acknowledgement.
-- Create/rotate fetches use `cache: "no-store"`; the backend responses carry `Cache-Control: private, no-store`.
-- Keep server-backed ledger/query state in `useProxyKeyLedger.ts`; keep create/issue, edit, rotate, and delete state in their respective named mutation hooks. `useProxyKeyMutations.ts` only composes their return values.
-- Keep cache patching in `proxyKeyMutationReconciliation.ts` and error-to-toast mapping in `proxyKeyMutationErrors.ts`; mutation hooks must reuse those owners rather than copying either policy.
-- Create and rotate may hand their response to `useProxyKeySecretSession.ts`, but only that session owns the raw key after handoff; no query cache, ledger item, URL, storage, or error path may retain it.
-- Runtime self-test model selectors use only enabled models with `direct_request_enabled=true`; non-entry Model Targets remain routable by a parent but are never offered as client verification choices.
-- `ProxyKeysFeaturePage.tsx` owns the standing access-verification dialog's open state; it is not part of any credential mutation lifecycle.
+Use the colocated mutation/session/usage tests and `../../test/proxy-key-secret-dialog.test.tsx` for this boundary.

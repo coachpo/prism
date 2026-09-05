@@ -1,61 +1,10 @@
-# FRONTEND LIB TYPES KNOWLEDGE BASE
+# Backend-aligned types
 
-## OVERVIEW
+- Preserve server field names and nullable/optional distinctions. This directory mirrors wire contracts; frontend form schemas, view models, and derived labels belong with their consumers.
+- Add contracts to the owning leaf and re-export through `../types.ts`. Models.dev metadata types stay in `model-catalog.ts`; Pi export/binding/search types stay in `model-export.ts`. Separate catalog revisions, identities, and CAS tokens must not collapse into a weak shared union.
+- Model contracts require `direct_request_enabled`, `incoming_model_target_count`, and `configuration_warnings`. Routing summaries remain authoritative full-graph projections; family-discriminated create shapes omit OpenAI-only fields for other families.
+- `routing.ts` carries connection `upstream_model_id` and JSON custom parameters. `request-logs.ts` preserves retained attempt `upstream_model_id` separately from winner `final_upstream_model_id`; historical NULL remains unknown. Request-log IDs are decimal strings even where counts/micros are JSON numbers.
+- Request-log entry, attempt, and final model fields remain distinct. Pricing selection state and card role are independent nullable evidence; peak schedule evidence is independently nullable.
+- `model-stats.ts` retains all three scoped blocks and nullable trusted cost/coverage. `currency-migration.ts` retains complete role-keyed cards and explicit template kinds, rather than a projected base/offpeak scalar.
 
-`frontend/src/lib/types/` owns backend-aligned TypeScript contracts re-exported by `../types.ts`; it is a schema mirror, not a frontend view-model layer.
-
-## STRUCTURE
-
-```text
-types/
-├── auth.ts
-├── config-audit-settings.ts  # Compatibility barrel for split management contracts
-├── management-settings.ts    # Audit, retention, and configuration policy settings
-├── audit-logs.ts              # Requests/Audit log and coverage contracts
-├── retention-jobs.ts          # Retention preflight, job, and impact contracts
-├── currency-migration.ts      # Costing and currency migration contracts
-├── loadbalance.ts
-├── model-catalog.ts        # models.dev catalog metadata, CAS requests, candidates snapshot evidence
-├── model-export.ts         # Pi-only export/bind/search/refresh/override + single-model Pi read contracts
-├── model-stats.ts
-├── request-logs.ts       # Requests/Audit request-log contracts; BIGINT/micros are JSON numbers
-├── routing.ts
-├── routing-diagnostics.ts   # Static routing-diagnostics types; the backend analyzer is authoritative
-├── setup.ts                 # Readiness axes, route-witness refs, model entity refs
-├── target-compatibility.ts
-├── usage-statistics.ts
-└── vendor.ts
-```
-
-## WHERE TO LOOK
-
-- Public barrel: `../types.ts`
-- `model-export.ts` mirrors `backend/internal/httpapi/management/models/{export_pi_types,export_pi_binding_types,pi_catalog_types}.go`: every Pi wire type (source/render, bind/search/refresh/override, single-model read) is exported from here, and feature code imports it via `@/lib/types` — never from `@/lib/api/modelExport` and never from a feature-local barrel. The models.dev and pi.dev contracts stay in separate modules and are never merged into one weak union.
-- Auth/session surfaces: `auth.ts`
-- Terminal Target, routing, vendor, and model stats contracts: `target-compatibility.ts`, `routing.ts`, `vendor.ts`, `model-stats.ts`
-- `model-stats.ts` mirrors the composite three-scope model-metrics response, including caliber, samples, nullable trusted cost, and dataset coverage.
-- `JsonValue`/`JsonObject` and the `custom_request_parameters` field on `Connection`, `ConnectionCreate`, `ConnectionUpdate`, and their aliases: `routing.ts`
-- Usage, analytics, and proxy-key stats payloads: `usage-statistics.ts`
-- Ban Policy and load-balance payloads: `loadbalance.ts`
-- Management settings contracts: `management-settings.ts`
-- Audit log and coverage contracts: `audit-logs.ts`
-- Request-log wire identities use `ingress_model_id`, `attempt_target_model_id`, and finalized `final_target_model_id`; do not restore ambiguous `model_id`/`resolved_target_model_id` aliases. Pricing filters include independent `pricing_card_role` and `pricing_selection_state`.
-- Retention job and impact contracts: `retention-jobs.ts`
-- Costing and currency migration contracts: `currency-migration.ts`; currency drafts/previews carry `template_kind` and complete role-keyed `cards`, never a projected base/offpeak scalar.
-- Compatibility import barrel: `config-audit-settings.ts`
-
-## CONVENTIONS
-
-- Keep server field names exactly as JSON uses them: snake_case stays snake_case.
-- Route-witness coverage is lowercase and retains `route_schedule`; model list contracts retain authoritative `routing_summary`. Family-discriminated create types prohibit OpenAI-only keys for non-OpenAI families.
-- Model management contracts carry required `direct_request_enabled`, `incoming_model_target_count`, and `configuration_warnings`; the direct bit is the only client-entry qualification while Model Target summaries remain full graph nodes.
-- Preserve nullable versus optional semantics from backend responses; do not collapse `null`, missing, and empty values.
-- Add new contract fields in the narrow leaf file and re-export only through `../types.ts`; request-log list, chain, detail, filter, and query types stay together in `request-logs.ts`.
-- Keep frontend-only display labels, derived state, and form drafts outside this directory.
-- Cross-check backend structs, migrations, and API docs when changing a type used by request-log/statistics flows. Request-log pricing evidence keeps `pricing_selection_state` and `pricing_card_role` as separate nullable fields, and peak schedule evidence is nullable independently.
-
-## ANTI-PATTERNS
-
-- Do not camelCase backend payloads in this layer.
-- Do not put Zod/form validation schemas or UI helper types here unless they are true backend contract mirrors.
-- Do not split one backend response family across unrelated type files.
+Cross-check affected backend structs and contract tests when changing these types; do not repair a mismatch by inventing frontend aliases.

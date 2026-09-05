@@ -1,56 +1,8 @@
-# FRONTEND PAGES KNOWLEDGE BASE
+# Page domains
 
-## OVERVIEW
-`src/pages/` holds auth pages plus oracle-compatible route-domain clusters still referenced by the feature-owned rewrite routes and tests. New protected route mounts live under `src/features/` and `src/app/router/`.
+`../features/` mounts protected routes; this directory contains active page components and reusable domain helpers. Preserve that import boundary when changing an existing surface rather than assuming these files are obsolete.
 
-## ROUTE SURFACE
-- Public auth route: `/auth/login`
-- Protected rewrite routes: `/observe`, `/observe/requests`, `/observe/requests/:requestId/audit`, `/models`, `/models/:id`, `/route/endpoints`, `/route/ban-policies`, `/route/pricing`, `/system/settings`, `/system/proxy-keys`
-- Root redirect: `/` -> `/observe`
-
-## DOMAINS
-- Auth entry: `LoginPage.tsx`
-- Feature oracle clusters: model detail, endpoints, models, pricing templates, request logs, and settings helpers still imported by current rewrite feature modules or contract tests. The dashboard and statistics clusters were deleted; `../features/observe/` owns those surfaces now.
-- Settings shell oracle: `SettingsPage.tsx` with visible Global and Instance tabs, plus `settings/sections/`, `settings/dialogs/`, and `settings/costing/`.
-
-## WHERE TO LOOK
-- Mounted rewrite route list, public auth split, and protected shell boundary: `../app/router/appRouter.tsx`, `../App.tsx`
-- Model detail, request logs, and settings leaf maps: `model-detail/AGENTS.md`, `request-logs/AGENTS.md`, `settings/AGENTS.md`
-- Dashboard and analytics surfaces are not here; they live in `../features/observe/` under `../features/AGENTS.md`
-- Active feature-route ownership and leaves: `../features/AGENTS.md`
-- Settings nested ownership split: `settings/sections/AGENTS.md`, `settings/sections/authentication/AGENTS.md`, `settings/sections/billing-currency/AGENTS.md`, `settings/dialogs/AGENTS.md`, `settings/costing/AGENTS.md`
-
-## CHILD DOCS
-- `endpoints/AGENTS.md`
-- `loadbalance-strategies/AGENTS.md`
-- `model-detail/AGENTS.md`
-- `models/AGENTS.md`
-- `pricing-templates/AGENTS.md`
-- `proxy-api-keys/AGENTS.md`
-- `request-logs/AGENTS.md`
-- `settings/AGENTS.md`
-- `settings/costing/AGENTS.md`
-- `settings/dialogs/AGENTS.md`
-- `settings/sections/AGENTS.md`
-- `settings/sections/authentication/AGENTS.md`
-- `settings/sections/billing-currency/AGENTS.md`
-
-## CONVENTIONS
-- For UI/UX, frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation changes, follow `frontend/DESIGN.md`: use `@/shared/design-system` before `@/components/ui`, preserve the Google Admin Console / Material Design 3 operator direction, use semantic tokens, operator surface classes, density variables, and required operator components, keep route state and API calls out of design-system components, and avoid adding compatibility wrappers under `@/components`.
-- Do not add decorative gradients, blur blobs, heavy shadows, marketing hero layouts, raw Tailwind status colors, page-local color blends, or ad hoc dark-mode overrides outside the `frontend/DESIGN.md` contract.
-
-- For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
-- Keep backend access on the shared frontend API boundary rather than inventing page-local fetch layers.
-- Keep global routes such as `/system/proxy-keys` separate from pinned management state. Treat `/system/settings` as a mixed shell where the visible Global tab contains routing and costing settings while the Instance tab contains authentication and retention.
-- Let route files own bookmarkable query or hash state and the first handoff into local hooks.
-- Parent-cover local route clusters that do not need their own AGENTS file, including dense local helper folders already documented by the page leaves.
-
-- Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
-
-## LLM UPSTREAM MATRIX
-- When work touches LLM upstream request or response logic, evaluate streaming and non-streaming coverage across operation shapes, not just provider families: OpenAI Chat Completions (`/v1/chat/completions`) and Responses (`/v1/responses`), Gemini, and Anthropic.
-
-## ANTI-PATTERNS
-- Do not treat auth pages as protected-shell pages.
-- Do not create extra AGENTS files for local helper clusters already covered by their page parent.
-- Do not bypass the typed REST API boundary when adding page-owned polling or refresh behavior.
+- `LoginPage.tsx` is the public auth entry. It must not acquire protected-shell provider or data dependencies.
+- Model CRUD/mixed target forms belong to [models](models/AGENTS.md); Terminal Target and models.dev helpers belong to [model-detail](model-detail/AGENTS.md). Requests investigation is owned by [request-logs](request-logs/AGENTS.md); Settings shell/resource orchestration is owned by [settings](settings/AGENTS.md).
+- Endpoint, Ban Policy, and proxy-key presentation has local deltas in [endpoints](endpoints/AGENTS.md), [loadbalance-strategies](loadbalance-strategies/AGENTS.md), and [proxy-api-keys](proxy-api-keys/AGENTS.md).
+- `pricing-templates/DeletePricingTemplateDialog.tsx` only renders deletion/conflict state from the pricing feature's usage and deletion owners. Preserve concrete reference evidence and refetch on stale CAS; do not put another collection/mutation owner in that dialog directory.

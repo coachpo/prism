@@ -1,77 +1,16 @@
-# BACKEND KNOWLEDGE BASE
+# Backend Guide
 
-## OVERVIEW
-`backend/` is Prism's monorepo-owned Go backend tree. The live runtime is compiled from `cmd/prism-backend` and owns Prism's management API, operation-registered runtime proxy, platform lifecycle, startup sequencing, SQL migrations, priority isolation, and durable background side effects.
+The Go entrypoint is `cmd/prism-backend/main.go`. Read [internal ownership](internal/AGENTS.md) before implementation changes and [test boundaries](tests/AGENTS.md) before adding regressions. Shared contracts and engineering requirements live in [Architecture](../docs/architecture.md) and [Development Rules](../docs/development-rules.md).
 
-## STRUCTURE
-```text
-backend/
-├── cmd/prism-backend/   # Go process entrypoint
-├── internal/            # Live implementation; `internal/AGENTS.md` routes to every owning package
-├── migrations/          # Fresh-install SQL baseline
-├── testdata/            # Regression fixtures
-├── tests/               # Go regression suites; `tests/AGENTS.md` owns the suite boundaries
-├── go.mod, go.sum
-├── README.md
-└── VERSION              # One of the four version surfaces `../release.sh` keeps aligned
+- Keep SQL schema changes under `migrations/` and apply them through `internal/platform/migrate/`. Baseline/history and migration-specific guards protect retained data; an error asking for a rebuild does not authorize a reset.
+- Keep bootstrap settings separate from PostgreSQL-backed product settings. Bootstrap ownership is [platform/config](internal/platform/config/AGENTS.md); startup sequencing is [platform/startup](internal/platform/startup/AGENTS.md).
+- Use `internal/providerauth/` for API-family and native capability rules; external catalog metadata must not decide runtime compatibility.
+- Changes to upstream request/response behavior need both package-local runtime/provider checks and the operation-shaped external runtime suite, including streaming and non-streaming paths.
+
+Run from `backend/`; these commands match the root CI workflow:
+
+```bash
+go test ./internal/... ./cmd/...
+go test -timeout 30m ./internal/platform/lifecycle ./tests/contract ./tests/integration ./tests/runtime ./tests/priority/...
+go build ./cmd/prism-backend
 ```
-
-## CHILD DOCS
-- `internal/AGENTS.md`: source tree router for platform, domain, gateway, HTTP API, and small compatibility packages.
-- `internal/platform/AGENTS.md`: lifecycle, startup config runtime, DB lanes, scheduler, migrations, log retention, and side effects.
-- `internal/domain/AGENTS.md`: audit, loadbalance runtime state, model routing, stats snapshots, and terminal-target helpers.
-- `internal/gateway/AGENTS.md`: preserved gateway contracts, hooks, records, adapters, routing, reservations, and accounting.
-- `internal/httpapi/AGENTS.md`: mounted management, runtime, proxy-key usage, retention jobs, and request context.
-- `internal/httpapi/runtime/AGENTS.md`: operation registry, hook residency, telemetry/feedback, and partitions.
-- `internal/httpapi/management/AGENTS.md`: `/api/*` management fanout, pinned Default-profile conventions, shared response helpers, and leaf-doc routing.
-- `internal/httpapi/management/*/AGENTS.md`: auth, routing config, endpoints, models, settings, stats, audit.
-- `tests/AGENTS.md`: Go regression boundaries for route matrix, rejected routes, bootstrap config, Dockerfile, and pool priority.
-
-## RUNTIME FACTS
-- `cmd/prism-backend/main.go` starts the backend and reseeds bootstrap files still carrying retired `docsEnabled`.
-- `internal/platform/` owns lifecycle assembly, startup/migrations, startup config runtime, DB lanes, scheduler, retention, and side-effect workers.
-- `internal/platform/http/server.go` mounts `/health`, `/api`, `/v1`, and `/v1beta`; exact runtime operations are allowlisted later by `internal/httpapi/runtime/operations.go`.
-- `internal/platform/config/` owns the plaintext bootstrap contract; steady-state startup settings live there, while `PRISM_CONFIG_PATH` and optional `DATABASE_URL` remain bootstrap-only env exceptions.
-- `internal/httpapi/management/` fans out into auth, configrules, connections, endpoints, loadbalance, models, settings, stats, and audit.
-- `internal/httpapi/runtime/` owns operation-registered ingress, model binding, hooks, telemetry outbox enqueue, request logging, `operation_name`, flat final-target attribution, and partition ensuring.
-- Stats and request-log ownership includes endpoint label snapshots, caller-only `client_rule_id` filtering, and final-target `resolved_target_model_id` filtering.
-- `internal/gateway/` owns provider-agnostic gateway contracts used by runtime execution: hook phases, envelopes, operation records, adapters, route planning, and reservations.
-- The root `../Dockerfile` builds the backend and React dashboard into one app image, copies migrations, runs as `prism:prism` (`1000:1000`), and defaults `PRISM_CONFIG_PATH` to `/app/config/config.json`; the root `.dockerignore` controls the image build contents.
-- Bootstrap config v1 is plaintext and file-backed with backend-owned fresh defaults; valid existing files are preserved until manual reset. Mail bootstrap fields parse for old `config.json` compatibility only; delivery behavior is removed.
-
-## WHERE TO LOOK
-- Process entrypoint and startup flow: `cmd/prism-backend/main.go`, `internal/AGENTS.md`, `internal/platform/AGENTS.md`, `internal/platform/migrate/`
-- Gateway and runtime contracts: `internal/gateway/AGENTS.md`, `internal/httpapi/runtime/AGENTS.md`, `internal/httpapi/runtime/operations.go`
-- HTTP mounting, management fanout, and request context: `internal/httpapi/AGENTS.md`, `internal/httpapi/management/AGENTS.md`, `internal/httpapi/management/*/AGENTS.md`
-- Stats, audit, loadbalance, transactions, partitions, and schema: `internal/domain/`, `internal/pgxutil/tx.go`, `migrations/`, `internal/platform/logretention/`
-- Typed pricing-card and peak/valley window schema and its fresh-only rebuild guard: `migrations/000023_pricing_template_kind_cards.sql`
-- Container and regression boundaries: `../Dockerfile`, `tests/integration/dockerfile_contract_test.go`, `tests/AGENTS.md`, `tests/`
-
-## CONVENTIONS
-- Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `frontend/DESIGN.md`; keep backend docs focused on the Go runtime contract instead of repeating design-system rules.
-- For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
-- Keep backend docs focused on the live Go runtime.
-- Keep SQL migrations under `migrations/` as the live schema source of truth for startup.
-- Keep the runtime contract operation-registered. `internal/httpapi/runtime/operations.go` is the source of truth for supported method/path pairs, hook collections, and model-binding rules.
-- Keep `api_family` as runtime compatibility truth. No catalog metadata participates in runtime compatibility.
-- Keep bootstrap config separate from PostgreSQL-backed profile settings.
-- Keep request-path side effects on durable outboxes, scheduler-owned workers, or after-commit wakeups; do not put provider sends, cache invalidations, or dashboard materialization inline.
-- Keep database pool lane ownership explicit. Background, telemetry, feedback, management, cache refresh, and runtime execution lanes are separate capacity budgets.
-- Keep partitioned log tables under `internal/platform/logretention/` and runtime partition ensuring; managed tables are `request_logs`, `audit_logs`, `usage_request_events`, and `loadbalance_events`.
-- Keep the single-image container execution non-root with writable config ownership under `/app/config`; update `tests/integration/dockerfile_contract_test.go` when changing that contract.
-- Keep implementation detail in the Go ownership tree instead of inventing alternate runtime surfaces.
-
-- Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
-
-## LLM UPSTREAM MATRIX
-- When work touches LLM upstream request or response logic, evaluate streaming and non-streaming coverage across operation shapes, not just provider families: OpenAI Chat Completions (`/v1/chat/completions`) and Responses (`/v1/responses`), Gemini, and Anthropic.
-
-## ANTI-PATTERNS
-- Do not describe Prism as a mixed-runtime backend.
-- Do not point readers to retired backend runtime surfaces as current implementation paths.
-- Do not invent unsupported providers, routes, or CI jobs.
-- Do not describe mounted `/v1` and `/v1beta` prefixes as broad passthrough runtime support; the runtime allowlist lives in `internal/httpapi/runtime/operations.go`.
-- Do not describe bootstrap file edits as hot-applied or publishable; external `config.json` edits require a restart after R2.
-- Do not bypass `internal/platform/logretention/` with ad hoc log cleanup, retention SQL, or partition creation outside runtime partition ensuring.
-- Do not change container bootstrap defaults or writable ownership contracts without updating Dockerfile tests and docs.
-- Do not reintroduce SMTP delivery behavior behind parse-compatible mail bootstrap fields.

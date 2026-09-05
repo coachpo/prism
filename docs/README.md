@@ -1,31 +1,29 @@
 # Documentation Index
 
-Routing page for the Prism documentation set, maintained in English.
+The canonical Prism documentation is maintained in English. Each fact or policy has one authority; specialized documents retain their distinct purpose.
 
-## Canonical Documents and Authority
+## Canonical Documents
 
-| Path | Authoritative scope |
+| Document | Authority |
 | --- | --- |
-| [README.md](../README.md) | Project entry, installation, ordinary startup, derived status summary, and links. |
-| [STATUS.md](../STATUS.md) | Lifecycle, deployment, users, data, and compatibility policy; the authoritative status facts. |
-| [CONTRIBUTING.md](../CONTRIBUTING.md) | Development environment, local startup, tests, checks, builds, development workflow, and the shared design and implementation principles plus the Definition of Done. |
-| [product.md](product.md) | Product problems, target users, goals, scope, flows, requirements, and acceptance facts (includes the merged requests-page specification and workflows reference). |
-| [architecture.md](architecture.md) | Current architecture, components and responsibilities, data lifecycle, dependency direction, interfaces, security boundaries, local run model, quality attributes, risks, and the merged API reference and data model reference. |
-| [development-rules.md](development-rules.md) | Project-specific code style, review, and technical implementation rules; links the shared rules in `CONTRIBUTING.md`. |
-| [source-code-size-and-responsibility-rules.md](source-code-size-and-responsibility-rules.md) | The unified, project-agnostic source size and responsibility policy; a standalone authoritative document. |
+| [README.md](../README.md) | Project entry, installation, ordinary startup, and a derived status summary. |
+| [STATUS.md](../STATUS.md) | Required development tier, lifecycle, deployments, users, retained data, compatibility, and allowed/prohibited changes. |
+| [CONTRIBUTING.md](../CONTRIBUTING.md) | Development setup, commands, workflow, the static strategy selected by STATUS, shared principles, and definition of done. The strategy is an execution default, not a source of deployment or data facts. |
+| [product.md](product.md) | Product scope, users, flows, requirements, acceptance, Requests specification (§8), and workflows (§9). |
+| [architecture.md](architecture.md) | Current components, dependencies, data lifecycle, runtime boundaries, API reference (§14), data model (§15), and engineering invariants (§16). |
+| [development-rules.md](development-rules.md) | Project-specific technical, implementation, and test ownership rules. |
+| [source-code-size-and-responsibility-rules.md](source-code-size-and-responsibility-rules.md) | Shared source responsibility and size policy, rendered from the documentation skill's asset. |
 
-## Operator Runbooks
+## Specialized Documents
 
-- [Direct-request entry reclassification](operations/direct-request-entry-reclassification.md): the maintained 12-entry/four-mapping operator procedure, with its versioned SQL under `../scripts/operations/` and disposable integration acceptance.
+- [Frontend design system](../frontend/DESIGN.md): UI/UX authority, semantic tokens, operator components, density, accessibility, and honest evidence presentation.
+- [Direct-entry reclassification runbook](operations/direct-request-entry-reclassification.md): the operator-invoked 12-entry/four-mapping procedure, hash-bound to [versioned SQL](../scripts/operations/direct-request-entry-reclassification.sql) and its [disposable acceptance test](../backend/tests/integration/direct_request_entry_reclassification_plan_test.go).
+- [Prism operations inspection](../.agents/skills/prism-ops-inspect/SKILL.md): read-only repository and deployment snapshot procedure with the deployment adapter and evidence contract.
+- [Prism backup and restore](../.agents/skills/prism-backup-restore/SKILL.md): backup creation, validation, retention, and recovery procedures.
+- [Prism release and deploy](../.agents/skills/prism-release-deploy/SKILL.md): explicitly authorized release and staged rollout procedure, with immutable image and recovery evidence.
 
-## How the Pieces Fit
+These operator skills retain their own references and scripts; they are executable workflows, not competing product or architecture documents. Active plans and observation artifacts belong under ignored `artifacts/plans/` and `artifacts/evidence/`.
 
-- `CONTRIBUTING.md` is the entry point for development workflow, shared principles, and the Definition of Done.
-- `development-rules.md` is the authority for project- and technology-specific implementation rules.
-- `source-code-size-and-responsibility-rules.md` is the standalone size and responsibility policy; it is linked, not copied.
-- The architecture document carries the merged API reference (section 14) and data model reference (section 15); the product document carries the merged requests-page specification (section 8) and workflows reference (section 9).
-- OpenAI text contract (native operation-set coverage, structured Partial/None warnings, runtime `openai_operation_not_supported`/`openai_no_compatible_terminal_target`/`openai_no_eligible_terminal_target` planning codes, and no Chat/Responses translation) lives in `architecture.md` §2.2B/§15 and `product.md` §4.2/§9; instance-specific upgrade plans and backup-before-fix execution records are kept under `../artifacts/plans/` and `../artifacts/evidence/`.
+## Agent Guidance
 
-## Instruction Files
-
-- [AGENTS.md](AGENTS.md) is the docs-directory instruction file: it owns the doc ownership map and the local artifact handoff rules (`../artifacts/plans/`, `../artifacts/evidence/`).
+[Root AGENTS.md](../AGENTS.md) routes engineering work to the [backend](../backend/AGENTS.md), [frontend](../frontend/AGENTS.md), and [documentation](AGENTS.md) guidance. Nested guides contain local responsibilities and constraints; canonical documents own the shared project facts.

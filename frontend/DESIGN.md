@@ -1,5 +1,7 @@
 # Prism Design System
 
+This is the binding UI design contract. Component and route references identify the current implementation owners. The requirements below remain binding where an existing implementation differs.
+
 Prism uses a two-layer UI system:
 
 - `src/components/ui`: shadcn/ui primitives checked into the repo. Keep this folder primitive-only.
@@ -60,7 +62,7 @@ The product name supplies the concept. A prism splits one incident beam into a s
 
 ## Tokens
 
-Tokens live in `src/index.css` and are described by `operatorTokenContract` in `src/shared/design-system/foundation.ts`. Both must be migrated to the set below.
+Tokens live in [`src/index.css`](src/index.css) and are declared by `operatorColorTokens` in [`src/shared/design-system/foundation.ts`](src/shared/design-system/foundation.ts). The values below are implemented in both light and dark themes. [`tests/lib/design_token_contract.test.mjs`](tests/lib/design_token_contract.test.mjs) checks token presence, exact values, shadcn aliases, contrast, spectrum separation, density variables, and status markers.
 
 ### Primary
 
@@ -71,9 +73,9 @@ Tokens live in `src/index.css` and are described by `operatorTokenContract` in `
 | `primary-soft` | `#E4EBFF` | `#1B2E63` |
 | `on-primary-soft` | `#123A9E` | `#CFDDFF` |
 
-### Surfaces — three tiers, not four
+### Surfaces — three tiers plus an inset
 
-The current `surface-container-low / container / container-high` ladder is too low-contrast to read as separate surfaces, so card boundaries have to be guessed. Collapse to three tiers and express layering with a 1px outline. Dark mode makes shadows nearly invisible, so shadow can never be the only layering device.
+`canvas`, `panel`, and `raised` form the surface tiers; `inset` marks contained sub-blocks. Express layering with a 1px outline. Dark mode makes shadows nearly invisible, so shadow can never be the only layering device.
 
 | Role | Light | Dark | Use |
 | --- | --- | --- | --- |
@@ -96,7 +98,7 @@ A third grey is exactly the grey noise this system removes, and it necessarily f
 
 ### Runtime status — four tiers
 
-This replaces `success / healthy / warning / downgrade / info / unhealthy`. In that set `success` duplicated `healthy`, `warning` duplicated `downgrade`, and `unhealthy` was conflated with `destructive`. The four tiers below are mutually exclusive.
+`operatorStatusTiers` declares the four mutually exclusive tiers below. Notice severity is a separate axis: `OperatorCallout` uses `info`, `success`, `warning`, `danger`, or `muted`; those intents do not add runtime status tiers.
 
 | Tier | Meaning | Light | Dark | Shape |
 | --- | --- | --- | --- | --- |
@@ -126,7 +128,7 @@ Separation is measured perceptually, not by hue angle: every adjacent pair clear
 
 ### Measured contrast
 
-Every value above was computed against its own `panel` using the WCAG 2.1 relative-luminance formula. Three draft values failed and were replaced: `degraded` from `#B26A00` (4.24), `idle` from `#7A8494` (3.78), and the third text grey from `#8A93A1` (3.10), which could not be darkened without collapsing into `text-muted` and was therefore demoted to decoration only.
+The foreground values below are measured against their theme's `panel` using the WCAG 2.1 relative-luminance formula. `text-disabled` is excluded from informative text: its light-theme contrast is 3.10:1, below the 4.5:1 text requirement.
 
 | Token | Light | Dark |
 | --- | --- | --- |
@@ -139,7 +141,7 @@ Every value above was computed against its own `panel` using the WCAG 2.1 relati
 | `idle` | 4.92 | 5.58 |
 | Spectrum 1–6 | 4.83 – 6.63 | > 7 |
 
-**Recompute this table when adding or changing any color. Never approve a color by eye.** The pre-redesign tokens shipped light-theme `warning` text at 1.81:1 and a focus ring at 2.34:1, which is how this rule earned its place.
+**Recompute this table when adding or changing any color. Never approve a color by eye.** Update the CSS and `operatorColorTokens` together and run `pnpm run test:lib` from `frontend/`.
 
 ### Other token rules
 
@@ -176,7 +178,7 @@ Mono is **mandatory** for metrics, identifiers (model ids, endpoint hosts, reque
 
 ## Density And Scale
 
-4px base grid. Radius drops from a 12px base to **8px** — large radii make adjacent cards read as loose in a dense console.
+4px base grid with an **8px** card radius — large radii make adjacent cards read as loose in a dense console.
 
 | Token | Value |
 | --- | --- |
@@ -186,7 +188,7 @@ Mono is **mandatory** for metrics, identifiers (model ids, endpoint hosts, reque
 | Radius: dialog / drawer | 12px |
 | Shadow: overlay | `0 8px 24px -12px rgba(16,22,30,.28)`; dark `0 12px 32px -16px rgba(0,0,0,.6)` |
 
-Two density modes, switchable from the header. `foundation.ts` already declares `compact / balanced / expanded` with no control wired up; expose it for real and keep two modes.
+Two density modes, `standard` and `compact`, are declared in `foundation.ts` and switchable from the header's `DensityToggle`. The shell applies the selection through `data-density` on `<html>` and saves it locally; `standard` is the default.
 
 | Token | Compact | Standard (default) |
 | --- | --- | --- |
@@ -199,34 +201,35 @@ Two density modes, switchable from the header. `foundation.ts` already declares 
 
 ## Navigation And Information Architecture
 
-Four sidebar groups collapse to three so that **path prefix = sidebar group = first breadcrumb segment**. Every existing URL is preserved; migrated paths keep a redirect.
+Three sidebar groups follow **path prefix = sidebar group = first breadcrumb segment**. The shared route metadata in `src/components/layout/app-layout/useShellNavigation.ts` owns sidebar entries and breadcrumbs; `src/app/router/appRouter.tsx` owns mounted routes and redirects.
 
 | Group | Prefix | Pages |
 | --- | --- | --- |
-| 可观测性 | `/observe/*` | 仪表盘, 请求日志, 请求审计, 路由健康 |
-| 路由配置 | `/route/*` | 端点 → 价格模板 → 路由策略 → 模型配置 → 模型配置详情 |
+| 可观测性 | `/observe`, `/observe/*` | 仪表盘, 请求日志, 路由健康; 请求审计 is a request detail route |
+| 路由配置 | `/route/*` | 端点 → 价格模板 → 路由策略 → 模型配置; 模型配置详情 and 导出客户端配置 are child routes |
 | 系统 | `/system/*` | 设置, 代理密钥 |
 
-Two structural moves:
+Route relationships:
 
-- **Routing health is promoted out of the dashboard tab** to `/observe/routing-health`. It is a triage entry point and must not be buried in a tab.
-- **Models moves from bare `/models` into `/route/models`** (old path redirects), so the configuration chain reads down the sidebar in real dependency order. Configuring top to bottom is itself the guided path.
+- **Routing health has its own sidebar entry** at `/observe/routing-health`. It is a triage entry point and must not be buried in a tab. The former `/observe?tab=events` entry redirects with the routing-health window and filters.
+- **Model configuration lives at `/route/models`**. `/models` and `/models/:modelId` redirect to the corresponding route under `/route/models`, so the configuration chain reads down the sidebar in dependency order. Configuring top to bottom is itself the guided path.
+- **Request audit is a detail page** at `/observe/requests/:requestId/audit`; it keeps 请求日志 active in the sidebar. Model detail and export similarly keep 模型配置 active.
 
 Shell:
 
-- Sidebar 240px, `panel` ground, 1px right outline. Group labels 11px `text-muted`. Items 32px tall, 6px radius, 16px icon plus 13px label. Active item: `primary-soft` ground, `on-primary-soft` text, 2px primary bar on the left edge — not a solid blue reverse fill. Collapses to a 56px icon rail, not off-canvas. Render the eight icons already declared in `useShellNavigation.ts`.
-- Header 48px, `panel` ground, 1px bottom outline. Breadcrumb on the left at 12px. Right side: global search, density toggle, theme toggle, account menu. Theme and account move up from the sidebar footer.
+- Desktop sidebar 240px, `panel` ground, 1px right outline. Group labels 11px `text-muted`. Items 32px tall, 6px radius, 16px icon plus 13px label. Active item: `primary-soft` ground, `on-primary-soft` text, 2px primary bar on the left edge — not a solid blue reverse fill. Collapses to a 56px icon rail, not off-canvas. Render each entry's icon from `useShellNavigation.ts`. Below the 1024px desktop breakpoint, the shared sidebar primitive uses a sheet and closes it after navigation.
+- Header 48px, `panel` ground, 1px bottom outline. Breadcrumb on the left at 12px. Right side: global search, density toggle, theme toggle, account menu. Theme and account controls belong in the header.
 - Breadcrumbs are fixed at **group › page › entity**. A detail page leaf must be the entity name, not a generic word: `路由配置 › 模型配置 › GPT-4o Mini 主线`, never `模型配置 › 配置`.
 
 ### Freshness Bar
 
-Every page carrying a time window shows a 32px row directly under the page header:
+Every page carrying a time window must show `OperatorFreshnessBar` directly under the page header, with a 32px minimum height and wrapping when needed:
 
 ```
-上次更新于 14:32:07 (UTC+8)   ·   自动刷新 30 秒 ▾   ·   ⟳ 刷新        [◐ 缓存滞后 8.2s]
+上次更新于 14:32:07 (UTC+8)   ·   ⟳ 刷新   ·   口径：24h 窗口        [◐ 缓存滞后 8.2s]
 ```
 
-Update time and auto-refresh on the left; staleness and lag badges on the right, present only when abnormal. This is how the Honesty Contract's "when is this from" requirement is discharged.
+Update time, refresh controls, and window basis sit on the left; staleness and lag badges sit on the right, present only when abnormal. Show the optional auto-refresh selector only when the owning page supplies a functioning refresh schedule; the current Observe page refreshes on entry, URL changes, or explicit action. This is how the Honesty Contract's "when is this from" requirement is discharged.
 
 ## Layout Rules
 
@@ -321,13 +324,13 @@ The flow is:
 Current adopters, and what each one contributes:
 
 - Batch retention cleanup (`src/pages/settings/dialogs/DeleteConfirmDialog.tsx`): retention preflight with matched/retained row counts, non-cascade notes and warnings, plus the typed confirmation phrase.
-- Endpoint delete (`src/pages/endpoints/DeleteEndpointDialog.tsx`): asynchronous preflight state machine (`checking` → `eligible` / `blocked` / `integrity_error`) with a paginated reference list; the confirm action is hidden while blocked.
+- Endpoint delete (`src/pages/endpoints/DeleteEndpointDialog.tsx`): asynchronous preflight state machine (`checking` → `eligible` / `blocked` / `check_error` / `integrity_error`) with a paginated reference list and retry for failed checks; the confirm action is hidden while blocked.
 - Pricing template delete (`src/pages/pricing-templates/DeletePricingTemplateDialog.tsx`): terminal-target usage preflight, dependency table, and server conflict rows folded into the same blocked view.
 - Loadbalance strategy delete (`src/pages/loadbalance-strategies/DeleteLoadbalanceStrategyDialog.tsx`): attached-model and default-strategy blocks.
 - Proxy API key delete (`src/pages/proxy-api-keys/ProxyKeyDeleteAlertDialog.tsx`): no reference relationship, so impact summary only, with traffic-interruption and successor-key warnings.
 - Model delete (`src/pages/models/DeleteModelDialog.tsx`): impact summary with API family and access-target count.
 
-Confirm buttons name the action (`删除端点`), never `确认`. A blocked delete keeps its button clickable and explains the block inside the dialog; silent disabling without a reason is not acceptable.
+Confirm buttons name the action (`删除端点`), never `确认`. The entry point that opens a blocked-delete dialog stays clickable so the operator can inspect the reason; the dialog's confirm action remains disabled or hidden. Silent disabling without a reason is not acceptable.
 
 ## Status And Feedback
 

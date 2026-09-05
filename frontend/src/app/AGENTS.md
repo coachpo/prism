@@ -1,37 +1,10 @@
-# FRONTEND APP KNOWLEDGE BASE
+# Application wiring
 
-## OVERVIEW
-`frontend/src/app/` owns the browser application shell wiring that sits above route features: TanStack router construction, auth/public gates, provider-safe route suspense, rewrite route metadata, and shared QueryClient defaults.
+- Keep `router/appRouter.tsx` and `router/rewriteRoutes.ts` aligned for mounted routes, search schemas, and scope metadata. Protected routes mount `ReportingCurrencyProvider` and the `Page` shell only after auth gating; public login remains outside that shell.
+- Use `router/authGates.ts` for redirects and `router/GlobalAccessLayer.tsx` for blocking auth phases. Preserve return search/hash state instead of redirecting from feature components.
+- `/observe/routing-health` owns routing-health events/current state. The old `/observe?tab=events` link redirects there with its event/runtime filters; dashboard chart parameters are discarded by `pickRoutingHealthSearch`.
+- Model configuration/detail/export use `/route/models`, `/route/models/$modelId`, and `/route/models/export`; `/models` and `/models/$modelId` are redirects. Keep entity remount keyed to `modelId` so drafts cannot survive under a different model URL.
+- Keep feature modules lazy-loaded at this boundary. Resource queries and form state belong to their feature/domain owners.
+- `providers/queryClient.ts` disables query/mutation retries and uses zero query stale time. `forms/rewriteProfileScopeForm.ts` accepts only Default profile id `1`.
 
-## STRUCTURE
-```text
-app/
-├── forms/       # Rewrite-era shared form schemas
-├── providers/   # React Query client factory
-├── router/      # TanStack route tree, auth gates, route ids, search schemas, redirects
-└── index.ts     # Public app-layer exports used by tests and App.tsx
-```
-
-## WHERE TO LOOK
-- Top-level app composition: `../App.tsx`, which creates the router/query client and wraps `RoutedAuthProvider` and `RouterProvider`
-- Current mounted route tree: `router/appRouter.tsx`
-- Static route ids, route scopes, search schemas, and path builders: `router/rewriteRoutes.ts`; the observe schema namespaces `tab=events` into `event_*` / `runtime_*` / `preset` / `from_time` / `to_time` keys that the 路由健康 tab owns and that never leak into overview/analytics APIs
-- Public/protected auth redirect rules and return-state preservation: `router/authGates.ts`
-- React Query defaults for rewrite routes and tests: `providers/queryClient.ts`
-- Frozen Default-profile scope form schema and options: `forms/rewriteProfileScopeForm.ts` (`profileId: 1` only)
-- Route contract tests and rewrite harness coverage: `../test/route-helpers.test.ts`, `../test/rewrite-harness.test.tsx`, `../../tests/lib/profile_scope_header_contract.test.mjs`
-
-## CONVENTIONS
-- For UI/UX, frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation changes, follow `frontend/DESIGN.md`: use `@/shared/design-system` before `@/components/ui`, preserve the Google Admin Console / Material Design 3 operator direction, use semantic tokens, operator surface classes, density variables, and required operator components, keep route state and API calls out of design-system components, and avoid adding compatibility wrappers under `@/components`.
-- Do not add decorative gradients, blur blobs, heavy shadows, marketing hero layouts, raw Tailwind status colors, page-local color blends, or ad hoc dark-mode overrides outside the `frontend/DESIGN.md` contract.
-- Treat `router/appRouter.tsx` and `router/rewriteRoutes.ts` as the route source of truth; frontend docs should not invent routes outside those files.
-- Keep public auth routes under `/auth/*`.
-- Keep protected route wrappers responsible for auth gating plus `ReportingCurrencyProvider` and `Page` shell handoff.
-- Keep feature route modules lazy-loaded from `../features/` and legacy/oracle page clusters behind those features where still needed.
-- Keep query defaults deterministic for tests: no React Query retries and zero stale time unless this factory changes intentionally.
-
-## ANTI-PATTERNS
-- Do not put feature data fetching or UI state in `src/app/`; route modules own first handoff, and shared API/cache helpers live in `src/lib` or `src/shared`.
-- Do not add deprecated compatibility routes back without updating route tests and frontend docs.
-- Do not reintroduce arbitrary profile-scoped rewrite form contracts; `rewriteProfileScopeForm.ts` stays pinned to Default id `1`.
-- Do not bypass the auth gate helpers with ad hoc redirect code in feature pages.
+Route/gate behavior is covered by `../test/route-helpers.test.ts`, `../test/rewrite-harness.test.tsx`, and `../../tests/lib/profile_scope_header_contract.test.mjs`.

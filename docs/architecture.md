@@ -4,7 +4,7 @@
 
 Client (5173) → Prism (Management APIs + Proxy Engine → PostgreSQL) → Providers (OpenAI / Anthropic / Gemini)
 
-*Local `./start.sh` keeps frontend `5173` and PostgreSQL `15432` fixed, and follows the selected bootstrap file's backend port. Freshly seeded repo-local bootstrap files use backend port `8000`. Standalone frontend containers commonly expose `3000`.*
+*Local `./start.sh` keeps frontend `5173` and PostgreSQL `15432` fixed, and follows the selected bootstrap file's backend port. Freshly seeded repo-local bootstrap files use backend port `8000`. The root container bundle publishes the combined app through Nginx on `8080` by default.*
 
 Maintained operator SQL lives in root `scripts/operations/`, with companion runbooks in `docs/operations/` and acceptance tests in `backend/tests/integration/`. These scripts run only through explicit operator invocation; startup migrations remain owned by `backend/migrations/`. Local plans and execution evidence stay under ignored `artifacts/`.
 
@@ -41,11 +41,9 @@ backend/
 │   │   └── version/            # VERSION loader
 │   ├── endpointdomain/         # endpoint and connection helpers
 │   ├── profiledomain/          # Default profile helpers and frozen runtime snapshot loading
-├── migrations/                 # Fresh-install SQL baseline applied at startup
+├── migrations/                 # Baseline plus ordered upgrade migrations applied at startup
 ├── testdata/                   # request and bootstrap fixtures
 ├── tests/                      # Go contract, integration, and runtime regressions
-├── Dockerfile                  # live Go backend image build
-├── docker-compose.yml          # local PostgreSQL helper on host port 15432
 └── VERSION                     # backend version surface
 ```
 
@@ -102,26 +100,24 @@ frontend/
 - Prism is a monorepo: `backend/` and `frontend/` are root-owned directories that share the root launcher, release helper, and CI wiring.
 - Root local orchestration lives in `start.sh`. It first validates `full|headless`, then loads the root `.env` only for variables absent from the invoking shell. Shell-provided values therefore take precedence over `.env`; the script restores its original `PATH` after loading the file.
 - The launcher then checks required tools, resolves and exports `PRISM_CONFIG_PATH` (defaulting to repo-local `config.json`) and its local `DATABASE_URL` (`localhost:15432`), builds `backend/prism-backend`, seeds a missing bootstrap file, and validates the selected bootstrap file against the local launcher contract.
-- Only after that validation does it bring down the helper compose project, reclaim Prism's backend/frontend ports, verify PostgreSQL port availability, start and wait for the PostgreSQL service from `backend/docker-compose.yml`, start the backend, and finally start Vite for `full` mode. The backend follows `server.port` in the selected bootstrap file; fresh local seeds use `8000`. PostgreSQL and Vite remain fixed at `15432` and `5173`.
+- Only after that validation does it bring down the helper compose project, reclaim Prism's backend/frontend ports, verify PostgreSQL port availability, start and wait for the PostgreSQL service from root `docker-compose.yml`, start the backend, and finally start Vite for `full` mode. The backend follows `server.port` in the selected bootstrap file; fresh local seeds use `8000`. PostgreSQL and Vite remain fixed at `15432` and `5173`.
 - `./start.sh full` launches the frontend on `5173`, unsets `VITE_API_BASE`, and enables a launcher-local Vite proxy via `PRISM_VITE_PROXY_ENABLED=1` plus `PRISM_VITE_PROXY_TARGET` pointed at that effective backend port so browser traffic stays same-origin.
-- Canonical startup config lives in a plaintext bootstrap JSON selected by `PRISM_CONFIG_PATH`; backend-native fresh seeds default the database URL to `postgres://prism:prism@localhost:5432/prism?sslmode=disable` unless `DATABASE_URL` is set, while `start.sh` sets `DATABASE_URL` to the local launcher PostgreSQL DSN on host port `15432` before seeding.
-- The root `Dockerfile` plus root `docker-compose.yml` are the default local/self-hosted bundle: Compose builds one Prism app image, runs PostgreSQL as a separate service, and the app image runs the Go backend behind Nginx with optional React assets. `backend/Dockerfile` is the separate backend-only image path used by backend image builds and GHCR workflows. Nginx's `PRISM_BACKEND_UPSTREAM_PORT` is a static environment substitution; it is not derived from the bootstrap file. Any container deployment that changes bootstrap `server.port` must set `PRISM_BACKEND_UPSTREAM_PORT` to the same port.
-- The root app image and backend-only image run as `prism:prism`, UID/GID `1000:1000`. Container deployments that bind mount `/app/config` or any other `PRISM_CONFIG_PATH` parent must make that host directory writable by UID/GID `1000:1000`; new and existing root-owned mounts should be prepared once with `sudo chown -R 1000:1000 <prism-config-dir>` and `sudo chmod 0700 <prism-config-dir>`.
+- Canonical startup config lives in a plaintext bootstrap JSON selected by `PRISM_CONFIG_PATH`; backend-native fresh seeds use listener `0.0.0.0:8000`, localhost/127.0.0.1 CORS origins on `5173`, and `runtime.sideEffects.attemptTimeout="10s"`; the database URL defaults to `postgres://prism:prism@localhost:5432/prism?sslmode=disable` unless `DATABASE_URL` is set, while `start.sh` sets `DATABASE_URL` to the local launcher PostgreSQL DSN on host port `15432` before seeding.
+- The root `Dockerfile` plus root `docker-compose.yml` are the default local/self-hosted bundle: Compose builds one Prism app image, runs PostgreSQL as a separate service, and the app image always includes the Go backend, migrations, version metadata, React assets, and Nginx. Nginx's `PRISM_BACKEND_UPSTREAM_PORT` is a static environment substitution; it is not derived from the bootstrap file. Any container deployment that changes bootstrap `server.port` must set `PRISM_BACKEND_UPSTREAM_PORT` to the same port.
+- The root app image runs as `prism:prism`, UID/GID `1000:1000`. Container deployments that bind mount `/app/config` or any other `PRISM_CONFIG_PATH` parent must make that host directory writable by UID/GID `1000:1000`; new and existing root-owned mounts should be prepared once with `sudo chown -R 1000:1000 <prism-config-dir>` and `sudo chmod 0700 <prism-config-dir>`.
 - Bootstrap JSON is strict v1: `meta.schemaVersion` must be `1`, unknown fields are rejected, and `runtime.sideEffects.attemptTimeout` is a required positive duration. The `runtime.transport` config section was removed outright (no compatibility shell); a leftover `runtime.transport` block is rejected with a readable migration error rather than a bare unknown-field error. Legacy encrypted bootstrap fields (`secretPayload`, `database.urlSecretRef`, and `auth.jwtSigningKeySecretRef`) are rejected rather than migrated at boot. Missing files are seeded once, and the entrypoint has a narrow repair path for stale files rejected only because they contain retired `docsEnabled`; other invalid legacy shapes fail validation.
-- Safe bootstrap snapshots expose non-secret values and secret metadata only. They never return secret material; `runtime.secretEncryptionKey` is preserve-only in v1 and its metadata is not editable through the bootstrap settings surface. File-backed startup edits require a process restart because Prism does not watch external config changes. Existing valid files are preserved until an operator stops Prism, removes or relocates the file, and restarts.
+- Safe bootstrap snapshots expose non-secret values and secret metadata only. They never return secret material; `runtime.secretEncryptionKey` is preserve-only in v1; no management API edits the bootstrap document. File-backed startup edits require a process restart because Prism does not watch external config changes. Existing valid files are preserved until an operator stops Prism, removes or relocates the file, and restarts.
 - `database.pools.realtime`, `auth.resetCodeTtlSeconds`, `runtime.routing.openaiTerminalTranslationMode`, `stateTransfer.bundleEncryptionKey`, `mail`, and `telemetry` remain parse-and-validate compatibility fields for live `config.json` files. They do not restore the removed realtime pool, reset-code TTL override, terminal-translation mode, state transfer, mail delivery, or telemetry exporter processes.
 - The backend does not mount a local `/metrics` scrape endpoint.
 - Request-history APIs and settings-page state flows remain PostgreSQL-backed product state instead of bootstrap telemetry ownership.
 - Disaster recovery is handled outside the dashboard with `pg_dump` plus a copy of the plaintext startup config.
-- `.github/workflows/docker-images.yml` builds the canonical combined app image plus separate backend/frontend compatibility images for `linux/arm64` on `v*` tags and `workflow_dispatch`; tag pushes require a green CI conclusion on the tagged commit, while manual dispatch can build one service directly. `.github/workflows/cleanup.yml` prunes untagged combined-app, backend, and frontend GHCR package versions.
+- `.github/workflows/docker-images.yml` publishes only `ghcr.io/<owner>/<repo>` from the root Dockerfile for `linux/arm64`, using a native ARM64 runner. Tag pushes require a green CI conclusion for the tagged commit; manual dispatch publishes a `manual-<sha>` image, while only release tags move `latest`. `.github/workflows/cleanup.yml` prunes untagged versions of that single package; its safety assumption is the current single-platform manifest with provenance and SBOM manifests disabled.
 
 ### 2.4 Process Lifecycle
 
-The backend process loads the strict bootstrap file, then runs migrations and startup seeds under a 30-second startup timeout. The seed sequence establishes profile invariants, user settings, user-agent client rules, app-auth settings, endpoint-secret normalization, and header-blocklist rules before production services are built.
+The backend process loads the strict bootstrap file, then runs startup under a 30-second timeout. `platform/startup/service.go` orders SQL migrations, pricing-schema transition validation, observability upgrade, the read-only OpenAI text-mode check, and legacy retention cutover before the profile, API-family audit, strategy, user-settings, client-rule, auth, endpoint-secret, and header-blocklist seeds. The Settings finalizer follows those seeds and publishes retention coverage before production services are built. A failed gate prevents the server from starting; the mode check itself is read-only, while earlier migration and upgrade steps may already have written data.
 
 Management ownership follows the resource and lifecycle boundaries: Header Blocklist and User-Agent Client Rules each own their HTTP CRUD, validation, and persistence; Loadbalance observability separates process-local current-state reset/read, signed event query-context and event list/detail reads, incident projection, and query parsing; Audit Settings separates API-family policy/CAS CRUD from storage-summary owner facts. Shared response/decode conversion remains at each management route boundary.
-
-Configuration rules keep Header Blocklist and User-Agent Client Rules as separate resource owners: each has its own HTTP CRUD, validation, and persistence path, while route decode/error conversion remains at the management route boundary. Loadbalance observability keeps process-local current-state reset/read, signed event query-context issuance and validation, event list/detail, incident projection, and query parsing as separate management seams. Audit policy CRUD/CAS and audit storage owner-fact projection are separate settings owners; none of these metadata/read paths changes runtime routing state.
 
 Production construction creates the startup config runtime, opens six isolated PostgreSQL pools, creates the scheduler and durable background services, ensures the log partition horizon before serving traffic, creates the shared planning cache and a fresh process-local runtime-state store, builds management and runtime services, registers workers, assembles the HTTP server, and starts the scheduler before `App.Run` begins serving.
 
@@ -139,7 +135,7 @@ Scheduler lag means background workers are queued, coalesced, delayed, retried, 
 
 Durable outboxes expose failure as queued, retry, sent/succeeded, dead-letter, or permanent-failure state depending on the store. Management mutations place follow-up events in `management_outbox` in the primary transaction and wake the `management_side_effect_outbox` dispatcher after commit; handler failures retry or become visibly permanent failures without rolling back the committed management mutation. Dashboard snapshot invalidation is one such after-commit side effect. Failover incident webhook alerts use `alert_webhook_outbox` and the `alert_webhook_worker`; runtime feedback writes enqueue alert payloads in the same transaction as the loadbalance event, and webhook HTTP POSTs run only in background work.
 
-Runtime telemetry has durable success handoffs, scheduled activity handoffs, and background materialization. Every provider-forwarded successful `2xx` response requires a durable `runtime_telemetry_outbox` row: buffered responses commit a completed envelope before the response is committed, while passthrough SSE and non-SSE responses commit an accepted row before the first flush and finalize that row after response capture completes. Captured non-`2xx` activity, telemetry-eligible target-resolution or native-compatibility planning failures carrying `PlanningFailure`, and `admission_exhausted` execution failures first use a bounded in-memory scheduler side-effect queue, which later attempts durable outbox insertion and can be lost if rejected, terminally failed, or abandoned during shutdown. A worker materializes accepted outbox rows into `request_logs`, `audit_logs`, `usage_request_events`, and proxy-key usage in one transaction before deleting the outbox row. Runtime feedback is separately and intentionally lossy under pressure; queue-full, invalid, closed, or store-failure cases drop feedback with accounting and never block proxy responses.
+Runtime telemetry has durable success handoffs, scheduled activity handoffs, and background materialization. Every provider-forwarded successful `2xx` response requires a durable `runtime_telemetry_outbox` row: buffered responses commit a completed envelope before the response is committed, while passthrough SSE and non-SSE responses commit an accepted row before the first flush and finalize that row after response capture completes. Captured non-`2xx` activity, telemetry-eligible planning failures carrying `PlanningFailure`, and terminal execution errors (including all-transport failure and the 64-launch attempt limit) first use a bounded in-memory scheduler side-effect queue, which later attempts durable outbox insertion and can be lost if rejected, terminally failed, or abandoned during shutdown. A worker materializes accepted outbox rows into `request_logs`, `audit_logs`, `usage_request_events`, and proxy-key usage in one transaction before deleting the outbox row. Runtime feedback is separately and intentionally lossy under pressure; queue-full, invalid, closed, or store-failure cases drop feedback with accounting and never block proxy responses.
 
 Audit and statistics reads are bounded. Raw audit lists require backend-enforced time windows and keyset cursors. `GET /api/stats/dashboard` still returns backend-computed `routing_health_map`, but the current dashboard adapter does not render it; the production Models table presents retained success rate, P95 latency, and 24-hour request count as text rather than health badges. The connection-success-rate API also exists without a current production UI consumer. Broad deletes run as durable management jobs.
 
@@ -153,9 +149,7 @@ Global CORS handling runs before the runtime branch. The runtime branch then app
 
 `GET /v1/models` is the exception: `openai.models` branches to the local models-list handler before provider request-body handling, planning, or provider execution core, and lists only enabled models whose `direct_request_enabled` bit is true. Every other registered proxy operation enters the shared runtime and gateway path: it resolves the exact client model ID through the direct-entry lookup, then resolves ordered access targets (including enabled non-entry Model Target nodes), applies the attached Ban Policy strategy, claims local attempt state, builds an upstream request, and hands activity to telemetry seams. A non-entry client ID therefore returns the existing 404 before provider transport or downstream side effects, while a direct parent can recursively route to that node. The provider adapter is selected during planned-upstream request construction, not registry resolution. Request, non-stream response, and stream hooks are looked up by `HookCollectionID`, allowing related operations such as token counting or compact Responses to use hook collections different from their canonical operation names. Those hooks own generation extraction and stream intent, non-stream parsing and token usage, and stream terminal classification and usage merge respectively.
 
-> **语义裁决（feature/observe 目标收敛）：** 本实现按目标输入保留 OpenAI 3×3 strict equality 与统一 mixed ordering（不可回退输入合同）；`artifacts/plans/` 下个别方案文档的 "Model-first→Terminal-fallback FULL|PARTIAL|NONE" 演进声明属另一目标的路线图，不适用于本实现（见追踪矩阵"路由语义裁决"）。
-
-OpenAI Chat Completions and Responses are operation-native and mode-strict. Planning requires the model's `openai_accepted_format` and the selected connection's `openai_text_capability` (`responses_only`, `chat_completions_only`, or `dual_native`) to be exactly equal: `dual_native`, `chat_completions_only`, and `responses_only` may connect only to the identical mode (3×3 equality matrix, diagonal only). Incompatible terminal attempts are skipped in authored order so the next target can be tried; if every otherwise eligible attempt is mode-incompatible, Prism returns the typed `400 openai_request_translation_unsupported` response before provider transport. Current native attempts record `operation_translation_mode = "none"`; the columns and stats reads remain readable for historical rows. Responses adjunct operations (`openai.responses.input_tokens`, `openai.responses.compact`) require responses-capable targets, which mode equality guarantees for `responses_only` and `dual_native`. Management write paths enforce the same equality: authoring a cross-mode relation returns `422 target_openai_mode_mismatch` (including disabled/inactive relations), and changing a persisted model mode or connection capability that would break an existing relation returns `409`. A read-only preflight entrypoint (`PRISM_OPENAI_MODE_PREFLIGHT=1`) reports persisted violations with deterministic exit codes, and startup runs the same read-only check immediately after migrations and before any writable seed or normalization step, failing fast on violations.
+OpenAI Chat Completions and Responses are operation-native and mode-strict. Planning requires the model's `openai_accepted_format` and the selected connection's `openai_text_capability` (`responses_only`, `chat_completions_only`, or `dual_native`) to be exactly equal: `dual_native`, `chat_completions_only`, and `responses_only` may connect only to the identical mode (3×3 equality matrix, diagonal only). Incompatible terminal attempts are skipped in authored order so the next target can be tried; if every otherwise eligible attempt is mode-incompatible, Prism returns the typed `400 openai_request_translation_unsupported` response before provider transport. Current native attempts record `operation_translation_mode = "none"`; the columns and stats reads remain readable for historical rows. Responses adjunct operations (`openai.responses.input_tokens`, `openai.responses.compact`) require responses-capable targets, which mode equality guarantees for `responses_only` and `dual_native`. Management write paths enforce the same equality: authoring a cross-mode relation returns `422 target_openai_mode_mismatch` (including disabled/inactive relations), and changing a persisted model mode or connection capability that would break an existing relation returns `409`. The read-only `openaimodecheck.Check` scan validates persisted relations during startup after migration, pricing-transition, and observability-upgrade work; violations prevent later startup steps and serving. Diagnostic `full|partial|none` operation-set coverage does not relax the text equality gate.
 
 Runtime observability stores canonical disjoint token components. Base input, cache-read input, cache-creation input, base output, and reasoning output are separate dimensions, while provider totals remain authoritative when supplied. Pricing selects one complete typed card (`standard`, `tier_base`/`tier_above`, or `peak`/`offpeak`) from the frozen ingress planning clock before FX and arithmetic. Explicit `"0"` component prices mean configured free pricing instead of a missing-price condition.
 
@@ -228,11 +222,11 @@ Streaming OpenAI usage instrumentation: for `openai.chat_completions` requests w
 
 The endpoint verify probe uses the same auth profile as the runtime: a verified endpoint is verified under the exact credential scheme (`auth_type`) it will be used with.
 
-OpenAI runtime support is limited to the registered local models list plus the chat, Responses generation, Responses input-token, and Responses compact operations listed above. Stored Responses object lifecycle APIs, including retrieve, list, delete, and cancel routes, are outside Prism's supported contract.
+OpenAI runtime support is limited to the registered local models list, Chat Completions, Responses generation/input-token/compact operations, and JSON image generations/edits listed above. Stored Responses object lifecycle APIs, including retrieve, list, delete, and cancel routes, are outside Prism's supported contract.
 
 The local OpenAI models operation returns the OpenAI `object`/`data` response for every request, including requests with query parameters. It reads the frozen Default-profile runtime snapshot and never contacts a configured model provider.
 
-Note: Gemini requests use `/v1beta/models/{model}:...` paths only. When access-target resolution reaches a different final Gemini model ID, Prism rewrites the model ID segment in the URL path before forwarding upstream.
+Gemini requests use `/v1beta/models/{model}:...` paths only. Prism rewrites the model ID segment to the selected Terminal Target's frozen `upstream_model_id` before forwarding, independently of the requested or resolved logical model IDs.
 For Gemini, `gemini.stream_generate_content` and the `:streamGenerateContent` path are authoritative for stream classification even when the request body omits `stream: true`; `gemini.generate_content` remains non-stream generate content, and `gemini.count_tokens` remains the token-count operation.
 
 Runtime upstream requests capture an immutable bootstrap runtime snapshot at request start. The snapshot includes an HTTP client built without any connection or timeout limits: the outbound transport sets only `DisableCompression: true` and an explicit unlimited `MaxIdleConnsPerHost` (`math.MaxInt32`), and the client carries no `Timeout`. The `runtime.transport` config section (connection counts, idle lifetimes, request timeout) was removed outright, so no startup setting can re-add upstream limits; `runtime.sideEffects.attemptTimeout` remains the per-attempt budget for scheduler-owned runtime activity handoff work. The removed transport section is rejected with a readable migration error when present in an existing `config.json`.
@@ -335,21 +329,16 @@ Fail-closed boundaries: non-object ingress fails with `400` before admission/tra
 
 ### 3.8 Dashboard And Analytics REST Polling
 
+The Observe page reads independent REST fragments on initial load, relevant URL/filter changes, and explicit refresh. `frontend/src/features/observe/useObserveFragments.ts` owns the fixed-ingress query context, usage summary and Now strip; `useObserveAnalysisContext` and `useObserveSeries.ts` own the selected-scope analysis context and chart. Superseded reads are aborted and generation-fenced. This page does not install a 30-second polling timer or consume the older dashboard aggregate/recent-activity feed.
+
+```text
+Proxy execution or response capture
+  -> Durable success handoff or scheduler-owned failure handoff
+  -> Background materialization writes retained request logs and usage events
+  -> Observe obtains query contexts from the owning retained-coverage projections
+  -> Independent summary, Now, chart, errors and activity reads consume those facts
 ```
-Dashboard overview page
-  -> Initial bootstrap reads the stats-only snapshot from GET /api/stats/dashboard
-  -> Initial bootstrap reads recent activity from GET /api/stats/dashboard/recent-activity
-  -> Page hook polls both REST endpoints every 30 seconds and on manual refresh
-  -> Overview state reconciles against snapshot_revision
-  -> Activity rows reconcile by request_log_id for feed dedupe and request-log drilldown
 
-Proxy request completes
-  -> Runtime telemetry hands activity to the durable outbox or scheduler-owned failure path
-  -> Background materialization writes retained request history and usage-event data
-  -> Dashboard and analytics REST reads observe retained history after that materialization
-
-Observe dashboard and Trend view
-  -> Initial load reads Observe v2 read models
 - `GET /api/stats/query-context` resolves a preset/custom window into signed opaque `query_context` (HMAC subkey derived from the server secret encryption key, 24h TTL) using the Observe owner actual-coverage projections for request logs, usage events, and loadbalance events. The token freezes per-domain requested/effective bounds, retention epoch/generation/fence, source revision, coverage revision/hash, materialization cut, freshness, and gaps; `all` uses the owner earliest bound and an empty half-open interval when no retained intersection exists. Fragments never re-parse presets or synthesize a policy-day window. Fragment validation re-reads the owning retention source: a running/recovery purge fails closed with the owning 503 and a manual-purge final publish revokes older tokens with `410 dataset_snapshot_revoked`.
 - `GET /api/stats/usage-summary?query_context=` consumes the frozen token bounds directly, including `all` windows longer than 30 days; it never reinterprets them as a browser `custom` preset. Its scope-discriminated response initializes arrays/maps, names the correct outcome and latency basis, carries trusted-zero-aware cost samples only where the scope owns cost, preserves selected-card `pricing_card_role_breakdown`, and distinguishes zero from missing evidence.
 - `GET /api/stats/usage-series?query_context=&metric=&group_by=&interval=` returns the scoped main chart with 24–120 buckets and Top entities plus a re-aggregated Other. Counts and raw latency samples are conserved before percentile calculation; exact capacity is not `truncated`. Endpoint/Terminal Target labels use the catalog/retained identity resolver rather than bare numeric IDs. A zero-length owner-complete `all` interval returns an empty chart, not an invalid-range error.
@@ -360,13 +349,8 @@ Observe dashboard and Trend view
 - Failures never produce synthetic zeros: fragments keep independent loading/ready/error states, 422/410 typed errors for invalid/expired query contexts, and null values for missing samples. Scoped request coverage is presented independently from the fixed-ingress usage lane, and JSON export carries per-fragment scope, bounds, caliber and dataset coverage rather than one mixed top-level claim.
 - Fragment list fields (series, timeline, error rankings, stream error kinds, coverage gaps) are always JSON arrays: an empty aggregate serializes as `[]`, never `null`. Fragment coverage also carries the retention floor and gaps frozen in the query-context domain snapshot rather than re-deriving them.
 
-GET /api/stats/usage-snapshot?preset={preset}
-  -> Page hook polls the same REST snapshot every 30 seconds and on manual refresh
-  -> Endpoint drilldown rows load through GET /api/stats/endpoints/{endpoint_id}/models
-  -> The frontend treats each accepted snapshot as a full replacement for that scoped analytics view
-```
 
-Dashboard and analytics updates use REST polling rather than a persistent browser transport. Snapshot ordering uses lexicographic `snapshot_revision`; `source_watermark` is diagnostic. Activity uses `activity_watermark` and `request_log_id` for feed reconciliation and request-log drilldown only. The REST stats endpoints, including `GET /api/stats/dashboard`, `GET /api/stats/dashboard/recent-activity`, request-history detail/list routes, spending, throughput, model metrics, and `GET /api/stats/usage-snapshot`, remain product-facing retained-history APIs.
+The mounted `GET /api/stats/dashboard`, `/dashboard/recent-activity`, `/usage-snapshot`, and endpoint-model drilldown APIs remain available for their own consumers. Their snapshot revision and feed-watermark fields describe those APIs; they do not govern the current Observe fragment lifecycle. Window KPI success is `completed_count / request_count`, with absent denominators shown as unavailable.
 
 ## 4. Routing Strategies and Runtime Health Signals
 
@@ -415,7 +399,7 @@ Models resolve through ordered access targets. Public target authoring points on
 - Model IDs are unique within a profile.
 - The gateway may normalize provider request payloads before forwarding. Every selected Terminal Target carries an explicit persisted `upstream_model_id`, and every upstream attempt rewrites the provider model identity to that target's frozen value instead of the final logical target model ID. Runtime snapshots load only active owner-backed connections; a missing or blank identity on such a row makes the replacement snapshot invalid so hot refresh retains its last-good generation, while orphan connections are excluded. The entry `model_id` the client addressed stays the logical identity for attribution, capability checks, routing, and pricing; only the actual upstream body/path uses the frozen upstream ID. Prism does not rewrite response-body model identity on the client-facing way back out.
 
-Model contracts require `api_family`; runtime compatibility is checked against `api_family` only.
+Model contracts require `api_family`; OpenAI operations also apply the separate text and image capability gates described in §14.2.2B and §14.2.2B-IMG.
 
 ### 5.3 Resolution
 
@@ -487,7 +471,7 @@ Client -> Operation registry -> Router / Planner -> Terminal target -> Endpoint 
   Buffered 2xx: completed durable outbox row before response commit
   Passthrough SSE or non-SSE 2xx: durable accepted row before first flush, then final payload update
   Captured non-2xx: bounded in-memory side-effect queue, then outbox attempt
-  Eligible PlanningFailure or admission_exhausted: bounded in-memory side-effect queue, then outbox attempt
+  Eligible PlanningFailure or terminal execution error: bounded side-effect queue, then outbox attempt
                                                          ↓
                               Background materializer transaction:
                                 - Write request_logs rows
@@ -496,13 +480,13 @@ Client -> Operation registry -> Router / Planner -> Terminal target -> Endpoint 
                                 - Delete the durable outbox row
 ```
 
-Unsupported routes and wrong methods are rejected before telemetry. Early request/planning errors such as malformed bodies, unknown models, and API-family mismatches do not carry `PlanningFailure` and therefore do not create synthetic history. Eligible target-resolution or native-compatibility planning failures, captured non-`2xx` activity, and admission activity can be lost before they reach the outbox, and a final all-transport-failures `502` is not currently covered by execution-failure telemetry. Operators must therefore not interpret retained history as a complete ledger of every transport failure.
+Unsupported routes and wrong methods are rejected before telemetry. Early request/planning errors such as malformed bodies, unknown models, and API-family mismatches do not carry `PlanningFailure` and therefore do not create synthetic history. Eligible planning failures, captured non-`2xx` activity, and terminal execution errors use the bounded scheduler handoff and can be lost before they reach the outbox. A final all-transport-failures `502` preserves each launched attempt and its safe diagnostic in that handoff; a zero-launch execution failure uses a synthetic admission row. Retained history is therefore a materialized record, not a guaranteed ledger of every ingress.
 
 ### 7.3 Data Captured
 
-- Profile ID attribution, requested model ID, final target model ID, api family, terminal-target compatibility ID, endpoint base URL, and endpoint description
+- Profile ID attribution, requested model ID, final logical target model ID, the Terminal Target's frozen `upstream_model_id`, API family, Terminal Target compatibility ID, endpoint base URL, and endpoint description
 - Prism `ingress_request_id`, per-request `attempt_number`, persisted ingress `operation_name`, additive `upstream_operation_name`, `operation_translation_mode`, `upstream_request_path`, and best-effort `provider_correlation_id`
-- Scoped HTTP status (`upstream_status_code`/`gateway_status_code`/`legacy_status_code`) and scoped duration (`attempt_duration_ms`/`legacy_duration_ms`); the old un-scoped `status_code`/`response_time_ms` are nullable legacy projections only and are never written by the current runtime writer
+- Scoped HTTP status (`upstream_status_code`/`gateway_status_code`/`legacy_status_code`) and scoped duration (`COALESCE(completion_duration_ms, attempt_duration_ms)` for upstream rows; `legacy_duration_ms` for other rows); the old un-scoped `status_code`/`response_time_ms` are nullable legacy projections only and are never written by the current runtime writer
 - `row_kind` (`planning|admission|upstream|legacy_unknown`), `attempt_trigger`/`attempt_result`/`is_winner` lifecycle facts, and the unified failure projection: `error_source`/`error_code`/`failure_stage` plus a scrubbed, 4 KiB-bounded `error_detail` and an independent `stream_error_kind`/`stream_error_detail` with redacted/truncated flags
 - Token usage (input, output, total), extracted by native upstream operation response or stream hooks
 - Flat final-target attribution, including requested model, resolved target model, selected terminal target, endpoint, operation, upstream operation, current-or-historical translation mode, and sanitized upstream request path.
@@ -530,11 +514,11 @@ All Requests list/detail/chain/export responses send `Cache-Control: private, no
 
 Audit logging records request-time provenance without changing routing choices or client-facing response handling. Before the ordinary backend outbox, it applies the fixed safe-diagnostic scrub bottom line (Bearer/Basic/JWT/API-key-like/URL-secret redaction from `safediag`) plus the request-time effective Header Blocklist, using the shared matcher in `internal/domain/safediag`. Canonical sorted `[{name,value}]` header entries retain per-direction scrub provenance. Runtime snapshots load audit policy from `profile_api_family_audit_settings` by profile and model API family, then retain request-time booleans in the telemetry envelope. Materialization creates one audit row for each audited upstream attempt, including failover attempts, and metadata-only requests still create audit metadata when audit is enabled. Body capture is allowed only when audit is enabled for that family; request bodies may be captured per attempted upstream request while response body capture is associated with the final attempt.
 
-Captured bodies persist as **BYTEA byte-exact stored prefixes** (`request_body_bytes`/`response_body_bytes`, migration `000010_request_logs_audit_observability`); the telemetry envelope carries `[]byte` (base64 JSON) so bytes never round-trip through TEXT. Capture is bounded by a per-body 4 MiB cap and per-ingress budgets: request copies 12 MiB, final response 4 MiB, scrubbed header blocks 64 KiB with 1 MiB per direction (response reserves 64 KiB for the final winner). Each audit row records ingress and per-direction byte counters, typed capture/truncation statuses and the enumerated limit reasons; allocation follows immutable launch order and budget exhaustion only stops extra audit storage, never proxy traffic.
+Captured bodies persist as **BYTEA byte-exact stored prefixes** (`request_body`/`response_body`, migration `000010_request_logs_audit_observability`); the telemetry envelope carries `[]byte` (base64 JSON) so bytes never round-trip through TEXT. Capture is bounded by a per-body 4 MiB cap and per-ingress budgets: request copies 12 MiB, final response 4 MiB, scrubbed header blocks 64 KiB with 1 MiB per direction (response reserves 64 KiB for the final winner). Each audit row records ingress and per-direction byte counters, typed capture/truncation statuses and the enumerated limit reasons; allocation follows immutable launch order and budget exhaustion only stops extra audit storage, never proxy traffic.
 
 Image operations redact their audit bodies before persistence. `b64_json`, `image`, and `mask` values are replaced with `[redacted image bytes]`, and an `image_url` value is redacted only when it is an inline `data:` URL; short https URLs and uploaded file ids stay readable so an audited edit request remains reproducible. Streamed image responses are redacted event by event so the event names, partial-image indices, and the terminal `usage` object survive. A body that does not parse — a stream truncated mid-event, or a JSON document cut off by the 4 MiB cap — is replaced wholesale rather than stored partially. The capture counters (`observed`, `stored`, `truncated`) keep describing the bytes seen on the wire: redaction is a separate transformation applied on the way to persistence.
 
-`GET /api/audit/logs/{id}/raw-body?direction=request|response` returns the byte-exact stored prefix as `attachment`, `application/octet-stream`, `nosniff`, `private, no-store`, with a safe `.txt`/`.bin` filename by UTF-8 validity and exact `Content-Length`; 400 for bad direction, 404 when nothing is stored, 409 when audit was disabled. The audit list accepts `anchor_id`: when the anchored row falls outside the first page the first response carries it exactly once as `anchor_item`, and in-page or unknown anchors emit no `anchor_item`. Successful Requests/Audit list responses carry a same-snapshot `coverage` projection (`known|legacy_unknown`, requested/effective/retained bounds, completeness, gaps and source revision) from the owning actual-coverage read model. Requests attempts/chains and CSV export accept `time_range=1h|6h|24h|7d|30d|all|custom`; `all` and the effective SQL lower bound use owner materialization, while a dirty/stale/gapped projection is explicit `legacy_unknown`. Windows reaching before the retention floor or actual retained intersection never enter true-empty.
+`GET /api/audit/logs/{id}/body/request` and `/body/response` return the stored bytes as `attachment`, `application/octet-stream`, `nosniff`, `private, no-store`, and `Content-Security-Policy: sandbox`, with a fixed safe `.bin` filename and exact `Content-Length`. A missing audit row returns `404`, disabled request-time audit returns `409`, and evidence below the published retention floor returns `410 audit_evidence_revoked`; a retained row with no captured body currently returns an empty body. The audit list accepts `anchor_id`: when the anchored row falls outside the first page the first response carries it exactly once as `anchor_item`, and in-page or unknown anchors emit no `anchor_item`. Successful Requests/Audit list responses carry a same-snapshot `coverage` projection (`known|legacy_unknown`, requested/effective/retained bounds, completeness, gaps and source revision) from the owning actual-coverage read model. Requests attempts/chains and CSV export accept `time_range=1h|6h|24h|7d|30d|all|custom`; `all` and the effective SQL lower bound use owner materialization, while a dirty/stale/gapped projection is explicit `legacy_unknown`. Windows reaching before the retention floor or actual retained intersection never enter true-empty.
 
 ### 8.2 Audit Flow
 
@@ -545,7 +529,7 @@ Client -> supported runtime operation
   -> Runtime captures audit metadata in the telemetry envelope
   -> Durable telemetry materialization, when reached:
        -> One audit row for each audited upstream attempt
-       -> Redact the three configured request authentication headers and record connection metadata snapshots
+       -> Persist the already-scrubbed request/response headers and connection metadata snapshots
        -> Link weakly to materialized request-log metadata when available
        -> Store immutable profile_id attribution
        -> Store request bodies when body capture is enabled
@@ -564,7 +548,7 @@ Applied at write time before INSERT:
 
 - Header values are scrubbed with the fixed safe-diagnostic matcher (exact sensitive names plus fragment-sensitive names) and stored as canonical sorted `[{name,value}]` entries with `request_headers_scrub_provenance`/`response_headers_scrub_provenance`.
 - Body capture is bounded: 4 MiB per body enforced during the copy, a 12 MiB shared request-body budget per ingress with a separate 4 MiB final-response reservation (16 MiB aggregate), and typed `captured|truncated|omitted_ingress_budget` statuses with observed/stored byte counts.
-- Captured body fields are not redacted and can contain sensitive user data, so body capture remains an explicit request-time setting.
+- Text body capture can contain sensitive user data and remains an explicit request-time setting. Image-operation bodies apply the payload redaction described in §8.1 before persistence.
 - Stored bodies are BYTEA prefixes; raw downloads (`/api/audit/logs/{log_id}/body/request|response`) return the exact stored bytes with attachment/octet-stream/nosniff/no-store/sandbox headers and byte-exact round-trip for invalid UTF-8, NUL, and mid-codepoint truncation.
 
 ### 8.5 Dedicated Audit Detail Page
@@ -671,7 +655,17 @@ Log retention controls live on the visible Settings `实例` scope (canonical `s
 
 ## 10. Database Design
 
-See section 15 (Data Model Reference) for the complete schema.
+Section 15 describes the current table responsibilities and selected constraints. `platform/migrate/runner.go` applies the baseline and ordered migrations recorded in `prism_schema_migrations`; it rejects existing application tables without the required baseline and rejects database versions ahead of the binary. Its explicit supersession map preserves historical version identities while skipping duplicate pre-renumber pricing/observability DDL.
+
+Upgrade boundaries that affect retained state:
+
+- Pricing trust (`000008`–`000009`) and Requests/Audit observability (`000010`–`000011`) have finalize gates. The observability owner drains legacy outbox work and completes its three-domain backfill; SQL-only schema snapshots are not evidence that all startup finalizers have run.
+- `000023_pricing_template_kind_cards` is fresh-only. It fails before destructive DDL if pricing or currency-migration tables contain retained rows; it does not convert those rows. The data and authorization policy remains in [STATUS.md](../STATUS.md).
+- Pi binding migrations `000027`–`000028` are additive. The second freezes `prism_model_id_at_bind` from the formerly identity-equal catalog coordinate, preserving an already-renamed model's drift instead of silently rebinding it.
+- `000029` changes only the source-linked pricing-template uniqueness index to exclude soft-deleted templates. Retired template coordinates, cards, revisions and historical references survive; re-import can create a new live template.
+- `000030` adds nullable output-delivery evidence; old rows and outbox payloads without it remain `unknown` in rate reads. `000031` backfills only uniquely owned Terminal Targets' upstream identities and leaves historical request/usage evidence `NULL`. It rejects multiple-owner anomalies before DDL.
+- `000032` adds `direct_request_enabled` and preserves every existing model as a direct entry. Instance-specific reclassification is an operator SQL action, never a startup migration.
+- The Settings startup finalizer validates retention evidence, removes duplicated `user_settings` retention columns and retired in-place auth credential columns, and publishes the final schema marker. The active owners are global retention policy and versioned auth configuration.
 
 ## 11. API Design
 
@@ -731,7 +725,7 @@ Global CORS handling runs before both management and runtime branches and answer
 
 The mounted request path applies the management browser-write guard, runtime-cache invalidation handling, management admission, request-body limits, management-session authentication, and then the mounted management router. For non-GET/HEAD/OPTIONS `/api/*` requests, a cross-origin `Origin` (neither same-origin with the request host nor in the CORS allowlist) returns `403 management_cross_origin_write_blocked`; a body-bearing write whose `Content-Type` is not `application/json` returns `415 management_unsupported_media_type`. The guard is independent of operator auth and applies when auth is off.
 
-For management routes, the mounted request path applies runtime-cache invalidation handling, management admission, request-body limits, management-session authentication, and then the mounted management router. `POST`, `PUT`, and `PATCH` requests under `/api/auth/*` are limited to `64 KiB`; other mutating management requests are limited to `1 MiB`. The limit wrapper observes reads from the request body. If a downstream handler reads past the limit, Prism replaces its response with `413`:
+`POST`, `PUT`, and `PATCH` requests under `/api/auth/*` are limited to `64 KiB`; other mutating management requests are limited to `1 MiB`. The limit wrapper observes reads from the request body. If a downstream handler reads past the limit, Prism replaces its response with `413`:
 
 ```json
 {
@@ -747,7 +741,7 @@ When operator auth is enabled, the exact public management paths are `GET /api/a
 
 #### 1.0A Startup Config File
 
-Prism loads steady-state startup settings from the plaintext `config.json` selected by `PRISM_CONFIG_PATH`. The live v1 file requires `meta`, `server`, `database.url`, `database.pools`, `database.managementAdmission`, `runtime.secretEncryptionKey`, `runtime.sideEffects`, `http.corsAllowedOrigins`, and `auth`. Optional top-level sections are `alerting`, `mail`, `telemetry`, and `stateTransfer`; `mail`, `telemetry`, and `stateTransfer` are parsed for compatibility only and do not re-enable retired behavior. The `runtime.transport` section was removed outright and is rejected with a readable migration error when present. R2 removed the management API for editing that file; external edits require a Prism restart before they affect the running process.
+Prism loads steady-state startup settings from the plaintext `config.json` selected by `PRISM_CONFIG_PATH`. The live v1 file requires `meta`, `server`, `database.url`, `database.pools`, `database.managementAdmission`, `runtime.secretEncryptionKey`, `runtime.sideEffects`, `http.corsAllowedOrigins`, and `auth`. Optional top-level sections are `alerting`, `mail`, `telemetry`, and `stateTransfer`; `mail`, `telemetry`, and `stateTransfer` are parsed for compatibility only and do not re-enable retired behavior. The `runtime.transport` section was removed outright and is rejected with a readable migration error when present. The management API does not edit this file; external edits require a Prism restart before they affect the running process.
 
 #### 1.1 Profiles
 
@@ -854,7 +848,7 @@ Target summary.
 
 Validation rules:
 
-- `model_id` must be unique within the effective profile scope.
+- `model_id` must be unique within the effective profile scope. A create request requires `loadbalance_strategy_id`; updates cannot explicitly clear it.
 - `api_family` is required on every model contract and remains the authoritative runtime compatibility field.
 - `direct_request_enabled` is optional on create (omitted defaults to `true`) and optional on update (omitted preserves the stored bit); explicit JSON `null` or a non-boolean is rejected with `422` before any write. It is the only persisted entry qualification—there is no three-state entry/outbound/both enum. A false model remains a valid recursive Model Target node and reports `model_target_unreferenced` when no incoming model-target row exists.
 - `is_enabled` defaults to `false` when omitted. Enabling a model still requires at least one enabled access target in the stored graph.
@@ -989,9 +983,11 @@ POST /api/models/exports/pi/render
 
 `source` does one best-effort pi.dev fetch outside any transaction and one `REPEATABLE READ` DB snapshot, returning only direct-request entries whose `direct_request_enabled = true`, each with two independently-computed evidence layers: live catalog evidence (`pi_candidates`/`candidate_status`: `not_in_catalog`/`api_mismatch`/`single`/`multiple`/`catalog_unavailable`, including sanitized templates and dropped paths) and persisted binding evidence (`pi_selected`, `pi_binding_status`: `unbound`/`bound`/`bound_drifted`, `pi_binding_renderable`, `pi_binding_prism_model_id`, `pi_api`, source/override/effective metadata, dropped paths, bind source, revision, and stamps), so one row can honestly report `not_in_catalog` and `bound`/renderable at the same time, alongside layered `prism`/`merged` metadata and provenance, pricing risk and warnings, the pinned `0.84.3` target version, and a clock-free `source_digest`. A successful live fetch marks the binding drifted when its coordinate/API vanished or its sanitized template/dropped evidence differs; catalog unavailability never invents drift. Such live drift remains renderable from the frozen row, while a mismatch between the current Prism full-model-ID/final-Pi-API pair and the binding's frozen `prism_model_id_at_bind` snapshot makes `pi_binding_renderable=false` — the directory model id is never the identity gate, so a deliberate cross-directory bind renders normally. `render` performs no network I/O and reads no live or LKG pi.dev state: it accepts only `expected_source_digest`, `model_config_ids`, `base_url`, `provider_id`, `credential`, and exactly one `selections` coordinate assertion per selected model. Missing assertions return `422 candidate_unselected`; extra, mismatched, or incompatible assertions return `422 candidate_invalid`; both carry `model_config_id`. A digest mismatch returns `409 export_source_stale` before rendering.
 
+Source rows retain disabled or otherwise non-selectable direct entries with an explicit `unselectable_reason`: `model_disabled`, `no_accepted_text_operations`, or `no_reachable_terminal_target`. Pure image models do not export a coding-client API. Selection requires a statically routable primary conversation operation; `dual_native` exports through Responses, and the shared routing analyzer limits pricing evidence to Terminal Targets reachable for the exported client operation set. The export does not assess live Ban, admission, or upstream health.
+
 The `source_digest` is `SHA-256` over canonical JSON of the sorted, clock-free fact set: target version, models, targets, pricing, Prism metadata, each model's bound `pi_selected` coordinate plus its frozen Prism identity snapshot and `catalog_revision`, and its effective `PiTemplate` including dropped-path evidence. It deliberately excludes the current live pi.dev fetch's revision/status/candidates, every directory-search result, and derived binding-drift status (`json:"-"` on `SourceFacts.PiCatalog` and the corresponding `ModelFact` fields): that transient fetch outcome never changes frozen rendered bytes. A different-coordinate bind/rebind, a same-coordinate bind that re-confirms a changed Prism identity, refresh commit, or override moves the digest; a same-coordinate same-identity bind is a no-op. Two coordinates therefore produce different digests even when their sanitized templates are identical.
 
-Output preserves only safe pi.dev leaves `name`/`reasoning`/`input`/`contextWindow`/`maxTokens`/`thinkingLevelMap`/`compat`; Prism's `model_id`, `api`/`baseUrl` derived from the gateway origin, `provider`/`credential` and current pricing remain authoritative and pricing stays `fail-closed` across all actually reachable Terminal Targets for every accepted operation (`USD`/`PER_1M`, five components, `reasoning_price == output_price`, lossless tier mapping for Pi's single strict positive tier; `pricing_component_missing` on any null component including `reasoning_price=null`, plus distinct warnings for no template, currency/unit mismatch, target conflict, peak/valley and tier unrepresentable; explicit `"0"` alone means free). `pi.dev` headers/samplingParams/fallback/routing are never proxied into the file.
+Output preserves only safe pi.dev leaves `name`/`reasoning`/`input`/`contextWindow`/`maxTokens`/`thinkingLevelMap`/`compat`; Prism's `model_id`, `api`/`baseUrl` derived from the gateway origin, `provider`/`credential` and current pricing remain authoritative and pricing stays `fail-closed` across Terminal Targets statically reachable for the exported client operation set (`USD`/`PER_1M`, five components, `reasoning_price == output_price`, lossless tier mapping for Pi's single strict positive tier; `pricing_component_missing` on any null component including `reasoning_price=null`, plus distinct warnings for no template, currency/unit mismatch, target conflict, peak/valley and tier unrepresentable; explicit `"0"` alone means free). `pi.dev` headers/samplingParams/fallback/routing are never proxied into the file.
 
 Credentials have only `include=false` (omit) or `include=true` with a manually entered, trimmed, non-empty string. Pi 0.84.3 rejects an empty `apiKey`; the UI blocks it and the backend returns `422 credential_api_key_required` before snapshot work. Export never reads stored endpoint keys and the typed value never enters source URLs, PostgreSQL, query caches, browser storage, logs, errors or warnings. All `source`/`render` and error responses are `private, no-store`; the rendered file ends with exactly one newline, `content_sha256` is the SHA-256 of those UTF-8 bytes, the response carries the fixed `prism-pi-models.json` name and `application/json;charset=utf-8` MIME, and full-content copy, Blob download and a true new-tab raw view reuse the same bytes. The browser may also copy a locally derived `{ "<provider_id>": { ...provider... } }\n` fragment for merging beneath an existing `models.json` `providers` object. Closing the result or leaving the route clears content and revokes its Blob URL.
 
@@ -1059,7 +1055,7 @@ Request:
 }
 ```
 
-Optional `expected_updated_at` is an RFC3339 optimistic-concurrency guard mirroring the pricing-template contract: when supplied and different from the stored row `updated_at`, the backend returns `409` with detail `endpoint_stale` and the current endpoint state for immediate refresh. When omitted, behavior is unchanged (last write wins).
+Optional `expected_updated_at` is an RFC3339 optimistic-concurrency guard mirroring the pricing-template contract: when supplied and different from the stored row `updated_at`, the backend returns `409` with a structured `detail` containing `code="endpoint_stale"`, a message, and the current endpoint state for immediate refresh. When omitted, behavior is unchanged (last write wins).
 Response `200`: Updated endpoint object.
 
 ##### Delete Endpoint
@@ -1175,7 +1171,7 @@ Create semantics:
 - `upstream_model_id` is optional only on create. Omission writes the owner model's current entry `model_id` as a concrete value. A supplied value is trimmed at its leading and trailing whitespace only; case, slashes, and internal characters are preserved. Explicit `null`, blank, or more than 200 Unicode characters returns `422` with `field=upstream_model_id`, `reason=required|too_long`, and `limit=200` for the latter. The transaction writes nothing on validation failure.
 - `priority` is rejected with `422`; Terminal Target ordering for a model is owned by `/api/models/{model_config_id}/targets` positions.
 - Limiter fields are optional. `null` means unlimited. Positive integers apply per-connection request admission limits.
-- `openai_text_capability` is the OpenAI text runtime capability source of truth for OpenAI-family Terminal Targets. It accepts `responses_only`, `chat_completions_only`, or `dual_native`, is required for OpenAI rows, and must equal the owner model's `openai_accepted_format` (strict mode equality). Non-OpenAI rows must omit it or persist `null`. Cross-mode authoring is rejected with `422`; changing a capability that would break an existing relation is rejected with `409`.
+- `openai_text_capability` is the OpenAI text runtime capability source of truth for OpenAI-family Terminal Targets. It accepts `responses_only`, `chat_completions_only`, or `dual_native` and must equal the owner model's `openai_accepted_format`, including matching absence on image-only rows (strict text mode equality). At least one of the text or image dimensions must be present. Non-OpenAI rows must omit it or persist `null`. Cross-mode authoring is rejected with `422`; changing a capability that would break an existing relation is rejected with `409`.
 - `custom_request_parameters` is an optional static top-level JSON object (`object | null`). Missing, `null`, and `{}` all persist as unconfigured (`NULL`); a non-empty object is validated (protected keys, 64 KiB compact limit, depth ≤ 16, members ≤ 256, safe integers) and canonicalized before write. Invalid values return `422` with `{"detail":"Invalid custom request parameters","field":"custom_request_parameters","path":...,"reason":...,"limit":...}`; malformed request JSON or unknown fields keep the generic `400`.
 - `routing_schedule` is an optional `{timezone, windows[]}` object (`object | null`). Missing and `null` both persist as unconfigured, which means no time restriction and byte-for-byte the pre-feature routing behaviour. A supplied object is validated and normalized before write: at most 32 windows, each with an ISO weekday bitmap (bit0 = Monday, 1–127), a `start_minute` in 0–1439 and an `end_minute` in 1–2880 that is greater than `start_minute` by at most 1440. An `end_minute` above 1440 continues into the next day, and `weekday_mask` names the day the window opens on, not every day it covers. A configuration whose windows together cover the whole week is rejected, because "always available" is expressed by having no schedule at all. Invalid values return `422` with `{"detail":"Invalid routing schedule","field":"routing_schedule","path":...,"reason":...,"index":...}`; an over-length timezone returns `400` and a server without a resolvable timezone database returns `503`, since that is a deployment gap rather than caller input.
 
@@ -1185,7 +1181,7 @@ Create semantics:
 PATCH /api/models/{model_config_id}/connections/{connection_id}
 ```
 
-Request: Mutable compatibility connection metadata: `endpoint_id`, `endpoint_create`, `is_active`, `name`, `auth_type`, `upstream_model_id`, `custom_headers`, `custom_request_parameters`, `routing_schedule`, `openai_text_capability`, `pricing_template_id`, `qps_limit`, `max_in_flight_non_stream`, `max_in_flight_stream`. `auth_type` accepts `openai`, `anthropic`, `gemini`, or `gemini_api_key`; it is independent of `api_family` and selects only the upstream credential scheme.
+Request: Mutable compatibility connection metadata: `endpoint_id`, `endpoint_create`, `is_active`, `name`, `auth_type`, `upstream_model_id`, `custom_headers`, `custom_request_parameters`, `routing_schedule`, `openai_text_capability`, `openai_image_capability`, `pricing_template_id`, `qps_limit`, `max_in_flight_non_stream`, `max_in_flight_stream`. `auth_type` accepts `openai`, `anthropic`, `gemini`, or `gemini_api_key`; it is independent of `api_family` and selects only the upstream credential scheme.
 
 `upstream_model_id` is presence-aware: omission preserves the stored value,
 while explicit `null`, blank, or over-200-character input is rejected with the
@@ -1530,7 +1526,7 @@ Response `200`:
   "timezone_preference": "Europe/Helsinki",
   "reporting_currency_epoch": 1,
   "currency_effective_at": "2026-01-01T00:00:00Z",
-  "pricing_migration_state": "active",
+  "pricing_migration_state": "ready",
   "legacy_migration_issues": [],
   "pricing_template_generation": 3,
   "pricing_reference_generation": 4,
@@ -1794,14 +1790,13 @@ Request-log detail keeps flat attribution fields for the ingress model, attempt 
 
 #### 2.2B OpenAI native mode equality (strict)
 
-OpenAI text routing is native-only and mode-strict. The requested model's `openai_accepted_format` and each Terminal Target connection's `openai_text_capability` use `responses_only`, `chat_completions_only`, or `dual_native`; both must be **exactly equal** (only the diagonal of the 3×3 mode matrix is legal). A requested-model format that does not support the ingress operation returns `400 openai_request_translation_unsupported` before target resolution. A connection whose mode differs from the requested model is skipped so load balancing can try the next authored target; when every otherwise eligible connection is mode-incompatible, Prism returns the same typed `400` before provider transport. The response detail is `Prism cannot translate this OpenAI request shape for the selected target.`, with `translation_mode: "none"` and `unsupported_reason: "operation_translation_unsupported"`. Responses adjunct operations, `openai.responses.input_tokens` and `openai.responses.compact`, require a responses-capable target, which equality guarantees for `responses_only` and `dual_native`.
+OpenAI text routing is native-only and mode-strict. The requested model's `openai_accepted_format` and each Terminal Target connection's `openai_text_capability` use `responses_only`, `chat_completions_only`, or `dual_native`; both must be **exactly equal** (only the diagonal of the 3×3 mode matrix is legal). A requested model that does not accept the ingress operation returns `400 openai_operation_not_supported` before target resolution. A connection whose mode differs from the requested model is skipped so load balancing can try the next authored target; when every otherwise eligible connection is mode-incompatible, Prism returns the same typed `400` before provider transport. The response detail is `Prism cannot translate this OpenAI request shape for the selected target.`, with `translation_mode: "none"` and `unsupported_reason: "operation_translation_unsupported"`. Responses adjunct operations, `openai.responses.input_tokens` and `openai.responses.compact`, require a responses-capable target, which equality guarantees for `responses_only` and `dual_native`.
 
 Management enforcement mirrors the runtime contract. Authoring any OpenAI relation (model to model, model to Terminal Target, including references to shared connections) whose source mode differs from the target mode is rejected with `422 Unprocessable` and issue code `target_openai_mode_mismatch` inside `routing_plan_issues`; disabled or inactive relations are not exempt. Changing a persisted model `openai_accepted_format` or connection `openai_text_capability` that would break an existing relation returns `409 Conflict`. Non-OpenAI families keep the existing api-family validation channels unchanged.
 
-Upgrade and startup guards are read-only and deterministic:
+The internal `openaimodecheck.Check` scan is read-only and reports persisted `model_target`/`connection_target` violations in stable order. Startup invokes it as `openai_text_mode_check` after SQL migrations, pricing-transition validation, and observability upgrade, and before retention cutover and invariant/default seeds. A violation fails startup with `openai text mode equality check failed` and a summary. The executable has no separate `PRISM_OPENAI_MODE_PREFLIGHT` environment entrypoint.
 
-- `PRISM_OPENAI_MODE_PREFLIGHT=1` runs the same persisted-relation scan before startup/migrations: exit `0` = compliant, `1` = violations found, `2` = connection/check failure; the stdout report lists each violation (`model_target`/`connection_target`, source, target, both modes) in stable order. It writes no management state and never contacts an upstream provider.
-- Startup runs the scan as `openai_text_mode_check` immediately after migrations and before any writable seed or normalization step; any violation fails startup with `openai text mode equality check failed` and a violation summary.
+Static diagnostics classify operation-set overlap as `full`, `partial`, or `none`; this evidence does not authorize a text mode mismatch. When planning fails, a compatible leaf excluded by static enablement/activation/strategy produces `503 openai_no_eligible_terminal_target`; no authored reachable route produces `503 openai_no_compatible_terminal_target`; a reachable incompatible terminal leaf produces `400 openai_request_translation_unsupported`. A model-only path with no leaf or a dynamically unavailable compatible route keeps the ordinary `503` family; admission uses `503 admission_exhausted`.
 
 Prism does not convert requests, non-stream responses, or streams between Chat Completions and Responses. Native attempts use the ingress operation's upstream path and preserve `operation_translation_mode = "none"`. The `operation_translation_mode` columns and request-log fields remain readable for historical rows that recorded the retired translation values.
 
@@ -1832,9 +1827,11 @@ OpenAI image support is a second capability dimension that is independent of the
 
 An OpenAI model or Terminal Target must declare at least one of the two dimensions. A row that declares neither could serve no operation, so `ck_model_configs_openai_dimensions` and `ck_connections_openai_dimensions` reject it, and the management API returns `400`/`422` with the same rule. `openai_accepted_format` and `openai_text_capability` are therefore nullable for `api_family = 'openai'`: a pure image model such as `gpt-image-2` speaks no text protocol.
 
+The frontend preserves that absence throughout Terminal Target authoring. `ConnectionDialog.tsx` hides the text capability section when the owner has no text mode; `useModelDetailDialogState.ts` and `connectionDataSupport.ts` preserve `null` in create/edit drafts and submitted OpenAI payloads, without substituting `responses_only`. Prefill keeps the destination owner's text capability. The local `classifyOpenAICoverage.ts` helper treats absent modes as empty text-operation sets: an owner with no accepted text operations has `full` text coverage because none is unserved. This display result proves neither image support nor a valid cross-mode relation; backend equality and image gates remain authoritative.
+
 Image coverage is **containment**, not the strict equality the text dimension requires. Chat Completions and Responses are mutually exclusive wire protocols, so a text target speaking the other protocol is useless. Image generations and edits are additive capabilities on one protocol, so a target serving both can safely back a model that only accepts one. A Terminal Target must serve every image operation its owner model accepts and may serve more; a narrower target is rejected at authoring time with issue code `target_openai_image_uncovered`, and an omitted `openai_image_capability` is defaulted from the owner model's own image dimension.
 
-Because containment never produces a runtime error — only an `openai_target_partial_coverage` configuration warning — the image dimension has no startup preflight. `PRISM_OPENAI_MODE_PREFLIGHT` and the `openai_text_mode_check` startup guard remain strict-equality checks over the text dimension only.
+The image dimension has no separate startup check. Its authoring gate requires owner coverage, its runtime gate checks the requested image operation, and its diagnostics can describe partial coverage in an inspected graph. The `openai_text_mode_check` startup guard checks text equality only.
 
 At runtime an image request resolves against the image dimension alone: a model that does not accept the ingress image operation returns `400 openai_operation_not_supported` before target resolution, and Terminal Targets that do not serve it are skipped so later eligible attempts remain usable.
 
@@ -2008,7 +2005,7 @@ For all Gemini runtime paths in this section, the `{model}` binding must be one 
 
 #### 2.6 Streaming
 
-Streaming stays operation-native: `openai.chat_completions`, `openai.responses`, and `anthropic.messages` use their upstream-compatible request body flags, while `gemini.stream_generate_content` uses `POST /v1beta/models/{model}:streamGenerateContent`. Streaming responses are proxied from a natively compatible upstream.
+Streaming stays operation-native: `openai.chat_completions`, `openai.responses`, `openai.images.generations`, `openai.images.edits`, and `anthropic.messages` use their upstream-compatible request body flags, while `gemini.stream_generate_content` uses `POST /v1beta/models/{model}:streamGenerateContent`. Streaming responses are proxied from a natively compatible upstream.
 For Gemini, the `gemini.stream_generate_content` path is authoritative: `POST /v1beta/models/{model}:streamGenerateContent` is treated as streaming even when the request body omits `stream: true`. `gemini.generate_content` remains the non-stream generate-content operation.
 
 #### 2.7 Token Usage Extraction
@@ -2080,7 +2077,7 @@ Stats APIs are pinned to Default profile id `1`; `X-Profile-Id` is accepted for 
 GET /api/stats/dashboard
 ```
 
-This is the canonical overview dashboard read path. It returns one backend-computed, stats-only aggregate snapshot for the effective profile, including overview metrics, API-family rows, top-spending models, and a `routing_health_map` response field. It does not include recent request rows, request-log IDs, or request-log cursor data. Recent activity is served by `GET /api/stats/dashboard/recent-activity`. The current production dashboard does not render `routing_health_map`.
+This mounted aggregate API returns one backend-computed, stats-only aggregate snapshot for the effective profile, including overview metrics, API-family rows, top-spending models, and a `routing_health_map` response field. It does not include recent request rows, request-log IDs, or request-log cursor data. Recent activity is served by `GET /api/stats/dashboard/recent-activity`. The current Observe UI uses the separate query-context fragments in §3.8 and does not consume this aggregate or render `routing_health_map`.
 
 Query parameters: none. Legacy `window` query values are ignored. The endpoint always returns the canonical aggregate snapshot and does not expose the old top-level `window`, `covers`, `freshness`, or `metrics` shape. Snapshot freshness is ordered by lexicographic `snapshot_revision`; `source_watermark` is diagnostic only.
 
@@ -2149,7 +2146,7 @@ In `metric_snapshot`, `avg_latency`, `error_rate`, `p95_latency`, and `success_r
 GET /api/stats/dashboard/recent-activity?limit=N
 ```
 
-This endpoint is the separate request-history-backed activity feed for dashboard bootstrap and repair. It is not embedded in the dashboard snapshot. The default limit is `12`; the maximum limit is `50`. Rows are ordered by `(created_at DESC, request_log_id DESC)`.
+This mounted endpoint is a separate request-history-backed activity feed; the current Observe page uses its own activity fragment. It is not embedded in the dashboard snapshot. The default limit is `12`; the maximum limit is `50`. Rows are ordered by `(created_at DESC, request_log_id DESC)`.
 
 Response `200`:
 
@@ -2204,7 +2201,7 @@ Query parameters:
 
 The snapshot is backed by `backend/internal/httpapi/management/stats/service.go` together with the aggregation types and query helpers in `backend/internal/domain/stats/snapshot.go` and `backend/internal/domain/stats/types.go`.
 
-The snapshot is aggregated from persisted usage-event rows. Endpoint aggregates read the stored `usage_request_events.endpoint_label_snapshot` value and expose it as public `endpoint_label`, so historical labels survive later endpoint renames or deletion. `/api/stats/dashboard` is the canonical overview aggregate and includes a backend-computed `routing_health_map` response field; the current dashboard leaves that field unrendered. Exact request investigation remains on `/observe/requests`, while dashboard and other pages continue to use the shared stats routes below.
+The snapshot is aggregated from persisted usage-event rows. Endpoint aggregates read the stored `usage_request_events.endpoint_label_snapshot` value and expose it as public `endpoint_label`, so historical labels survive later endpoint renames or deletion. `/api/stats/dashboard` remains a separate aggregate with a backend-computed `routing_health_map`; the current Observe UI uses query-context fragments. Exact request investigation remains on `/observe/requests`, while dashboard and other pages continue to use the shared stats routes below.
 
 Response `200` includes `latency_trends` alongside `request_trends`, `token_usage_trends`, `token_type_breakdown`, and `cost_overview`. `latency_trends.hourly[]` and `latency_trends.daily[]` use the same series key/label shape as request trends; each point exposes `bucket_start`, `p50_ms`, and `p95_ms`. Empty latency buckets keep the bucket and return `null` percentile values.
 
@@ -2258,7 +2255,7 @@ Attempt-view query parameters:
 | `client_rule_id` | integer | — | Filter by caller client, matched against `caller_user_agent` only through enabled User-Agent Client Rules |
 | `limit` | integer | 50 | Result limit; must be positive |
 | `offset` | integer | 0 | Pagination offset (attempt view) |
-| `sort_by` | string | `created_at` | `created_at` | `display_status` | `ttft_ms` | `total_tokens` | `total_cost_user_currency_micros` (attempt view); any other value is rejected with `422 sort_unsupported` instead of falling back to `created_at` |
+| `sort_by` | string | `created_at` | One of `created_at`, `display_status`, `ttft_ms`, `total_tokens`, or `total_cost_user_currency_micros` (attempt view); other values return `422 sort_unsupported` |
 | `sort_order` | string | `desc` | `asc` or `desc`; any other value is rejected with `422 sort_unsupported` |
 
 Chain-view query parameters (`view=ingress_chains`):
@@ -2868,7 +2865,7 @@ The policy uses a monotonic `revision` for CAS. `GET` returns the tagged current
 
 Preflight (`POST /api/maintenance/log-retention/preflights`) is a read-only, single-use, body-only token flow with a discriminated union (`policy_change` full draft or `manual_cleanup` with `keep_days|cutoff|delete_all` selection). The response binds the exact affected-domain owner snapshots, bounded count/bytes/partition impact, resolved UTC cutoff, and a 5-minute token. Manual job creation (`POST /api/maintenance/log-retention/jobs`) accepts only `operation_id` + `preflight_token` + `confirmation.keyword`, durably seals the intent as a queued v2 job (`202` / `replayed=true` on exact replay), and never revokes coverage at acceptance. Execution freezes `purge_to_time` at the fence for delete-all, publishes `running|recovery_required` fail-closed states, and final publish advances the domain revocation epoch and floor (old Observe tokens then return `410 dataset_snapshot_revoked`). Manual queued jobs are cancellable; running manual purges return `409 purge_not_cancellable`; running automatic jobs accept `cancel_requested`.
 
-`GET/POST /api/management/jobs` (with `scope=global&type=log_retention`) lists/paginates durable v2 jobs with per-dataset `resource_key`, origin, state, cutoff/purge_to_time, policy revision/generation, progress checkpoints, and partition evidence. The job type is `log_retention`, uses `profile_id = 0`, and applies across the instance.
+`GET /api/management/jobs` (with `scope=global&type=log_retention`) lists/paginates durable v2 jobs with per-dataset `resource_key`, origin, state, cutoff/purge_to_time, policy revision/generation, progress checkpoints, and partition evidence. The job type is `log_retention`, uses `profile_id = 0`, and applies across the instance.
 
 Retention drops whole daily child partitions whose upper bound is `<= cutoff/purge_to_time`, never current/future partitions; only the single child partition that overlaps the cutoff receives a bounded row delete, followed by `VACUUM (ANALYZE, PROCESS_TOAST TRUE)` on that boundary child. Audit rows keep weak request metadata; request-log retention never clears `request_log_id`, `request_log_created_at`, or `ingress_request_id`.
 
@@ -3057,13 +3054,18 @@ Response `200`:
       "endpoint_description": "Primary production key",
       "request_method": "POST",
       "request_url": "https://api.openai.com/v1/chat/completions",
-      "request_headers": "{\"content-type\": \"application/json\", \"authorization\": \"[REDACTED]\"}",
+      "request_headers": "[{\"name\":\"authorization\",\"value\":\"[REDACTED]\"},{\"name\":\"content-type\",\"value\":\"application/json\"}]",
       "request_body_preview": "{\"model\":\"gpt-4o\",\"messages\":[{\"role\":\"user\",\"content\":\"Hello!\"}]}",
       "request_body_stored": true,
-      "response_status": 200,
+      "row_kind": "upstream",
+      "attempt_number": 1,
+      "upstream_status_code": 200,
+      "gateway_status_code": null,
+      "legacy_status_code": null,
       "response_body_stored": true,
       "is_stream": false,
-      "duration_ms": 1234,
+      "attempt_duration_ms": 1234,
+      "legacy_duration_ms": null,
       "audit_enabled_at_request": true,
       "audit_capture_bodies_at_request": true,
       "created_at": "2025-01-15T10:30:00Z"
@@ -3092,8 +3094,8 @@ Response `200`:
 }
 ```
 
-Every successful audit list response carries a non-null `coverage` projection. `request_log_id` is a decimal JSON string so PostgreSQL `BIGINT` values remain exact in browsers; the audit row `id` remains numeric. Binary captured bodies list a `[binary body]` preview and are not text-previewed.
-The list API returns `request_body_preview` instead of the full body. It keeps at most the first 200 Unicode code points and does not append an ellipsis or another truncation marker. Use the detail API for full content.
+Every successful audit list response carries a non-null `coverage` projection. `request_log_id` is a decimal JSON string so PostgreSQL `BIGINT` values remain exact in browsers; the audit row `id` remains numeric. Invalid-UTF-8 bodies return a null preview with `request_body_preview_unavailable_reason="invalid_utf8"`.
+The list API returns `request_body_preview` instead of the full body. It keeps at most the first 4096 Unicode code points and does not append an ellipsis or another truncation marker. Use the detail API for full content.
 If body capture was off at request time, `request_body_preview` is `null` even though the audit metadata still exists. `response_body_stored` means captured response bytes were stored, independent of `is_stream`; rows with `response_body_stored=false` have no stored response body. Audit rows preserve `request_log_id`, `request_log_created_at`, and `ingress_request_id` after request-log retention. `request_log_missing=true` means both request-log link fields are present but the `(profile_id, request_log_id, request_log_created_at)` tuple no longer resolves. If either link field is null, `request_log_missing` is false.
 Rows are ordered by `(created_at DESC, id DESC)`. Pagination is keyset-based: when `has_more=true`, pass the returned `next_cursor` with the same window, sort, and filters. The audit list response does not include `total` or `offset`.
 
@@ -3103,46 +3105,13 @@ Rows are ordered by `(created_at DESC, id DESC)`. Pagination is keyset-based: wh
 GET /api/audit/logs/{id}
 ```
 
-Response `200`:
+Response `200` returns the audit identity, weak request links, model/connection/endpoint snapshots, request method and URL, request-time audit flags, and the scoped `row_kind`, `attempt_number`, `attempt_duration_ms`, `legacy_duration_ms`, `upstream_status_code`, `gateway_status_code`, and `legacy_status_code` fields.
 
-```json
-{
-  "id": 1,
-  "profile_id": 1,
-  "request_log_id": "42",
-  "request_log_created_at": "2025-01-15T10:30:00Z",
-  "ingress_request_id": "ingress_req_42",
-  "request_log_missing": false,
-  "model_id": "gpt-4o",
-  "endpoint_id": 12,
-  "connection_id": 1,
-  "endpoint_base_url": "https://api.openai.com",
-  "endpoint_description": "Primary production key",
-  "request_method": "POST",
-  "request_url": "https://api.openai.com/v1/chat/completions",
-  "request_headers": "{\"content-type\": \"application/json\", \"authorization\": \"[REDACTED]\"}",
-  "request_body": "{\"model\":\"gpt-4o\",\"messages\":[{\"role\":\"user\",\"content\":\"Hello!\"}],\"temperature\":0.7}",
-  "request_body_stored": true,
-  "request_body_binary": false,
-  "request_body_bytes_count": 76,
-  "response_status": 200,
-  "response_headers": "{\"content-type\": \"application/json\", \"x-request-id\": \"req_abc123\"}",
-  "response_body": "{\"id\":\"chatcmpl-abc\",\"choices\":[...],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":20}}",
-  "response_body_stored": true,
-  "is_stream": false,
-  "duration_ms": 1234,
-  "audit_enabled_at_request": true,
-  "audit_capture_bodies_at_request": true,
-  "created_at": "2025-01-15T10:30:00Z"
-}
-```
+The body wire fields are `request_body_base64` and `response_body_base64`. They encode the exact stored BYTEA prefixes; they are not JSON text bodies. Each direction also carries `*_body_stored`, `*_body_encoding` (`utf8|binary|unknown`), `*_body_capture_status`, `*_body_capture_provenance`, `*_body_capture_end_state`, `*_body_truncated`, `*_body_bytes_observed`, and `*_body_bytes_stored`. No text decoding is required to download the stored bytes. `request_headers` and `response_headers` are nullable JSON strings containing the canonical scrubbed header-entry arrays; URL truncation flags remain explicit.
 
-When body capture is enabled, request bodies can be stored for every audited upstream attempt. Only the final attempt can store a non-empty `response_body`, and `response_body_stored=true` means that final response bytes were retained; `is_stream` does not prevent that storage. Captured OpenAI bodies are the native upstream payloads or SSE bytes. The detail response additionally carries `request_body_binary`/`response_body_binary` (true when the stored bytes are not valid UTF-8), `request_body_bytes_count`/`response_body_bytes_count`, the ingress byte counters, and the `request/response_capture_limit_reason` + per-direction `*_headers_limit_reason` metadata; binary bodies expose byte metadata only (no text view) and are downloadable byte-exact via `GET /api/audit/logs/{id}/raw-body`.
-If body capture is disabled for a request, both `request_body` and `response_body` are `null`. Rows with `response_body_stored=false` have no stored response body, including old rows that were written before streaming response capture was available.
+Every audited attempt may retain its request body; only the final attempt retains a response body. `is_stream` does not prevent response capture. Body capture disabled at request time leaves both base64 fields `null`; binary or invalid-UTF-8 prefixes remain representable without loss. The browser decodes valid UTF-8 for its payload views and keeps binary evidence available through the raw-download routes below.
 
-Response `404`: Audit log not found.
-
-Response `409`: `Audit capture unavailable for this request` when the requested audit detail has audit disabled at request time.
+A missing row returns `404`. Disabled request-time audit returns `409` with `Audit capture unavailable for this request`; evidence below the published retention floor returns `410 audit_evidence_revoked`.
 
 #### 5.2A Raw Body Downloads
 
@@ -3151,7 +3120,7 @@ GET /api/audit/logs/{log_id}/body/request
 GET /api/audit/logs/{log_id}/body/response
 ```
 
-Returns the exact stored BYTEA prefix byte-for-byte with `Content-Length`, `Content-Disposition: attachment; filename=<safe-name>`, `Content-Type: application/octet-stream`, `X-Content-Type-Options: nosniff`, `Cache-Control: private, no-store`, `Content-Security-Policy: sandbox`, and the `X-Prism-Body-Truncated`/`X-Prism-Body-Bytes-Observed`/`X-Prism-Body-Bytes-Stored`/`X-Prism-Body-Capture-End-State` headers. An optional `X-Prism-Original-Content-Type` carries the provider content type only when `mime.ParseMediaType` succeeds, the canonical value is visible ASCII within 512 UTF-8 bytes, and it contains no CTL/obs-text. Invalid UTF-8, NUL, and mid-codepoint truncation round-trip byte-for-byte. Absent bodies return `404` with a typed body-state reason.
+Returns the exact stored BYTEA prefix byte-for-byte with `Content-Length`, `Content-Disposition: attachment; filename=<safe-name>`, `Content-Type: application/octet-stream`, `X-Content-Type-Options: nosniff`, `Cache-Control: private, no-store`, `Content-Security-Policy: sandbox`, and the `X-Prism-Body-Truncated`/`X-Prism-Body-Bytes-Observed`/`X-Prism-Body-Bytes-Stored`/`X-Prism-Body-Capture-End-State` headers. Invalid UTF-8, NUL, and mid-codepoint truncation round-trip byte-for-byte. The current raw-body loader does not provide original content-type evidence. Missing rows return `404`; a retained row with no stored capture returns zero bytes, disabled request-time audit returns `409`, and revoked evidence returns `410 audit_evidence_revoked`.
 
 #### 5.3 Audit Log Retention
 
@@ -3210,11 +3179,11 @@ POST /api/management/jobs/{job_id}/cancel
 
 Header values are scrubbed at write time with the fixed safe-diagnostic matcher (`safediag`: exact sensitive names plus fragment-sensitive names, Bearer/Basic/JWT/API-key-like/key=value/URL-secret redaction) and stored as canonical sorted `[{name,value}]` entries with per-direction `request_headers_scrub_provenance`/`response_headers_scrub_provenance`. Legacy rows that predate the v2 scrubber are rewritten at upgrade time with `[REDACTED-LEGACY]` values (`legacy_all_values_redacted` or `legacy_rescrubbed` provenance); no raw legacy header value is served after the v2 upgrade.
 
-Captured request and response bodies are stored as captured and can contain user-provided secrets or PII. Body capture is request-time provenance via `audit_capture_bodies_at_request`; when disabled, both `request_body` and `response_body` are `null`.
+Captured text request and response bodies can contain user-provided secrets or PII; image-operation bodies apply the payload redaction in §8.1. Body capture is request-time provenance via `audit_capture_bodies_at_request`; when disabled, stored bodies and their public `*_body_base64` projections are `null`.
 
 #### 5.5 Body Size Limits
 
-When body capture is enabled, Prism can store the captured request body for each audited upstream attempt and the captured response body for the final attempt only. Audit list previews are limited to the first 200 Unicode code points without an appended truncation marker; detail bodies are not truncated by this preview helper.
+When body capture is enabled, Prism can store the captured request body for each audited upstream attempt and the captured response body for the final attempt only. Audit list previews are limited to the first 4096 Unicode code points without an appended truncation marker; detail bodies are not truncated by this preview helper.
 
 Body capture is bounded: the per-body cap is 4 MiB enforced during the copy (observed counts all bytes, stored retains the first 4 MiB prefix), request bodies share a 12 MiB per-ingress budget with a separate 4 MiB final-response reservation (16 MiB aggregate), and capture statuses are typed (`captured|truncated|omitted_ingress_budget` with observed/stored counts). Stored bodies are BYTEA prefixes; exact bytes are served by the raw download routes in §5.2A.
 
@@ -3762,246 +3731,30 @@ Scope: profile-isolated runtime and management model with pricing templates, pro
 
 ### 1. Entity Relationship Diagram
 
+```mermaid
+erDiagram
+    profiles ||--o{ model_configs : scopes
+    profiles ||--o{ endpoints : scopes
+    profiles ||--o{ connections : scopes
+    loadbalance_strategies o|--o{ model_configs : selects_policy
+    model_configs ||--o{ model_access_targets : owns_ordered_rows
+    model_configs o|--o{ model_access_targets : referenced_model
+    connections o|--o| model_access_targets : terminal_owner_edge
+    endpoints ||--o{ connections : supplies_credentials
+    connections ||--o{ connection_routing_windows : owns_windows
+    pricing_templates o|--o{ connections : supplies_pricing
+    pricing_templates ||--o{ pricing_template_revisions : owns_revisions
+    pricing_template_revisions ||--o{ pricing_template_cards : owns_cards
+    pricing_template_revisions ||--o{ pricing_template_windows : owns_price_windows
+    model_configs ||--o| model_catalog_bindings : models_dev_metadata
+    model_configs ||--o| model_pi_catalog_bindings : pi_export_metadata
+    management_jobs ||--o{ management_job_events : records_progress
+    app_auth_settings ||--o{ refresh_tokens : owns_sessions
 ```
-model_configs (profile-scoped)
-  id PK
-  profile_id FK -> profiles.id
-  api_family (fixed enum)
-  model_id
-  display_name
-  loadbalance_strategy_id FK -> loadbalance_strategies.id
-  openai_accepted_format
-  is_enabled
-  created_at, updated_at
-  UNIQUE(profile_id, model_id)
-      |
-      v
-model_access_targets (profile-scoped access metadata)
-  id PK
-  source_model_config_id FK -> model_configs.id
-  target_model_config_id FK -> model_configs.id NULLABLE
-  target_connection_id FK -> connections.id NULLABLE
-  position
-  is_enabled
-  UNIQUE(source_model_config_id, position)
-      |
-      v
-loadbalance_strategies (profile-scoped)
-  id PK
-  profile_id FK -> profiles.id
-  name
-  routing and explicit Ban Policy fields
-  created_at, updated_at
-  UNIQUE(profile_id, name)
-      | 1:N
-      v
-connections (profile-scoped private endpoint bindings)
-  id PK
-  profile_id FK -> profiles.id
-  api_family
-  endpoint_id FK -> endpoints.id
-  upstream_model_id (nullable varchar(200); the Terminal Target's explicit
-    upstream identity. Backfilled once by migration 000031 from the unique
-    owner model's current model_id via the owner access-target edge; orphan
-    rows without an owner edge keep NULL and a multiple-owner anomaly aborts
-    migration. Create omission writes the owner model's current model_id
-    explicitly; explicit null/blank/over-length are 422s; PATCH cannot clear;
-    model rename never cascades; copy preserves the source value. Runtime
-    excludes orphans and rejects a replacement snapshot if an active,
-    owner-backed row lacks this value)
-  pricing_template_id FK -> pricing_templates.id (nullable, RESTRICT)
-  qps_limit, max_in_flight_non_stream, max_in_flight_stream
-  is_active, priority
-  name, auth_type, custom_headers, openai_text_capability
-  retained compatibility health/probe columns
-  created_at, updated_at
-  INDEX(profile_id, api_family, is_active, priority)
-  INDEX(endpoint_id)
-  INDEX(pricing_template_id)
 
-routing_connection_runtime_state (retained compatibility schema, UNLOGGED)
-  id PK
-  profile_id FK -> profiles.id
-  connection_id FK -> connections.id
-  window_started_at
-  window_request_count
-  in_flight_non_stream
-  in_flight_stream
-  cycle_retry_attempts
-  cumulative_retry_attempts
-  next_retry_at
-  last_retry_delay_ms
-  ban_mode, banned_until_at
-  last_failure_kind, last_success_at
-  last_success_response_headers_latency_ms
-  created_at, updated_at
-  UNIQUE(profile_id, connection_id)
+Each access-target row points to either a Model Target or a Terminal Target. A Terminal Target has at most one owner edge; runtime excludes orphan compatibility rows. `position` belongs to the owner's complete mixed target list, and both target types share that order.
 
-routing_connection_runtime_leases (retained compatibility schema, UNLOGGED)
-  lease_token PK
-  profile_id FK -> profiles.id
-  connection_id FK -> connections.id
-  lease_kind (stream|non_stream)
-  expires_at, heartbeat_at
-  created_at, updated_at
-  INDEX(profile_id, connection_id)
-  INDEX(expires_at)
-
-loadbalance_round_robin_state (retained compatibility schema)
-  id PK
-  profile_id compatibility scope value
-  model_config_id FK -> model_configs.id
-  next_cursor
-  created_at, updated_at
-  UNIQUE(profile_id, model_config_id)
-
-profiles
-  id PK
-  name UNIQUE
-  description
-  is_active
-  is_default
-  is_editable
-  version
-  deleted_at NULL
-  created_at, updated_at
-  partial UNIQUE where is_active = TRUE
-
-endpoints (profile-scoped)
-  id PK
-  profile_id FK -> profiles.id
-  name
-  base_url
-  api_key
-  position
-  created_at, updated_at
-  UNIQUE(profile_id, name)
-  INDEX(profile_id, position)
-
-header_blocklist_rules
-  id PK
-  profile_id FK -> profiles.id NULLABLE
-  name
-  match_type (exact|prefix)
-  pattern
-  enabled
-  is_system
-  created_at, updated_at
-  - system rule: is_system = TRUE, profile_id IS NULL
-  - user rule:   is_system = FALSE, profile_id IS NOT NULL
-  - user UNIQUE(profile_id, match_type, pattern)
-
-user_settings (profile-scoped singleton)
-  id PK
-  profile_id FK -> profiles.id
-  report_currency_code, report_currency_symbol
-  timezone_preference
-  created_at, updated_at
-  UNIQUE(profile_id)
-
-pricing migration evidence (profile-scoped, owner-read only)
-  immutable inventory, template revisions, reporting-currency evidence, and FX evidence
-  bounded through the Pricing owner pages; no live FX authoring table exists
-
-request_logs (partitioned immutable attribution)
-  PK (created_at, id)
-  profile_id FK -> profiles.id
-  model_id, resolved_target_model_id, api_family
-  upstream_model_id (nullable request-time snapshot of the actual upstream
-    identity the attempt's Terminal Target used; written only by the runtime
-    writer for real upstream rows, NULL for planning/admission/legacy rows;
-    never inferred on read)
-  operation_name, upstream_operation_name, operation_translation_mode, upstream_request_path
-  ingress_request_id, attempt_number, provider_correlation_id
-  endpoint_id, connection_id, endpoint_base_url, endpoint_description
-  status_code, response_time_ms, is_stream
-  stream_outcome, stream_error_kind, stream_error_detail
-  usage token fields
-  costing snapshot fields
-  request_path, error_detail
-  created_at partition key
-
-usage_request_events (partitioned immutable usage attribution)
-  PK (created_at, id)
-  profile_id FK -> profiles.id
-  ingress_request_id indexed grouping id
-  model_id, resolved_target_model_id, api_family
-  upstream_model_id (nullable request-time winner snapshot; NULL on no-winner
-    and legacy rows, never inferred on read)
-  operation_name, upstream_operation_name, operation_translation_mode, upstream_request_path
-  endpoint_id, connection_id
-  proxy_api_key_id, proxy_api_key_name_snapshot
-  status_code, success_flag
-  stream_outcome, stream_error_kind
-  usage token fields
-  costing snapshot fields
-  created_at
-
-audit_logs (partitioned immutable attribution)
-  PK (created_at, id)
-  profile_id FK -> profiles.id
-  request_log_id weak request metadata, nullable
-  request_log_created_at weak request metadata, nullable
-  ingress_request_id weak request metadata, nullable
-  model_id, connection_id, endpoint_base_url, endpoint_description
-  request/response payload fields
-  is_stream, duration_ms
-  created_at partition key
-
-loadbalance_events (partitioned immutable attribution)
-  PK (created_at, id)
-  profile_id FK -> profiles.id
-  connection_id
-  event_type (retry_scheduled|retry_exhausted|banned|unbanned|recovered|admission_rejected)
-  failure_kind (transient_http|connect_error|timeout)
-  cycle_retry_attempts, cumulative_retry_attempts
-  next_retry_at, last_retry_delay_ms
-  ban_mode, banned_until_at, last_success_at
-  model_id, endpoint_id
-  created_at
-
-management_jobs (durable management work queue)
-  id PK
-  type (audit_delete|log_retention)
-  state (queued|running|cancel_requested|cancelled|succeeded|failed)
-  profile_id (profile-owned jobs or 0 for global jobs)
-  scope_json, reason
-  rows_deleted, batches_completed, progress_json
-  attempt/lease/error fields
-  created_at, updated_at
-      |
-      v
-management_job_events
-  id PK
-  job_id FK -> management_jobs.id ON DELETE CASCADE
-  event_type, message, rows_deleted
-  created_at
-
-app_auth_settings (singleton)
-  id PK
-  singleton_key UNIQUE
-  auth_enabled
-  username, email, pending_email, password_hash
-  email_bound_at, email_verification_code_hash, email_verification_expires_at
-  email_verification_attempt_count, must_change_password, last_login_at, token_version
-  created_at, updated_at
-
-refresh_tokens
-  id PK
-  auth_subject_id FK -> app_auth_settings.id
-  token_hash UNIQUE
-  session_duration, expires_at, rotated_from_id, revoked_at, last_used_at
-  user_agent, ip_address
-  created_at
-
-proxy_api_keys
-  id PK
-  name, key_prefix UNIQUE, key_hash, last_four
-  is_active, expires_at, last_used_at, last_used_ip
-  created_by_auth_subject_id FK -> app_auth_settings.id, notes
-  created_at, updated_at, rotated_at, rotation_count
-
-```
+`request_logs`, `usage_request_events`, `audit_logs`, and `loadbalance_events` retain immutable profile attribution in daily partitions. Request/usage model, Terminal Target, endpoint, and proxy-key snapshots do not require the current configuration to exist. Audit-to-request references are weak metadata so their retention lifetimes remain independent. Process-local routing state is separate from these historical tables and from the retained compatibility state/lease tables.
 
 ### 2. Table Definitions
 
@@ -4050,8 +3803,8 @@ Maps a model ID to fixed api family and routing behavior within one profile.
 Constraints:
 
 - `UNIQUE(profile_id, model_id)`.
-- OpenAI models require `openai_accepted_format` in `responses_only`, `chat_completions_only`, or `dual_native`; non-OpenAI models must keep it `NULL`.
-- Strict mode equality: every persisted OpenAI relation (model to model, model to Terminal Target) must connect identical modes only; the management API rejects cross-mode authoring with `422 target_openai_mode_mismatch` and blocks mode changes that would break existing relations with `409`. The read-only preflight (`PRISM_OPENAI_MODE_PREFLIGHT=1`) and the startup `openai_text_mode_check` step enforce the same invariant over persisted rows, including disabled/inactive relations.
+- OpenAI models require at least one dimension: `openai_accepted_format` (`responses_only`, `chat_completions_only`, or `dual_native`) or `openai_image_operations` (`generations`, `edits`, or `generations_and_edits`). Pure image models keep text format `NULL`; non-OpenAI models keep both dimensions `NULL`.
+- Strict mode equality: every persisted OpenAI relation (model to model, model to Terminal Target) must connect identical modes only; the management API rejects cross-mode authoring with `422 target_openai_mode_mismatch` and blocks mode changes that would break existing relations with `409`. The startup `openai_text_mode_check` step enforces the same invariant over persisted rows, including disabled/inactive relations.
 - Public model authoring uses ordered rows in `model_access_targets` to reach same-family model targets. Internal connection target rows own and route to Terminal Targets, Prism's product-facing model-private endpoint bindings.
 - Runtime compatibility is checked against `api_family`.
 - Exact facade routing, model-owned context capability, and overflow-promotion authoring fields are retired.
@@ -4152,17 +3905,19 @@ Reusable credential objects scoped to one profile.
 | --- | --- | --- | --- |
 | id | INTEGER | PK, sequence-backed | Unique identifier |
 | profile_id | INTEGER | FK -> profiles.id, NOT NULL | Owning profile |
-| name | VARCHAR(200) | NOT NULL | Endpoint label |
-| base_url | VARCHAR(500) | NOT NULL | Upstream base URL |
+| name | VARCHAR(128) | NOT NULL | Endpoint label; Unicode character limit |
+| base_url | VARCHAR(512) | NOT NULL | Upstream base URL |
 | api_key | VARCHAR(500) | NOT NULL | Prism-at-rest encrypted endpoint secret |
-| position | INTEGER | NOT NULL | Zero-based contiguous ordering index within profile |
+| api_key_fingerprint | VARCHAR(18) | NULLABLE | Non-secret key identity displayed by management reads |
+| api_key_updated_at | TIMESTAMPTZ | NULLABLE | Most recent key-identity change |
+| config_revision | BIGINT | NOT NULL, DEFAULT 1 | Endpoint configuration revision |
 | created_at | TIMESTAMPTZ | NOT NULL | Creation timestamp; application-managed |
 | updated_at | TIMESTAMPTZ | NOT NULL | Last update timestamp; application-managed |
 
 Constraints and indexes:
 
 - `UNIQUE(profile_id, name)`.
-- `INDEX(profile_id, position)` for ordered reads.
+- Endpoint ordering is `lower(name), name, id`; migration `000004_endpoint_reference_metadata` removes the old display-only `position` column and index. Its name narrowing fails closed when a retained name exceeds 128 characters; it never truncates names.
 
 #### 2.6 `connections` (profile-scoped Terminal Target storage)
 
@@ -4209,7 +3964,7 @@ Connection invariants:
 - Public model target authoring cannot attach Terminal Targets by ID. Model detail creates, updates, reorders, and deletes Terminal Targets through model-scoped routes.
 - Deleting a Terminal Target removes its owning `model_access_targets.target_connection_id` row in the same operation.
 - Connection create/update contracts do not allow client-written `priority`; model-specific ordering changes flow through `/api/models/{model_config_id}/targets/{target_id}/position`.
-- OpenAI Terminal Targets require `openai_text_capability` in `responses_only`, `chat_completions_only`, or `dual_native`; non-OpenAI Terminal Targets must keep it `NULL`.
+- OpenAI Terminal Targets require at least one of `openai_text_capability` or `openai_image_capability`. Pure image targets keep the text dimension `NULL`; non-OpenAI targets keep both dimensions `NULL`.
 - `openai_text_capability` is the connection-owned OpenAI text runtime capability source of truth for planning. `responses_only` supports native Responses generation and Responses adjunct operations, `chat_completions_only` supports native Chat Completions, and `dual_native` supports both native text generation shapes. Strict mode equality requires the requested model's `openai_accepted_format` and the connection's `openai_text_capability` to be exactly equal; authoring any unequal relation is rejected by management (`422 target_openai_mode_mismatch`), mode changes that would break existing relations return `409`, and runtime skips mode-different connections in authored order so later equal-mode attempts remain eligible. An otherwise eligible set exhausted only by mode incompatibility returns the typed `400 openai_request_translation_unsupported` before provider transport; ordinary availability exhaustion without such an attempt remains `503`.
 - `openai_probe_endpoint_variant` is retained for existing rows; live Terminal Target authoring uses `openai_text_capability` for OpenAI runtime planning.
 - A connection with zero rows in `connection_routing_windows` has no time restriction and routes exactly as it did before routing schedules existed. Existing rows migrated with `routing_schedule_timezone` `NULL` and no window rows, so the feature is inert until configured.
@@ -4252,7 +4007,7 @@ A revision is the immutable metadata and selector boundary. `template_kind` is `
 | `template_kind` | Explicit mutually-exclusive discriminator; `NOT NULL` |
 | `tier_input_tokens_above` | Positive threshold only for `tiered`; selection is strict `basis > threshold` |
 | `pricing_schedule_timezone` / `pricing_schedule_digest` | Required only for `peak_valley`; digest is SHA-256 of sorted duplicate-free `mask,start,end` LF rows |
-| `revision_source` / `catalog_revision` | `manual` (default for every retained and hand-authored row) or `catalog` with the non-null catalog ETag evidence | A CHECK requires catalog revisions to carry their source revision and manual revisions to carry none; catalog imports are append-only revisions like every other write |
+| `revision_source` / `catalog_revision` | `manual` (default for retained and hand-authored rows) carries no catalog revision; `catalog` requires the source revision. Catalog imports create append-only revisions. |
 | currency/revision fields | Existing epoch attribution, effective boundary, append-only provenance and version identity |
 
 `pricing_template_cards(revision_id, template_kind, card_role, ...)` has one complete five-component card for `standard`; `tier_base` and `tier_above` for `tiered`; or `peak` and `offpeak` for `peak_valley`. Composite foreign keys and deferred revision shape guards enforce the role set and specialty NULL/configured parity. Child rows are append-only and a post-commit digest mismatch fails closed.
@@ -4293,12 +4048,16 @@ Per-profile costing/report display preferences.
 | profile_id | INTEGER | FK -> profiles.id, NOT NULL, UNIQUE | One row per profile |
 | report_currency_code | VARCHAR(3) | NOT NULL | Spending report currency; application-managed seed value |
 | report_currency_symbol | VARCHAR(5) | NOT NULL | Currency symbol; application-managed seed value |
+| current_reporting_currency_epoch_id | BIGINT | NOT NULL | Current reporting-currency epoch reference |
+| pricing_migration_state | VARCHAR(48) | NOT NULL | `ready` or `legacy_pricing_migration_required` |
+| legacy_migration_issues | TEXT[] | NOT NULL | Retained typed migration blockers |
+| pricing_template_generation | BIGINT | NOT NULL, DEFAULT 0 | Template mutation generation |
+| pricing_reference_generation | BIGINT | NOT NULL, DEFAULT 0 | Assignment mutation generation |
 | timezone_preference | VARCHAR(100) | NULLABLE | Preferred timezone for UI/report rendering |
-| request_logs_retention_days | INTEGER | NULLABLE, CHECK >= 1 | Retained legacy per-profile retention field, ignored by current settings APIs |
-| statistics_retention_days | INTEGER | NULLABLE, CHECK >= 1 | Retained legacy per-profile retention field, ignored by current settings APIs |
-| audit_logs_retention_days | INTEGER | NULLABLE, CHECK >= 1 | Retained legacy per-profile retention field, ignored by current settings APIs |
 | created_at | TIMESTAMPTZ | NOT NULL | Creation timestamp; application-managed |
 | updated_at | TIMESTAMPTZ | NOT NULL | Last update timestamp; application-managed |
+
+The Settings finalizer removes the three duplicated per-profile retention columns after their evidence gates pass. Global policy lives only in `log_retention_settings`; the SQL migration golden snapshot is captured before that startup finalizer.
 
 #### 2.10 Retired FX authoring
 
@@ -4326,11 +4085,13 @@ Telemetry rows have immutable profile attribution captured at request start. Cap
 | endpoint_id | INTEGER | NULLABLE | Endpoint snapshot |
 | connection_id | INTEGER | NULLABLE | Executed connection snapshot |
 | selected_terminal_target_id | INTEGER | NULLABLE | Planner-selected terminal target before execution or no-fit rejection |
-| proxy_api_key_id | INTEGER | NULLABLE | Proxy API key snapshot used for the request |
+| proxy_api_key_id_snapshot | BIGINT | NULLABLE | FK-free request-time proxy-key identity |
+| proxy_api_key_attribution_state | VARCHAR(24) | NOT NULL, DEFAULT `unknown` | `identified`, `none`, or `unknown` |
+| proxy_api_key_auth_enforced_at_request | BOOLEAN | NULLABLE | Request-time proxy authentication policy |
 | proxy_api_key_name_snapshot | VARCHAR(200) | NULLABLE | Display-name snapshot for the proxy key at request time |
 | endpoint_base_url | VARCHAR(500) | NULLABLE | Endpoint base URL snapshot |
 | endpoint_description | TEXT | NULLABLE | Compatibility endpoint-name snapshot text |
-| row_kind | VARCHAR(24) | NULLABLE | Row scope: `planning`, `admission`, `upstream`, or `legacy_unknown` (legacy projection rows) |
+| row_kind | VARCHAR(24) | NOT NULL | Row scope: `planning`, `admission`, `upstream`, or `legacy_unknown` (legacy projection rows) |
 | upstream_status_code | INTEGER | NULLABLE | Real upstream HTTP status for `upstream` rows |
 | gateway_status_code | INTEGER | NULLABLE | Synthesized gateway status for planning/admission diagnostic rows |
 | legacy_status_code | INTEGER | NULLABLE | Legacy un-scoped projection kept only for pre-v2 rows |
@@ -4351,18 +4112,18 @@ Telemetry rows have immutable profile attribution captured at request start. Cap
 | first_body_or_stream_event_seen | BOOLEAN | NULLABLE | Lifecycle fact: first body/stream event delivered |
 | metadata_redacted_fields | TEXT[] | NOT NULL, DEFAULT '{}' | Ordinary metadata field names scrubbed at write time |
 | metadata_truncated_fields | TEXT[] | NOT NULL, DEFAULT '{}' | Ordinary metadata field names truncated at write time |
-| url_scrub_provenance | VARCHAR(32) | NULLABLE | `runtime_scrubbed`, `legacy_rescrubbed`, or `legacy_unknown` |
+| url_scrub_provenance | VARCHAR(32) | NOT NULL | `runtime_scrubbed`, `legacy_rescrubbed`, or `legacy_unknown` |
 | caller_request_id | VARCHAR(255) | NULLABLE | Client-supplied `X-Request-ID` captured before planning |
 | is_stream | BOOLEAN | NOT NULL | Streaming flag |
 | input_tokens | INTEGER | NULLABLE | Base input tokens |
 | output_tokens | INTEGER | NULLABLE | Base output tokens |
 | total_tokens | INTEGER | NULLABLE | Provider total or derived total when available |
 | success_flag | BOOLEAN | NULLABLE | Success classification |
-| pricing_status | VARCHAR(20) | NULLABLE | Four-state pricing classifier: `priced`, `unpriced`, `ineligible`, or `unknown` |
+| pricing_status | VARCHAR(20) | NOT NULL | Four-state pricing classifier: `priced`, `unpriced`, `ineligible`, or `unknown` |
 | unpriced_reason | VARCHAR(50) | NULLABLE | Missing price or token-usage reason (`PRICING_DISABLED`, `MISSING_TOKEN_USAGE`, `STREAM_USAGE_UNAVAILABLE`, `MISSING_PRICE_DATA`) |
 | pricing_resolution_kind | VARCHAR(50) | NULLABLE | `missing_component`, `currency_migration_required`, `unsupported_unit`, `snapshot_incoherent`, or `schedule_unresolved` |
 | missing_price_components | TEXT[] | NULLABLE | Canonical component list missing from the pricing snapshot |
-| pricing_evidence_trust | VARCHAR(24) | NULLABLE | `trusted` (new writer) or `legacy_untrusted` (pre-migration rows) |
+| pricing_evidence_trust | VARCHAR(24) | NOT NULL | `trusted` (new writer) or `legacy_untrusted` (pre-migration rows) |
 | pricing_template_id_used | INTEGER | NULLABLE | Pricing template ID snapshot used for the attempt |
 | pricing_template_name_snapshot | TEXT | NULLABLE | Template display-name snapshot |
 | pricing_template_revision_id_used | BIGINT | NULLABLE | Template revision ID snapshot |
@@ -4406,7 +4167,7 @@ Telemetry rows have immutable profile attribution captured at request start. Cap
 | error_detail | TEXT | NULLABLE | Error details for failed attempts |
 | caller_user_agent | TEXT | NULLABLE | Original caller user agent |
 | upstream_user_agent | TEXT | NULLABLE | User-Agent sent upstream |
-| completion_duration_ms | INTEGER | NULLABLE | Completion duration after first token/byte when available |
+| completion_duration_ms | INTEGER | NULLABLE | Elapsed ingress-to-finalization duration when recorded |
 | ttft_ms | INTEGER | NULLABLE | Time to first token/byte when available |
 | output_rate_state | VARCHAR(20) | NULLABLE | Output-rate evidence state on the final attempt row: `measured`, `unmeasurable`, `not_applicable`, or `unknown`; NULL on intermediate attempt rows and pre-000030 history |
 | output_rate_reason | VARCHAR(64) | NULLABLE | Why the state holds; NULL only for `measured` |
@@ -4425,7 +4186,7 @@ Request-log semantics:
 - Earlier errors such as malformed request bodies, unknown models, and API-family mismatches do not carry `PlanningFailure` and do not write synthetic history.
 - When all launched transport attempts fail and execution returns its terminal `502`, all launched attempt rows are preserved with typed `attempt_result` facts and safe transport diagnostics; `attempt_budget_exhausted` (64-launch cap) is a gateway terminal code in the usage event.
 - Unsupported or wrong-method requests rejected by the operation registry write no request log, audit log, usage event, or telemetry-outbox row.
-- The new writer never writes the legacy `status_code`/`response_time_ms`/`billable_flag`/`priced_flag` columns; those remain nullable projections for pre-v2 rows only.
+- The new writer never writes the legacy `status_code`/`response_time_ms` columns, which remain nullable projections for pre-v2 rows. `billable_flag` and `priced_flag` were removed by migration `000009`.
 - `ingress_request_id` groups the rows created by one incoming runtime request.
 - Output-rate evidence (000030) is written once per request on the final attempt row: the runtime classifies progressive visible text/tool-output delivery (strict per-operation allowlists for OpenAI Chat/Responses, Anthropic, and Gemini; usage, terminal, control, reasoning, and image payloads never count) and persists the same `output_rate_state`, `output_rate_reason`, `output_delivery_event_count`, and `output_delivery_span_ms` verdict to the final attempt row and the usage event. A rate is measured only for completed streams with at least two visible output events whose first-to-last span reaches 50ms, a usable output-token numerator, and no reasoning-token misalignment; non-streaming text, Images, non-text operations, incomplete streams, and insufficient evidence are `unmeasurable`/`not_applicable` with a reason. Every read surface derives tok/s only from `state=measured` rows as `output_tokens * 1000.0 / output_delivery_span_ms` and averages measured samples with equal weight; historical rows (evidence NULL) and legacy v2/provisional outbox payloads materialize as `unknown` and never enter an average. The thresholds are writer policy, never schema constraints.
 - `attempt_number` preserves retry/failover ordering within that group.
@@ -4461,7 +4222,6 @@ Usage-event rows are the finalized source for the unified statistics snapshot. T
 | endpoint_label_snapshot | TEXT | NOT NULL | Endpoint label captured at runtime for retained aggregate display |
 | connection_id | INTEGER | NULLABLE | Executed connection snapshot |
 | selected_terminal_target_id | INTEGER | NULLABLE | Planner-selected terminal target for the finalized request |
-| proxy_api_key_id | INTEGER | NULLABLE | Proxy API key snapshot |
 | proxy_api_key_name_snapshot | VARCHAR(200) | NULLABLE | Proxy key name at event time |
 | attempt_count | INTEGER | NOT NULL, CHECK `attempt_count >= 0` | Number of real upstream launches; planning/admission-only finalized events use zero |
 | expected_request_log_row_count | INTEGER | NULLABLE | Expected retained request-log rows for chain reconciliation |
@@ -4477,15 +4237,16 @@ Usage-event rows are the finalized source for the unified statistics snapshot. T
 | final_error_code | VARCHAR(120) | NULLABLE | Gateway terminal code (e.g. `attempt_budget_exhausted`) |
 | ingress_started_at | TIMESTAMPTZ | NULLABLE | Ingress wall-clock start from finalized evidence |
 | ingress_completed_at | TIMESTAMPTZ | NULLABLE | Ingress wall-clock completion from finalized evidence |
-| proxy_api_key_id_snapshot | INTEGER | NULLABLE | Proxy-key snapshot at event time |
+| proxy_api_key_id_snapshot | BIGINT | NULLABLE | FK-free request-time proxy-key identity |
+| proxy_api_key_auth_enforced_at_request | BOOLEAN | NULLABLE | Request-time proxy authentication policy |
 | proxy_api_key_attribution_state | VARCHAR(24) | NOT NULL, DEFAULT 'unknown' | Proxy-key attribution state |
 | error_source | VARCHAR(20) | NULLABLE | Final failure source |
 | error_code | VARCHAR(120) | NULLABLE | Final failure code |
 | failure_stage | VARCHAR(32) | NULLABLE | Final failure stage |
-| pricing_status | VARCHAR(20) | NULLABLE | Four-state pricing classifier (`priced`, `unpriced`, `ineligible`, `unknown`) |
+| pricing_status | VARCHAR(20) | NOT NULL | Four-state pricing classifier (`priced`, `unpriced`, `ineligible`, `unknown`) |
 | pricing_resolution_kind | VARCHAR(50) | NULLABLE | `missing_component`, `currency_migration_required`, `unsupported_unit`, `snapshot_incoherent`, or `schedule_unresolved` |
 | missing_price_components | TEXT[] | NULLABLE | Canonical missing-component list |
-| pricing_evidence_trust | VARCHAR(24) | NULLABLE | `trusted` or `legacy_untrusted` |
+| pricing_evidence_trust | VARCHAR(24) | NOT NULL | `trusted` or `legacy_untrusted` |
 | pricing_template_id_used | INTEGER | NULLABLE | Pricing template snapshot |
 | pricing_template_name_snapshot | TEXT | NULLABLE | Template name snapshot |
 | pricing_template_revision_id_used | BIGINT | NULLABLE | Template revision snapshot |
@@ -4518,7 +4279,6 @@ Usage-event rows are the finalized source for the unified statistics snapshot. T
 | pricing_snapshot_cache_read_input | VARCHAR(20) | NULLABLE | Cache-read price snapshot |
 | pricing_snapshot_cache_creation_input | VARCHAR(20) | NULLABLE | Cache-creation price snapshot |
 | pricing_snapshot_reasoning | VARCHAR(20) | NULLABLE | Reasoning price snapshot; the actual card selected for this event |
-| pricing_config_version_used | INTEGER | NULLABLE | Pricing config version used for costing |
 | pricing_template_kind | VARCHAR(16) | NULLABLE | Template-family provenance: `standard`, `tiered`, or `peak_valley` |
 | pricing_selection_state | VARCHAR(20) | NULLABLE | `not_evaluated`, `not_applicable`, `selected`, or `unresolved` |
 | pricing_card_role | VARCHAR(16) | NULLABLE | Selected role: `standard`, `tier_base`, `tier_above`, `peak`, or `offpeak` |
@@ -4529,7 +4289,7 @@ Usage-event rows are the finalized source for the unified statistics snapshot. T
 | pricing_schedule_local_weekday / pricing_schedule_local_minute | SMALLINT | NULLABLE | ISO local wall-clock evidence |
 | pricing_schedule_digest | VARCHAR(64) | NULLABLE | Canonical window digest used for the selector decision |
 | response_time_ms | INTEGER | NULLABLE | Final attempt latency in ms |
-| completion_duration_ms | INTEGER | NULLABLE | Completion duration after first token/byte when available |
+| completion_duration_ms | INTEGER | NULLABLE | Elapsed ingress-to-finalization duration when recorded |
 | ttft_ms | INTEGER | NULLABLE | Time to first token/byte when available |
 | output_rate_state | VARCHAR(20) | NULLABLE | Output-rate evidence state: `measured`, `unmeasurable`, `not_applicable`, or `unknown`; NULL on pre-000030 history and legacy outbox rows read as `unknown` |
 | output_rate_reason | VARCHAR(64) | NULLABLE | Why the state holds; NULL only for `measured` |
@@ -4580,17 +4340,30 @@ Audit rows for upstream attempts with immutable profile attribution. The table i
 | endpoint_description | TEXT | NULLABLE | Compatibility endpoint-name snapshot text |
 | request_method | VARCHAR(10) | NOT NULL | Upstream request method |
 | request_url | VARCHAR(2000) | NOT NULL | Upstream request URL |
-| request_headers | TEXT | NOT NULL | Upstream request headers; only `authorization`, `x-api-key`, and `x-goog-api-key` values are replaced with `[REDACTED]` |
-| request_body | TEXT | NULLABLE | Captured upstream request body |
-| response_status | INTEGER | NOT NULL | Upstream response status |
-| response_headers | TEXT | NULLABLE | Upstream response headers serialized as captured, without header redaction |
-| response_body | TEXT | NULLABLE | Captured final-attempt upstream response body |
+| request_headers | JSONB | NULLABLE | Canonical sorted, scrubbed request `[{name,value}]` entries |
+| request_body | BYTEA | NULLABLE | Captured upstream request byte prefix |
+| response_status | INTEGER | NULLABLE | Retained legacy response status |
+| row_kind | VARCHAR(24) | NOT NULL | `upstream`, `planning`, `admission`, or `legacy_unknown` |
+| attempt_number | INTEGER | NULLABLE | Upstream attempt ordinal |
+| upstream_status_code / gateway_status_code / legacy_status_code | INTEGER | NULLABLE | Scoped status projection |
+| attempt_duration_ms / legacy_duration_ms | INTEGER | NULLABLE | Scoped duration evidence |
+| response_headers | JSONB | NULLABLE | Canonical sorted, scrubbed response `[{name,value}]` entries |
+| response_body | BYTEA | NULLABLE | Captured final-attempt response byte prefix |
+| request_headers_scrub_provenance / response_headers_scrub_provenance | VARCHAR(32) | NULLABLE | Request-time or legacy header-scrub provenance |
+| request_body_encoding / response_body_encoding | VARCHAR(16) | NULLABLE | Stored-prefix encoding evidence |
+| request_body_capture_provenance / response_body_capture_provenance | VARCHAR(32) | NULLABLE | Runtime or legacy body provenance |
+| request_body_capture_status / response_body_capture_status | VARCHAR(32) | NULLABLE | Captured, truncated, or omitted capture state |
+| request_body_capture_end_state / response_body_capture_end_state | VARCHAR(32) | NULLABLE | Capture completion evidence |
+| request_body_capture_limit_reason / response_body_capture_limit_reason | VARCHAR(24) | NULLABLE | Capture budget limit reason |
+| request_body_truncated / response_body_truncated | BOOLEAN | NOT NULL, DEFAULT FALSE | Stored prefix was truncated |
+| request_body_bytes_observed / response_body_bytes_observed | BIGINT | NULLABLE | Observed bytes per direction |
+| request_body_bytes_stored / response_body_bytes_stored | BIGINT | NULLABLE | Stored bytes per direction |
 | audit_enabled_at_request | BOOLEAN | NOT NULL, DEFAULT FALSE | Whether audit was enabled when the request started |
 | audit_capture_bodies_at_request | BOOLEAN | NOT NULL, DEFAULT FALSE | Whether body capture was enabled when the request started |
 | request_body_stored | BOOLEAN | NOT NULL, DEFAULT FALSE | Whether request body content was stored |
 | response_body_stored | BOOLEAN | NOT NULL, DEFAULT FALSE | Whether response body content was stored |
 | is_stream | BOOLEAN | NOT NULL | Streaming flag |
-| duration_ms | INTEGER | NOT NULL | Request duration |
+| duration_ms | INTEGER | NULLABLE | Retained legacy duration |
 | created_at | TIMESTAMPTZ | NOT NULL, part of PK `(created_at, id)` | Audit timestamp and partition key |
 
 Audit-link semantics:
@@ -4600,7 +4373,7 @@ Audit-link semantics:
 - Audit retention and request-log retention are independent global jobs.
 - When body capture is enabled, every audit-enabled attempt can store its upstream request body. Only the final attempt can store the captured upstream response body.
 - OpenAI audit capture stores native upstream request and response bodies.
-- Request and response bodies are not redacted. Other request-header values and all response-header values can also contain sensitive data.
+- Both request and response headers use the fixed safe-diagnostic scrubber plus the effective Header Blocklist. Text bodies can retain sensitive user content; image-operation bodies apply payload redaction before persistence (see §8.1).
 
 #### 2.14 `profile_api_family_audit_settings` (profile-scoped audit policy)
 
@@ -4799,17 +4572,6 @@ Retained compatibility schema for historical runtime-state rows. The production 
 | last_failure_kind | VARCHAR(20) | NULLABLE | Latest retryable failure kind: `transient_http`, `connect_error`, or `timeout` |
 | last_success_at | TIMESTAMPTZ | NULLABLE | Successful response time that cleared retry state when relevant |
 | last_success_response_headers_latency_ms | INTEGER | NULLABLE | Latest successful attempt latency from request start to upstream response headers; single sample, not a percentile, not TTFT |
-| pricing_status | VARCHAR(20) | NULLABLE | Canonical four-state pricing classification: `priced`, `unpriced`, `ineligible`, `unknown`; written at materialization time |
-| unpriced_reason | VARCHAR(50) | NULLABLE | Canonical reason when `unpriced`: `PRICING_DISABLED`, `MISSING_TOKEN_USAGE`, `STREAM_USAGE_UNAVAILABLE`, `MISSING_PRICE_DATA` |
-| pricing_evidence_trust | VARCHAR(20) | NOT NULL | `trusted` for new rows; `legacy_untrusted` for conservatively backfilled legacy rows (canonical cost stays null) |
-| reporting_currency_epoch | INTEGER | NULLABLE | Identified reporting currency epoch (1 for the current single-currency setup) |
-| currency_attribution | VARCHAR(20) | NOT NULL | `identified` or `legacy_unknown` |
-| row_kind | VARCHAR(24) | NOT NULL | `planning`, `admission`, `upstream`, or `legacy_unknown` (legacy only for unclassifiable old rows) |
-| error_source | VARCHAR(20) | NULLABLE | `prism`, `upstream`, `transport`, `client`, or `unknown` |
-| error_code | VARCHAR(120) | NULLABLE | Stable non-empty code on new failed rows; deterministic fallbacks (`upstream_http_<status>`, `transport_error`, `prism_<stage>_failure`) |
-| failure_stage | VARCHAR(32) | NULLABLE | `routing`, `admission`, `upstream_connect`, `upstream_response`, `stream`, or `unknown` |
-| upstream_status_code / gateway_status_code / legacy_status_code | INTEGER | NULLABLE | Scoped HTTP status: upstream response only / planning-admission diagnostic only / preserved unscoped legacy status |
-| attempt_trigger / attempt_result / is_winner | — | NULLABLE | Upstream attempt classification (`initial`, `retry_same_target`, `hedge`, `failover`) and typed result; null on non-upstream rows |
 | created_at | TIMESTAMPTZ | NOT NULL | Row creation timestamp; application-managed |
 | updated_at | TIMESTAMPTZ | NOT NULL | Last mutation timestamp; application-managed |
 
@@ -4843,26 +4605,31 @@ Constraints:
 
 #### 2.21 `app_auth_settings` (singleton)
 
-Global operator authentication settings and credentials.
+Global operator authentication identity and version-publication pointers. Effective mode, username, password hash, and session version are read from `auth_config_versions`; the Settings finalizer drops the retired in-place `auth_enabled`, `username`, `password_hash`, and `token_version` columns after their evidence gates pass.
 
 | Column | Type | Constraints | Description |
 | --- | --- | --- | --- |
 | id | INTEGER | PK, sequence-backed | Unique identifier |
 | singleton_key | VARCHAR(20) | NOT NULL, UNIQUE | `app` |
-| auth_enabled | BOOLEAN | NOT NULL | Auth toggle; application-managed value |
-| username | VARCHAR(200) | NULLABLE | Operator username |
 | email | VARCHAR(320) | NULLABLE | Retained legacy email column, unused by current auth responses |
 | pending_email | VARCHAR(320) | NULLABLE | Retained legacy pending email column, unused by current auth responses |
-| password_hash | TEXT | NULLABLE | Argon2 password hash |
 | email_bound_at | TIMESTAMPTZ | NULLABLE | Retained legacy email timestamp |
 | email_verification_code_hash | VARCHAR(64) | NULLABLE | Retained legacy email-code hash |
 | email_verification_expires_at | TIMESTAMPTZ | NULLABLE | Retained legacy email-code expiry |
 | email_verification_attempt_count | INTEGER | NOT NULL | Retained legacy email-code attempt count; application-managed zero value |
 | must_change_password | BOOLEAN | NOT NULL | First-login follow-up flag; application-managed value |
 | last_login_at | TIMESTAMPTZ | NULLABLE | Most recent successful login |
-| token_version | INTEGER | NOT NULL | Global token revocation version; application-managed zero value |
+| auth_revision | BIGINT | NOT NULL, DEFAULT 1 | Optimistic concurrency for auth settings |
+| desired_config_version_id / effective_config_version_id | BIGINT | NULLABLE | Staged and published immutable version pointers |
+| desired_generation / effective_generation | TEXT | NULLABLE | Generation identities paired with those pointers |
+| transition_operation_id | TEXT | NULLABLE | Durable auth operation identity |
+| transition_kind | TEXT | NULLABLE | `enable`, `disable`, `account_update`, or `account_and_mode_update` |
+| transition_state | TEXT | NULLABLE | `staged`, `publishing`, `retrying`, or `rollback_required` |
+| fenced_at | TIMESTAMPTZ | NULLABLE | Writer-fence publication instant |
 | created_at | TIMESTAMPTZ | NOT NULL | Creation timestamp; application-managed |
 | updated_at | TIMESTAMPTZ | NOT NULL | Last update timestamp; application-managed |
+
+`auth_config_versions` stores `subject_key`, unique generation identity, desired `enabled|disabled` mode, username, password hash, session version, lifecycle state (`staged|effective|unusable|superseded`), creation-operation identity, and the Proxy readiness proof. Credential content is versioned; publication advances the singleton's effective pointers rather than editing a credential in place. Retained email fields and the earlier `effective_auth_generation`/`auth_transition_*` fields remain compatibility storage, not the active configuration source.
 
 #### 2.22 `refresh_tokens`
 

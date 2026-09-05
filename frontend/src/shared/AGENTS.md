@@ -1,40 +1,7 @@
-# FRONTEND SHARED KNOWLEDGE BASE
+# Cross-route helpers
 
-## OVERVIEW
-`frontend/src/shared/` owns rewrite-era cross-route helper modules that are not page, feature, or primitive-specific: API query keys/invalidation, server validation shaping, table row helpers, and the reusable operator design-system layer.
-
-## STRUCTURE
-```text
-shared/
-├── api/            # Query-key and mutation-invalidation helpers
-├── design-system/  # Reusable operator component layer
-│   └── AGENTS.md   # Page/section/control/table/status rules
-├── forms/          # Backend/server validation issue shaping
-├── table/          # Rewrite table rows, pure table algorithms, and pagination chrome
-└── index.ts        # Public shared export barrel
-```
-
-## WHERE TO LOOK
-- Public shared export surface: `index.ts`
-- Rewrite query key types, profile-id scope, and invalidation scope helpers: `api/queryKeys.ts`, `api/queryInvalidation.ts`
-- Server validation extraction and field-error formatting: `forms/serverValidation.ts`
-- Pure operational-table sorting/page calculations: `table/operationalTableState.ts`
-- Operational table chrome: `table/operationalTable.tsx`
-- Async/append pagination state and controls: `table/paginationStates.ts`, `table/paginationControls.tsx`; source-qualified candidate generation/evidence ownership: `table/useAppendCandidatePager.ts`
-- Rewrite table helper exports: `table/rewriteTable.ts`
-- Reusable operator design-system components: `design-system/AGENTS.md`
-- Consumers in feature routes and seam tests: `../features/`, `../test/`, `../../tests/lib/`
-
-## CONVENTIONS
-- For UI/UX, frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation changes, follow `frontend/DESIGN.md`: use `@/shared/design-system` before `@/components/ui`, preserve the Google Admin Console / Material Design 3 operator direction, use semantic tokens, operator surface classes, density variables, and required operator components, keep route state and API calls out of design-system components, and avoid adding compatibility wrappers under `@/components`.
-- Do not add decorative gradients, blur blobs, heavy shadows, marketing hero layouts, raw Tailwind status colors, page-local color blends, or ad hoc dark-mode overrides outside the `frontend/DESIGN.md` contract.
-- Keep this directory framework-level and cross-route. Feature-only schemas, payload builders, and mutation hooks belong beside their route feature.
-- Keep Default-profile query scope explicit in shared query keys. Global control surfaces should use global scope helpers, and accepted-but-ignored `X-Profile-Id` compatibility headers must not enter cache keys.
-- Keep server validation helpers shape-preserving so backend field paths remain visible to route forms.
-- Keep `useAppendCandidatePager` source-agnostic: rows, revision, and adapter evidence commit under one key/generation; feature adapters own DTOs, copy, query submission, and selection policy.
-- Keep `index.ts` as the public barrel; avoid deep imports from feature code unless a helper intentionally stays private.
-
-## ANTI-PATTERNS
-- Do not move shadcn primitives or route-specific table markup here.
-- Do not hide backend validation field names behind generic messages.
-- Do not create shared query invalidation shortcuts that blur Default-profile, runtime, and global scopes.
+- Keep shared code cross-route. Feature-specific schemas, payloads, and mutation hooks stay with their feature; reusable operator components belong to [design-system](design-system/AGENTS.md).
+- `api/queryKeys.ts` and `api/queryInvalidation.ts` keep Default-profile and global query scope explicit. Headers accepted only for compatibility do not justify cache scope; runtime traffic is a separate domain.
+- `forms/serverValidation.ts` preserves backend field paths so forms can display precise errors.
+- `table/useAppendCandidatePager.ts` owns source-qualified keys/generations, replace/append/retry, deduplication, and revision rollover. Rows, revision, and adapter evidence commit atomically; late responses cannot update freshness after their rows are rejected. Models.dev/Pi adapters own DTOs, copy, and selection policy.
+- Keep pure sorting/page calculations in `table/operationalTableState.ts`; table chrome and pagination controls consume those helpers. Expose intentionally shared helpers through `index.ts`.

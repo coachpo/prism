@@ -1,61 +1,8 @@
-# FRONTEND SETTINGS COSTING KNOWLEDGE BASE
+# Costing save and migration protocol
 
-## OVERVIEW
-`pages/settings/costing/` owns the settings-side costing hooks that support billing, reporting currency, the atomic currency-migration flow, and timezone behavior. This folder handles bootstrap, normalized derived state, save flows, and reporting-currency priming, while `../sections/BasisAndDisplaySection.tsx` and `../sections/billing-currency/AGENTS.md` stay focused on rendering. FX mapping authoring was hard-deleted; no hook or component here deals with FX.
-
-## STRUCTURE
-```text
-costing/
-├── useCostingSettingsBootstrap.ts   # Load costing settings and shared model options
-├── useCostingDerivedState.ts        # Dirty flags, preview text, and labels
-├── useCostingSettingsSave.ts        # Billing save and timezone save flows
-├── costingForm.ts                   # Costing form defaults and normalization
-└── currencyMigrationProtocol.ts     # Inventory, draft, chunk/seal, preview, and commit protocol
-```
-
-## WHERE TO LOOK
-
-- Bootstrap fetches for costing settings and shared models: `useCostingSettingsBootstrap.ts`
-- Normalization, dirty-state derivation, and timezone preview: `useCostingDerivedState.ts`
-- Billing save, reporting-currency refresh/prime, and timezone save boundaries: `useCostingSettingsSave.ts`
-- Currency-migration committed refresh (re-fetch settings, prime provider, bump revision): `../useCostingSettingsData.ts`
-- Costing form defaults and normalization: `costingForm.ts`
-- Currency migration inventory preparation, draft chunk/seal, preview, and commit protocol: `currencyMigrationProtocol.ts`
-- Timezone offset and locale-aware preview: `../../../lib/timezone.ts`
-- Reporting-currency and timezone rendering layer: `../sections/BasisAndDisplaySection.tsx`, `../sections/billing-currency/AGENTS.md`
-- Reporting-currency save success, failure preservation, and provider priming belong to frontend seam tests rather than dedicated Playwright specs.
-
-## BOUNDARY
-
-- `costing/` owns stateful hooks, normalization, validation, and save orchestration.
-- `sections/BasisAndDisplaySection.tsx` owns the section shell that wires those hooks into the settings page.
-- `../sections/billing-currency/AGENTS.md` owns presentation widgets such as the reporting currency card and the currency-migration dialog.
-- Timezone saving stays in this hook cluster because it shares the costing-form saved-state model, even though it is rendered by `../sections/BasisAndDisplaySection.tsx` alongside reporting currency.
-- Reporting-currency cache/trust itself is owned by `../../../context/ReportingCurrencyContext.tsx` and `../../../lib/reportingCurrency.ts`; this folder writes settings and refreshes or primes that shared state.
-- Currency migrations (preview + commit) are owned by the backend `settings` package; the frontend only renders the preview impact table and sends `preview_hash` on commit.
-- `CurrencyMigrationDialog.tsx` owns dialog inputs, step presentation, repair editing, and localized feedback; `currencyMigrationProtocol.ts` owns inventory paging, draft chunk/seal, preview, and commit requests.
-
-## CONVENTIONS
-- For UI/UX, frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation changes, follow `frontend/DESIGN.md`: use `@/shared/design-system` before `@/components/ui`, preserve the Google Admin Console / Material Design 3 operator direction, use semantic tokens, operator surface classes, density variables, and required operator components, keep route state and API calls out of design-system components, and avoid adding compatibility wrappers under `@/components`.
-- Do not add decorative gradients, blur blobs, heavy shadows, marketing hero layouts, raw Tailwind status colors, page-local color blends, or ad hoc dark-mode overrides outside the `frontend/DESIGN.md` contract.
-
-- For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
-- Keep costing data normalized through `normalizeCostingForm()` before dirty checks or saves.
-- Preserve the split between billing saves and timezone saves. Timezone save depends on a valid saved billing state.
-- Reuse `costingForm.ts` for defaults and normalization helpers.
-- Keep timezone offset and preview formatting in `../../../lib/timezone.ts`; do not duplicate locale or DST handling in costing hooks or sections.
-- After reporting-currency writes, use the provider refresh/prime seam instead of creating a local currency cache.
-- Do not reintroduce FX mapping state, validation, or endpoint-connection loading: the backend rejects `endpoint_fx_mappings` with 422 and the currency-migration flow is the only way to change the reporting currency code.
-
-- Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
-
-## LLM UPSTREAM MATRIX
-- When work touches LLM upstream request or response logic, evaluate streaming and non-streaming coverage across operation shapes, not just provider families: OpenAI Chat Completions (`/v1/chat/completions`) and Responses (`/v1/responses`), Gemini, and Anthropic.
-
-## ANTI-PATTERNS
-
-- Do not move currency-migration dialog state into `../sections/billing-currency/AGENTS.md` presentation components beyond open/commit callbacks.
-- Do not collapse billing and timezone saves into one generic action when the hook boundary keeps their validation rules clear.
-- Do not duplicate normalization or mapping validation logic outside this hook cluster and `costingForm.ts`; there is no mapping validation anymore.
-- Do not duplicate reporting-currency trust or fallback behavior here; the provider/lib seam owns it.
-- Do not reintroduce FX authoring: no `endpoint_fx_mappings` fields, no per-model/endpoint FX rate forms, no FX CRUD hooks.
+- `costingForm.ts` owns defaults/normalization; normalize before dirty comparison and save. `useCostingSettingsBootstrap.ts` owns reads, `useCostingDerivedState.ts` owns derived state, and `useCostingSettingsSave.ts` owns ordinary saves.
+- Reporting-currency symbol and timezone are one `PUT /api/settings/costing`, with the saved `expected_updated_at` baseline. Preserve that combined write so either field cannot overwrite the other from stale state. Currency code changes use migration rather than this ordinary save.
+- Successful writes clear timezone preference cache, prime shared reporting-currency state, update the saved form from the response, and bump reference revision. `../useCostingSettingsData.ts` owns post-migration authoritative refresh; do not establish another currency cache.
+- `currencyMigrationProtocol.ts` owns bounded inventory/template paging, draft create/chunk/seal, preview, and commit. Preserve inventory identity/generation, settings/epoch CAS, operation IDs, and preview/draft hashes; stale evidence requires a new preview.
+- Dialog input/steps and repair edits remain in `../sections/billing-currency/`. Migration drafts retain complete role-keyed cards and missing/pending prices; do not project multi-card templates to a scalar.
+- Archive-only unused-FX cleanup is a separate migration operation and preserves the active epoch/template prices. It does not restore FX mapping authoring.

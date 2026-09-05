@@ -2,48 +2,63 @@
 
 ## Development Environment
 
-- Backend: Go 1.26.6+.
-- Frontend: Node.js 24+, pnpm 10.30.1 (package manager is pinned via `packageManager`).
-- Docker is required for the local PostgreSQL service and the Compose bundle.
+- Backend: Go 1.26.6 or newer, as declared by `backend/go.mod`.
+- Frontend: Node.js 24+ and pnpm 10.30.1, pinned in `frontend/package.json`.
+- Docker with Compose is required for local PostgreSQL and the backend suites' disposable database harness.
+- Install frontend dependencies from `frontend/` with `pnpm install --frozen-lockfile`. CI enables the pinned pnpm through Corepack.
 
 ## Local Development Startup
+
+Run from the repository root:
 
 ```bash
 ./start.sh full      # backend + frontend dev server + PostgreSQL
 ./start.sh headless  # backend + PostgreSQL only
 ```
 
-The launcher loads the root `.env` for variables absent from the invoking shell, defaults `PRISM_CONFIG_PATH` to repo-local `config.json`, keeps frontend on `5173` and PostgreSQL on `15432`, and follows the selected bootstrap file's backend port (fresh seeds default to `8000`). In `full` mode browser traffic stays same-origin through the local Vite proxy.
+The launcher loads the root `.env` for variables absent from the invoking shell, defaults `PRISM_CONFIG_PATH` to repo-local `config.json`, keeps frontend on `5173` and PostgreSQL on `15432`, and follows the selected bootstrap file's backend port (fresh seeds default to `8000`). It validates that the existing bootstrap file matches the local launcher database/listener contract and preserves valid files. In `full` mode it unsets `VITE_API_BASE` and enables `PRISM_VITE_PROXY_ENABLED=1` with `PRISM_VITE_PROXY_TARGET` pointing at that backend, including `/health`.
+
+For a direct Go run, start the database first, then run `go run ./cmd/prism-backend` from `backend/` with an absolute `PRISM_CONFIG_PATH` pointing at the existing bootstrap file. A fresh standalone backend seeds PostgreSQL on `5432` unless `DATABASE_URL` is supplied; the launcher seeds its own DSN on `15432`. Existing files remain authoritative over the seed input. Do not reset a retained database or bootstrap file to fix a configuration mismatch; follow [STATUS.md](STATUS.md#data).
+
+For frontend-only work, run `pnpm run dev` from `frontend/`. A standalone Vite server has no launcher proxy by default: set the development `VITE_API_BASE` as shown in [frontend/.env.example](frontend/.env.example) to reach a backend, and configure that backend's CORS accordingly. Without the launcher proxy, Vite's `/health` reports the frontend server's health only. Production uses the root Nginx/app image.
 
 ## Tests, Checks, and Builds
 
-Backend:
+Run the affected checks and all checks required by the owning AGENTS guide. The CI-equivalent backend commands, from `backend/`, are:
 
 ```bash
-cd backend
-go build ./cmd/prism-backend
 go test ./internal/... ./cmd/...
-go test -timeout 30m ./tests/contract ./tests/integration ./tests/runtime ./tests/priority/...
+go test -timeout 30m ./internal/platform/lifecycle ./tests/contract ./tests/integration ./tests/runtime ./tests/priority/...
+go build ./cmd/prism-backend
 ```
 
-Frontend:
+The frontend commands, from `frontend/`, are:
 
 ```bash
-cd frontend
-pnpm install
-pnpm run dev
+pnpm exec vitest run
 pnpm run test:lib
-pnpm run test:e2e
-pnpm run lint
 pnpm run build
+pnpm run lint
+pnpm exec playwright install chromium --with-deps
+pnpm run test:e2e
 ```
+
+`pnpm test` starts Vitest in watch mode. The non-watch command above matches CI. [backend/tests/AGENTS.md](backend/tests/AGENTS.md) and [frontend/tests/AGENTS.md](frontend/tests/AGENTS.md) own runner boundaries; [Test Ownership](docs/development-rules.md#test-ownership) owns the shared regression policy. Playwright's ordinary suite uses the local Vite server and mocked APIs; the separately invoked `pnpm run test:e2e:closed-loop` runs the same browser suite with an owned local Vite lifecycle inside a pinned Playwright container, as described by [the e2e guide](frontend/tests/e2e/AGENTS.md).
+
+`.github/workflows/ci.yml` also runs blocking `govulncheck ./...` (with govulncheck 1.1.4) and `pnpm audit --prod --audit-level=high`, plus non-blocking single-image Trivy evidence collection. These scanner jobs do not replace the affected behavior checks.
 
 ## Development Workflow
 
-- Prism is a monorepo: `backend/` and `frontend/` are root-owned directories sharing the root launcher, release helper, and CI wiring.
-- The layered AGENTS.md tree (root, `backend/`, `frontend/`, and their children) owns implementation maps and conventions; read the owning AGENTS docs before changing a surface.
-- Releases go through `./release.sh` (e.g. `./release.sh patch --dry-run`), which keeps `VERSION`, `backend/VERSION`, `frontend/VERSION`, and `frontend/package.json` aligned, verifies backend version metadata plus the frontend build, then commits, tags, and pushes the single-image release. CI gates releases on `govulncheck` and `pnpm audit`.
-- Follow the project- and technology-specific rules in [docs/development-rules.md](docs/development-rules.md), the architecture facts in [docs/architecture.md](docs/architecture.md), and the unified size and responsibility policy in [docs/source-code-size-and-responsibility-rules.md](docs/source-code-size-and-responsibility-rules.md), together with the shared principles below.
+- Prism is one repository: backend, frontend, launcher, release helper, and CI are versioned together. Read the owning AGENTS hierarchy before editing a surface.
+- Use [STATUS.md](STATUS.md) for current lifecycle, deployment, data, and compatibility facts and [docs/product.md](docs/product.md) for delivery scope. The selected static development strategy below does not override them.
+- Follow [docs/development-rules.md](docs/development-rules.md), [docs/architecture.md](docs/architecture.md), and [docs/source-code-size-and-responsibility-rules.md](docs/source-code-size-and-responsibility-rules.md). UI work follows [frontend/DESIGN.md](frontend/DESIGN.md) and the checked-in `frontend/components.json`; add primitives through that existing shadcn registry into `frontend/src/components/ui/`.
+- Keep active plans and execution evidence under ignored `artifacts/`, while canonical docs describe the implemented product and contracts.
+
+## Releases
+
+`./release.sh patch --dry-run` previews a release. Live `./release.sh patch` (or `minor`, `major`, or an explicit version) requires release authorization: it keeps `VERSION`, `backend/VERSION`, `frontend/VERSION`, and `frontend/package.json` aligned, verifies backend version metadata and the frontend build, commits, tags, and pushes the root release. The helper requires clean, current `main` and a forward version; it does not deploy an instance.
+
+`.github/workflows/docker-images.yml` publishes only `ghcr.io/coachpo/prism` for `linux/arm64`. A `v*` tag requires green CI for its commit and moves `latest`; manual workflow dispatch does not move `latest`. `.github/workflows/cleanup.yml` only prunes untagged single-image container versions. Instance inspection, backup/restore, and authorized rollout procedures are indexed in [docs/README.md](docs/README.md#specialized-documents).
 
 <!-- write-project-docs:shared-contributing:start -->
 ## Current Development Strategy

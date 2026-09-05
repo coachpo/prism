@@ -1,48 +1,15 @@
-# BACKEND MANAGEMENT HTTPAPI KNOWLEDGE BASE
+# Management API Guidance
 
-## OVERVIEW
-`backend/internal/httpapi/management/` owns Prism's `/api/*` management fanout. It routes Default-profile-scoped CRUD, auth/session/proxy-key flows, observability reads, retention jobs, and shared management response helpers while platform HTTP owns mounting and middleware.
+Mount package routes through `MountManagementRoutes` and `../../platform/http/management_branch.go`. That platform branch owns admission, authentication ordering, schema-transition guards, browser-write protection, and mutation-cache effects.
 
-## STRUCTURE
-```text
-management/
-├── auth/            # auth bootstrap/status, sessions, proxy API keys, runtime auth cache
-├── audit/           # audit-log reads and management job list/get/cancel
-├── configrules/     # User-Agent Client Rules CRUD
-├── connections/     # private connections and pricing templates
-├── endpoints/       # endpoint CRUD, encrypted keys, ordering, duplication
-├── loadbalance/     # strategy CRUD, current-state reset, event reads
-├── models/          # model CRUD and access targets
-├── responseutil/    # shared profile/error response helpers
-├── settings/        # costing, timezone, audit settings, global log-retention jobs
-└── stats/           # dashboard, usage, spending, request-log read APIs
-```
+- Resolve profile-scoped resources through `profiledomain.ResolveEffectiveProfile`: the effective profile is Default id `1`, and `X-Profile-Id` does not select another profile. Preserve storage profile columns and predicates; instance-global resources remain global.
+- Reuse `responseutil/` for response envelopes, profile errors, and private/no-store headers. Preserve the owning route's typed error contract instead of cloning a new envelope.
+- Declare new route admission and runtime-cache effects in the platform route specifications. Catalog metadata writes must remain planning-neutral; routing mutations use the platform invalidation seam after successful writes.
+- Keep bootstrap file ownership in `../../platform/config/`; database settings belong in their owning management package.
 
-## WHERE TO LOOK
-- Router assembly and management middleware order: `../../../platform/http/management_branch.go`
-- Auth/session/proxy-key/runtime-auth cache seams: `auth/AGENTS.md`, `auth/`
-- Model graph authoring and validation: `models/AGENTS.md`, `models/routes.go`, `models/access_target_handlers.go`, `models/access_target_ordering.go`, `models/access_target_tx_steps.go`, `models/model_routing_validation.go`, `models/graph_integrity.go`, `models/store.go`
-- Endpoint, connection, load-balance, and config-rule CRUD leaves: `endpoints/AGENTS.md`, `connections/AGENTS.md`, `loadbalance/AGENTS.md`, `configrules/AGENTS.md`
-- Product observability and retention-job APIs: `stats/AGENTS.md`, `audit/AGENTS.md`, `settings/AGENTS.md`
-- Shared profile/error response shaping used across leaves: `responseutil/profile_errors.go`
+Follow the local guide for the affected contract:
 
-## CONVENTIONS
-- Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `frontend/DESIGN.md`; keep backend docs focused on the Go runtime contract instead of repeating design-system rules.
-- Keep `/api/*` management handlers here; server mounting, admission, runtime-cache invalidation middleware, and CORS snapshots stay in `../../../platform/http/`.
-- Keep profile-scoped CRUD pinned through effective-profile resolution to Default id=1. `X-Profile-Id` is accepted for old clients but ignored.
-- Keep raw secrets, tokens, and endpoint keys write-only or metadata-only in responses; startup mail config is parse-only compatibility data and has no management delivery behavior.
-- Keep startup bootstrap config outside management CRUD; PostgreSQL-backed settings stay in their own leaves.
-- Keep request-path side effects on durable outboxes, scheduler workers, or platform mutation middleware. Handlers should not publish dashboards, invalidate runtime caches, or run retention cleanup inline.
-- Keep shared profile/error response helpers in `responseutil/` instead of cloning profile error shaping across leaves.
-- Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new management env knobs.
-
-## LLM UPSTREAM MATRIX
-- When management work changes model, endpoint, runtime-cache, audit, or request-log semantics that affect proxy behavior, evaluate OpenAI Chat/Responses, Anthropic, and Gemini operation shapes instead of assuming one provider family covers all effects.
-- Terminal Target `custom_headers` is covered by the same rule: read APIs mask sensitive-named values with the `__prism_redacted__` sentinel and expose `custom_headers_redacted`; writes substitute the sentinel back from stored state, and never persist the sentinel itself.
-
-## ANTI-PATTERNS
-- Do not turn `settings/` into startup bootstrap ownership.
-- Do not let frontend-side validation become the source of truth for model graph, endpoint, or settings contracts.
-- Do not duplicate cookie, token, proxy-key, profile-error, or request-context helpers inside individual leaves.
-- Do not expose stored plaintext secrets or hashes in management responses.
-- Do not run partition cleanup, dashboard materialization, cache invalidation, or provider sends inline from management handlers.
+- [Auth](auth/AGENTS.md): session transitions, proxy keys, and runtime-auth publication.
+- [Models](models/AGENTS.md) and [connections](connections/AGENTS.md): graph authoring, private Terminal Targets, pricing, and catalog/export bindings.
+- [Endpoints](endpoints/AGENTS.md), [configuration rules](configrules/AGENTS.md), and [load balancing](loadbalance/AGENTS.md): reference-sensitive CRUD and routing state.
+- [Stats](stats/AGENTS.md), [audit](audit/AGENTS.md), and [settings](settings/AGENTS.md): retained-history reads, coverage, settings CAS, and job boundaries.

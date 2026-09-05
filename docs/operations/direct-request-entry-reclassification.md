@@ -11,7 +11,7 @@ The executable companion is
 `scripts/operations/direct-request-entry-reclassification.sql`. It defaults to a
 read-only, serializable preview. Apply mode is impossible unless the operator
 supplies the exact apply, verified-backup, quiesce, and database-name tokens.
-This task does not execute either mode against the home-LAN instance.
+The runbook does not establish whether either mode has been executed on an instance; use retained execution evidence for that fact.
 
 The runbook is bound to the reviewed SQL payload:
 
@@ -135,8 +135,7 @@ target row stayed unchanged, proves the exact qualification/edge postcondition,
 bumps generations if and only if business rows changed, and commits. The final
 summary is instance-dependent: it reports one `model_qualification` row for
 each bit that actually changes and one `model_target_append` row for each
-missing edge. This worktree has not read or written a running instance, so it
-makes no claim about which of the four edges already exist.
+missing edge. Use the preview for the target instance to establish which of the four edges already exist.
 
 ## Post-commit verification
 
@@ -179,5 +178,4 @@ go test -timeout 30m ./tests/integration \
   -run '^TestDirectRequestEntryReclassificationPlan$' -count=1
 ```
 
-The Steward case runner retains the command's stdout as acceptance evidence.
-This Go test is acceptance support, not a production migration command.
+Retain acceptance output under `artifacts/evidence/` when an execution record is needed. This Go test is acceptance support, not a production migration command.

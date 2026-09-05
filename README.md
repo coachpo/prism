@@ -1,6 +1,6 @@
 # Prism
 
-> **Status**: active development at v1.1.1 — self-hosted on a home LAN, no external users, PostgreSQL-backed, with development and deployment convenience prioritized over data-security hardening. See [STATUS.md](STATUS.md) for the authoritative lifecycle, deployment, and compatibility facts.
+> **Status**: active development at v1.1.7 — self-hosted on a home LAN, no external users, PostgreSQL-backed, with development and deployment convenience prioritized over data-security hardening. Two instances are running. [STATUS.md](STATUS.md) is authoritative for lifecycle, deployment, retained data, and compatibility.
 
 Prism is a self-hosted gateway that sits between your tools and LLM providers, giving you one endpoint, one place to manage API keys, and a web dashboard to see what every request cost. It is built for developers and power users who juggle several providers and want failover, routing, and usage tracking without running heavy infrastructure.
 
@@ -11,16 +11,16 @@ A single Go binary, a React dashboard, and PostgreSQL are all it needs.
 - Speaks three API styles through one gateway: OpenAI (chat completions, responses, models), Anthropic (messages), and Gemini (generateContent), streaming included.
 - Routes by model name: a direct-entry model ID resolves through an ordered list of targets, where a *Terminal Target* is the final binding of a model to a specific provider endpoint. Models with `direct_request_enabled=false` remain valid recursive Model Targets but are not client-addressable. Swap or chain providers behind a stable model name.
 - Load-balances across endpoints with `single`, `fill-first`, or `round-robin` strategies, with automatic retries.
-- Applies *ban policies*: an endpoint that keeps failing is benched, either temporarily or until you reset it, so retries stop hammering a dead provider.
-- Records request logs, token usage, and spending in PostgreSQL, with per-model success rate and latency on the dashboard.
+- Applies *ban policies*: a failing Terminal Target is excluded temporarily or until reset, according to its configured strategy.
+- Records request logs, token usage, latency, and spending in PostgreSQL, with dashboard analysis by entry request, final target, or routing attempt.
 - Prices each request from reusable pricing templates you define per provider, with optional import from the [models.dev](https://models.dev) catalog: model metadata on the model detail page plus one-click source-linked price templates assigned atomically to a Terminal Target.
-- Exports client model configuration for [Pi](https://github.com/earendil-works/pi) 0.84.3 (`prism-pi-models.json`, Pi `models.json` format) from a dedicated `/route/models/export` page backed by the pi.dev structured directory (`https://pi.dev/api/models`) as the single template source: pick models, resolve the pi.dev directory candidates that match by complete `model_id` case-sensitive exact plus final Pi API, choose an explicit source where multiple candidates remain, review catalog `fresh`/`stale`/`unavailable`, candidate status and price risks, and generate deterministic JSON for copy, download, or raw viewing. An optional proxy key is entered only in the final dialog; Prism never substitutes an upstream endpoint URL or stored endpoint key and never proxies `pi.dev` provider/api/baseUrl/cost/headers/samplingParams/fallback/routing into the file. Unknown metadata and any price shape the client cannot represent stay explicit as warnings, with the whole `cost` group omitted rather than guessed.
+- Exports Pi 0.84.3 client configuration from `/route/models/export`, using independent pi.dev bindings for client templates and Prism routing/pricing facts. Review candidates and warnings, then copy or download `prism-pi-models.json`; [the product specification](docs/product.md#420-client-model-configuration-export-pi-0843) describes the workflow.
 - Protects access with optional operator login for the dashboard and optional API keys for proxy callers; provider keys are encrypted at rest.
 - Ships as one Docker image plus PostgreSQL.
 
 ## Data attribution
 
-Model catalog metadata and catalog prices are sourced from [models.dev](https://models.dev), fetched read-only at operator request from its fixed official endpoint (`https://models.dev/api.json`). models.dev data is licensed under the MIT License (Copyright (c) 2025 models.dev); Prism stores only the metadata fields an operator explicitly binds or imports and never redistributes the catalog itself. Catalog data is management-only in Prism: it never participates in routing, capability checks, or runtime behavior.
+Model catalog metadata and catalog prices are sourced from [models.dev](https://models.dev), fetched read-only at operator request from its fixed official endpoint (`https://models.dev/api.json`). models.dev data is licensed under the MIT License (Copyright (c) 2025 models.dev); Prism stores only the metadata fields an operator explicitly binds or imports and never redistributes the catalog itself. Catalog lookups and metadata bindings stay on the management path and do not determine routing or capability. Accepted price imports become ordinary Prism pricing templates.
 
 ## Quick start
 
@@ -49,7 +49,7 @@ docker run -p 8080:8080 \
   prism
 ```
 
-The canonical and only prebuilt app image is `ghcr.io/coachpo/prism`. It contains the Go backend, React dashboard, and Nginx; PostgreSQL remains a separate service.
+The only prebuilt app image is `ghcr.io/coachpo/prism`, published for `linux/arm64`. It contains the Go backend, React dashboard, and Nginx; PostgreSQL remains a separate service. The container runs as UID/GID `1000:1000`; a host directory bind-mounted at `/app/config` must be writable by that user. Keep the complete config directory persistent across replacements.
 
 ### Local development
 
@@ -60,34 +60,21 @@ Requires Go 1.26.6, Node.js 24+, pnpm, and Docker. Backend and frontend live in 
 ./start.sh headless  # backend + PostgreSQL only
 ```
 
-The launcher serves the frontend on port `5173`, runs PostgreSQL on `15432`, and defaults the backend to `8000`. See [`backend/README.md`](backend/README.md) and [`frontend/README.md`](frontend/README.md) for source-tree workflows.
+The launcher serves the frontend on port `5173`, runs PostgreSQL on `15432`, and defaults the backend to `8000`. It reads the root `.env`, preserves the selected bootstrap file, and uses its configured backend port. Full mode keeps browser requests same-origin through Vite. See [CONTRIBUTING.md](CONTRIBUTING.md) for source-tree workflows.
 
 ## Configuration
 
 Prism boots from a plaintext JSON file (default `config.json`, path set by `PRISM_CONFIG_PATH`). It is seeded with defaults on first start and owns the listen address, database URL, timeouts, and secrets from then on. `DATABASE_URL` only seeds the database connection initially; afterwards the file is the source of truth. There is no config UI or hot reload — edit the file and restart Prism.
 
-One timeout field is required and seeded automatically: `runtime.sideEffects.attemptTimeout` (`"10s"`, per-attempt background side-effect budget). The `runtime.transport` section was removed outright: outbound provider requests are no longer subject to any connection or timeout limits, and a leftover `runtime.transport` block is rejected with a readable migration error.
+The backend requires one side-effect timeout field and seeds it automatically: `runtime.sideEffects.attemptTimeout` (`"10s"`, per-attempt background side-effect budget). The `runtime.transport` section was removed outright: the Go provider transport applies no connection or timeout limits, and a leftover `runtime.transport` block is rejected with a readable migration error.
 
 Everything else — models, endpoints, load-balance strategies, pricing templates, proxy keys — is managed from the dashboard and stored in PostgreSQL. Schema migrations run automatically on startup.
 
-To back up an instance, `pg_dump` the database and copy `config.json`.
+To back up an instance, retain a consistent PostgreSQL dump and the matching `config.json`; see the [backup/restore procedure](.agents/skills/prism-backup-restore/SKILL.md) and the [retained-data policy](STATUS.md#data).
 
 ## Development
 
-```bash
-# Backend
-cd backend
-go build ./cmd/prism-backend
-go test -timeout 30m ./tests/contract ./tests/integration ./tests/runtime ./tests/priority/...
-
-# Frontend
-cd frontend
-pnpm install
-pnpm run dev
-pnpm run lint
-```
-
-Releases go through `./release.sh` (e.g. `./release.sh patch --dry-run`), which bumps the version files, tags, and triggers the image-publishing workflow. CI gates releases on `govulncheck` and `pnpm audit`.
+Development setup, tests, checks, builds, and the single-image release workflow are documented in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Documentation
 

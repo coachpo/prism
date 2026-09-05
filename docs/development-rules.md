@@ -32,7 +32,18 @@ Follow the shared design and implementation principles and the Definition of Don
 - Keep backend access on the typed `src/lib/api.ts` boundary; management scope stays pinned to Default profile id `1` (no profile-selection UI).
 - Keep the single zh-CN locale state, shared formatting, and static non-hook labels in `src/i18n/`.
 - Keep shadcn/ui additions aligned with `components.json`; primitives live under `src/components/ui/`.
-- Tests: Vitest/lib suites and Playwright e2e flows (capped near five journey specs).
+- Test commands and runner setup belong in [CONTRIBUTING.md](../CONTRIBUTING.md#tests-checks-and-builds); the shared ownership policy is below.
+
+## Test Ownership
+
+- Keep ownership single-layer: process-local backend unit tests own pricing, planning, and stream classification without a database; DB contract suites own one API surface; frontend Vitest/lib owns pure frontend logic; browser journeys own cross-page interaction. Do not duplicate a behavior across layers or add INSERT-then-SELECT mirror tests.
+- Keep setup before the first act within 10 lines; use defaulted builders when it grows. Share PostgreSQL through package `TestMain` and template cloning. Do not run container creation, `go build`, or `go run` inside test functions.
+- Use baseline-plus-override helpers or golden files when expectations exceed eight fields. Use golden files for large shapes, assert only the fields relevant to the behavior, and use normalized schema dumps instead of per-column DDL assertions.
+- Table-drive three or more cases with the same act/assert shape; keep at most one narrative story per resource.
+- Test Prism behavior rather than platform internals or dependency output. Do not grep production Go/TypeScript source, assert chart-library rendering, manually recalculate aggregate internals, or use browser specs for table-cell text and i18n fallback checks.
+- Keep the existing Playwright budget near five journeys and replace a journey when adding one. This is a change budget, not a claim about the current spec count; reuse the existing journey and evidence fixtures.
+- Removal-only assertions normally expire with the removal; retain them when absence is a shipped contract, such as route parity or the Dockerfile contract.
+- Retained tests must run in CI or document why they do not. Use runner globs rather than hand-written file lists. Feature test-line additions must not exceed product-line additions; do not use plan-numbered test names, and remove the duplication a new helper replaces in the same change.
 
 ## Cross-Cutting Rules
 

@@ -1,0 +1,18 @@
+# Model features and external catalogs
+
+- The `/route/models` route reads the full management inventory and projects URL-backed entry/Model Target/all views from `direct_request_enabled`. Counts, search, and identity flags follow that projection; model and target authoring helpers remain under `../../pages/models/` and `../../pages/model-detail/`.
+- `ModelExitMappingCell.tsx` and `modelExitMapping.ts` show direct access-target rows in shared order. Never recursively infer an exit identity or fill a missing upstream ID from the entry model ID.
+- `detail/ExternalCatalogSourcesSection.tsx` federates independent models.dev metadata/pricing and Pi export binding panels. Each source keeps its own read/last-good state, identity, revision, and mutation protocol; one failed source must not hide or mutate the other.
+- Shared `catalog/pi/usePiBindingController.ts` owns Pi search, bind, refresh, sparse override, unbind, and host reconciliation. The export host re-reads its whole source snapshot; the detail host re-reads its single-model Pi record. Neither host patches bindings optimistically.
+- `catalog/pi/PiBindingSourceDialog.tsx` separates complete exact candidates from explicit paged directory search. No candidate is preselected, including a single search result. Bind uses the chosen evidence's catalog revision and Prism identity; stale evidence is read-only. Keep candidate display and selection separate from persisted `pi_selected`/binding renderability.
+- Candidate paging reuses `../../shared/table/useAppendCandidatePager.ts`. Source-qualified revisions, rows, and evidence share one generation; model/dialog changes reset search, appends are single-flight, same-offset retry retains good rows, and revision rollover clears selection and requires acknowledgement.
+- Preserve the safe-field distinction between source, sparse override, and effective values. Missing overrides, explicit null restore, and explicit values have different payload semantics. A frozen binding can remain renderable despite live catalog drift; do not disable generation solely because discovery drifted.
+
+`export/useModelExportSource.ts` owns source reads, filters, batch selection, row projection, and reconciliation. Initial selection adopts selectable direct entries; refresh intersects existing operator selection. `export/useModelExportRender.ts` owns explicit key choice and result lifetime. `export/ModelExportPage.tsx` only composes those owners.
+
+- Export uses Pi `models.json` format with fixed `prism-pi-models.json` filename. The operator supplies the Prism origin and exported provider-map key; a pi.dev directory provider never supplies that destination key. Never read an Endpoint secret or derive a client origin from its upstream URL.
+- Credentials are either omitted or explicitly supplied as a trimmed non-empty final-dialog value. Source/render requests bypass HTTP caches; generated key-bearing content never enters a query cache or persistent storage.
+- `export/ExportResultSheet.tsx` reuses one rendered content string for preview, full copy, download, and a real new-tab raw view. Its Pi merge action derives only the single-provider map under `providers`, with a trailing newline, for insertion under an existing `models.json` providers object. It never renders again or implies replacement of other providers.
+- Both copy actions use the shared clipboard helper. Copied feedback is tied to successful copy of the current content hash. Closing/replacing the result or leaving the route releases content and revokes Blob URLs.
+
+Existing coverage includes `../../../tests/e2e/model-export-journey.spec.ts`, `../../../tests/e2e/models-access-target-authoring.spec.ts`, Pi dialog/component tests, and the shared candidate-pager tests.
