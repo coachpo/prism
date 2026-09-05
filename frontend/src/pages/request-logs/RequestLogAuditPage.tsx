@@ -80,6 +80,19 @@ function ApiFamilyValue({ value }: { value: string }) {
   return <span className="text-foreground">{label}</span>;
 }
 
+/** 流结果同样走标签字典；字典外的取值说成缺证据，不把枚举键直出。 */
+function StreamOutcomeValue({ value }: { value: string }) {
+  const { messages } = useLocale();
+  const label = getStreamOutcomeLabel(
+    value as StreamOutcome,
+    messages.requestLogs,
+  );
+  if (!label) {
+    return <OperatorMissingValue reason={messages.honesty.noValue} />;
+  }
+  return <>{label}</>;
+}
+
 function captureBadgeIntent(mode: RequestAuditCaptureMode | null) {
   // Capture completeness is an honesty signal: metadata_only means the payload
   // was deliberately not retained, which must not read the same as a full capture.
@@ -160,8 +173,11 @@ function AuditRecordsTable({
         {/* 列表要有高度上限：20 行不封顶就把详情卡推到首屏之外，
             每切一条记录都要付一个来回的滚动。高度必须落在 Table 原语自己的
             滚动容器上，加在外层这层不会让 sticky 表头黏住。 */}
-        <div className="[&_[data-slot=table-container]]:max-h-[24rem]">
-          <Table aria-label={copy.auditRecordList}>
+        <div>
+          <Table
+            aria-label={copy.auditRecordList}
+            scrollAreaClassName="max-h-[24rem]"
+          >
             <TableHeader>
               <TableRow>
                 <TableHead>{copy.auditTableColumnAudit}</TableHead>
@@ -700,11 +716,9 @@ export function RequestLogAuditPage({
               <span className="inline-flex items-center gap-1">
                 {messages.requestLogs.streamStatus}
                 <span className="text-foreground">
-                  {getStreamOutcomeLabel(
-                    requestLane.request.summary
-                      .stream_outcome as StreamOutcome | null,
-                    messages.requestLogs,
-                  )}
+                  <StreamOutcomeValue
+                    value={requestLane.request.summary.stream_outcome}
+                  />
                 </span>
               </span>
               {requestLane.captureMode === "disabled" ? null : (

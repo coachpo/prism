@@ -210,11 +210,11 @@ export function IngressChainsTable({
 				/* sticky 表头只黏在最近的滚动容器上，而 Table 原语自己那层
 				   overflow-x-auto 就是包含块：高度上限必须落在它身上，
 				   加在外面这层不会让表头黏住。 */
-				<div
-					className="[&_[data-slot=table-container]]:max-h-[calc(100dvh-20rem)]"
-					aria-busy={showPendingRows}
-				>
-					<Table aria-label={copy.viewIngressChains}>
+				<div aria-busy={showPendingRows}>
+					<Table
+						aria-label={copy.viewIngressChains}
+						scrollAreaClassName="max-h-[calc(100dvh-20rem)]"
+					>
 						<TableHeader>
 							<TableRow>
 								<TableHead className="w-8" />

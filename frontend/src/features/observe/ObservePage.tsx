@@ -397,6 +397,10 @@ export function ObservePage() {
             metric={metric}
             groupBy={groupBy}
             interval={search.interval ?? "auto"}
+            view={search.view === "table" ? "table" : "chart"}
+            onViewChange={(next) =>
+              setSearch({ view: next === "chart" ? undefined : next })
+            }
             onMetricChange={(next) => {
               setScopeRewrite(null);
               setSearch({ metric: next });
@@ -462,7 +466,16 @@ export function ObservePage() {
             messages.observe.presetName(preset),
           )}
         >
-          <TerminalTargetDrillDown key={preset} preset={preset} />
+          <TerminalTargetDrillDown
+            key={preset}
+            preset={preset}
+            scope={search.tt_scope === "route_attempt" ? "route_attempt" : "final_execution"}
+            onScopeChange={(next) =>
+              setSearch({
+                tt_scope: next === "final_execution" ? undefined : next,
+              })
+            }
+          />
         </OperatorSectionCard>
       ) : null}
 

@@ -71,7 +71,7 @@ export function LoadbalanceEventDetailSheet({
 
   return (
     <Sheet open={eventId !== null} onOpenChange={(open) => { if (!open) onClose() }}>
-      <SheetContent side="right" className="flex w-full max-w-xl flex-col">
+      <SheetContent side="right" size="md" className="flex flex-col">
         <SheetHeader>
           <SheetTitle>{copy.detailTitle}</SheetTitle>
           <SheetDescription>
@@ -248,10 +248,10 @@ function EventDetailBody({ detail, summaryLabel, summaryReason, formatTime, copy
                 <ExternalLink data-icon="inline-start" />
                 {copy.investigateRequestsCta}
               </Link>
-              <p className="text-xs text-foreground/60">{copy.investigateRequestsNote}</p>
+              <p className="text-xs text-muted-foreground">{copy.investigateRequestsNote}</p>
             </div>
           ) : (
-            <p className="text-sm text-foreground/60">{copy.investigateRequestsUnavailable}</p>
+            <p className="text-sm text-muted-foreground">{copy.investigateRequestsUnavailable}</p>
           )}
         </section>
       </div>
@@ -270,7 +270,7 @@ function EventDetailBody({ detail, summaryLabel, summaryReason, formatTime, copy
 function DetailField({ label, numeric = false, value }: { label: string; numeric?: boolean; value: ReactNode }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <dt className="text-xs text-foreground/60">{label}</dt>
+      <dt className="text-xs text-muted-foreground">{label}</dt>
       <dd className={numeric ? "font-mono text-[0.8125rem] font-medium tabular-nums" : "font-medium"}>{value}</dd>
     </div>
   )

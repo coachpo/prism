@@ -109,7 +109,9 @@ export function ObserveMainChart({
   onGroupByChange,
   onIntervalChange,
   onRetry,
+  onViewChange,
   scope = "ingress",
+  view = "chart",
 }: {
   fragment: FragmentState<UsageSeriesResponse>;
   metric: ObserveMetric;
@@ -119,12 +121,15 @@ export function ObserveMainChart({
   onGroupByChange: (groupBy: ObserveGroupBy) => void;
   onIntervalChange?: (interval: string) => void;
   onRetry?: () => void;
+  /** 图/表切换写进 URL，链接才带得走「他看的是哪一屏」。 */
+  onViewChange?: (view: "chart" | "table") => void;
   scope?: ObserveScope;
+  view?: "chart" | "table";
 }) {
   const { formatNumber, messages } = useLocale();
   const { format: formatTime, timezone } = useTimezone();
   const copy = messages.observe;
-  const [mode, setMode] = useState<"chart" | "table">("chart");
+  const mode = view;
   const [hidden, setHidden] = useState<ReadonlySet<string>>(() => new Set());
   const intervalLabelId = useId();
   // A deep link may carry a width the strip does not offer; appending it keeps
@@ -346,7 +351,7 @@ export function ObserveMainChart({
           value={mode}
           aria-label={copy.chartTableSwitcherLabel}
           onValueChange={(value) => {
-            if (value) setMode(value as "chart" | "table");
+            if (value) onViewChange?.(value as "chart" | "table");
           }}
         >
           <ToggleGroupItem value="chart">{copy.chartView}</ToggleGroupItem>

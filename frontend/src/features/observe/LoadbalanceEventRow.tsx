@@ -71,7 +71,7 @@ export function LoadbalanceEventRow({
 
   return (
     <TableRow data-testid={`event-row-${item.event_id}`}>
-      <TableCell className="whitespace-nowrap font-mono tabular-nums">
+      <TableCell className="sticky left-0 z-10 bg-panel whitespace-nowrap font-mono tabular-nums shadow-[inset_-1px_0_0_0_var(--color-border)]">
         {formatTime(item.created_at)}
       </TableCell>
       <TableCell>
@@ -128,7 +128,7 @@ export function LoadbalanceEventRow({
           <OperatorMissingValue reason={copy.windowMissingReason} />
         )}
       </TableCell>
-      <TableCell className="text-right">
+      <TableCell className="sticky right-0 z-10 bg-panel text-right shadow-[inset_1px_0_0_0_var(--color-border)]">
         <Button
           type="button"
           variant="ghost"

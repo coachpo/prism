@@ -57,7 +57,9 @@ export function GlobalCurrentStateRow({
       data-testid={`runtime-row-${item.terminal_target.id}`}
       className={cn("group/row", operationalRowStripe(tier))}
     >
-      <TableCell>
+      {/* 行状态条把首格强制成 relative（选择器特异度更高），
+          冻结列必须把 position 抢回来；sticky 同样是定位元素，::before 的状态条照常显示。 */}
+      <TableCell className="sticky! left-0 z-10 bg-panel shadow-[inset_-1px_0_0_0_var(--color-border)]">
         <div className="flex flex-col">
           <span className="font-medium">{item.model.label}</span>
           <span className="font-mono text-xs text-muted-foreground">
@@ -113,7 +115,7 @@ export function GlobalCurrentStateRow({
           />
         )}
       </TableCell>
-      <TableCell className="text-right">
+      <TableCell className="sticky right-0 z-10 bg-panel text-right shadow-[inset_1px_0_0_0_var(--color-border)]">
         {disabledReason ? (
           // 「为什么不能重置」是这一页唯一需要解释的状态。原来的写法把它挂在
           // 只有打开时才挂载的 TooltipContent 上，而 disabled 按钮又不可聚焦，

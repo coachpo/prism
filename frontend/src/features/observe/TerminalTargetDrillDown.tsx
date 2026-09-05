@@ -49,8 +49,16 @@ type EndpointDetail = {
  * view exists, and a single-open accordion made that comparison impossible.
  * A collapsed row keeps the summary of what it already loaded.
  */
-export function TerminalTargetDrillDown({ preset }: { preset: ObservePreset }) {
-  const [scope, setScope] = useState<TerminalTargetScope>("final_execution");
+export function TerminalTargetDrillDown({
+  preset,
+  scope,
+  onScopeChange,
+}: {
+  preset: ObservePreset;
+  /** 口径由 URL 承载：刷新与分享出去的链接要落在同一张表上。 */
+  scope: TerminalTargetScope;
+  onScopeChange: (scope: TerminalTargetScope) => void;
+}) {
   const { messages } = useLocale();
   const scopeLabelId = useId();
   const [endpoints, setEndpoints] = useState<Endpoint[]>([]);
@@ -121,7 +129,7 @@ export function TerminalTargetDrillDown({ preset }: { preset: ObservePreset }) {
   const changeScope = (nextScope: TerminalTargetScope) => {
     if (nextScope === scope) return;
     scopeGenerationRef.current += 1;
-    setScope(nextScope);
+    onScopeChange(nextScope);
     setDetails(new Map());
     for (const endpointId of expanded) load(endpointId, nextScope);
   };

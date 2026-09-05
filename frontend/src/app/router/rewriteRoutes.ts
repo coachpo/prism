@@ -94,6 +94,9 @@ export const observeSearchSchema = z.object({
     .enum(["final_execution", "route_attempt"])
     .optional()
     .catch(undefined),
+  // 主图看的是曲线还是数据表，同样是「这一屏是什么」的一部分：
+  // 分享出去的链接必须带上它。默认值不写进地址栏。
+  view: z.enum(["chart", "table"]).optional().catch(undefined),
   // Shared event window (Events timeline only; never sent to Current State).
   // Absent values resolve to the 24h default at the data layer; the URL stays
   // clean so unrelated tabs do not gain noisy query params.

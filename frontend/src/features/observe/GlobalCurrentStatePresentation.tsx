@@ -348,7 +348,11 @@ export function GlobalCurrentStatePresentation({
           >
             <TableHeader>
               <TableRow>
-                <TableHead>{copy.modelColumn}</TableHead>
+                {/* 身份列与操作列冻结：这张表在 390 下要横滚三屏，
+                    不冻结就分不清手里这一行是哪个模型配置，也够不到行尾。 */}
+                <TableHead className="sticky left-0 z-20 bg-inset shadow-[inset_-1px_0_0_0_var(--color-border)]">
+                  {copy.modelColumn}
+                </TableHead>
                 <TableHead>{copy.targetColumn}</TableHead>
                 <TableHead>{copy.stateColumn}</TableHead>
                 {/* 一个列头装了两个基准：斜杠两侧各自从哪儿起算要说出来。 */}
@@ -363,7 +367,7 @@ export function GlobalCurrentStatePresentation({
                 </TableHead>
                 <TableHead>{copy.nextRetryColumn}</TableHead>
                 <TableHead>{copy.banUntilColumn}</TableHead>
-                <TableHead className="text-right">
+                <TableHead className="sticky right-0 z-20 bg-inset text-right shadow-[inset_1px_0_0_0_var(--color-border)]">
                   {copy.actionsColumn}
                 </TableHead>
               </TableRow>

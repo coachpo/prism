@@ -4786,7 +4786,6 @@ export const zhCNMessages = {
     finalRequestsShort: "最终请求",
     attemptsShort: "尝试",
     // 终端目标明细是一张真表：同名字段必须纵向对齐才能比较，零值渲染 0。
-    ttTableLabel: "终端目标明细",
     // 多个端点可以同时展开：每张表和每个展开区都带上自己端点的名字，
     // 否则读屏用户只会听到一串同名的「终端目标明细」。
     ttTableLabelFor: (endpoint: MessageArg) => `${endpoint} 的终端目标明细`,

@@ -4,6 +4,7 @@
  * the metric's values out of the table while the chart drew them, so the two
  * views could not be cross-checked.
  */
+import { useState } from "react";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
@@ -147,18 +148,40 @@ async function renderTable(
 ) {
   render(
     <LocaleProvider>
-      <ObserveMainChart
-        fragment={fragmentFor(metric, series)}
-        metric={metric}
-        groupBy="none"
-        onMetricChange={() => {}}
-        onGroupByChange={() => {}}
-      />
+      <ChartHarness metric={metric} series={series} scope="ingress" />
     </LocaleProvider>,
   );
   // The switchers are Radix ToggleGroups; single selection exposes each item
   // as a radio inside a labelled group with roving arrow-key navigation.
   await userEvent.click(screen.getByRole("radio", { name: "表" }));
+}
+
+/**
+ * 图/表切换由 URL 承载，组件本身是受控的。harness 用一小段本地状态代替页面里的
+ * `setSearch`，这样点击切换仍然真的换视图，而不是把断言改成不点。
+ */
+function ChartHarness({
+  metric,
+  series,
+  scope,
+}: {
+  metric: ObserveMetric;
+  series?: UsageSeriesResponse["series"];
+  scope: ObserveScope;
+}) {
+  const [view, setView] = useState<"chart" | "table">("chart");
+  return (
+    <ObserveMainChart
+      fragment={fragmentFor(metric, series, scope)}
+      metric={metric}
+      groupBy="none"
+      onMetricChange={() => {}}
+      onGroupByChange={() => {}}
+      onViewChange={setView}
+      scope={scope}
+      view={view}
+    />
+  );
 }
 
 function renderChart(
@@ -168,14 +191,7 @@ function renderChart(
 ) {
   return render(
     <LocaleProvider>
-      <ObserveMainChart
-        fragment={fragmentFor(metric, series, scope)}
-        metric={metric}
-        groupBy="none"
-        onMetricChange={() => {}}
-        onGroupByChange={() => {}}
-        scope={scope}
-      />
+      <ChartHarness metric={metric} series={series} scope={scope} />
     </LocaleProvider>,
   );
 }

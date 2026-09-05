@@ -420,6 +420,7 @@ export function LoadbalanceEventsPresentation({
                 {/* 排序开关原来在筛选行最右，离它重新排序的那一列约 800px，
                     列头上既没有 aria-sort 也没有方向字形。 */}
                 <SortableTableHead
+                  className="sticky left-0 z-20 bg-inset shadow-[inset_-1px_0_0_0_var(--color-border)]"
                   sortKey="created_at"
                   sort={{ column: "created_at", direction: sortOrder }}
                   onSort={() =>
@@ -441,7 +442,7 @@ export function LoadbalanceEventsPresentation({
                     <OperatorHelpHint label={copy.windowColumnHint} />
                   </span>
                 </TableHead>
-                <TableHead className="text-right">
+                <TableHead className="sticky right-0 z-20 bg-inset text-right shadow-[inset_1px_0_0_0_var(--color-border)]">
                   {copy.actionsColumn}
                 </TableHead>
               </TableRow>

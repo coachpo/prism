@@ -212,9 +212,18 @@ export function RequestLogsTable({
       <PaginationLiveStatus
         message={showPendingRows ? tableCopy.loadingTargetPage : null}
       />
+      {/* 等待期不播报的话，「还在读」与「没有数据」在读屏用户那里完全一样。 */}
+      <PaginationLiveStatus
+        message={
+          loading && (items.length === 0 || replacing)
+            ? tableCopy.loadingFirstPage
+            : null
+        }
+      />
       {/* Adaptive viewport: the table fills the shell instead of a fixed 640px. */}
       <div
         ref={containerRef}
+        data-testid="request-logs-scroll"
         className="min-h-0 flex-1 overflow-auto scrollbar-thin"
         onScroll={handleScroll}
         aria-busy={loading || undefined}
@@ -293,9 +302,6 @@ export function RequestLogsTable({
 
           {loading && (items.length === 0 || replacing) ? (
             <div role="rowgroup" className="flex flex-col gap-0">
-              <span role="status" aria-live="polite" className="sr-only">
-                {tableCopy.loadingFirstPage}
-              </span>
               {SKELETON_ROW_KEYS.map((key) => (
                 <div
                   key={key}
@@ -316,7 +322,10 @@ export function RequestLogsTable({
               ))}
             </div>
           ) : items.length === 0 && !replacing ? (
+            // 空态也留在表格语义里：整行一格，而不是一个挂在 table 下的裸 div。
+            <div role="row">
             <div
+              role="cell"
               className="sticky left-0"
               style={{ width: containerWidth || "100%" }}
             >
@@ -345,6 +354,7 @@ export function RequestLogsTable({
                 }
                 action={emptyAction}
               />
+            </div>
             </div>
           ) : (
             <div
