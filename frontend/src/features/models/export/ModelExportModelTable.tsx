@@ -53,11 +53,17 @@ export function ModelExportModelTable({
             <Table scrollAreaClassName="max-h-[calc(100dvh-24rem)]">
                 <TableHeader>
                     <TableRow>
-                        {/* 身份两列冻结：横滚后仍要知道每一行说的是哪个模型配置。 */}
-                        <TableHead className="sticky left-0 z-20 w-10 bg-inset">
+                        {/* 身份两列冻结：横滚后仍要知道每一行说的是哪个模型配置。
+                            冻结列的宽度和后一列的 left 偏移必须是同一个刻度，
+                            而且刻度要盖得住列头文案的内容宽（「选择」+ padding
+                            = 44px）：自动表格布局只把 w-* 当建议值，宽度实际
+                            由内容决定，对不上就会在横滚时错开——偏移小了后一列
+                            压住列头文字，大了则留出没人盖的缝、下层文字透出来。
+                            min-w-12 把这一列锁到 48px，left-12 才严丝合缝。 */}
+                        <TableHead className="sticky left-0 z-20 w-12 min-w-12 bg-inset">
                             {copy.columnSelect}
                         </TableHead>
-                        <TableHead className="sticky left-10 z-20 bg-inset shadow-[inset_-1px_0_0_0_var(--color-border)]">
+                        <TableHead className="sticky left-12 z-20 bg-inset shadow-[inset_-1px_0_0_0_var(--color-border)]">
                             {copy.columnModel}
                         </TableHead>
                         <TableHead>{copy.columnFamily}</TableHead>
@@ -122,7 +128,8 @@ function ModelExportModelRow({
             data-testid={`export-row-${model.model_config_id}`}
             className="group"
         >
-            <TableCell className="sticky left-0 z-10 w-10 bg-panel">
+            {/* 宽度契约同表头：min-w-12 撑住冻结列，身份列的 left-12 才对得上。 */}
+            <TableCell className="sticky left-0 z-10 w-12 min-w-12 bg-panel">
                 <Checkbox
                     checked={selected}
                     disabled={!model.selectable}
@@ -130,7 +137,7 @@ function ModelExportModelRow({
                     aria-label={model.model_id}
                 />
             </TableCell>
-            <TableCell className="sticky left-10 z-10 bg-panel font-mono shadow-[inset_-1px_0_0_0_var(--color-border)]">
+            <TableCell className="sticky left-12 z-10 bg-panel font-mono shadow-[inset_-1px_0_0_0_var(--color-border)]">
                 {model.model_id}
                 {!model.selectable && (
                     <Badge variant="outline" className="ml-2">

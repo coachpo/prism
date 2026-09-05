@@ -1558,6 +1558,35 @@ test("entry-model list journey: navigation, scope switch, and identity filters",
   await page.reload();
   await expect(page.getByTestId("models-table-row-1")).toBeVisible();
   await expect(page.getByTestId("models-table-row-2")).toHaveCount(0);
+
+  // Frozen-column width contract: the select column declares w-8 and the
+  // identity column parks itself at left-8 right behind it. Automatic table
+  // layout treats w-8 as a suggestion, so without min-w-8 that column shrinks
+  // to its content width (26px) and leaves a 6px strip no frozen cell covers —
+  // horizontally scrolled cells then bleed through the seam. Both header and
+  // body rows must butt up against each other with no gap.
+  const seam = await page.evaluate(() => {
+    const container = document.querySelector<HTMLElement>(
+      '[data-slot="table-container"]',
+    );
+    if (!container) return null;
+    container.scrollLeft = container.scrollWidth;
+    const headerRow = container.querySelectorAll("thead tr")[1];
+    const bodyRow = container.querySelector("tbody tr");
+    if (!headerRow || !bodyRow) return null;
+    const gap = (left: Element, right: Element) =>
+      Math.round(
+        right.getBoundingClientRect().x - left.getBoundingClientRect().right,
+      );
+    return {
+      overflowing: container.scrollWidth > container.clientWidth + 1,
+      headerGap: gap(headerRow.children[0], headerRow.children[1]),
+      bodyGap: gap(bodyRow.children[0], bodyRow.children[1]),
+    };
+  });
+  // overflowing asserts the premise: with no horizontal scroll there is no seam
+  // to measure and the rest of this check would pass vacuously.
+  expect(seam).toEqual({ overflowing: true, headerGap: 0, bodyGap: 0 });
 });
 
 test("model inventory view deep links switch between entries, targets, and all", async ({

@@ -372,3 +372,43 @@ test("export journey: bind an uncatalogued Prism id through directory search, th
   expect(unexpectedApi).toEqual([]);
   expect(pageErrors).toEqual([]);
 });
+
+// Frozen-column width contract. The select column and the identity column
+// behind it are pinned with a hardcoded offset, but automatic table layout
+// sizes columns from their content, not from the declared w-*. When the two
+// disagree the columns come apart the moment the table scrolls sideways:
+// too small an offset parks the identity column on top of the select header,
+// too large leaves a strip no frozen cell paints and the scrolled-away cells
+// bleed through it. This fixture is too narrow to force a horizontal scroll,
+// so assert the contract itself — the offset has to equal the measured width
+// of the column it sits behind.
+test("export table pins the identity column exactly at the select column's width", async ({
+  page,
+}) => {
+  await installExportRoutes(page);
+  await page.goto("/route/models/export");
+  await page.getByTestId("export-row-3").waitFor({ timeout: 15000 });
+
+  const contract = await page.evaluate(() => {
+    const container = document.querySelector<HTMLElement>(
+      '[data-slot="table-container"]',
+    );
+    if (!container) return null;
+    const rows = [
+      container.querySelector("thead tr"),
+      container.querySelector("tbody tr"),
+    ];
+    return rows.map((row) => {
+      if (!row) return null;
+      const [select, identity] = [row.children[0], row.children[1]];
+      return {
+        selectWidth: Math.round(select.getBoundingClientRect().width),
+        identityOffset: getComputedStyle(identity).left,
+      };
+    });
+  });
+  expect(contract).toEqual([
+    { selectWidth: 48, identityOffset: "48px" },
+    { selectWidth: 48, identityOffset: "48px" },
+  ]);
+});

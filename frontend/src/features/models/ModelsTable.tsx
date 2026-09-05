@@ -439,8 +439,11 @@ export function ModelsTable({
             </TableRow>
             <TableRow>
               {/* 勾选列也要冻结：它排在身份列之前，不冻结就会在横滚时滑到
-                  身份列底下，看起来像行被吃掉了一格。 */}
-              <TableHead className="sticky left-0 z-20 w-8 bg-inset">
+                  身份列底下，看起来像行被吃掉了一格。
+                  min-w-8 不能省：自动表格布局把 w-8 当建议值，这一列会缩到
+                  内容宽（padding + 勾选框 = 26px），与身份列的 left-8 差出
+                  6px 没人盖的缝，横滚时下层单元格的文字会从缝里透出来。 */}
+              <TableHead className="sticky left-0 z-20 w-8 min-w-8 bg-inset">
                 <Checkbox
                   aria-label={copy.selectAllAria}
                   checked={allPageSelected}
@@ -539,7 +542,8 @@ export function ModelsTable({
 
               return (
                 <TableRow key={model.id} className="group/row" data-testid={`models-table-row-${model.id}`}>
-                  <TableCell className="sticky left-0 z-10 w-8 bg-panel align-top">
+                  {/* 宽度契约同表头：min-w-8 撑住冻结列，身份列的 left-8 才严丝合缝。 */}
+                  <TableCell className="sticky left-0 z-10 w-8 min-w-8 bg-panel align-top">
                     <Checkbox
                       aria-label={copy.selectModelAria(title)}
                       checked={selectedIds.has(model.id)}
