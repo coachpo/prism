@@ -87,13 +87,21 @@ export function CreateModelDialog({
     setInlineBaseUrl("");
     setInlineApiKey("");
     setTargetName("");
-    if (loadbalanceStrategies.length > 0 && strategyId === null) {
-      setStrategyId(loadbalanceStrategies[0].id);
-    }
     void endpointsApi.list().then(setEndpoints).catch(() => setEndpoints([]));
     // 草稿只在一次新的打开会话开始时重置；期间到达的策略列表不得清空操作者的输入。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
+
+  // 默认路由策略可能在对话框已经打开之后才被创建出来。策略是必填项，所以列表
+  // 一到就补上选中值，否则这个必填下拉框会一直空着。按 is_default 这个规范身份
+  // 认领，而不是数组下标；操作者已经选过、且仍然存在的策略不被改写。
+  useEffect(() => {
+    if (!isOpen || loadbalanceStrategies.length === 0) return;
+    setStrategyId((current) =>
+      current !== null && loadbalanceStrategies.some((strategy) => strategy.id === current)
+        ? current
+        : (loadbalanceStrategies.find((strategy) => strategy.is_default) ?? loadbalanceStrategies[0]).id,
+    );
+  }, [isOpen, loadbalanceStrategies]);
 
   // The dialog can receive the asynchronously-created default strategy while
   // it is open. Reset the entry switch only for a new open session; changing
@@ -260,7 +268,15 @@ export function CreateModelDialog({
                 ) : (
                   <Select
                     value={strategyId === null ? "" : String(strategyId)}
-                    onValueChange={(value) => setStrategyId(value === "" ? null : Number(value))}
+                    // 受控值刚被程序改过、原生 option 还没登记完时，Radix 的
+                    // 表单镜像 select 会把一个空值冒泡回来。必填的单选下拉只
+                    // 接受目录内的策略，空值与目录外的值一律丢弃，否则刚补上
+                    // 的默认策略会被立刻清空。
+                    onValueChange={(value) => {
+                      const selected = loadbalanceStrategies.find((strategy) => String(strategy.id) === value);
+                      if (!selected) return;
+                      setStrategyId(selected.id);
+                    }}
                   >
                     <SelectTrigger id="create-model-strategy" className="w-full">
                       <SelectValue />
