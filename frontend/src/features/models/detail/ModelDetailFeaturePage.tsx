@@ -55,6 +55,7 @@ import { summarizeRoutingDisposition } from "./routingDisposition";
 import { formatLatencyForDisplay } from "@/pages/model-detail/modelDetailMetricsAndPaths";
 import { isOwnedConnectionTarget } from "@/pages/model-detail/modelAccessTargetProjection";
 import { useModelDetailFeatureData } from "./useModelDetailFeatureData";
+import { readSpendingRetentionClip } from "@/features/models/metricsCoverage";
 import { useModelMetrics24h } from "@/pages/models/useModelMetrics24h";
 import { useReportingCurrencyContext } from "@/context/ReportingCurrencyContext";
 import { formatMoneyMicros } from "@/lib/costing";
@@ -259,6 +260,15 @@ export function ModelDetailFeaturePage({
     [data.model],
   );
   const roleMetrics = useModelMetrics24h(modelMetricRows);
+  // 后端说清了成本只覆盖到哪一天；成本卡与列表页必须说同一件事。
+  const spendRetentionClip = readSpendingRetentionClip(roleMetrics.coverage);
+  const spendRetentionFrom = spendRetentionClip?.retentionFrom
+    ? formatTime(spendRetentionClip.retentionFrom, {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      })
+    : null;
   const {
     deleteError,
     deleteTarget,
@@ -534,6 +544,7 @@ export function ModelDetailFeaturePage({
         failed={roleMetrics.metricsFailed}
         loading={roleMetrics.metricsLoading}
         metric={selectedRoleMetric}
+        spendRetentionFrom={spendRetentionFrom}
         onRetry={roleMetrics.refresh}
         onScopeChange={(nextScope) => {
           const next = new URLSearchParams(resolvedSearchParams);
@@ -704,6 +715,7 @@ function ModelRoleMetrics({
   onRetry,
   onScopeChange,
   scope,
+  spendRetentionFrom,
 }: {
   failed: boolean;
   loading: boolean;
@@ -711,6 +723,8 @@ function ModelRoleMetrics({
   onRetry: () => void;
   onScopeChange: (scope: DetailMetricsScope) => void;
   scope: DetailMetricsScope;
+  /** 成本窗口被保留期裁剪时的实际起点（已格式化）。 */
+  spendRetentionFrom: string | null;
 }) {
   const { currencyState } = useReportingCurrencyContext();
   const { formatNumber, locale, messages } = useLocale();
@@ -874,17 +888,31 @@ function ModelRoleMetrics({
                   </span>
                 )
               }
-              detail={copy.roleMetricsWindow30d}
+              detail={
+                spendRetentionFrom
+                  ? copy.roleMetricsWindow30dClipped(spendRetentionFrom)
+                  : copy.roleMetricsWindow30d
+              }
               badges={
-                costPartial ? (
-                  <OperatorClippedBadge
-                    label={copy.roleMetricsPartial}
-                    reason={copy.roleMetricsCostPartial(
-                      metric?.samples?.cost_sample_count ?? 0,
-                      metric?.samples?.cost_missing_count ?? 0,
-                    )}
-                  />
-                ) : null
+                <>
+                  {spendRetentionFrom ? (
+                    <OperatorClippedBadge
+                      label={messages.honesty.outsideRetention}
+                      reason={copy.roleMetricsCostClippedReason(
+                        spendRetentionFrom,
+                      )}
+                    />
+                  ) : null}
+                  {costPartial ? (
+                    <OperatorClippedBadge
+                      label={copy.roleMetricsPartial}
+                      reason={copy.roleMetricsCostPartial(
+                        metric?.samples?.cost_sample_count ?? 0,
+                        metric?.samples?.cost_missing_count ?? 0,
+                      )}
+                    />
+                  ) : null}
+                </>
               }
             />
           </div>

@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -61,6 +60,53 @@ const ACTIVITY_PAGE_SIZE = 20;
  * failed page presents its own retry instead of repainting the old page as
  * the new one.
  */
+/** 表头是表的身份：加载态保留它，操作者才知道自己在等哪张表。 */
+const ACTIVITY_COLUMN_COUNT = 10;
+
+function ActivityTableHead() {
+  const { messages } = useLocale();
+  return (
+    <TableHeader>
+      <TableRow>
+        <TableHead>{messages.observe.time}</TableHead>
+        <TableHead>{messages.observe.activityRoute}</TableHead>
+        <TableHead>{messages.observe.result}</TableHead>
+        <TableHead className="text-right">
+          {messages.observe.activityAttempts}
+        </TableHead>
+        <TableHead>{messages.observe.activityExecutionTarget}</TableHead>
+        <TableHead className="text-right">TTFT</TableHead>
+        <TableHead className="text-right">{messages.observe.tokens}</TableHead>
+        <TableHead className="text-right">{messages.observe.cost}</TableHead>
+        <TableHead>{messages.observe.pricingStatus}</TableHead>
+        <TableHead className="text-right">
+          {messages.routingHealth.actionsColumn}
+        </TableHead>
+      </TableRow>
+    </TableHeader>
+  );
+}
+
+/** 首读等待态：保留表壳画骨架行，并作为 live region 播报。 */
+function ActivityTableSkeleton({ label }: { label: string }) {
+  const { messages } = useLocale();
+  return (
+    <div role="status" aria-busy="true" aria-label={label}>
+      <div className="overflow-x-auto">
+        <Table aria-label={messages.observe.activityTitle}>
+          <ActivityTableHead />
+          <TableBody>
+            <OperationalTableSkeletonRows
+              columns={ACTIVITY_COLUMN_COUNT}
+              rows={5}
+            />
+          </TableBody>
+        </Table>
+      </div>
+    </div>
+  );
+}
+
 export function ObserveActivityTable({
   preset,
   queryContext,
@@ -182,13 +228,13 @@ export function ObserveActivityTable({
 
   // The card content is px-0 so the table can reach the card edge; every
   // non-table block carries the gutter itself.
-  if (!queryContext || (fragment.phase === "idle" && !fragment.reading)) {
-    return (
-      <Skeleton
-        className="mx-[var(--density-card-pad-x)] h-48 rounded-md"
-        aria-busy="true"
-      />
-    );
+  // 读失败后 phase 仍停在 idle：不排除 error 的话，错误分支永远轮不到，
+  // 后端挂掉会被渲染成一块永远转不完的骨架。
+  if (
+    !queryContext ||
+    (fragment.phase === "idle" && !fragment.reading && fragment.error === null)
+  ) {
+    return <ActivityTableSkeleton label={tableCopy.loadingFirstPage} />;
   }
 
   if (fragment.data === null && !fragment.reading && fragment.error !== null) {
@@ -219,12 +265,7 @@ export function ObserveActivityTable({
   }
 
   if (fragment.data === null) {
-    return (
-      <Skeleton
-        className="mx-[var(--density-card-pad-x)] h-48 rounded-md"
-        aria-busy="true"
-      />
-    );
+    return <ActivityTableSkeleton label={tableCopy.loadingFirstPage} />;
   }
 
   const items = fragment.data.items;
@@ -285,33 +326,13 @@ export function ObserveActivityTable({
       <div data-testid="observe-activity-table" aria-busy={fragment.reading}>
         <div className="overflow-x-auto">
           <Table aria-label={messages.observe.activityTitle}>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{messages.observe.time}</TableHead>
-                <TableHead>{messages.observe.activityRoute}</TableHead>
-                <TableHead>{messages.observe.result}</TableHead>
-                <TableHead className="text-right">
-                  {messages.observe.activityAttempts}
-                </TableHead>
-                <TableHead>
-                  {messages.observe.activityExecutionTarget}
-                </TableHead>
-                <TableHead className="text-right">TTFT</TableHead>
-                <TableHead className="text-right">
-                  {messages.observe.tokens}
-                </TableHead>
-                <TableHead className="text-right">
-                  {messages.observe.cost}
-                </TableHead>
-                <TableHead>{messages.observe.pricingStatus}</TableHead>
-                <TableHead className="text-right">
-                  {messages.routingHealth.actionsColumn}
-                </TableHead>
-              </TableRow>
-            </TableHeader>
+            <ActivityTableHead />
             <TableBody>
               {showPendingRows ? (
-                <OperationalTableSkeletonRows columns={10} rows={5} />
+                <OperationalTableSkeletonRows
+                  columns={ACTIVITY_COLUMN_COUNT}
+                  rows={5}
+                />
               ) : null}
               {showCommittedRows
                 ? items.map((item) => (

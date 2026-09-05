@@ -1544,6 +1544,10 @@ export const zhCNMessages = {
     roleMetricsKnownCost: "已知成本",
     roleMetricsWindow24h: "口径：最近 24 小时",
     roleMetricsWindow30d: "口径：最近 30 天",
+    roleMetricsWindow30dClipped: (from: MessageArg) =>
+      `口径：最近 30 天（自 ${from} 起）`,
+    roleMetricsCostClippedReason: (from: MessageArg) =>
+      `成本数据的保留期自 ${from} 起，这张卡只覆盖该时间之后的请求；更早的花费已被删除，不会用零值填补。`,
     roleMetricsNoDenominator: "窗口内没有已最终化请求，无法计算完成率。",
     roleMetricsNoLatencySample: "窗口内没有可用延迟样本。",
     roleMetricsNoTrustedCost: "窗口内没有可信成本样本；这不代表零成本。",
@@ -2878,9 +2882,9 @@ export const zhCNMessages = {
     kpiIncomplete: "缺专项费率",
     kpiIncompleteDetail: "缓存 / 推理费率尚未配置",
     kpiUnreferenced: "未被引用",
-    kpiUnreferencedDetail: "没有任何终端目标使用",
+    kpiUnreferencedDetail: "没有模型、端点或终端目标引用",
     kpiRecentlyChanged: "近 7 天有改动",
-    kpiRecentlyChangedDetail: "最近 7 天内更新过费率",
+    kpiRecentlyChangedDetail: "最近 7 天内生效过新的费率版本",
 
     // 筛选。
     filterLabel: "配置状态",

@@ -83,8 +83,17 @@ export function totalReferences(item: PricingTemplateListPageItem | undefined) {
   return item.model_reference_count + item.endpoint_reference_count + item.terminal_target_reference_count
 }
 
-export function isRecentlyChanged(updatedAt: string, now = Date.now()) {
-  const stamp = new Date(updatedAt).getTime()
+/**
+ * 「近 7 天有改动」说的是费率改动，口径只能是当前版本的生效时间。
+ * `updated_at` 会被改名、改描述这类非费率写入推着走，用它会把一个数都没动过
+ * 的模板算进来——KPI 是「最近价格出了什么变化」的唯一入口，口径必须一致。
+ */
+export function isRecentlyChanged(
+  versionEffectiveAt: string | null,
+  now = Date.now(),
+) {
+  if (!versionEffectiveAt) return false
+  const stamp = new Date(versionEffectiveAt).getTime()
   if (!Number.isFinite(stamp)) return false
   return now - stamp <= 7 * 24 * 60 * 60 * 1000
 }

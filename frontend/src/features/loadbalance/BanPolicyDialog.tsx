@@ -432,6 +432,9 @@ function RetryField({ form, name, label, description, register, onChange }: {
   onChange?: (value: string) => void
 }) {
   const error = form.formState.errors[name]
+  // register 的返回值必须整体展开：只挑走 onChange 会丢掉 ref / name / onBlur，
+  // 这一格就再也画不回值，setValue 与预设按钮对它也失效。
+  const field = register(form, name)
   return (
     <Field data-invalid={Boolean(error)}>
       <FieldLabel htmlFor={`strategy-${name}`}>{label}</FieldLabel>
@@ -439,9 +442,15 @@ function RetryField({ form, name, label, description, register, onChange }: {
         id={`strategy-${name}`}
         type="number"
         step="any"
-        {...(onChange
-          ? { onChange: (event: React.ChangeEvent<HTMLInputElement>) => { void register(form, name).onChange(event); onChange(event.target.value) } }
-          : register(form, name))}
+        {...field}
+        onChange={
+          onChange
+            ? (event: React.ChangeEvent<HTMLInputElement>) => {
+                void field.onChange(event)
+                onChange(event.target.value)
+              }
+            : field.onChange
+        }
       />
       <FieldDescription>{description}</FieldDescription>
       {error ? <FieldError>{error.message}</FieldError> : null}

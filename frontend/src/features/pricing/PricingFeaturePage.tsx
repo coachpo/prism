@@ -50,7 +50,7 @@ export function PricingFeaturePage() {
       const item = facts.byId.get(template.id);
       if (item?.configuration_status === "incomplete") incomplete += 1;
       if (totalReferences(item) === 0) unreferenced += 1;
-      if (isRecentlyChanged(template.updated_at)) recentlyChanged += 1;
+      if (isRecentlyChanged(template.version_effective_at)) recentlyChanged += 1;
     }
     return {
       total: data.pricingTemplates.length,

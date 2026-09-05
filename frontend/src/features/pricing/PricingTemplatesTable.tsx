@@ -205,7 +205,7 @@ export function PricingTemplatesTable({
           return item?.configuration_status === "incomplete";
         if (filter === "unreferenced") return totalReferences(item) === 0;
         if (filter === "recently_changed")
-          return isRecentlyChanged(template.updated_at);
+          return isRecentlyChanged(template.version_effective_at);
         return true;
       }),
     [facts.byId, filter, pricingTemplates, query],
