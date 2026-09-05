@@ -126,7 +126,9 @@ export function WindowKpiGrid({
         <OperatorKpiCard
           label={copy.requests}
           value={<Count value={data.request_count} />}
-          detail={copy.windowBasis(data.coverage.requested_preset)}
+          detail={copy.windowBasis(
+            copy.presetName(data.coverage.requested_preset),
+          )}
           badges={
             coverageClipped ? (
               <OperatorClippedBadge

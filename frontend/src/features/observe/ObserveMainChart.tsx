@@ -265,8 +265,8 @@ export function ObserveMainChart({
             </ToggleGroupItem>
           ))}
         </ToggleGroup>
-        {/* 指标、分组、时间桶、图表切换在窄卡上必须换行：不换行时最后一个
-            分段控件会被卡片裁掉，操作者看到的是半个按钮。 */}
+        {/* 指标、分组、时间桶在窄卡上必须换行：不换行时最后一个分段控件
+            会被卡片裁掉，操作者看到的是半个按钮。 */}
         <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
           {fragment.data?.truncated ? (
             <OperatorClippedBadge
@@ -331,21 +331,27 @@ export function ObserveMainChart({
               </ToggleGroup>
             </div>
           ) : null}
-          <ToggleGroup
-            type="single"
-            variant="outline"
-            size="sm"
-            spacing={2}
-            value={mode}
-            aria-label={copy.chartTableSwitcherLabel}
-            onValueChange={(value) => {
-              if (value) setMode(value as "chart" | "table");
-            }}
-          >
-            <ToggleGroupItem value="chart">{copy.chartView}</ToggleGroupItem>
-            <ToggleGroupItem value="table">{copy.tableView}</ToggleGroupItem>
-          </ToggleGroup>
         </div>
+      </div>
+
+      {/* 指标、分组、时间桶点一下就进 URL，这个开关只换同一份数据的呈现方式、
+          不重新定基也不进 URL。留在同一排里，五枚外观一致的分段按钮就会有
+          两种持久化语义，而界面不给任何线索，所以它单独占一行。 */}
+      <div className="flex justify-end">
+        <ToggleGroup
+          type="single"
+          variant="outline"
+          size="sm"
+          spacing={2}
+          value={mode}
+          aria-label={copy.chartTableSwitcherLabel}
+          onValueChange={(value) => {
+            if (value) setMode(value as "chart" | "table");
+          }}
+        >
+          <ToggleGroupItem value="chart">{copy.chartView}</ToggleGroupItem>
+          <ToggleGroupItem value="table">{copy.tableView}</ToggleGroupItem>
+        </ToggleGroup>
       </div>
 
       {fragment.stale && fragment.data ? (
@@ -493,6 +499,9 @@ export function ObserveMainChart({
                     dataKey="bucket"
                     tick={axisTick}
                     tickLine={false}
+                    // 契约里横线只有一种：网格线。recharts 默认基线是写死的
+                    // #666666，两个主题都不跟令牌，亮色下比网格线重 4 倍。
+                    axisLine={false}
                     interval="preserveStartEnd"
                     tickFormatter={formatBucket}
                     label={{
@@ -549,6 +558,9 @@ export function ObserveMainChart({
                     dataKey="bucket"
                     tick={axisTick}
                     tickLine={false}
+                    // 契约里横线只有一种：网格线。recharts 默认基线是写死的
+                    // #666666，两个主题都不跟令牌，亮色下比网格线重 4 倍。
+                    axisLine={false}
                     interval="preserveStartEnd"
                     tickFormatter={formatBucket}
                     label={{

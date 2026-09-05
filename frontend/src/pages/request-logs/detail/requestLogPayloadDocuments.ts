@@ -338,14 +338,19 @@ function buildOpenAiResponseDocument(body: JsonRecord): RequestLogPayloadDocumen
   if (choices.length > 0) {
     appendSection(
       sections,
-      "Response choices",
+      payloadCopy().sectionResponseChoices,
       choices.flatMap((choice, index) => {
         if (!isRecord(choice)) return [];
         const message = getRecord(choice, "message");
-        const role = message ? getString(message, "role") ?? `choice ${index}` : `choice ${index}`;
+        const messageRole = message ? getString(message, "role") : null;
+        const role = messageRole
+          ? payloadRoleLabel(messageRole)
+          : payloadCopy().choiceIndex(index + 1);
         const content = message ? textFromOpenAiContent(message.content) : textFromOpenAiContent(choice.text);
         const finishReason = getString(choice, "finish_reason");
-        const value = finishReason ? `${content}\nFinish reason: ${finishReason}` : content;
+        const value = finishReason
+          ? `${content}\n${payloadCopy().finishReason(finishReason)}`
+          : content;
         return value.trim().length > 0 ? [{ label: role, value: value.trim() }] : [];
       }),
       "transcript",
@@ -356,10 +361,13 @@ function buildOpenAiResponseDocument(body: JsonRecord): RequestLogPayloadDocumen
   if (output.length > 0) {
     appendSection(
       sections,
-      "Assistant output",
+      payloadCopy().sectionAssistantOutput,
       output.flatMap((item, index) => {
         if (!isRecord(item)) return [];
-        const role = getString(item, "role") ?? `output ${index + 1}`;
+        const itemRole = getString(item, "role");
+        const role = itemRole
+          ? payloadRoleLabel(itemRole)
+          : payloadCopy().outputIndex(index + 1);
         const content = textFromOpenAiContent(item.content);
         return content.length > 0 ? [{ label: role, value: content }] : [];
       }),
@@ -374,13 +382,13 @@ function buildOpenAiResponseDocument(body: JsonRecord): RequestLogPayloadDocumen
     if (item.type === "function_call") {
       const call = getRecord(item, "call");
       toolCallLines.push({
-        label: call ? getString(call, "name") ?? "function_call" : "function_call",
+        label: (call ? getString(call, "name") : null) ?? payloadCopy().labelFunctionCall,
         value: call ? formatJson(call.arguments) : formatJson(item.arguments),
         mono: true,
       });
     } else if (item.type === "function_call_output") {
       toolResultLines.push({
-        label: "function_call_output",
+        label: payloadCopy().labelFunctionCallOutput,
         value: typeof item.output === "string" ? item.output : formatJson(item.output),
         mono: true,
       });
@@ -391,14 +399,14 @@ function buildOpenAiResponseDocument(body: JsonRecord): RequestLogPayloadDocumen
 
   const id = getString(body, "id");
   const status = getString(body, "status");
-  appendSection(sections, "Response status", [
-    ...(id ? [{ label: "id", value: id, mono: true }] : []),
-    ...(status ? [{ label: "status", value: status, mono: true }] : []),
+  appendSection(sections, payloadCopy().sectionResponseStatus, [
+    ...(id ? [{ label: payloadCopy().labelId, value: id, mono: true }] : []),
+    ...(status ? [{ label: payloadCopy().labelStatus, value: status, mono: true }] : []),
   ]);
 
   const usage = getRecord(body, "usage");
   if (usage) {
-    appendSection(sections, "Usage", [{ label: "tokens", value: formatJson(usage), mono: true }]);
+    appendSection(sections, payloadCopy().sectionUsage, [{ label: payloadCopy().labelTokens, value: formatJson(usage), mono: true }]);
   }
 
   const hasOpenAiShape = choices.length > 0 || output.length > 0;
@@ -411,13 +419,16 @@ function buildGeminiRequestDocument(body: JsonRecord): RequestLogPayloadDocument
   const systemParts = systemInstruction ? getArray(systemInstruction, "parts") : [];
   const systemText = textFromGeminiParts(systemParts);
 
-  appendSection(sections, "System instruction", [{ label: "system", value: systemText }]);
+  appendSection(sections, payloadCopy().sectionSystemInstruction, [{ label: payloadCopy().labelSystem, value: systemText }]);
   appendSection(
     sections,
-    "Content timeline",
+    payloadCopy().sectionContentTimeline,
     getArray(body, "contents").flatMap((content, index) => {
       if (!isRecord(content)) return [];
-      const role = getString(content, "role") ?? `turn ${index + 1}`;
+      const contentRole = getString(content, "role");
+      const role = contentRole
+        ? payloadRoleLabel(contentRole)
+        : payloadCopy().turnIndex(index + 1);
       const value = textFromGeminiParts(getArray(content, "parts"));
       return value.length > 0 ? [{ label: role, value }] : [];
     }),
@@ -426,7 +437,7 @@ function buildGeminiRequestDocument(body: JsonRecord): RequestLogPayloadDocument
 
   const generationConfig = getRecord(body, "generationConfig");
   if (generationConfig) {
-    appendSection(sections, "Generation config", [{ label: "config", value: formatJson(generationConfig), mono: true }]);
+    appendSection(sections, payloadCopy().sectionGenerationConfig, [{ label: payloadCopy().labelConfig, value: formatJson(generationConfig), mono: true }]);
   }
 
   return sections.length > 0 ? { sections } : null;
@@ -438,14 +449,19 @@ function buildGeminiResponseDocument(body: JsonRecord): RequestLogPayloadDocumen
 
   appendSection(
     sections,
-    "Candidate responses",
+    payloadCopy().sectionCandidateResponses,
     candidates.flatMap((candidate, index) => {
       if (!isRecord(candidate)) return [];
       const content = getRecord(candidate, "content");
-      const role = content ? getString(content, "role") ?? `candidate ${index + 1}` : `candidate ${index + 1}`;
+      const contentRole = content ? getString(content, "role") : null;
+      const role = contentRole
+        ? payloadRoleLabel(contentRole)
+        : payloadCopy().choiceIndex(index + 1);
       const text = content ? textFromGeminiParts(getArray(content, "parts")) : "";
       const finishReason = getString(candidate, "finishReason");
-      const value = finishReason ? `${text}\nFinish reason: ${finishReason}` : text;
+      const value = finishReason
+        ? `${text}\n${payloadCopy().finishReason(finishReason)}`
+        : text;
       return value.trim().length > 0 ? [{ label: role, value: value.trim() }] : [];
     }),
     "transcript",
@@ -461,11 +477,11 @@ function buildGeminiResponseDocument(body: JsonRecord): RequestLogPayloadDocumen
       if (!isRecord(part)) continue;
       const call = getRecord(part, "functionCall");
       if (call) {
-        toolCallLines.push({ label: getString(call, "name") ?? "functionCall", value: formatJson(call.args), mono: true });
+        toolCallLines.push({ label: getString(call, "name") ?? payloadCopy().labelFunctionCall, value: formatJson(call.args), mono: true });
       }
       const response = getRecord(part, "functionResponse");
       if (response) {
-        toolResultLines.push({ label: getString(response, "name") ?? "functionResponse", value: formatJson(response.response), mono: true });
+        toolResultLines.push({ label: getString(response, "name") ?? payloadCopy().labelFunctionCallOutput, value: formatJson(response.response), mono: true });
       }
     }
   }
@@ -474,7 +490,7 @@ function buildGeminiResponseDocument(body: JsonRecord): RequestLogPayloadDocumen
 
   const usageMetadata = getRecord(body, "usageMetadata");
   if (usageMetadata) {
-    appendSection(sections, "Usage", [{ label: "tokens", value: formatJson(usageMetadata), mono: true }]);
+    appendSection(sections, payloadCopy().sectionUsage, [{ label: payloadCopy().labelTokens, value: formatJson(usageMetadata), mono: true }]);
   }
 
   return candidates.length > 0 && sections.length > 0 ? { sections } : null;
@@ -485,19 +501,22 @@ function buildAnthropicRequestDocument(body: JsonRecord): RequestLogPayloadDocum
   const system = body.system;
 
   if (typeof system === "string" && system.length > 0) {
-    appendSection(sections, "System prompt", [{ label: "system", value: system }]);
+    appendSection(sections, payloadCopy().sectionSystemPrompt, [{ label: payloadCopy().labelSystem, value: system }]);
   } else if (Array.isArray(system)) {
     const text = textFromAnthropicContent(system);
-    appendSection(sections, "System prompt", [{ label: "system", value: text }]);
+    appendSection(sections, payloadCopy().sectionSystemPrompt, [{ label: payloadCopy().labelSystem, value: text }]);
   }
 
   const messages = getArray(body, "messages");
   appendSection(
     sections,
-    "Message exchange",
+    payloadCopy().sectionMessageExchange,
     messages.flatMap((message, index) => {
       if (!isRecord(message)) return [];
-      const role = getString(message, "role") ?? `message ${index + 1}`;
+      const messageRole = getString(message, "role");
+      const role = messageRole
+        ? payloadRoleLabel(messageRole)
+        : payloadCopy().messageIndex(index + 1);
       const value = textFromAnthropicContent(message.content);
       return value.length > 0 ? [{ label: role, value }] : [];
     }),
@@ -506,7 +525,7 @@ function buildAnthropicRequestDocument(body: JsonRecord): RequestLogPayloadDocum
 
   const maxTokens = getNumber(body, "max_tokens");
   if (maxTokens !== null) {
-    appendSection(sections, "Generation config", [{ label: "max tokens", value: String(maxTokens), mono: true }]);
+    appendSection(sections, payloadCopy().sectionGenerationConfig, [{ label: payloadCopy().labelMaxTokens, value: String(maxTokens), mono: true }]);
   }
 
   return sections.length > 0 ? { sections } : null;
@@ -518,7 +537,7 @@ function buildAnthropicResponseDocument(body: JsonRecord): RequestLogPayloadDocu
 
   if (Array.isArray(content)) {
     const text = textFromAnthropicContent(content);
-    appendSection(sections, "Assistant content", [{ label: getString(body, "role") ?? "assistant", value: text }], "transcript");
+    appendSection(sections, payloadCopy().sectionAssistantContent, [{ label: payloadRoleLabel(getString(body, "role") ?? "assistant"), value: text }], "transcript");
   }
 
   if (Array.isArray(content)) {
@@ -528,13 +547,13 @@ function buildAnthropicResponseDocument(body: JsonRecord): RequestLogPayloadDocu
       if (!isRecord(block)) continue;
       if (block.type === "tool_use") {
         toolCallLines.push({
-          label: getString(block, "name") ?? "tool_use",
+          label: getString(block, "name") ?? payloadCopy().labelToolUse,
           value: formatJson(block.input),
           mono: true,
         });
       } else if (block.type === "tool_result") {
         toolResultLines.push({
-          label: getString(block, "tool_use_id") ?? "tool_result",
+          label: getString(block, "tool_use_id") ?? payloadCopy().labelToolResult,
           value: typeof block.content === "string" ? block.content : formatJson(block.content),
           mono: true,
         });
@@ -546,12 +565,12 @@ function buildAnthropicResponseDocument(body: JsonRecord): RequestLogPayloadDocu
 
   const stopReason = getString(body, "stop_reason");
   if (stopReason) {
-    appendSection(sections, "Stop reason", [{ label: "reason", value: stopReason, mono: true }]);
+    appendSection(sections, payloadCopy().sectionStopReason, [{ label: payloadCopy().labelReason, value: stopReason, mono: true }]);
   }
 
   const usage = getRecord(body, "usage");
   if (usage) {
-    appendSection(sections, "Usage", [{ label: "tokens", value: formatJson(usage), mono: true }]);
+    appendSection(sections, payloadCopy().sectionUsage, [{ label: payloadCopy().labelTokens, value: formatJson(usage), mono: true }]);
   }
 
   return Array.isArray(content) && sections.length > 0 ? { sections } : null;

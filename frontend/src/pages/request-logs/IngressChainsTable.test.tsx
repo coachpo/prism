@@ -10,6 +10,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { LocaleProvider } from "@/i18n/LocaleProvider";
 import type {
   ChainIngressItem,
@@ -23,7 +24,12 @@ function renderWithRouter(element: React.ReactNode) {
   const listRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: "/observe/requests",
-    component: () => <LocaleProvider>{element}</LocaleProvider>,
+    // 标识符旁的复制按钮是纯图标按钮，会自动挂 tooltip（应用根部已有 Provider）。
+    component: () => (
+      <TooltipProvider>
+        <LocaleProvider>{element}</LocaleProvider>
+      </TooltipProvider>
+    ),
   });
   const auditRoute = createRoute({
     getParentRoute: () => rootRoute,

@@ -438,7 +438,9 @@ export function ModelsTable({
               <TableHead className="border-b-0" />
             </TableRow>
             <TableRow>
-              <TableHead className="w-8">
+              {/* 勾选列也要冻结：它排在身份列之前，不冻结就会在横滚时滑到
+                  身份列底下，看起来像行被吃掉了一格。 */}
+              <TableHead className="sticky left-0 z-20 w-8 bg-inset">
                 <Checkbox
                   aria-label={copy.selectAllAria}
                   checked={allPageSelected}
@@ -457,7 +459,7 @@ export function ModelsTable({
                 label={copy.columnModel}
                 onSort={updateSort}
                 sort={sort}
-                className="sticky left-0 z-20 bg-inset shadow-[inset_-1px_0_0_0_var(--color-border)]"
+                className="sticky left-8 z-20 bg-inset shadow-[inset_-1px_0_0_0_var(--color-border)]"
               />
               <SortHead column="api_family" label={copy.columnApiFamily} onSort={updateSort} sort={sort} />
               <SortHead column="status" label={copy.columnStatus} onSort={updateSort} sort={sort} />
@@ -537,14 +539,14 @@ export function ModelsTable({
 
               return (
                 <TableRow key={model.id} className="group/row" data-testid={`models-table-row-${model.id}`}>
-                  <TableCell className="align-top">
+                  <TableCell className="sticky left-0 z-10 w-8 bg-panel align-top">
                     <Checkbox
                       aria-label={copy.selectModelAria(title)}
                       checked={selectedIds.has(model.id)}
                       onCheckedChange={() => toggleRow(model.id)}
                     />
                   </TableCell>
-                  <TableCell className="sticky left-0 z-10 bg-panel align-top shadow-[inset_-1px_0_0_0_var(--color-border)]">
+                  <TableCell className="sticky left-8 z-10 bg-panel align-top shadow-[inset_-1px_0_0_0_var(--color-border)]">
                     <ModelIdentityCell model={model} view={view} />
                   </TableCell>
                   <TableCell className="align-top">

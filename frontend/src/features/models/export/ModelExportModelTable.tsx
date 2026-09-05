@@ -1,5 +1,6 @@
 import { useLocale } from "@/i18n/useLocale";
 import { Badge } from "@/components/ui/badge";
+import { formatApiFamily } from "@/components/apiFamilyPresentation";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
     Table,
@@ -52,8 +53,13 @@ export function ModelExportModelTable({
             <Table scrollAreaClassName="max-h-[calc(100dvh-24rem)]">
                 <TableHeader>
                     <TableRow>
-                        <TableHead>{copy.columnSelect}</TableHead>
-                        <TableHead>{copy.columnModel}</TableHead>
+                        {/* 身份两列冻结：横滚后仍要知道每一行说的是哪个模型配置。 */}
+                        <TableHead className="sticky left-0 z-20 w-10 bg-inset">
+                            {copy.columnSelect}
+                        </TableHead>
+                        <TableHead className="sticky left-10 z-20 bg-inset shadow-[inset_-1px_0_0_0_var(--color-border)]">
+                            {copy.columnModel}
+                        </TableHead>
                         <TableHead>{copy.columnFamily}</TableHead>
                         <TableHead>{copy.columnPiBinding}</TableHead>
                         <TableHead>{copy.columnPrice}</TableHead>
@@ -116,7 +122,7 @@ function ModelExportModelRow({
             data-testid={`export-row-${model.model_config_id}`}
             className="group"
         >
-            <TableCell>
+            <TableCell className="sticky left-0 z-10 w-10 bg-panel">
                 <Checkbox
                     checked={selected}
                     disabled={!model.selectable}
@@ -124,7 +130,7 @@ function ModelExportModelRow({
                     aria-label={model.model_id}
                 />
             </TableCell>
-            <TableCell className="font-mono">
+            <TableCell className="sticky left-10 z-10 bg-panel font-mono shadow-[inset_-1px_0_0_0_var(--color-border)]">
                 {model.model_id}
                 {!model.selectable && (
                     <Badge variant="outline" className="ml-2">
@@ -133,7 +139,8 @@ function ModelExportModelRow({
                     </Badge>
                 )}
             </TableCell>
-            <TableCell>{model.api_family}</TableCell>
+            {/* api_family 是枚举键，必须过展示函数再上屏。 */}
+            <TableCell>{formatApiFamily(model.api_family)}</TableCell>
             {/* 这一格装的是整句说明（无法绑定 / 绑定不可渲染），
                 必须放开 TableCell 默认的 nowrap，否则一行撑穿整张表。 */}
             <TableCell className="whitespace-normal">

@@ -223,7 +223,9 @@ export function ObservePage() {
       />
 
       <ObserveFreshnessBar
-        basis={messages.observe.windowBasis(preset)}
+        basis={messages.observe.windowBasis(
+          messages.observe.presetName(preset),
+        )}
         nowFragment={fragments.now}
         summaryFragment={fragments.summary}
         onRefresh={() => {
@@ -270,8 +272,10 @@ export function ObservePage() {
         </OperatorCallout>
       ) : null}
 
-      <WindowKpiGrid fragment={fragments.summary} onRetry={fragments.refresh} />
-
+      {/* 视图切换与视图正文排在窗口 KPI 之前：1440×900 上，KPI 网格把
+          tab 条压到 829px、图表卡头压到 937px，「这次请求为何失败」这类
+          最常见的任务永远要先滚一屏，1280×800 连自己在哪个视图都看不见。
+          窗口 KPI 是这一屏的小结，留在视图正文之后。 */}
       <Tabs
         value={view}
         onValueChange={setView}
@@ -354,12 +358,14 @@ export function ObservePage() {
       {view === "trend" ? (
         <OperatorSectionCard
           title={messages.observe.mainChartTitle}
+          // 这张图用的就是页级时间窗，新鲜度栏已经写过一次口径：只有块级
+          // 口径与页级不同才需要在块上重述。桶宽是这张图独有的基准，留着。
           description={
             effectiveInterval
-              ? `${messages.observe.windowBasis(preset)} · ${messages.observe.bucketBasis(
+              ? messages.observe.bucketBasis(
                   messages.observe.intervalName(effectiveInterval),
-                )}`
-              : messages.observe.windowBasis(preset)
+                )
+              : undefined
           }
         >
           {scopeRewrite ? (
@@ -404,9 +410,11 @@ export function ObservePage() {
             scope={scope}
           />
           <div className="mt-2 flex justify-end">
+            {/* 趋势 → 错误是保持同口径的唯一入口：文字高 16px，命中区靠
+                上下各 6px 的内边距补到 28px，视觉行高不变。 */}
             <button
               type="button"
-              className="text-xs text-primary underline-offset-4 hover:underline"
+              className="-my-1.5 inline-flex min-h-7 items-center py-1.5 text-xs text-primary underline-offset-4 hover:underline"
               onClick={() => setView("errors")}
             >
               {messages.observe.viewLinkedErrors}
@@ -441,6 +449,7 @@ export function ObservePage() {
         >
           <ObserveActivityTable
             preset={preset}
+            onPresetChange={setPreset}
             queryContext={fragments.queryContext.data?.query_context ?? null}
           />
         </OperatorSectionCard>
@@ -449,11 +458,15 @@ export function ObservePage() {
       {view === "terminal_targets" ? (
         <OperatorSectionCard
           title={messages.observe.ttDrillDownTitle}
-          description={messages.observe.terminalTargetWindowNote(preset)}
+          description={messages.observe.terminalTargetWindowNote(
+            messages.observe.presetName(preset),
+          )}
         >
           <TerminalTargetDrillDown key={preset} preset={preset} />
         </OperatorSectionCard>
       ) : null}
+
+      <WindowKpiGrid fragment={fragments.summary} onRetry={fragments.refresh} />
 
       <RoutingHealthEntryCard />
     </div>

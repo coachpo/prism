@@ -54,7 +54,7 @@ test.describe("request-log streaming payload views", () => {
     await expect(detail).toBeVisible({ timeout: 15000 });
 
     const requestSection = detail.getByRole("region", { name: "请求", exact: true });
-    await expect(requestSection.getByText("Message transcript")).toBeVisible();
+    await expect(requestSection.getByText("消息记录")).toBeVisible();
     await expect(requestSection.getByText("Reply with exactly ok.")).toBeVisible();
   });
 });

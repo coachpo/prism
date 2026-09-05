@@ -237,7 +237,7 @@ function ProxyKeyLedgerRow({
                 ),
             )}
         >
-            <TableCell className="align-top">
+            <TableCell className="sticky left-0 z-10 bg-panel align-top shadow-[inset_-1px_0_0_0_var(--color-border)]">
                 {/* 一行标题 + 一行标识：备注与预览同行省略，紧凑密度下
                     单元格不超过两行。 */}
                 <div className="flex min-w-0 flex-col gap-0.5">
@@ -352,7 +352,7 @@ function ProxyKeyLedgerRow({
                 </div>
             </TableCell>
 
-            <TableCell className="align-top text-right">
+            <TableCell className="sticky right-0 z-10 bg-panel align-top text-right shadow-[inset_1px_0_0_0_var(--color-border)]">
                 <div className={cn(operationalRowActionsClassName, "gap-1")}>
                     <Button asChild variant="outline" size="sm" disabled={busy}>
                         <Link
@@ -550,10 +550,13 @@ export function ProxyKeyLedgerCard({
                 <Table>
                     <TableHeader>
                         <TableRow>
+                            {/* 身份列与操作列冻结：横滚后既要知道这一行是哪把密钥，
+                                也要够得到行尾的轮换/删除。 */}
                             <SortableTableHead
                                 sortKey="name"
                                 sort={sort}
                                 onSort={updateSort}
+                                className="sticky left-0 z-20 bg-inset shadow-[inset_-1px_0_0_0_var(--color-border)]"
                             >
                                 {copy.columnIdentity}
                             </SortableTableHead>
@@ -614,7 +617,7 @@ export function ProxyKeyLedgerCard({
                             >
                                 {copy.columnLedgerMeta}
                             </SortableTableHead>
-                            <TableHead className="text-right">
+                            <TableHead className="sticky right-0 z-20 bg-inset text-right shadow-[inset_1px_0_0_0_var(--color-border)]">
                                 {copy.operation}
                             </TableHead>
                         </TableRow>
