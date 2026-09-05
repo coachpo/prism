@@ -6,6 +6,7 @@ import { PanelLeftIcon } from "lucide-react"
 import { Slot } from "radix-ui"
 
 import { cn } from "@/lib/utils"
+import { getStaticMessages } from "@/i18n/staticMessages"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import {
@@ -31,6 +32,8 @@ import {
 
 // 抽屉只留给真正的手机宽度。768–1023 这一档仍然有足够宽度放一条 56px 图标轨，
 // 把它整段换成 off-canvas 抽屉，导航就从「一直在」变成了「要先点开」。
+// 桌面分支的 CSS 一律用 md:（Tailwind md = 48rem = 768px），与这里的 767 门槛严丝合缝；
+// 改动门槛时两处必须同改，否则中间那一档既不渲染抽屉也不渲染桌面侧栏，主导航会整段消失。
 const MOBILE_MEDIA_QUERY = "(max-width: 767px)"
 const SIDEBAR_WIDTH = "20rem"
 const SIDEBAR_WIDTH_MOBILE = "min(88vw, 20rem)"
@@ -203,7 +206,7 @@ function Sidebar({
 
   return (
     <div
-      className="group peer hidden text-sidebar-foreground lg:block"
+      className="group peer hidden text-sidebar-foreground md:block"
       data-state={state}
       data-collapsible={state === "collapsed" ? collapsible : ""}
       data-variant={variant}
@@ -224,7 +227,7 @@ function Sidebar({
       <div
         data-slot="sidebar-container"
         className={cn(
-          "fixed inset-y-0 z-40 hidden h-svh w-(--sidebar-width) transition-[left,right,width,padding] duration-200 ease-linear lg:flex",
+          "fixed inset-y-0 z-40 hidden h-svh w-(--sidebar-width) transition-[left,right,width,padding] duration-200 ease-linear md:flex",
           side === "left"
             ? "left-0 group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)]"
             : "right-0 group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)]",
@@ -274,7 +277,7 @@ function SidebarTrigger({
       {...props}
     >
       <PanelLeftIcon className="size-4 rtl:rotate-180" />
-      <span className="sr-only">Toggle Sidebar</span>
+      <span className="sr-only">{getStaticMessages().shell.toggleSidebar}</span>
     </Button>
   )
 }
@@ -286,13 +289,13 @@ function SidebarRail({ className, ...props }: React.ComponentProps<"button">) {
     <button
       data-sidebar="rail"
       data-slot="sidebar-rail"
-      aria-label="Toggle Sidebar"
+      aria-label={getStaticMessages().shell.toggleSidebar}
       tabIndex={-1}
       type="button"
       onClick={toggleSidebar}
-      title="Toggle Sidebar"
+      title={getStaticMessages().shell.toggleSidebar}
       className={cn(
-        "absolute inset-y-1 z-20 hidden w-4 -translate-x-1/2 rounded-full transition-all ease-linear group-data-[side=left]:-right-4 group-data-[side=right]:left-0 after:absolute after:inset-y-2 after:left-1/2 after:w-px after:-translate-x-1/2 after:rounded-full after:bg-sidebar-border/40 hover:after:bg-sidebar-border lg:flex",
+        "absolute inset-y-1 z-20 hidden w-4 -translate-x-1/2 rounded-full transition-all ease-linear group-data-[side=left]:-right-4 group-data-[side=right]:left-0 after:absolute after:inset-y-2 after:left-1/2 after:w-px after:-translate-x-1/2 after:rounded-full after:bg-sidebar-border/40 hover:after:bg-sidebar-border md:flex",
         "in-data-[side=left]:cursor-w-resize in-data-[side=right]:cursor-e-resize",
         "[[data-side=left][data-state=collapsed]_&]:cursor-e-resize [[data-side=right][data-state=collapsed]_&]:cursor-w-resize",
         "group-data-[collapsible=offcanvas]:translate-x-0 group-data-[collapsible=offcanvas]:after:left-full hover:group-data-[collapsible=offcanvas]:bg-sidebar",
@@ -311,7 +314,7 @@ function SidebarInset({ className, ...props }: React.ComponentProps<"main">) {
       data-slot="sidebar-inset"
       className={cn(
         "relative flex min-w-0 flex-1 flex-col bg-background transition-[margin,border-radius,box-shadow] duration-200 ease-linear",
-        "lg:peer-data-[variant=inset]:m-2 lg:peer-data-[variant=inset]:ml-0 lg:peer-data-[variant=inset]:rounded-xl lg:peer-data-[variant=inset]:border lg:peer-data-[variant=inset]:border-border lg:peer-data-[variant=inset]: lg:peer-data-[variant=inset]:peer-data-[state=collapsed]:ml-2",
+        "md:peer-data-[variant=inset]:m-2 md:peer-data-[variant=inset]:ml-0 md:peer-data-[variant=inset]:rounded-xl md:peer-data-[variant=inset]:border md:peer-data-[variant=inset]:border-border md:peer-data-[variant=inset]:peer-data-[state=collapsed]:ml-2",
         className
       )}
       {...props}

@@ -1,5 +1,5 @@
 import type { ReactNode } from "react"
-import { useMemo, useState } from "react"
+import { useId, useMemo, useState } from "react"
 import { Link, useNavigate } from "@tanstack/react-router"
 import { MoreHorizontal, Pencil, Plus, Server, Trash2 } from "lucide-react"
 
@@ -195,10 +195,16 @@ function MetricHead({
   const { messages } = useLocale()
   const copy = messages.modelsPage
   const active = sort.column === sortKey
+  // columnheader 的名字必须只剩「列名 + 窗口」。名字若由内容计算，帮助按钮的
+  // aria-label（口径全文）会被并进列名，排序时每次重播一整句。
+  const nameId = useId()
+  const basisId = useId()
 
   return (
     <TableHead
       aria-sort={active ? (sort.direction === "asc" ? "ascending" : "descending") : "none"}
+      aria-labelledby={nameId}
+      aria-describedby={basisId}
       className="p-0 text-right"
     >
       {/* 窗口与列名同一行：把它挤到第二行会让整个表头高出一档，
@@ -221,7 +227,11 @@ function MetricHead({
             </span>
             <SortGlyph active={active} direction={sort.direction} />
           </Button>
-          <OperatorHelpHint label={basis} className="size-5" align="end" />
+          <OperatorHelpHint label={basis} align="end" />
+        </span>
+        <span id={nameId} className="sr-only">{`${label} ${window}`}</span>
+        <span id={basisId} className="sr-only">
+          {basis}
         </span>
         {clipped}
         {stale ? (
@@ -420,11 +430,7 @@ export function ModelsTable({
               <TableHead colSpan={MODEL_METRIC_COLUMN_COUNT} className="border-b-0 py-1">
                 <div className="flex items-center justify-end gap-1">
                   {metricsScopeControl}
-                  <OperatorHelpHint
-                    label={copy.metricsScopeBasis(scope)}
-                    className="size-5"
-                    align="end"
-                  />
+                  <OperatorHelpHint label={copy.metricsScopeBasis(scope)} align="end" />
                 </div>
               </TableHead>
               <TableHead className="border-b-0" />

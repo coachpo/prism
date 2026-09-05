@@ -195,7 +195,7 @@ function ReadinessFact({
     <OperatorInsetPanel className="gap-1 p-2.5">
       <p className="flex items-center gap-0.5 text-[11px] font-medium tracking-[0.04em] text-muted-foreground">
         {label}
-        {reason ? <OperatorHelpHint label={reason} className="size-5" /> : null}
+        {reason ? <OperatorHelpHint label={reason} /> : null}
       </p>
       {children}
       {caption ? (
