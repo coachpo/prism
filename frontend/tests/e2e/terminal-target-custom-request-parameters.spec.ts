@@ -342,3 +342,43 @@ test("terminal target custom request parameters editor blocks save on invalid JS
   await expect(dialog.getByRole("alert")).toContainText("custom_request_parameters.provider.only");
   await expect(dialog).toBeVisible();
 });
+
+// This dialog is the tallest form in the console and the only e2e that opens
+// it, so its scroll contract is asserted here. The body scrolls inside a
+// ScrollArea whose height comes from the surrounding flex column; a viewport
+// sized with a percentage height cannot resolve against that and grows to the
+// full content height instead, which the ScrollArea root then clips away —
+// the operator sees a form cut off mid-field with no way to reach the footer.
+test("terminal target dialog scrolls to the bottom of the form on a short viewport", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 600 });
+  await mockModelDetailRoutes(page);
+  const dialog = await openEditTerminalTargetDialog(page);
+
+  const scroll = await dialog.evaluate((node) => {
+    const root = node.querySelector('[data-slot="scroll-area"]');
+    const viewport = node.querySelector('[data-slot="scroll-area-viewport"]');
+    if (!root || !viewport) return null;
+    viewport.scrollTop = viewport.scrollHeight;
+    return {
+      overflowing: viewport.scrollHeight > viewport.clientHeight,
+      // A viewport taller than its scroll area is content clipped out of reach.
+      clipped: viewport.clientHeight > root.clientHeight,
+      reachedBottom:
+        viewport.scrollTop === viewport.scrollHeight - viewport.clientHeight,
+    };
+  });
+  expect(scroll).toEqual({
+    overflowing: true,
+    clipped: false,
+    reachedBottom: true,
+  });
+
+  // The routing-schedule block is the last thing in the form: reaching the
+  // bottom has to actually put it on screen, next to the footer buttons.
+  await expect(
+    dialog.getByText("限制该终端目标的可路由时段"),
+  ).toBeInViewport();
+  await expect(dialog.getByRole("button", { name: saveButton })).toBeInViewport();
+});
