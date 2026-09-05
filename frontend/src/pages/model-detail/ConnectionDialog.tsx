@@ -203,14 +203,18 @@ export function ConnectionDialog({
   const routingCopy = messages.routing;
   const copy = messages.modelDetail;
   const isOpenAI = apiFamily === "openai";
-  const capabilityLockedToOwner = isOpenAI && ownerOpenAIAcceptedFormat != null;
+  // An OpenAI owner that declares no accepted text format is image-only: there
+  // is no text capability to author, and the backend rejects every value this
+  // picker could produce. When the owner does declare one, strict equality
+  // makes that mode the only legal value, so the picker stays locked to it.
+  const ownerAcceptsText = isOpenAI && ownerOpenAIAcceptedFormat != null;
   const upstreamModelIdValue = connectionForm.upstream_model_id ?? "";
   const upstreamModelIdHint =
     editingConnection && ownerModelId != null && upstreamModelIdValue.trim() !== ownerModelId.trim()
       ? copy.upstreamModelIdHintDecoupled(ownerModelId ?? "")
       : copy.upstreamModelIdHint(ownerModelId ?? "");
   const resolvedTextCapability = isOpenAI
-    ? (connectionForm.openai_text_capability ?? "responses_only")
+    ? (connectionForm.openai_text_capability ?? null)
     : null;
   const isEndpointLocked = lockedEndpointId != null;
   const textCapabilityOptions: Array<{
@@ -230,7 +234,7 @@ export function ConnectionDialog({
       label: copy.openaiTextCapabilityDualNative,
     },
   ];
-  const visibleTextCapabilityOptions = capabilityLockedToOwner
+  const visibleTextCapabilityOptions = ownerAcceptsText
     ? textCapabilityOptions.filter(
         (option) => option.value === ownerOpenAIAcceptedFormat,
       )
@@ -266,9 +270,11 @@ export function ConnectionDialog({
   };
 
   // Prefill from an existing same-family Terminal Target: this only fills the
-  // draft (endpoint reference, name, active, auth type, capability, pricing,
-  // limits, headers). No IDs, positions, runtime state or endpoint keys are
-  // copied; saving always creates an independent private Connection.
+  // draft (endpoint reference, name, active, auth type, pricing, limits,
+  // headers). No IDs, positions, runtime state or endpoint keys are copied;
+  // saving always creates an independent private Connection. The OpenAI text
+  // capability is not imported either: it must equal this owner model's
+  // accepted format, which a source under another owner need not share.
   const handlePrefill = (source: Connection) => {
     if (source.endpoint) {
       setSelectedEndpointId(String(source.endpoint.id));
@@ -279,7 +285,6 @@ export function ConnectionDialog({
       is_active: source.is_active,
       auth_type: source.auth_type ?? null,
       upstream_model_id: source.upstream_model_id ?? "",
-      openai_text_capability: source.openai_text_capability ?? null,
       pricing_template_id: source.pricing_template_id ?? null,
       qps_limit: source.qps_limit ?? null,
       max_in_flight_non_stream: source.max_in_flight_non_stream ?? null,
@@ -334,7 +339,7 @@ export function ConnectionDialog({
   };
 
   const handleTextCapabilityChange = (value: string) => {
-    if (capabilityLockedToOwner && value !== ownerOpenAIAcceptedFormat) return;
+    if (ownerAcceptsText && value !== ownerOpenAIAcceptedFormat) return;
     updateConnectionForm({
       ...connectionForm,
       openai_text_capability: value as OpenAITextCapability,
@@ -764,7 +769,7 @@ export function ConnectionDialog({
                       </p>
                     </ConnectionDialogSection>
 
-                    {isOpenAI ? (
+                    {ownerAcceptsText ? (
                       <ConnectionDialogSection
                         title={copy.openaiTextCapability}
                         description={copy.openaiTextCapabilityDescription}
@@ -776,9 +781,9 @@ export function ConnectionDialog({
                             label={copy.openaiTextCapabilitySelector}
                           >
                             <Select
-                              value={resolvedTextCapability ?? "responses_only"}
+                              value={resolvedTextCapability ?? undefined}
                               onValueChange={handleTextCapabilityChange}
-                              disabled={capabilityLockedToOwner}
+                              disabled={ownerAcceptsText}
                             >
                               <SelectTrigger id="conn-openai-text-capability">
                                 <SelectValue />
