@@ -349,6 +349,7 @@ export function getColumns(): ColumnDef[] {
             <UpstreamModelIdValue
               value={row.upstream_model_id}
               missingReason={reason}
+              elide
               className="block truncate text-xs"
             />
           </div>

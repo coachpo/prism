@@ -564,11 +564,11 @@ export function AccessTargetsEditor({
             >
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-16">
+                  <TableHead className="sticky left-0 z-20 w-16 bg-inset">
                     {copy.targetColumnPosition}
                   </TableHead>
                   <TableHead>{copy.targetColumnType}</TableHead>
-                  <TableHead>{copy.targetColumnName}</TableHead>
+                  <TableHead className="sticky left-16 z-20 bg-inset shadow-[inset_-1px_0_0_0_var(--color-border)]">{copy.targetColumnName}</TableHead>
                   {/* DESIGN.md: a column whose values come from one basis says
                       so in the header. This column reads what each target
                       declares, never what the routing analyzer resolved. */}
@@ -608,7 +608,7 @@ export function AccessTargetsEditor({
                       </span>
                     </span>
                   </TableHead>
-                  <TableHead className="text-right">
+                  <TableHead className="sticky right-0 z-20 bg-inset text-right shadow-[inset_1px_0_0_0_var(--color-border)]">
                     {copy.targetColumnActions}
                   </TableHead>
                 </TableRow>
@@ -703,7 +703,7 @@ export function AccessTargetsEditor({
                         handleDrop(target.id);
                       }}
                     >
-                      <TableCell className="align-top">
+                      <TableCell className="sticky left-0 z-10 w-16 bg-panel align-top">
                         <div className="flex items-center gap-1">
                           {onMoveTarget ? (
                             <Button
@@ -741,7 +741,7 @@ export function AccessTargetsEditor({
                         </span>
                       </TableCell>
 
-                      <TableCell className="align-top">
+                      <TableCell className="sticky left-16 z-10 bg-panel align-top shadow-[inset_-1px_0_0_0_var(--color-border)]">
                         <div className="flex min-w-48 flex-col gap-0.5">
                           <span
                             data-slot="target-name"
@@ -909,7 +909,7 @@ export function AccessTargetsEditor({
                         )}
                       </TableCell>
 
-                      <TableCell className="align-top text-right">
+                      <TableCell className="sticky right-0 z-10 bg-panel align-top text-right shadow-[inset_1px_0_0_0_var(--color-border)]">
                         <div
                           className={cn(
                             operationalRowActionsClassName,

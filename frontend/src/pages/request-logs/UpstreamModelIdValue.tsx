@@ -9,6 +9,7 @@ export function UpstreamModelIdValue({
   missingReason,
   showLabel = false,
   copyable = false,
+  elide = false,
   className,
   testId,
 }: {
@@ -20,14 +21,18 @@ export function UpstreamModelIdValue({
    * 按钮里再嵌按钮不是合法 HTML。
    */
   copyable?: boolean;
+  /**
+   * 表格标识符列专用：中段省略。详情面板有的是宽度，那里必须给全值。
+   */
+  elide?: boolean;
   className?: string;
   testId?: string;
 }) {
   const { messages } = useLocale();
   const copy = messages.requestLogs;
   // 尾部省略恰好砍掉模型 ID 的区分位：codex/codex-auto-review 与
-  // codex/codex-auto-review-2 在表里长得一模一样。标识符走中段省略。
-  const elided = value === null ? null : truncateIdentifier(value);
+  // codex/codex-auto-review-2 在表里长得一模一样。表里的标识符走中段省略。
+  const elided = value === null ? null : elide ? truncateIdentifier(value) : value;
   return (
     <span className={cn("inline-flex min-w-0 items-center gap-0.5", className)}>
       <span className="min-w-0 truncate font-mono" data-testid={testId} title={value ?? undefined}>

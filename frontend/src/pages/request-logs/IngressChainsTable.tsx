@@ -610,6 +610,7 @@ function ChainSummaryRow({
 								<UpstreamModelIdValue
 									value={summary.final_upstream_model_id}
 									missingReason={copy.upstreamModelIdMissing}
+									elide
 									showLabel
 									copyable
 									className="text-[11px] text-muted-foreground"
@@ -895,6 +896,7 @@ function ChainRowButton({
 					<UpstreamModelIdValue
 						value={row.upstream_model_id}
 						missingReason={copy.upstreamModelIdMissing}
+									elide
 						className="truncate text-[11px] text-muted-foreground"
 					/>
 				) : null}

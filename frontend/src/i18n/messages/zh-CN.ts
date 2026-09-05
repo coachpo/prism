@@ -791,9 +791,6 @@ export const zhCNMessages = {
     eventTypeFilterAll: "全部事件类型",
     failureKindFilterLabel: "失败类型",
     admissionFilterLabel: "准入原因",
-    sortToggleLabel: "切换事件排序方向",
-    sortNewestFirst: "最新优先",
-    sortOldestFirst: "最早优先",
     // 「已成功」旁边挂一个失败类型会读成自相矛盾：徽章要说清那是此前那一类失败。
     priorFailureBadge: (kind: MessageArg) => `此前失败：${kind}`,
     eventsLoading: "正在加载事件时间线...",
