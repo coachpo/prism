@@ -20,6 +20,17 @@ describe("classifyOpenAICoverage", () => {
     }
   })
 
+  it("treats an absent mode as serving no text operation", () => {
+    // An image-only owner declares no accepted format. Reading that as
+    // dual_native produced a bogus "partial" badge on a target that is in fact
+    // fully consistent with its owner.
+    expect(openaiAcceptedOperationSet(null)).toEqual([])
+    expect(openaiTargetSupportedOperationSet(null)).toEqual([])
+    expect(classifyOpenAICoverage(null, null).coverage).toBe("full")
+    expect(classifyOpenAICoverage(null, "responses_only").coverage).toBe("full")
+    expect(classifyOpenAICoverage("responses_only", null).coverage).toBe("none")
+  })
+
   it("groups the responses family into one operation set", () => {
     const responses = openaiTargetSupportedOperationSet("responses_only")
     expect(responses).toEqual(["openai.responses", "openai.responses.input_tokens", "openai.responses.compact"])

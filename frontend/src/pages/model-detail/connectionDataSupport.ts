@@ -6,7 +6,6 @@ import type {
   EndpointCreate,
   JsonObject,
   ModelConnectionUpdate,
-  OpenAITextCapability,
 } from "@/lib/types"
 import { getStaticMessages } from "@/i18n/staticMessages"
 
@@ -15,14 +14,6 @@ export const createDefaultEndpointForm = (): EndpointCreate => ({
   base_url: "",
   api_key: "",
 });
-
-export const DEFAULT_OPENAI_TEXT_CAPABILITY: OpenAITextCapability = "responses_only";
-
-export function normalizeOpenAITextCapability(
-  capability: OpenAITextCapability | null | undefined,
-): OpenAITextCapability {
-  return capability ?? DEFAULT_OPENAI_TEXT_CAPABILITY;
-}
 
 type HeaderRowLike = {
   id: string;
@@ -101,9 +92,12 @@ export function buildConnectionDraftPayload({
     custom_headers: customHeaders,
     custom_request_parameters: customRequestParametersValue,
     routing_schedule: routingScheduleValue,
+    // The backend requires strict equality with the owner model's accepted
+    // format, absent modes included. An image-only owner declares none, so a
+    // substituted default would turn every save into a 422.
     openai_text_capability:
       resolvedApiFamily === "openai"
-        ? normalizeOpenAITextCapability(connectionForm.openai_text_capability)
+        ? (connectionForm.openai_text_capability ?? null)
         : undefined,
     pricing_template_id: connectionForm.pricing_template_id,
     qps_limit: normalizeLimiterField(connectionForm.qps_limit),

@@ -7,10 +7,7 @@ import type {
   EndpointCreate,
   OpenAIAcceptedFormat,
 } from "@/lib/types";
-import {
-  createDefaultEndpointForm,
-  normalizeOpenAITextCapability,
-} from "./connectionDataSupport";
+import { createDefaultEndpointForm } from "./connectionDataSupport";
 import { getSelectedEndpoint } from "./connectionCollectionState";
 import {
   emptyRoutingScheduleDraft,
@@ -61,8 +58,7 @@ export function createDefaultConnectionForm(
     is_active: true,
     upstream_model_id: ownerModelID?.trim() ? ownerModelID.trim() : undefined,
     custom_headers: null,
-    openai_text_capability:
-      resolvedApiFamily === "openai" ? normalizeOpenAITextCapability(openAIMode) : null,
+    openai_text_capability: resolvedApiFamily === "openai" ? openAIMode : null,
     pricing_template_id: null,
     qps_limit: null,
     max_in_flight_non_stream: null,
@@ -87,7 +83,7 @@ export function createEditConnectionForm(
     custom_headers: connection.custom_headers,
     openai_text_capability:
       resolvedApiFamily === "openai"
-        ? normalizeOpenAITextCapability(connection.openai_text_capability)
+        ? (connection.openai_text_capability ?? null)
         : null,
     pricing_template_id: connection.pricing_template_id,
     qps_limit: connection.qps_limit,

@@ -3,6 +3,11 @@ import { moveConnectionInList } from "@/pages/model-detail/connectionCollectionS
 import { modelDetailSearchSchema, normalizeModelDetailTab } from "@/features/models/detail/modelDetailSchemas"
 import type { Connection } from "@/lib/types"
 import { canCopyTerminalTargetToModel } from "@/pages/model-detail/terminalTargetCopyCompatibility"
+import { buildConnectionDraftPayload } from "@/pages/model-detail/connectionDataSupport"
+import {
+  createDefaultConnectionForm,
+  createEditConnectionForm,
+} from "@/pages/model-detail/useModelDetailDialogState"
 
 function createConnection(id: number, priority: number, name: string): Connection {
   return {
@@ -90,5 +95,28 @@ describe("model detail feature contracts", () => {
       null,
       null,
     )).toBe(true)
+  })
+
+  it("keeps an image-only owner's absent text capability out of the draft", () => {
+    // gpt-image-2 declares openai_accepted_format=null. Substituting a default
+    // here made every create and every PATCH — a rename included — fail the
+    // backend's strict equality check with a 422.
+    expect(createDefaultConnectionForm("openai", null).openai_text_capability).toBeNull()
+    const stored = { ...createConnection(6, 0, "image target"), openai_text_capability: null }
+    expect(createEditConnectionForm(stored).openai_text_capability).toBeNull()
+
+    const { payload } = buildConnectionDraftPayload({
+      apiFamily: "openai",
+      createMode: "select",
+      selectedEndpointId: "3",
+      newEndpointForm: { name: "", base_url: "", api_key: "" },
+      connectionForm: createDefaultConnectionForm("openai", null),
+      headerRows: [],
+      customRequestParametersValue: null,
+      routingScheduleValue: null,
+      editingConnection: null,
+      endpointSourceDefaultName: null,
+    })
+    expect(payload?.openai_text_capability).toBeNull()
   })
 })
