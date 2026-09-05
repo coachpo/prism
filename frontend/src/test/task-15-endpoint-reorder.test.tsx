@@ -46,8 +46,18 @@ function renderEndpointsPage() {
   )
 }
 
+class ResizeObserverStub {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+
 describe("Endpoint direct-reference contract", () => {
   beforeEach(() => {
+    // The delete control is an icon-only button behind a Radix tooltip, whose
+    // popper measures itself with ResizeObserver; jsdom has none, so stub it
+    // the same way the observe and request-log tests do.
+    globalThis.ResizeObserver ??= ResizeObserverStub as never
     clearSharedReferenceData()
     clearUserTimezonePreference()
   })

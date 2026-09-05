@@ -4,12 +4,14 @@
 // simply vanished, so a broken fetch looked exactly like a clean empty result.
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { http, HttpResponse } from "msw";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { LocaleProvider } from "@/i18n/LocaleProvider";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { ModelConfig } from "@/lib/types";
 import { RouteReadinessCard } from "@/pages/model-detail/RouteReadinessCard";
+import { rewriteTestServer } from "./msw/server";
 
 const model = {
   id: 1,
@@ -36,6 +38,16 @@ function renderCard(props: Partial<React.ComponentProps<typeof RouteReadinessCar
 }
 
 describe("RouteReadinessCard diagnostics states", () => {
+  beforeEach(() => {
+    // The card reads the timezone preference, which drives /api/settings/costing;
+    // the harness fails unhandled requests, so answer it locally.
+    rewriteTestServer.use(
+      http.get("/api/settings/costing", () =>
+        HttpResponse.json({ timezone_preference: null }),
+      ),
+    );
+  });
+
   it("renders a failure surface instead of dropping the panel", () => {
     renderCard({ diagnosticsView: { kind: "error", message: "boom" } });
     expect(screen.getByTestId("route-readiness-diagnostics-error")).toBeInTheDocument();

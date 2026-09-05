@@ -3,12 +3,14 @@
 // exactly (case-sensitive) against the entry model_id, and render unknown or
 // missing evidence honestly instead of backfilling the entry id.
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { http, HttpResponse } from "msw";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { LocaleProvider } from "@/i18n/LocaleProvider";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { Connection, ModelConfig } from "@/lib/types";
 import { RouteReadinessCard } from "@/pages/model-detail/RouteReadinessCard";
+import { rewriteTestServer } from "./msw/server";
 
 const ENTRY_MODEL_ID = "Entry-A";
 
@@ -100,6 +102,16 @@ function upstreamSummary(): string {
 }
 
 describe("RouteReadinessCard direct identity summary", () => {
+  beforeEach(() => {
+    // The card reads the timezone preference, which drives /api/settings/costing;
+    // the harness fails unhandled requests, so answer it locally.
+    rewriteTestServer.use(
+      http.get("/api/settings/costing", () =>
+        HttpResponse.json({ timezone_preference: null }),
+      ),
+    );
+  });
+
   it("leaves the entry model ID to the page header instead of repeating it", () => {
     renderCard(makeModel([]));
     // 页头在 ~200px 之外已经渲染了同一个 ID；卡片里再放一遍只是重复。
