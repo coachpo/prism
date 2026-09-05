@@ -42,6 +42,27 @@ export function EndpointsFeaturePage() {
 
   const showToolbar = data.endpoints.length > 0;
   const unknownCount = data.unknownReferenceIds.size;
+  // 空态渲染在表体里：连表壳一起卸载会丢掉列头这个定位锚点，
+  // 筛到零条时操作者最需要的恰恰是「还有哪些列可以放宽」。
+  const filteredEmptyState =
+    data.filteredEndpoints.length === 0 ? (
+      <OperatorEmptyState
+        icon={<Plug className="h-6 w-6" />}
+        title={copy.noEndpointsMatchFilters}
+        description={copy.noEndpointsMatchFiltersDescription}
+        action={
+          <Button
+            variant="outline"
+            onClick={() => {
+              data.setSearchQuery("");
+              data.setReviewFilter("all");
+            }}
+          >
+            {copy.clearFilters}
+          </Button>
+        }
+      />
+    ) : null;
   // One line of facts, not a row of KPI cards: this page's numbers are small
   // and the table right below already carries the detail.
   const referencedCount = data.endpoints.filter((endpoint) => {
@@ -112,93 +133,84 @@ export function EndpointsFeaturePage() {
                   )}
                 </p>
               </div>
-              <div className="flex min-w-0 items-center gap-2">
-                {/* Unknown references degrade per row, so the controls stay
-                    usable; the badge names how many rows are affected. */}
-                {unknownCount > 0 ? (
-                  <>
-                    <OperatorStalenessBadge
-                      label={copy.referenceStaleBadge}
-                      reason={copy.referenceStaleReason(String(unknownCount))}
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={data.references.retry}
-                    >
-                      {copy.referenceRefetchAll}
-                    </Button>
-                  </>
-                ) : null}
-                <Select
-                  value={data.reviewFilter}
-                  onValueChange={(value) =>
-                    data.setReviewFilter(value as ReviewFilter)
-                  }
+              <div className="flex min-w-0 flex-col items-stretch gap-1 sm:items-end">
+                <div className="flex min-w-0 items-center gap-2">
+                  {/* Unknown references degrade per row, so the controls stay
+                      usable; the badge names how many rows are affected. */}
+                  {unknownCount > 0 ? (
+                    <>
+                      <OperatorStalenessBadge
+                        label={copy.referenceStaleBadge}
+                        reason={copy.referenceStaleReason(String(unknownCount))}
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={data.references.retry}
+                      >
+                        {copy.referenceRefetchAll}
+                      </Button>
+                    </>
+                  ) : null}
+                  <Select
+                    value={data.reviewFilter}
+                    onValueChange={(value) =>
+                      data.setReviewFilter(value as ReviewFilter)
+                    }
+                  >
+                    <SelectTrigger className="w-52" aria-label={copy.filterAll}>
+                      <SelectValue placeholder={copy.filterAll} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {filterOptions.map(({ value, label }) => (
+                        <SelectItem key={value} value={value}>
+                          {value !== "all" && unknownCount > 0
+                            ? `${label} · ${copy.referenceUnknownOption(String(unknownCount))}`
+                            : label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {/* 引用信息未就绪会把筛选/排序复位。复位本身是无声的，
+                    这行常驻的播报区负责说出它为什么弹回默认值。 */}
+                <p
+                  aria-live="polite"
+                  className="text-[11px] text-degraded empty:hidden"
+                  data-testid="endpoint-reference-rollback-notice"
                 >
-                  <SelectTrigger className="w-52" aria-label={copy.filterAll}>
-                    <SelectValue placeholder={copy.filterAll} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {filterOptions.map(({ value, label }) => (
-                      <SelectItem key={value} value={value}>
-                        {value !== "all" && unknownCount > 0
-                          ? `${label} · ${copy.referenceUnknownOption(String(unknownCount))}`
-                          : label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  {data.referenceRollbackNotice}
+                </p>
               </div>
             </OperatorToolbar>
           ) : null}
 
-          {data.endpoints.length > 0 && data.filteredEndpoints.length === 0 ? (
-            <OperatorEmptyState
-              icon={<Plug className="h-6 w-6" />}
-              title={copy.noEndpointsMatchFilters}
-              description={copy.noEndpointsMatchFiltersDescription}
-              action={
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    data.setSearchQuery("");
-                    data.setReviewFilter("all");
-                  }}
-                >
-                  {copy.filterAll}
-                </Button>
+          <div className="operator-section-surface overflow-hidden rounded-lg border">
+            <EndpointTable
+              emptyState={filteredEmptyState}
+              endpoints={data.filteredEndpoints}
+              details={data.references.details}
+              formatTime={data.formatTime}
+              hasIntegrityError={data.references.hasIntegrityError}
+              onAttach={data.handleAttachNavigate}
+              onDelete={data.handleDeleteRequest}
+              onDuplicate={data.handleDuplicateEndpoint}
+              onEdit={data.setEditingEndpoint}
+              onLoadMore={data.handleLoadMoreBlockers}
+              onOpenReferences={data.references.loadDetail}
+              onOrphanCleanup={(endpoint, item) =>
+                data.setOrphanCleanupTarget({ endpoint, item })
               }
+              onRetryDetail={data.references.loadDetail}
+              onSort={data.toggleSort}
+              sort={{
+                column: data.sortKey,
+                direction: data.sortDescending ? "desc" : "asc",
+              }}
+              summaries={data.references.summaries}
             />
-          ) : null}
-
-          {data.filteredEndpoints.length > 0 ? (
-            <div className="operator-section-surface overflow-hidden rounded-lg border">
-              <EndpointTable
-                endpoints={data.filteredEndpoints}
-                details={data.references.details}
-                formatTime={data.formatTime}
-                hasIntegrityError={data.references.hasIntegrityError}
-                onAttach={data.handleAttachNavigate}
-                onDelete={data.handleDeleteRequest}
-                onDuplicate={data.handleDuplicateEndpoint}
-                onEdit={data.setEditingEndpoint}
-                onLoadMore={data.handleLoadMoreBlockers}
-                onOpenReferences={data.references.loadDetail}
-                onOrphanCleanup={(endpoint, item) =>
-                  data.setOrphanCleanupTarget({ endpoint, item })
-                }
-                onRetryDetail={data.references.loadDetail}
-                onSort={data.toggleSort}
-                sort={{
-                  column: data.sortKey,
-                  direction: data.sortDescending ? "desc" : "asc",
-                }}
-                summaries={data.references.summaries}
-              />
-            </div>
-          ) : null}
+          </div>
         </>
       )}
 

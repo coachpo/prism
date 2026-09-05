@@ -50,6 +50,7 @@ import {
   settingsSearchSchema,
 } from "./rewriteRoutes";
 import { SearchFallbackNotice } from "./SearchFallbackNotice";
+import { recordSearchFallback } from "./searchFallback";
 import {
   MODEL_DETAIL_FALLBACK_SEARCH_KEYS,
   modelDetailSearchSchema,
@@ -259,6 +260,9 @@ function ProtectedRoute({ children }: { children: ReactElement }) {
   return (
     <ReportingCurrencyProvider>
       <Page>
+        {/* 两条壳层通知：地址里的参数被兜底折掉了，或者全局币种口径没读到。
+            都属于「页面照常显示，但显示的不完全是你要的东西」。 */}
+        <SearchFallbackNotice />
         <ReportingCurrencyDegradedNotice />
         {children}
       </Page>
@@ -345,19 +349,7 @@ function ProtectedObserveRoute() {
 }
 
 function ProtectedModelsRoute() {
-  const search = useTanStackSearch({ from: "/route/models" });
-
-  return (
-    <ProtectedRoute>
-      <>
-        <SearchFallbackNotice
-          keys={MODELS_LIST_FALLBACK_SEARCH_KEYS}
-          search={search}
-        />
-        {withRouteSuspense(<ModelsPage />)}
-      </>
-    </ProtectedRoute>
-  );
+  return <ProtectedRoute>{withRouteSuspense(<ModelsPage />)}</ProtectedRoute>;
 }
 
 function ProtectedModelExportRoute() {
@@ -425,44 +417,38 @@ function ProtectedModelDetailRoute() {
     searchParams.set("metrics_scope", search.metrics_scope);
   return (
     <ProtectedRoute>
-      <>
-        <SearchFallbackNotice
-          keys={MODEL_DETAIL_FALLBACK_SEARCH_KEYS}
-          search={search}
-        />
-        {withRouteSuspense(
-          <ModelDetailFeaturePage
-            modelId={modelId}
-            searchParams={searchParams}
-            onNavigateTo={(to) => void navigate({ to })}
-            onSearchParamsChange={(nextSearchParams, options) =>
-              void navigate({
-                to: "/route/models/$modelId",
-                params: { modelId },
-                search: {
-                  action:
-                    nextSearchParams.get("action") === "create-terminal-target"
-                      ? "create-terminal-target"
-                      : undefined,
-                  endpoint_id: nextSearchParams.get("endpoint_id") ?? undefined,
-                  focus_connection_id:
-                    nextSearchParams.get("focus_connection_id") ?? undefined,
-                  metrics_scope:
-                    nextSearchParams.get("metrics_scope") === "final_execution"
-                      ? "final_execution"
-                      : undefined,
-                },
-                replace: options?.replace,
-                // The detail page consumes its one-shot params by writing them
-                // back out; `focus_connection_id` in particular is cleared while
-                // the page is smooth-scrolling to that card, and a scroll reset
-                // here would fight it.
-                resetScroll: false,
-              })
-            }
-          />,
-        )}
-      </>
+      {withRouteSuspense(
+        <ModelDetailFeaturePage
+          modelId={modelId}
+          searchParams={searchParams}
+          onNavigateTo={(to) => void navigate({ to })}
+          onSearchParamsChange={(nextSearchParams, options) =>
+            void navigate({
+              to: "/route/models/$modelId",
+              params: { modelId },
+              search: {
+                action:
+                  nextSearchParams.get("action") === "create-terminal-target"
+                    ? "create-terminal-target"
+                    : undefined,
+                endpoint_id: nextSearchParams.get("endpoint_id") ?? undefined,
+                focus_connection_id:
+                  nextSearchParams.get("focus_connection_id") ?? undefined,
+                metrics_scope:
+                  nextSearchParams.get("metrics_scope") === "final_execution"
+                    ? "final_execution"
+                    : undefined,
+              },
+              replace: options?.replace,
+              // The detail page consumes its one-shot params by writing them back
+              // out; `focus_connection_id` in particular is cleared while the page
+              // is smooth-scrolling to that card, and a scroll reset here would
+              // fight it.
+              resetScroll: false,
+            })
+          }
+        />,
+      )}
     </ProtectedRoute>
   );
 }
@@ -490,17 +476,9 @@ function ProtectedBanPoliciesRoute() {
 }
 
 function ProtectedSettingsRoute() {
-  const search = useTanStackSearch({ from: "/system/settings" });
-
   return (
     <ProtectedRoute>
-      <>
-        <SearchFallbackNotice
-          keys={SETTINGS_FALLBACK_SEARCH_KEYS}
-          search={search}
-        />
-        {withRouteSuspense(<SettingsFeaturePage />)}
-      </>
+      {withRouteSuspense(<SettingsFeaturePage />)}
     </ProtectedRoute>
   );
 }
@@ -618,7 +596,13 @@ const authLoginRoute = createRoute({
 const modelsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/route/models",
-  validateSearch: (search) => { const r = modelsListSearchSchema.parse(search); console.log("VS: models raw=" + JSON.stringify(search) + " parsed=" + JSON.stringify(r) + " keys=" + Object.keys(r)); return r; },
+  // The raw query values only exist here: by the time the page renders, the
+  // router has already dropped what failed validation from the address bar.
+  validateSearch: (search) => {
+    const parsed = modelsListSearchSchema.parse(search);
+    recordSearchFallback(search, parsed, MODELS_LIST_FALLBACK_SEARCH_KEYS);
+    return parsed;
+  },
   component: ProtectedModelsRoute,
 });
 const modelsExportRoute = createRoute({
@@ -635,7 +619,11 @@ const modelDetailRoute = createRoute({
   // canonical URL.
   validateSearch: (search) => {
     const canonicalSearch = modelDetailSearchSchema.parse(search);
-    console.log("VS: detail raw=" + JSON.stringify(search) + " keys=" + Object.keys(canonicalSearch));
+    recordSearchFallback(
+      search,
+      canonicalSearch,
+      MODEL_DETAIL_FALLBACK_SEARCH_KEYS,
+    );
     return { ...canonicalSearch, tab: undefined };
   },
   // Moving between two models (16 → 17) reuses this route match, so without a
@@ -661,7 +649,11 @@ const banPoliciesRoute = createRoute({
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/system/settings",
-  validateSearch: (search) => settingsSearchSchema.parse(search),
+  validateSearch: (search) => {
+    const parsed = settingsSearchSchema.parse(search);
+    recordSearchFallback(search, parsed, SETTINGS_FALLBACK_SEARCH_KEYS);
+    return parsed;
+  },
   component: ProtectedSettingsRoute,
 });
 const proxyKeysRoute = createRoute({

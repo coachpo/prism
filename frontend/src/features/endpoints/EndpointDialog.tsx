@@ -14,6 +14,20 @@ import { endpointFormSchema, type EndpointFormValues } from "./endpointSchemas"
 import { OperatorCallout, OperatorInsetPanel } from "@/shared/design-system"
 import { formatTimestampForLocale } from "@/i18n/format"
 
+/**
+ * 三个字段都必填。共享的 ui/label 已有 required 标记，但 FormLabel 的
+ * props 类型不透传它，这里按同一形状渲染：星号只给视觉，读屏读到「必填」。
+ */
+function RequiredMark() {
+  const { messages } = useLocale()
+  return (
+    <span className="-ml-1 text-destructive">
+      <span aria-hidden="true">*</span>
+      <span className="sr-only">{messages.common.required}</span>
+    </span>
+  )
+}
+
 type VerifyDraft = {
   family: string
   revision: number
@@ -142,16 +156,16 @@ export function EndpointDialog({
               <OperatorInsetPanel>
                 <FormField control={form.control} name="name" render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{copy.name}</FormLabel>
-                    <FormControl><Input autoComplete="off" placeholder={copy.namePlaceholder} {...field} /></FormControl>
+                    <FormLabel>{copy.name}<RequiredMark /></FormLabel>
+                    <FormControl><Input autoComplete="off" aria-required="true" placeholder={copy.namePlaceholder} {...field} /></FormControl>
                     {fieldErrors?.name ? <FormMessage>{copy[fieldErrors.name as keyof typeof copy] as string ?? fieldErrors.name}</FormMessage> : <FormMessage />}
                   </FormItem>
                 )} />
                 <FormField control={form.control} name="base_url" render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{copy.baseUrl}</FormLabel>
-                    <FormControl><Input autoComplete="off" placeholder={copy.baseUrlPlaceholder} {...field} /></FormControl>
-                    {preview ? <FormDescription data-testid="base-url-preview">{copy.baseUrlPreview(preview)}</FormDescription> : null}
+                    <FormLabel>{copy.baseUrl}<RequiredMark /></FormLabel>
+                    <FormControl><Input autoComplete="off" aria-required="true" placeholder={copy.baseUrlPlaceholder} {...field} /></FormControl>
+                    {preview ? <FormDescription className="text-xs" data-testid="base-url-preview">{copy.baseUrlPreview(preview)}</FormDescription> : null}
                     {fieldErrors?.base_url ? <FormMessage>{copy[fieldErrors.base_url as keyof typeof copy] as string ?? fieldErrors.base_url}</FormMessage> : <FormMessage />}
                   </FormItem>
                 )} />
@@ -169,11 +183,11 @@ export function EndpointDialog({
                 ) : null}
                 <FormField control={form.control} name="api_key" render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{messages.proxyApiKeys.apiKey}</FormLabel>
+                    <FormLabel>{messages.proxyApiKeys.apiKey}{isEdit ? null : <RequiredMark />}</FormLabel>
                     <FormControl>
-                      <Input type="password" autoComplete="new-password" placeholder="" {...field} />
+                      <Input type="password" autoComplete="new-password" aria-required={isEdit ? undefined : true} placeholder="" {...field} />
                     </FormControl>
-                    <FormDescription>{isEdit ? copy.keepStoredKey : copy.apiKeyRequired}</FormDescription>
+                    <FormDescription className="text-xs">{isEdit ? copy.keepStoredKey : copy.apiKeyRequired}</FormDescription>
                     <FormMessage />
                   </FormItem>
                 )} />

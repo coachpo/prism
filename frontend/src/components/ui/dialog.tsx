@@ -73,6 +73,14 @@ function DialogContentInner({
 }: DialogContentProps) {
   const handleCloseAutoFocus = useCloseFocusRestore(onCloseAutoFocus)
 
+  // 宽度只走 size 档位。开发期把绕过档位的调用点喊出来，否则它会一直悄悄增加：
+  // 契约只承认 420 / 560 / 720 三档。
+  if (import.meta.env.DEV && typeof className === "string" && /(^|[\s:])max-w-/.test(className)) {
+    console.warn(
+      `DialogContent: 用 size 属性设置宽度，不要在 className 里写 max-w-*（收到 "${className}"）。`,
+    )
+  }
+
   return (
     <DialogPrimitive.Content
       data-slot="dialog-content"

@@ -362,33 +362,6 @@ export const MODELS_LIST_FALLBACK_SEARCH_KEYS = [
 
 export const emptySearchSchema = z.object({});
 
-/** Longest raw value echoed back in the ignored-parameter notice. */
-const REJECTED_SEARCH_VALUE_MAX_LENGTH = 40;
-
-// A `.catch()` turns an illegal value into the default silently, which trades a
-// visible broken link for an invisible one. Comparing the raw query string with
-// the parsed result names every key that fell back — the value was written in
-// the URL but did not survive validation — so the page can say so.
-export function collectRejectedSearchKeys(
-  searchStr: string,
-  parsed: Record<string, unknown>,
-  keys: readonly string[],
-): string[] {
-  const raw = new URLSearchParams(searchStr);
-  const rejected: string[] = [];
-  for (const key of keys) {
-    const rawValue = raw.get(key);
-    if (rawValue === null || rawValue.trim() === "") continue;
-    if (parsed[key] !== undefined) continue;
-    rejected.push(
-      rawValue.length > REJECTED_SEARCH_VALUE_MAX_LENGTH
-        ? `${key}=${rawValue.slice(0, REJECTED_SEARCH_VALUE_MAX_LENGTH)}…`
-        : `${key}=${rawValue}`,
-    );
-  }
-  return rejected;
-}
-
 export type ObserveSearch = z.input<typeof observeSearchSchema>;
 export type AuthLoginSearch = z.input<typeof authLoginSearchSchema>;
 export type RequestLogSearch = z.input<typeof requestLogSearchSchema>;

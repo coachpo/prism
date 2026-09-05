@@ -265,7 +265,9 @@ export function ObserveMainChart({
             </ToggleGroupItem>
           ))}
         </ToggleGroup>
-        <div className="flex items-center gap-2">
+        {/* 指标、分组、时间桶、图表切换在窄卡上必须换行：不换行时最后一个
+            分段控件会被卡片裁掉，操作者看到的是半个按钮。 */}
+        <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
           {fragment.data?.truncated ? (
             <OperatorClippedBadge
               label={copy.seriesTruncatedLabel}

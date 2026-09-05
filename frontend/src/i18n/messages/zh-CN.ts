@@ -152,6 +152,7 @@ export const zhCNMessages = {
     searchParamsIgnoredTitle: "链接中的部分参数无法识别",
     searchParamsIgnoredDescription: (params: MessageArg) =>
       `已忽略 ${params}，本页按默认值显示。请检查链接是否完整或已过期。`,
+    dismiss: "知道了",
     reportingCurrencyFallbackTitle: "报告币种读取失败",
     reportingCurrencyFallbackDescription: (code: MessageArg) =>
       `无法读取本实例的报告币种设置，页面上的金额暂按默认口径 ${code} 显示，可能与实际结算币种不一致。`,
@@ -1441,7 +1442,7 @@ export const zhCNMessages = {
     timezoneAffectsTimestamps:
       "只改变时间戳展示和 Custom 输入的解释；滚动时长与 UTC 日级分桶不随时区改变。",
     timezonePreference: "时区偏好",
-    timezoneAuto: (zone: MessageArg) => `自动（浏览器：${zone})`,
+    timezoneAuto: (zone: MessageArg) => `自动（浏览器：${zone}）`,
     usedForSpendingReports:
       "用于支出报表和仪表盘；历史请求按当时的币种、epoch 与价格快照读取，不会被追溯换算。",
     activeEpoch: (epoch: MessageArg) => `当前报告货币 epoch：${epoch}`,
@@ -1639,7 +1640,8 @@ export const zhCNMessages = {
     roleMetricsNoLatencySample: "窗口内没有可用延迟样本。",
     roleMetricsNoTrustedCost: "窗口内没有可信成本样本；这不代表零成本。",
     roleMetricsLoading: "指标仍在读取中。",
-    roleMetricsPartial: "部分覆盖",
+    // 「覆盖」只说路由目标是否齐全；样本采不全是另一件事，用词必须分开。
+    roleMetricsPartial: "样本不全",
     roleMetricsLatencyPartial: (known: MessageArg, missing: MessageArg) =>
       `已有 ${known} 个延迟样本，另有 ${missing} 个观测缺少延迟。`,
     roleMetricsCostPartial: (known: MessageArg, missing: MessageArg) =>
@@ -1971,6 +1973,11 @@ export const zhCNMessages = {
     referenceUnknownRowReason:
       "这一行的引用信息没有读到，不能确认它有没有被引用；它被排在结果末尾。",
     referenceRetryRow: "重试本行",
+    // 复位是无声的：操作者只看到自己刚选的值弹回“全部”，得有人说明为什么。
+    referenceFilterRolledBack:
+      "引用信息未就绪，引用筛选已回到“全部”；文本搜索仍然可用。",
+    referenceSortRolledBack:
+      "引用信息未就绪，排序已回到“名称”；文本搜索仍然可用。",
     referenceStaleBadge: "引用信息未就绪",
     referenceStaleReason: (count: MessageArg) =>
       `${count} 个端点的引用信息未读到；筛选与排序仍然可用，这些行排在末尾并单独标记。`,
@@ -2839,6 +2846,9 @@ export const zhCNMessages = {
     deleteModelBlockedDescription:
       "下面这些模型配置把它作为模型目标。请先在它们的“访问目标”里解除引用，再回来删除。",
     deleteModelReferrersLabel: "引用它的模型配置",
+    // 预检通过也要说出来：静默放行与「没跑预检」在界面上分不出来。
+    deleteModelReferrersClear: (checked: MessageArg) =>
+      `已检查 ${checked} 个模型配置，没有配置把它作为模型目标。`,
     deleteModelDescription: (name: MessageArg) =>
       `确定要删除模型配置“${name}”吗？这也会移除其拥有的终端目标。端点仍可复用。`,
     displayNameOptional: "显示名称",
@@ -4868,6 +4878,8 @@ export const zhCNMessages = {
       "这些计数只针对当前已选模型；筛选隐藏行不会撤销选择，也不会把未知价格解释为零价。",
     sourceEvidenceTitle: "导出源证据",
     targetVersionLabel: "目标客户端版本",
+    // 没有读取时刻的 digest 说明不了它对应哪一刻的配置，刷新也就没有可见证据。
+    sourceReadAtLabel: "快照读取于",
     digestLabel: "source_digest（重放校验用）",
     sourceDrifted:
       "源事实已漂移（export_source_stale）：请基于刷新后的 source 重新生成。",
@@ -4904,6 +4916,14 @@ export const zhCNMessages = {
     manualKeyLabel: "Prism 代理密钥",
     manualKeyHint: "手动模式下必填；仅在最终确认时使用，关闭对话框即清除。",
     manualKeyRequired: "请输入非空的 Prism 代理密钥。",
+    // 这是最后一次能反悔的确认步骤，必须复述本次导出的范围与已知代价。
+    keyDialogImpactTitle: "本次导出范围",
+    keyDialogImpactSelected: (count: MessageArg) =>
+      `已选 ${count} 个模型配置将写入生成的文件。`,
+    keyDialogImpactCostOmitted: (count: MessageArg) =>
+      `其中 ${count} 个会省略 cost 组：价格未配置或无法表达，不会用零价顶替。`,
+    keyDialogImpactMetadataMissing: (count: MessageArg) =>
+      `其中 ${count} 个元信息有缺失：缺失字段保持省略，不会补默认值。`,
     cancel: "取消",
     generating: "生成中...",
     confirmGenerate: "确认生成",
@@ -4917,6 +4937,12 @@ export const zhCNMessages = {
     copied: "已复制",
     copyButton: "复制",
     copyPiProviderFragment: "复制 providers 合并片段",
+    // 抽屉开着的时候只能就地报错；复制失败必须指向同一份内容的现成旁路。
+    copyFailedInline:
+      "复制失败：浏览器拒绝写入剪贴板。可改用“下载”或“在新标签页查看原始 JSON”取得同一份内容。",
+    previewRegionLabel: "生成内容预览（可滚动）",
+    previewExpand: "展开全文",
+    previewCollapse: "收起预览",
     piProviderMergeHint:
       "若已有 Pi models.json，请把“providers 合并片段”中的键值合并到现有 providers 对象；不要用完整导出覆盖其他 provider。",
     downloadButton: "下载",

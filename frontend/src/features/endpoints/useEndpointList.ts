@@ -28,6 +28,9 @@ export function useEndpointList() {
   const [reviewFilter, setReviewFilter] = useState<ReviewFilter>("all");
   const [sortKey, setSortKey] = useState<EndpointSortKey>("name");
   const [sortDescending, setSortDescending] = useState(false);
+  const [referenceRollbackNotice, setReferenceRollbackNotice] = useState<
+    string | null
+  >(null);
   const { format: formatTime } = useTimezone();
 
   const revision = 0;
@@ -79,12 +82,25 @@ export function useEndpointList() {
   // Reference-derived controls stay fail-closed until every visible summary
   // is fresh. Text search remains available, while stale/unknown counts are
   // still rendered by the row as evidence rather than treated as zero.
+  // 复位本身对操作者是无声的（控件当着他的面弹回默认值），所以同时留下一句
+  // 理由，由页面播报出来。
   useEffect(() => {
-    if (!references.hasUnknownOrStale) return;
-    if (reviewFilter !== "all") setReviewFilter("all");
-    if (sortKey === "direct_reference_count") {
+    if (!references.hasUnknownOrStale) {
+      setReferenceRollbackNotice(null);
+      return;
+    }
+    const copy = getStaticMessages().endpointsPage;
+    const filterRolledBack = reviewFilter !== "all";
+    const sortRolledBack = sortKey === "direct_reference_count";
+    if (filterRolledBack) setReviewFilter("all");
+    if (sortRolledBack) {
       setSortKey("name");
       setSortDescending(false);
+    }
+    if (filterRolledBack) {
+      setReferenceRollbackNotice(copy.referenceFilterRolledBack);
+    } else if (sortRolledBack) {
+      setReferenceRollbackNotice(copy.referenceSortRolledBack);
     }
   }, [references.hasUnknownOrStale, reviewFilter, sortKey]);
 
@@ -210,6 +226,7 @@ export function useEndpointList() {
     filteredEndpoints: sortedEndpoints,
     formatTime,
     isLoading,
+    referenceRollbackNotice,
     references,
     retryEndpointLoad,
     reviewFilter,

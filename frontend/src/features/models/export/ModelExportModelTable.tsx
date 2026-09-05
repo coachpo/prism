@@ -112,19 +112,19 @@ function ModelExportModelRow({
         ]),
     );
     return (
-        <tr
+        <TableRow
             data-testid={`export-row-${model.model_config_id}`}
-            className="group border-b last:border-b-0"
+            className="group"
         >
-            <td className="py-2 pr-2">
+            <TableCell>
                 <Checkbox
                     checked={selected}
                     disabled={!model.selectable}
                     onCheckedChange={(c) => onToggle(c === true)}
                     aria-label={model.model_id}
                 />
-            </td>
-            <td className="py-2 pr-2 font-mono">
+            </TableCell>
+            <TableCell className="font-mono">
                 {model.model_id}
                 {!model.selectable && (
                     <Badge variant="outline" className="ml-2">
@@ -132,21 +132,23 @@ function ModelExportModelRow({
                         {model.unselectable_reason ?? ""}
                     </Badge>
                 )}
-            </td>
-            <td className="py-2 pr-2">{model.api_family}</td>
-            <td className="py-2 pr-2">
+            </TableCell>
+            <TableCell>{model.api_family}</TableCell>
+            {/* 这一格装的是整句说明（无法绑定 / 绑定不可渲染），
+                必须放开 TableCell 默认的 nowrap，否则一行撑穿整张表。 */}
+            <TableCell className="whitespace-normal">
                 <PiBindingCell
                     controller={controller}
                     model={model}
                     sourceState={sourceState}
                 />
-            </td>
-            <td className="py-2 pr-2">
+            </TableCell>
+            <TableCell>
                 {model.price_risk.exportable
                     ? copy.priceExportable
                     : copy.priceOmitted}
-            </td>
-            <td className="py-2">
+            </TableCell>
+            <TableCell>
                 <div className="flex flex-wrap gap-1">
                     {warningCodes.map((code) => (
                         <Badge key={code} variant="outline" title={code}>
@@ -155,7 +157,7 @@ function ModelExportModelRow({
                         </Badge>
                     ))}
                 </div>
-            </td>
-        </tr>
+            </TableCell>
+        </TableRow>
     );
 }

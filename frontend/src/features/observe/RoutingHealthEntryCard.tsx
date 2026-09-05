@@ -175,12 +175,15 @@ export function RoutingHealthEntryCard() {
                     )}
                   />
                 ) : null}
-                {subset ? null : (
+                {/* 一个都没观测到时，「尚未观测 N」已经说清了；这条只用于
+                    观测了一部分、因而封禁与重试计数不可结论的情形。 */}
+                {!subset &&
+                unobserved < completeness.configured_target_count ? (
                   <OperatorClippedBadge
                     label={copy.routingHealthPartialCounts}
                     reason={copy.routingHealthPartialCountsReason}
                   />
-                )}
+                ) : null}
               </>
             )}
           </div>

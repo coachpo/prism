@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { getStaticMessages } from "@/i18n/staticMessages"
 import type { EndpointCreate, EndpointUpdate } from "@/lib/types"
 
 // Server contract parity: name 1..128 Unicode code points after trim;
@@ -6,16 +7,20 @@ import type { EndpointCreate, EndpointUpdate } from "@/lib/types"
 const MAX_NAME_CODE_POINTS = 128
 const MAX_BASE_URL_CODE_POINTS = 512
 
+// 校验消息与表单其余文案同源：界面是简体中文单一 locale，
+// 提交后弹出的英文串正好出现在操作者最需要读懂的时刻。
+const schemaCopy = getStaticMessages().endpointsUi
+
 export const endpointFormSchema = z.object({
   name: z
     .string()
     .trim()
-    .min(1, "Name is required")
-    .max(MAX_NAME_CODE_POINTS, "Name must be at most 128 characters"),
+    .min(1, schemaCopy.nameRequired)
+    .max(MAX_NAME_CODE_POINTS, schemaCopy.nameTooLong(MAX_NAME_CODE_POINTS)),
   base_url: z
     .string()
     .trim()
-    .pipe(z.url("Must be a valid URL")),
+    .pipe(z.url(schemaCopy.baseUrlInvalid)),
   api_key: z.string(),
 })
 

@@ -8,19 +8,32 @@ function Table({ className, ...props }: React.ComponentProps<"table">) {
   // 只有真的溢出时才做成停靠点：给不滚动的表格加一个焦点位，
   // 只会让每张表多出一次没有内容的 Tab。
   const [overflows, setOverflows] = React.useState(false)
+  // 屏外还有列这件事必须看得见。裸 overflow-x-auto 在触控板上连滚动条槽都不占，
+  // 窄屏下整列被裁掉而页面一个提示都没有。
+  const [edges, setEdges] = React.useState({ start: false, end: false })
 
   React.useEffect(() => {
     const container = containerRef.current
     if (!container || typeof ResizeObserver === "undefined") return
     const measure = () => {
-      setOverflows(container.scrollWidth > container.clientWidth + 1)
+      const scrollable = container.scrollWidth > container.clientWidth + 1
+      setOverflows(scrollable)
+      const left = container.scrollLeft
+      setEdges({
+        start: scrollable && left > 1,
+        end: scrollable && left + container.clientWidth < container.scrollWidth - 1,
+      })
     }
     measure()
     const observer = new ResizeObserver(measure)
     observer.observe(container)
     const table = container.firstElementChild
     if (table) observer.observe(table)
-    return () => observer.disconnect()
+    container.addEventListener("scroll", measure, { passive: true })
+    return () => {
+      observer.disconnect()
+      container.removeEventListener("scroll", measure)
+    }
   }, [])
 
   const tableName =
@@ -28,25 +41,41 @@ function Table({ className, ...props }: React.ComponentProps<"table">) {
   const tableCopy = getStaticMessages().operationalTable
 
   return (
-    <div
-      ref={containerRef}
-      data-slot="table-container"
-      className="relative w-full overflow-x-auto"
-      {...(overflows
-        ? {
-            tabIndex: 0,
-            role: "region",
-            "aria-label": tableName
-              ? tableCopy.horizontalScrollRegion(tableName)
-              : tableCopy.horizontalScrollRegionUnnamed,
-          }
-        : {})}
-    >
-      <table
-        data-slot="table"
-        className={cn("w-full caption-bottom text-sm", className)}
-        {...props}
-      />
+    <div data-slot="table-frame" className="relative w-full">
+      <div
+        ref={containerRef}
+        data-slot="table-container"
+        data-overflowing={overflows || undefined}
+        className="relative w-full overflow-x-auto"
+        {...(overflows
+          ? {
+              tabIndex: 0,
+              role: "region",
+              "aria-label": tableName
+                ? tableCopy.horizontalScrollRegion(tableName)
+                : tableCopy.horizontalScrollRegionUnnamed,
+            }
+          : {})}
+      >
+        <table
+          data-slot="table"
+          className={cn("w-full caption-bottom text-sm", className)}
+          {...props}
+        />
+      </div>
+      {/* 渐隐条画在滚动容器之外，否则会跟着内容一起滚走。 */}
+      {edges.start ? (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-y-0 left-0 w-6 bg-gradient-to-r from-panel to-transparent"
+        />
+      ) : null}
+      {edges.end ? (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-panel to-transparent"
+        />
+      ) : null}
     </div>
   )
 }
