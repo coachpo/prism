@@ -7,10 +7,15 @@ import { useRequestLogDetail } from "./request-logs/useRequestLogDetail";
 import { useRequestLogsPageData } from "./request-logs/useRequestLogsPageData";
 import { downloadRequestLogsCsv } from "./request-logs/requestLogsCsv";
 import {
+  DEFAULT_CHAIN_COLUMN_PREFERENCES,
   DEFAULT_COLUMN_PREFERENCES,
+  loadChainColumnPreferences,
   loadColumnPreferences,
+  saveChainColumnPreferences,
   saveColumnPreferences,
 } from "./request-logs/requestLogColumnPreferences";
+import { getChainColumns } from "./request-logs/chainColumns";
+import { getColumns } from "./request-logs/columns";
 import { RequestFocusBanner } from "./request-logs/RequestFocusBanner";
 import { FiltersBar } from "./request-logs/FiltersBar";
 import { RequestLogsTable } from "./request-logs/RequestLogsTable";
@@ -46,6 +51,12 @@ export function RequestLogsPage() {
   const [columnPreferences, setColumnPreferences] = useState(() =>
     loadColumnPreferences(),
   );
+  // 两个视图渲染的是两套列，列选择器必须按当前视图取定义与偏好，
+  // 否则勾掉的项与表头对不上，勾了也毫无视觉变化。
+  const [chainColumnPreferences, setChainColumnPreferences] = useState(() =>
+    loadChainColumnPreferences(),
+  );
+  const isChainView = state.view === "ingress_chains";
 
   const handleToggleColumn = useCallback((key: string) => {
     setColumnPreferences((current) => {
@@ -63,6 +74,34 @@ export function RequestLogsPage() {
     saveColumnPreferences(defaults);
     setColumnPreferences(defaults);
   }, []);
+
+  const handleToggleChainColumn = useCallback((key: string) => {
+    setChainColumnPreferences((current) => {
+      const nextKeys = current.visibleKeys.includes(key)
+        ? current.visibleKeys.filter((visibleKey) => visibleKey !== key)
+        : [...current.visibleKeys, key];
+      const next = { version: 1 as const, visibleKeys: nextKeys };
+      saveChainColumnPreferences(next);
+      return next;
+    });
+  }, []);
+
+  const handleResetChainColumns = useCallback(() => {
+    const defaults = DEFAULT_CHAIN_COLUMN_PREFERENCES;
+    saveChainColumnPreferences(defaults);
+    setChainColumnPreferences(defaults);
+  }, []);
+
+  const columnToggleOptions = useMemo(
+    () =>
+      isChainView
+        ? getChainColumns()
+        : getColumns().map((column) => ({
+            key: column.key,
+            label: column.label,
+          })),
+    [isChainView],
+  );
 
   const {
     items,
@@ -330,9 +369,18 @@ export function RequestLogsPage() {
             }
           >
             <ColumnToggleMenu
-              visibleColumns={columnPreferences.visibleKeys}
-              onToggleColumn={handleToggleColumn}
-              onResetColumns={handleResetColumns}
+              columns={columnToggleOptions}
+              visibleColumns={
+                isChainView
+                  ? chainColumnPreferences.visibleKeys
+                  : columnPreferences.visibleKeys
+              }
+              onToggleColumn={
+                isChainView ? handleToggleChainColumn : handleToggleColumn
+              }
+              onResetColumns={
+                isChainView ? handleResetChainColumns : handleResetColumns
+              }
             />
           </RequestLogsViewToolbar>
           {stale && lastLoadedAt ? (
@@ -394,6 +442,13 @@ export function RequestLogsPage() {
               loading={loading}
               retentionClipped={retentionClipped}
               emptyAction={emptyStateAction}
+              visibleColumns={chainColumnPreferences.visibleKeys}
+              pageSize={state.chain_limit}
+              onPageSizeChange={actions.setChainLimit}
+              sortOrder={state.sort_order}
+              onSortOrderChange={(order) =>
+                actions.setSort("created_at", order)
+              }
             />
           ) : (
             <RequestLogsTable

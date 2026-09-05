@@ -194,6 +194,8 @@ describe("Destructive retention confirmation keyword", () => {
 
     expect(await screen.findByText("输入 DELETE 以继续")).toBeTruthy();
     expect(screen.getByRole("textbox")).toHaveAttribute("placeholder", "DELETE");
+    // 删除不可逆：确认按钮要说清删的是什么，不能是一个裸「删除」。
+    expect(screen.getByRole("button", { name: "删除请求日志" })).toBeTruthy();
   });
 
   it("states that a discarded preflight voids the confirmation instead of showing a dead input", () => {

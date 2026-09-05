@@ -954,6 +954,48 @@ describe("ExportKeyDialog Pi-only", () => {
           <ExportKeyDialog
             open
             selectedCount={1}
+            riskSummary={{ costOmitted: 2, metadataIncomplete: 0 }}
+            error={null}
+            onClose={vi.fn()}
+            onConfirm={onConfirm}
+          />
+        </TooltipProvider>
+      </LocaleProvider>,
+    );
+
+    // 最后一次能反悔的步骤要复述本次导出范围与已知代价。
+    expect(screen.getByText(/已选 1 个模型配置/)).toBeVisible();
+    expect(screen.getByText(/其中 2 个会省略 cost 组/)).toBeVisible();
+    expect(screen.queryByText(/元信息有缺失/)).toBeNull();
+
+    await user.click(screen.getByRole("radio", { name: /手动输入统一密钥/ }));
+    const confirm = screen.getByRole("button", { name: "确认生成" });
+    const input = screen.getByLabelText(/^Prism 代理密钥/);
+    expect(confirm).toBeDisabled();
+    await user.type(input, "   ");
+    expect(confirm).toBeDisabled();
+    await user.type(input, " proxy-key ");
+    expect(confirm).toBeEnabled();
+    await user.click(confirm);
+
+    await waitFor(() =>
+      expect(onConfirm).toHaveBeenCalledWith({
+        mode: "manual",
+        manualKey: "proxy-key",
+      }),
+    );
+  });
+
+  it("submits from the key input with Enter", async () => {
+    const user = userEvent.setup();
+    const onConfirm = vi.fn(async () => undefined);
+    render(
+      <LocaleProvider>
+        <TooltipProvider>
+          <ExportKeyDialog
+            open
+            selectedCount={1}
+            riskSummary={{ costOmitted: 0, metadataIncomplete: 0 }}
             error={null}
             onClose={vi.fn()}
             onConfirm={onConfirm}
@@ -963,14 +1005,7 @@ describe("ExportKeyDialog Pi-only", () => {
     );
 
     await user.click(screen.getByRole("radio", { name: /手动输入统一密钥/ }));
-    const confirm = screen.getByRole("button", { name: "确认生成" });
-    const input = screen.getByLabelText("Prism 代理密钥");
-    expect(confirm).toBeDisabled();
-    await user.type(input, "   ");
-    expect(confirm).toBeDisabled();
-    await user.type(input, " proxy-key ");
-    expect(confirm).toBeEnabled();
-    await user.click(confirm);
+    await user.type(screen.getByLabelText(/^Prism 代理密钥/), "proxy-key{Enter}");
 
     await waitFor(() =>
       expect(onConfirm).toHaveBeenCalledWith({
@@ -1050,13 +1085,80 @@ describe("ExportResultSheet Pi-only", () => {
     );
     await user.click(screen.getByRole("button", { name: "复制" }));
     expect(execCommand).toHaveBeenCalledWith("copy");
-    expect(screen.getByRole("button", { name: "已复制" })).toBeDisabled();
+    // 「已复制」只是瞬时反馈：剪贴板会被别的内容顶掉，按钮必须还能再点。
+    expect(screen.getByRole("button", { name: "已复制" })).toBeEnabled();
     delete (document as unknown as Record<string, unknown>).execCommand;
     Object.defineProperty(navigator, "clipboard", {
       value: undefined,
       configurable: true,
       writable: true,
     });
+  });
+
+  it("reports a failed copy inline instead of staying silent", async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(navigator, "clipboard", {
+      value: undefined,
+      configurable: true,
+      writable: true,
+    });
+    Object.defineProperty(document, "execCommand", {
+      value: vi.fn(() => false),
+      configurable: true,
+      writable: true,
+    });
+    const result: ExportRenderResponse = {
+      target_version: "0.84.3",
+      content: '{"providers":{"home":{"name":"Prism","models":[]}}}\n',
+      content_sha256: "f".repeat(64),
+      file_name: "prism-pi-models.json",
+      mime_type: "application/json;charset=utf-8",
+      model_results: [],
+      source_digest: "a".repeat(64),
+      warnings: [],
+    };
+    render(
+      <LocaleProvider>
+        <TooltipProvider>
+          <ExportResultSheet result={result} onClose={vi.fn()} />
+        </TooltipProvider>
+      </LocaleProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "复制" }));
+    expect(screen.getByTestId("export-copy-failed")).toBeVisible();
+    expect(screen.getByRole("button", { name: "复制" })).toBeEnabled();
+    delete (document as unknown as Record<string, unknown>).execCommand;
+  });
+
+  it("keeps the payload preview focusable and collapsible", async () => {
+    const user = userEvent.setup();
+    const result: ExportRenderResponse = {
+      target_version: "0.84.3",
+      content: '{"providers":{"home":{"name":"Prism","models":[]}}}\n',
+      content_sha256: "f".repeat(64),
+      file_name: "prism-pi-models.json",
+      mime_type: "application/json;charset=utf-8",
+      model_results: [],
+      source_digest: "a".repeat(64),
+      warnings: [],
+    };
+    render(
+      <LocaleProvider>
+        <TooltipProvider>
+          <ExportResultSheet result={result} onClose={vi.fn()} />
+        </TooltipProvider>
+      </LocaleProvider>,
+    );
+
+    const preview = screen.getByTestId("export-content-preview");
+    expect(preview).toHaveAttribute("tabindex", "0");
+    const toggle = screen.getByRole("button", { name: "展开全文" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await user.click(toggle);
+    expect(
+      screen.getByRole("button", { name: "收起预览" }),
+    ).toHaveAttribute("aria-expanded", "true");
   });
 
   it("revokes raw-view Blob URLs when content clears and on unmount", async () => {

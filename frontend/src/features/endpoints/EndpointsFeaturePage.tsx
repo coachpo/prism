@@ -89,9 +89,25 @@ export function EndpointsFeaturePage() {
         </Button>
       </OperatorPageHeader>
 
+      {/* 读失败但手里还有上次成功的数据时，不丢弃它：整块换成错误卡，
+          「后端挂了」就被渲染成「这台网关没有端点」。 */}
+      {data.endpointLoadError && data.endpoints.length > 0 ? (
+        <OperatorStalenessBadge
+          className="self-start"
+          label={
+            data.endpointsLoadedAt
+              ? messages.honesty.lastSuccessful(
+                  data.formatTime(data.endpointsLoadedAt),
+                )
+              : messages.honesty.readFailed
+          }
+          reason={messages.endpointsData.loadFailed}
+        />
+      ) : null}
+
       {data.isLoading ? (
         <OperatorLoadingState title={copy.title} />
-      ) : data.endpointLoadError ? (
+      ) : data.endpointLoadError && data.endpoints.length === 0 ? (
         <OperatorErrorState
           title={messages.endpointsData.loadFailed}
           description={messages.common.requestFailed}

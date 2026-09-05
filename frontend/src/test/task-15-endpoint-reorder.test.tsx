@@ -103,7 +103,7 @@ describe("Endpoint direct-reference contract", () => {
     // Delete opens the preflight but cannot confirm: check error keeps the
     // destructive submit hidden.
     const table = screen.getByTestId("endpoints-table-desktop")
-    await userEvent.click(within(table).getByRole("button", { name: /确定要删除/ }))
+    await userEvent.click(within(table).getByRole("button", { name: /删除端点/ }))
     await waitFor(() => {
       expect(screen.queryByTestId("delete-endpoint-confirm")).not.toBeInTheDocument()
     })
@@ -153,7 +153,7 @@ describe("Endpoint direct-reference contract", () => {
 
     await screen.findAllByText("Primary")
     const table = screen.getByTestId("endpoints-table-desktop")
-    await userEvent.click(within(table).getByRole("button", { name: /确定要删除/ }))
+    await userEvent.click(within(table).getByRole("button", { name: /删除端点/ }))
     expect(await screen.findByTestId("delete-blocked-heading")).toBeInTheDocument()
     const blockers = screen.getByTestId("delete-blockers")
     expect(within(blockers).getByText("Primary")).toBeInTheDocument()
@@ -178,7 +178,7 @@ describe("Endpoint direct-reference contract", () => {
 
     await screen.findAllByText("Primary")
     const table = screen.getByTestId("endpoints-table-desktop")
-    await userEvent.click(within(table).getByRole("button", { name: /确定要删除/ }))
+    await userEvent.click(within(table).getByRole("button", { name: /删除端点/ }))
     await waitFor(() => {
       expect(screen.getByTestId("delete-endpoint-confirm")).toBeInTheDocument()
     })

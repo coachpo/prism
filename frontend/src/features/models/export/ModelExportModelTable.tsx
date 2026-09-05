@@ -49,7 +49,7 @@ export function ModelExportModelTable({
     const copy = messages.modelExportPage;
     return (
         <OperatorTableShell summary={summary}>
-            <Table>
+            <Table scrollAreaClassName="max-h-[calc(100dvh-24rem)]">
                 <TableHeader>
                     <TableRow>
                         <TableHead>{copy.columnSelect}</TableHead>

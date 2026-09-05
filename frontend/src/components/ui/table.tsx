@@ -3,7 +3,18 @@ import * as React from "react"
 import { getStaticMessages } from "@/i18n/staticMessages"
 import { cn } from "@/lib/utils"
 
-function Table({ className, ...props }: React.ComponentProps<"table">) {
+type TableProps = React.ComponentProps<"table"> & {
+  /**
+   * 让表格在自己的容器里纵向滚动，例如 `max-h-[calc(100dvh-18rem)]`。
+   *
+   * sticky 表头只对「最近的滚动祖先」生效，而这个容器因为 `overflow-x` 已经是
+   * 滚动容器了。把 `max-h` 加在外面再包一层没有用——实测那样表头会跟着内容一起滚走。
+   * 横竖两轴必须落在同一个元素上，所以高度上限只能从这里传进来。
+   */
+  scrollAreaClassName?: string
+}
+
+function Table({ className, scrollAreaClassName, ...props }: TableProps) {
   const containerRef = React.useRef<HTMLDivElement>(null)
   // 只有真的溢出时才做成停靠点：给不滚动的表格加一个焦点位，
   // 只会让每张表多出一次没有内容的 Tab。
@@ -46,7 +57,11 @@ function Table({ className, ...props }: React.ComponentProps<"table">) {
         ref={containerRef}
         data-slot="table-container"
         data-overflowing={overflows || undefined}
-        className="relative w-full overflow-x-auto"
+        className={cn(
+          "relative w-full",
+          scrollAreaClassName ? "overflow-auto" : "overflow-x-auto",
+          scrollAreaClassName,
+        )}
         {...(overflows
           ? {
               tabIndex: 0,

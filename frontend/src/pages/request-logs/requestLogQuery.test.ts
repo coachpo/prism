@@ -65,7 +65,8 @@ describe("request-log query projection", () => {
     });
     expect(params).not.toHaveProperty("limit");
     expect(params).not.toHaveProperty("offset");
-    expect(params).not.toHaveProperty("chain_limit");
+    // 链视图有自己的页大小（后端 chain_limit，上限 50），与尝试视图的 limit 分开。
+    expect(params.chain_limit).toBe(20);
   });
 
   it("sends cost segments only to the chain grammar that owns them", () => {

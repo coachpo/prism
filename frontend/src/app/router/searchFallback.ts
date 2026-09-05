@@ -22,7 +22,7 @@ let record: SearchFallbackRecord | null = null;
  * The record is deliberately write-only here: after validation the router
  * rewrites the address bar without the illegal parameters and validates the
  * cleaned search again, and that second pass must not erase the trace. Leaving
- * the route clears it (see `clearSearchFallbackFor`).
+ * the route clears it (see `retireSearchFallbackUnless`).
  */
 export function recordSearchFallback(
   rawSearch: Record<string, unknown>,
@@ -52,18 +52,22 @@ export function recordSearchFallback(
 const NO_REJECTED_KEYS: readonly string[] = [];
 
 /**
- * Reading from another page is what retires the record: the operator has left
- * the address that carried the illegal parameters, so a later visit to the same
- * page starts clean. (Unmount cleanup cannot do this — React remounts an effect
- * once in development, which would drop the record before it was ever shown.)
+ * Reading never consumes the record. The shell remounts several times on a cold
+ * load — auth bootstrap, then the lazy page chunk — and a one-shot read loses
+ * the notice in whichever remount happens to come after it.
  */
 export function readSearchFallback(pathname: string): readonly string[] {
-  if (!record) {
-    return NO_REJECTED_KEYS;
-  }
-  if (record.pathname !== pathname) {
+  return record?.pathname === pathname ? record.rejected : NO_REJECTED_KEYS;
+}
+
+/**
+ * Retires the record once the operator is on a different page, so returning to
+ * the same route later starts clean. Leaving is the only thing that clears it:
+ * the router validates the cleaned search again right after canonicalizing the
+ * address bar, and that pass legitimately finds nothing wrong.
+ */
+export function retireSearchFallbackUnless(pathname: string): void {
+  if (record && record.pathname !== pathname) {
     record = null;
-    return NO_REJECTED_KEYS;
   }
-  return record.rejected;
 }

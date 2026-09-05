@@ -201,7 +201,7 @@ export function ModelsFeaturePage() {
       >
         <Skeleton className="h-8 w-40" />
         <Skeleton className="h-8 w-full rounded-md" />
-        <div className="grid gap-[var(--density-card-gap)] grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
+        <div className="grid min-w-0 gap-[var(--density-card-gap)] grid-cols-2 @2xl/main:grid-cols-3 @4xl/main:grid-cols-5">
           {[0, 1, 2, 3, 4].map((tile) => (
             <Skeleton key={tile} className="h-[72px] rounded-lg" />
           ))}
@@ -336,7 +336,7 @@ export function ModelsFeaturePage() {
         />
       ) : null}
 
-      <div className="grid gap-[var(--density-card-gap)] grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
+      <div className="grid min-w-0 gap-[var(--density-card-gap)] grid-cols-2 @2xl/main:grid-cols-3 @4xl/main:grid-cols-5">
         <OperatorKpiCard
           compact
           label={view === "model_targets" ? copy.viewModelTargets : view === "all" ? copy.viewAll : copy.kpiTotal}
@@ -632,6 +632,7 @@ export function ModelsFeaturePage() {
               )
             : []
         }
+        referrersCheckedCount={data.models.length}
         onDelete={data.handleDelete}
         setDeleteTarget={(model) =>
           data.setDeleteTarget(model as typeof data.deleteTarget)

@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useId, useRef, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import {
   ArrowLeft,
@@ -8,7 +8,7 @@ import {
   Terminal,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
   TableBody,
@@ -20,7 +20,12 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { useTimezone } from "@/hooks/useTimezone";
 import { useLocale } from "@/i18n/useLocale";
-import type { ApiFamily, AuditLogDetail, AuditLogListItem } from "@/lib/types";
+import type {
+  ApiFamily,
+  AuditLogDetail,
+  AuditLogListItem,
+  StreamOutcome,
+} from "@/lib/types";
 import {
   OperatorClippedBadge,
   OperatorEmptyState,
@@ -28,10 +33,13 @@ import {
   OperatorLoadingState,
   OperatorMissingValue,
   OperatorPageHeader,
+  OperatorStatusBadge,
   OperatorTypeBadge,
   OperatorValueBadge,
   type OperatorStatusTier,
 } from "@/shared/design-system";
+import { formatApiFamily } from "@/components/apiFamilyPresentation";
+import { getStreamOutcomeLabel } from "./streamTelemetry";
 import { operationalRowStripe } from "@/shared/table/operationalTable";
 import { cn } from "@/lib/utils";
 import { AuditCaptureLedger } from "./AuditCaptureLedger";
@@ -48,6 +56,7 @@ import {
   type RequestAuditCaptureMode,
 } from "./requestLogAuditState";
 import { RequestLogPayloadBlock } from "./detail/RequestLogPayloadBlock";
+import { formatDurationMs } from "./requestLogMetricPresentation";
 import { getStatusIntent } from "./detail/requestLogStatus";
 import { useDedicatedRequestLogAudit } from "./useDedicatedRequestLogAudit";
 
@@ -58,6 +67,19 @@ function parsePositiveAuditId(value: string | null | undefined): number | null {
   const parsed = Number(trimmed);
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
 }
+/**
+ * 协议族走标签字典。免翻的是品牌名 OpenAI，不是标识符 `openai`：
+ * 裸枚举键夹在模型名与时间戳之间，读者无从判断这一段是协议族还是供应商。
+ */
+function ApiFamilyValue({ value }: { value: string }) {
+  const { messages } = useLocale();
+  const label = formatApiFamily(value);
+  if (label === "-") {
+    return <OperatorMissingValue reason={messages.honesty.noValue} />;
+  }
+  return <span className="text-foreground">{label}</span>;
+}
+
 function captureBadgeIntent(mode: RequestAuditCaptureMode | null) {
   // Capture completeness is an honesty signal: metadata_only means the payload
   // was deliberately not retained, which must not read the same as a full capture.
@@ -116,21 +138,29 @@ function AuditRecordsTable({
   const { formatNumber, messages } = useLocale();
   const { format } = useTimezone();
   const copy = messages.requestLogs;
+  const headingId = useId();
 
   return (
+    // 区块标题必须是真 h2 并且命名这张卡，否则「审计记录」这个区块名
+    // 在无障碍树里根本不存在，读屏只看得到载荷子块的标题。
     <Card
       className="gap-0 overflow-hidden border-border"
+      aria-labelledby={headingId}
       data-testid="dedicated-audit-list"
     >
       <CardHeader className="border-b py-2">
+        <CardTitle asChild className="text-[0.9375rem] font-semibold leading-5">
+          <h2 id={headingId}>{copy.auditRecordList}</h2>
+        </CardTitle>
         <p className="text-xs text-muted-foreground">
           {copy.auditRecordListDescription(formatNumber(auditItems.length))}
         </p>
       </CardHeader>
       <CardContent className="p-0">
         {/* 列表要有高度上限：20 行不封顶就把详情卡推到首屏之外，
-            每切一条记录都要付一个来回的滚动。 */}
-        <div className="max-h-[24rem] overflow-auto">
+            每切一条记录都要付一个来回的滚动。高度必须落在 Table 原语自己的
+            滚动容器上，加在外层这层不会让 sticky 表头黏住。 */}
+        <div className="[&_[data-slot=table-container]]:max-h-[24rem]">
           <Table aria-label={copy.auditRecordList}>
             <TableHeader>
               <TableRow>
@@ -211,7 +241,7 @@ function AuditRecordsTable({
                           reason={messages.honesty.noValue}
                         />
                       ) : (
-                        `${formatNumber(durationMs)} ms`
+                        formatDurationMs(durationMs)
                       )}
                     </TableCell>
                     <TableCell>
@@ -337,7 +367,9 @@ function AuditDetailCard({
   operationName: string | null;
   formatTimestamp: (iso: string) => string;
 }) {
-  const { formatNumber, messages } = useLocale();
+  const { messages } = useLocale();
+  const copy = messages.requestLogs;
+  const headingId = useId();
   const statusCode = auditScopedStatusCode(detail);
   const durationMs = auditScopedDurationMs(detail);
   const requestBody = decodeAuditBodyBase64(detail.request_body_base64);
@@ -346,10 +378,17 @@ function AuditDetailCard({
   return (
     <Card
       className="overflow-hidden border-border"
+      aria-labelledby={headingId}
       data-testid="dedicated-audit-detail"
     >
       <div className="flex flex-col gap-3 border-b border-border bg-inset px-4 py-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex min-w-0 flex-col gap-2">
+          <h2
+            id={headingId}
+            className="text-[0.9375rem] font-semibold leading-5 text-foreground"
+          >
+            {copy.auditSelectedRecordDetail}
+          </h2>
           <div className="flex flex-wrap items-center gap-2">
             {statusCode !== null ? (
               <OperatorValueBadge
@@ -377,7 +416,7 @@ function AuditDetailCard({
           </p>
         </div>
         <OperatorValueBadge
-          label={durationMs === null ? "—" : `${formatNumber(durationMs)}ms`}
+          label={formatDurationMs(durationMs)}
           className="gap-1 px-2.5 py-1 text-[11px] font-medium"
         />
       </div>
@@ -605,6 +644,10 @@ export function RequestLogAuditPage({
             className="sticky top-14 z-10 border-border"
             data-testid="audit-context-panel"
           >
+            {/* 这是「这次请求为何失败」的终点页：首屏必须给出状态码、耗时与
+                流结果，否则操作者要回请求日志再看一遍才知道自己在查什么。
+                下面 StatusPanel 已经在讲「已禁用审计」时，这里不再复述同一句，
+                把位置让给这三个事实。 */}
             <CardContent className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-0 text-xs text-muted-foreground">
               <Terminal className="size-3.5" />
               <span className="font-medium text-foreground">
@@ -617,16 +660,60 @@ export function RequestLogAuditPage({
                 {requestLane.request.summary.model_label}
               </span>
               <Separator orientation="vertical" className="h-3" />
-              <span>{requestLane.request.summary.api_family}</span>
+              <span>
+                {`${messages.common.apiFamily}: `}
+                <ApiFamilyValue value={requestLane.request.summary.api_family} />
+              </span>
               <Separator orientation="vertical" className="h-3" />
               <span className="font-mono tabular-nums">
                 {format(requestLane.request.summary.created_at)}
               </span>
-              <OperatorTypeBadge
-                label={getCaptureLabel(requestLane.captureMode, messages)}
-                intent={captureBadgeIntent(requestLane.captureMode)}
-                preserveLabel
-              />
+              <Separator orientation="vertical" className="h-3" />
+              <span className="inline-flex items-center gap-1">
+                {messages.requestLogs.status}
+                {requestLane.request.summary.upstream_status_code === null ? (
+                  <OperatorMissingValue reason={messages.honesty.noValue} />
+                ) : (
+                  <OperatorStatusBadge
+                    intent={getStatusIntent(
+                      requestLane.request.summary.upstream_status_code,
+                    )}
+                    label={String(
+                      requestLane.request.summary.upstream_status_code,
+                    )}
+                    preserveLabel
+                  />
+                )}
+              </span>
+              <span className="inline-flex items-center gap-1">
+                {messages.requestLogs.attemptDuration}
+                <span className="font-mono tabular-nums text-foreground">
+                  {requestLane.request.summary.attempt_duration_ms === null ? (
+                    <OperatorMissingValue reason={messages.honesty.noValue} />
+                  ) : (
+                    formatDurationMs(
+                      requestLane.request.summary.attempt_duration_ms,
+                    )
+                  )}
+                </span>
+              </span>
+              <span className="inline-flex items-center gap-1">
+                {messages.requestLogs.streamStatus}
+                <span className="text-foreground">
+                  {getStreamOutcomeLabel(
+                    requestLane.request.summary
+                      .stream_outcome as StreamOutcome | null,
+                    messages.requestLogs,
+                  )}
+                </span>
+              </span>
+              {requestLane.captureMode === "disabled" ? null : (
+                <OperatorTypeBadge
+                  label={getCaptureLabel(requestLane.captureMode, messages)}
+                  intent={captureBadgeIntent(requestLane.captureMode)}
+                  preserveLabel
+                />
+              )}
             </CardContent>
           </Card>
         </>

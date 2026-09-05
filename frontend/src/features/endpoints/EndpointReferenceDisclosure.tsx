@@ -124,8 +124,11 @@ function ReferenceCell({
             : String(summaryFor(summaryState)?.direct_reference_count),
         )}
         className={cn(
-          "flex min-w-0 items-center gap-1 text-left disabled:cursor-default",
-          canExpand && "hover:text-foreground",
+          // 可展开就要看得出可点：原来这一格量到的是 cursor:auto、无下划线、
+          // 无链接色，操作者读成一段死文本，于是「这个端点被谁引用」没有入口。
+          "flex min-w-0 items-center gap-1 rounded-sm text-left disabled:cursor-default",
+          canExpand &&
+            "cursor-pointer underline decoration-dotted decoration-from-font underline-offset-4 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
         )}
         onClick={canExpand ? onOpen : undefined}
       >
@@ -196,8 +199,8 @@ function reasonLabel(
 }
 
 /**
- * 协议列：API 家族走共享的品牌名映射，文本能力过中文字典，两者的未知取值
- * 都落到具名兜底——chat_completions_only 这类标识符不上屏。
+ * 协议列：API 家族走共享的品牌名映射，文本能力过中文字典并带具名兜底——
+ * chat_completions_only 这类标识符不上屏。
  */
 function protocolLabel(
   copy: Record<string, string | ((...args: never[]) => string)>,

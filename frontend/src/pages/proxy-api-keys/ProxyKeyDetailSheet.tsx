@@ -62,7 +62,7 @@ export function ProxyKeyDetailSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-full overflow-y-auto sm:max-w-xl">
+      <SheetContent size="md" className="overflow-y-auto">
         <SheetHeader>
           <SheetTitle>{copy.editProxyApiKey}</SheetTitle>
           <SheetDescription>{copy.editDescription}</SheetDescription>

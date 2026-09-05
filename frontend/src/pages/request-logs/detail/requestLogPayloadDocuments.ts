@@ -1,3 +1,4 @@
+import { getStaticMessages } from "@/i18n/staticMessages";
 import type { ApiFamily } from "@/lib/types";
 
 export type RequestLogPayloadBodyKind = "request" | "response";
@@ -70,6 +71,32 @@ function getNumber(record: JsonRecord, key: string): number | null {
 
 function formatJson(value: unknown): string {
   return JSON.stringify(value, null, 2);
+}
+
+function payloadCopy() {
+  return getStaticMessages().requestLogPayload;
+}
+
+/**
+ * 角色是上游载荷里的取值，不是我们的枚举。已知的四个走字典；字典外的保留
+ * 原值但带上字段名——裸 `assistant` 在中文单语控制台上读不出是什么。
+ */
+export function payloadRoleLabel(role: string): string {
+  const copy = payloadCopy();
+  switch (role) {
+    case "system":
+      return copy.roleSystem;
+    case "user":
+      return copy.roleUser;
+    case "assistant":
+      return copy.roleAssistant;
+    case "tool":
+      return copy.roleTool;
+    case "model":
+      return copy.roleModel;
+    default:
+      return copy.roleOther(role);
+  }
 }
 
 function appendSection(
@@ -153,19 +180,21 @@ function buildGenericJsonDocumentFromValue(value: unknown): RequestLogPayloadDoc
       label,
       ...formatJsonLineValue(entryValue),
     }));
-    return lines.length > 0 ? { sections: [{ title: "JSON fields", lines, kind: "fields" }] } : null;
+    return lines.length > 0 ? { sections: [{ title: payloadCopy().sectionJsonFields, lines, kind: "fields" }] } : null;
   }
 
   if (Array.isArray(value)) {
     const lines = value.map((entryValue, index) => ({
-      label: `item ${index + 1}`,
+      label: payloadCopy().itemIndex(index + 1),
       ...formatJsonLineValue(entryValue),
     }));
-    return lines.length > 0 ? { sections: [{ title: "JSON array", lines, kind: "fields" }] } : null;
+    return lines.length > 0 ? { sections: [{ title: payloadCopy().sectionJsonArray, lines, kind: "fields" }] } : null;
   }
 
-  if (value === null) return { sections: [{ title: "JSON value", lines: [{ label: "value", value: "null", mono: true }] }] };
-  return { sections: [{ title: "JSON value", lines: [{ label: "value", value: String(value), mono: true }] }] };
+  if (value === null) {
+    return { sections: [{ title: payloadCopy().sectionJsonValue, lines: [{ label: payloadCopy().labelValue, value: "null", mono: true }] }] };
+  }
+  return { sections: [{ title: payloadCopy().sectionJsonValue, lines: [{ label: payloadCopy().labelValue, value: String(value), mono: true }] }] };
 }
 
 function buildGenericJsonDocument(content: string): RequestLogPayloadDocument | null {
@@ -242,12 +271,16 @@ function buildOpenAiRequestDocument(body: JsonRecord): RequestLogPayloadDocument
   if (messages.length > 0) {
     appendSection(
       sections,
-      "Message transcript",
+      payloadCopy().sectionMessageTranscript,
       messages.flatMap((message, index) => {
+        const label = isRecord(message)
+          ? payloadRoleLabel(getString(message, "role") ?? "")
+          : "";
         if (!isRecord(message)) return [];
-        const role = getString(message, "role") ?? `message ${index + 1}`;
         const value = textFromOpenAiContent(message.content);
-        return value.length > 0 ? [{ label: role, value }] : [];
+        return value.length > 0
+          ? [{ label: label || payloadCopy().messageIndex(index + 1), value }]
+          : [];
       }),
       "transcript",
     );
@@ -255,14 +288,14 @@ function buildOpenAiRequestDocument(body: JsonRecord): RequestLogPayloadDocument
 
   const input = body.input;
   if (typeof input === "string" && input.length > 0) {
-    appendSection(sections, "Input", [{ label: "input", value: input }]);
+    appendSection(sections, payloadCopy().sectionInput, [{ label: payloadCopy().labelInput, value: input }]);
   } else if (Array.isArray(input) && input.length > 0) {
-    appendSection(sections, "Input", [{ label: "input", value: formatJson(input), mono: true }]);
+    appendSection(sections, payloadCopy().sectionInput, [{ label: payloadCopy().labelInput, value: formatJson(input), mono: true }]);
   }
 
   const maxTokens = getNumber(body, "max_tokens") ?? getNumber(body, "max_output_tokens");
   if (maxTokens !== null) {
-    appendSection(sections, "Generation config", [{ label: "max tokens", value: String(maxTokens), mono: true }]);
+    appendSection(sections, payloadCopy().sectionGenerationConfig, [{ label: payloadCopy().labelMaxTokens, value: String(maxTokens), mono: true }]);
   }
 
   appendOpenAiToolSections(sections, body);
@@ -281,21 +314,21 @@ function appendOpenAiToolSections(sections: RequestLogPayloadDocumentSection[], 
         const fn = getRecord(call, "function");
         if (!fn) continue;
         toolCalls.push({
-          label: getString(fn, "name") ?? "tool",
+          label: getString(fn, "name") ?? payloadCopy().labelTool,
           value: formatJson(fn.arguments),
           mono: true,
         });
       }
     } else if (message.role === "tool") {
       toolResults.push({
-        label: getString(message, "tool_call_id") ?? "tool_result",
+        label: getString(message, "tool_call_id") ?? payloadCopy().labelToolResult,
         value: typeof message.content === "string" ? message.content : formatJson(message.content),
         mono: true,
       });
     }
   }
-  appendSection(sections, "Tool calls", toolCalls, "fields");
-  appendSection(sections, "Tool results", toolResults, "fields");
+  appendSection(sections, payloadCopy().sectionToolCalls, toolCalls, "fields");
+  appendSection(sections, payloadCopy().sectionToolResults, toolResults, "fields");
 }
 
 function buildOpenAiResponseDocument(body: JsonRecord): RequestLogPayloadDocument | null {
@@ -353,8 +386,8 @@ function buildOpenAiResponseDocument(body: JsonRecord): RequestLogPayloadDocumen
       });
     }
   }
-  appendSection(sections, "Tool calls", toolCallLines, "fields");
-  appendSection(sections, "Tool results", toolResultLines, "fields");
+  appendSection(sections, payloadCopy().sectionToolCalls, toolCallLines, "fields");
+  appendSection(sections, payloadCopy().sectionToolResults, toolResultLines, "fields");
 
   const id = getString(body, "id");
   const status = getString(body, "status");
@@ -436,8 +469,8 @@ function buildGeminiResponseDocument(body: JsonRecord): RequestLogPayloadDocumen
       }
     }
   }
-  appendSection(sections, "Tool calls", toolCallLines, "fields");
-  appendSection(sections, "Tool results", toolResultLines, "fields");
+  appendSection(sections, payloadCopy().sectionToolCalls, toolCallLines, "fields");
+  appendSection(sections, payloadCopy().sectionToolResults, toolResultLines, "fields");
 
   const usageMetadata = getRecord(body, "usageMetadata");
   if (usageMetadata) {
@@ -507,8 +540,8 @@ function buildAnthropicResponseDocument(body: JsonRecord): RequestLogPayloadDocu
         });
       }
     }
-    appendSection(sections, "Tool calls", toolCallLines, "fields");
-    appendSection(sections, "Tool results", toolResultLines, "fields");
+    appendSection(sections, payloadCopy().sectionToolCalls, toolCallLines, "fields");
+    appendSection(sections, payloadCopy().sectionToolResults, toolResultLines, "fields");
   }
 
   const stopReason = getString(body, "stop_reason");

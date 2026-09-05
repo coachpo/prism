@@ -138,7 +138,7 @@ export function EndpointDialog({
 
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen && verifyDraft?.phase !== "verifying") onOpenChange(false) }}>
-      <DialogContent className="max-h-[90vh] sm:max-w-lg">
+      <DialogContent size="md">
         <DialogHeader>
           <DialogTitle>{isEdit ? copy.editEndpointTitle : copy.newEndpointTitle}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>

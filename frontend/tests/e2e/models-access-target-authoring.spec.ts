@@ -1569,7 +1569,7 @@ test("model inventory view deep links switch between entries, targets, and all",
   });
 
   await page.goto("/route/models?view=model_targets");
-  const viewSwitch = page.getByRole("group", { name: "模型视图" });
+  const viewSwitch = page.getByRole("radiogroup", { name: "模型视图" });
   const kpiValues = page.locator(
     '[data-slot="kpi-card"] [data-slot="metric-value"]',
   );

@@ -214,6 +214,23 @@ describe("IngressChainsTable route attribution", () => {
         onSelectRow={() => {}}
         loading={false}
         retentionClipped={false}
+        visibleColumns={[
+          "time",
+          "result",
+          "requested_model",
+          "final_target",
+          "endpoint",
+          "attempts",
+          "ttft",
+          "token_rate",
+          "tokens",
+          "cost",
+          "pricing",
+        ]}
+        pageSize={20}
+        onPageSizeChange={() => {}}
+        sortOrder="desc"
+        onSortOrderChange={() => {}}
       />,
     );
 

@@ -1,5 +1,4 @@
-import { useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { useId, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -41,6 +40,8 @@ interface FiltersBarPrimaryFiltersProps {
   >;
   filterOptions: FilterOptions;
   filterOptionsLoaded: boolean;
+  /** 折叠面板由筛选卡的操作行控制，展开态由上层持有。 */
+  moreOpen: boolean;
   state: Pick<
     RequestLogPageActions["state"],
     | "ingress_request_id"
@@ -62,18 +63,57 @@ interface FiltersBarPrimaryFiltersProps {
   >;
 }
 
-function ToolbarLabel({ children }: { children: React.ReactNode }) {
+interface FilterFieldIds {
+  /** 控件本身的 id，可见标签的 htmlFor 指向它。 */
+  controlId: string;
+  /** 可见标签的 id，下拉用 aria-labelledby 指回来。 */
+  labelId: string;
+}
+
+/**
+ * 一个筛选字段 = 一个可见标签 + 一个被它命名的控件。
+ *
+ * 标签与控件必须真的关联：placeholder 不是标签（一输入就消失），下拉在没有
+ * 可访问名时读屏听到的是当前取值而不是字段名，两个「任意」根本分不出来。
+ */
+function FilterField({
+  children,
+  className,
+  label,
+}: {
+  children: (ids: FilterFieldIds) => ReactNode;
+  className?: string;
+  label: string;
+}) {
+  const id = useId();
+  const ids: FilterFieldIds = {
+    controlId: `${id}-control`,
+    labelId: `${id}-label`,
+  };
   return (
-    <Label className="mb-1.5 text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-      {children}
-    </Label>
+    <div className={cn("min-w-0", className)}>
+      <Label
+        id={ids.labelId}
+        htmlFor={ids.controlId}
+        className="mb-1.5 text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground"
+      >
+        {label}
+      </Label>
+      {children(ids)}
+    </div>
   );
 }
+
+// 下拉一律给一个按最长选项算出来的下限：没有下限时 12 栏栅格在 1440 上把
+// 「最近 24 小时」压到 19px，操作者既读不出当前口径也看不出选项差异。
+const SELECT_TRIGGER_CLASS =
+  "h-9 w-full max-w-full rounded-lg border-border bg-panel text-xs";
 
 export function FiltersBarPrimaryFilters({
   actions,
   filterOptions,
   filterOptionsLoaded,
+  moreOpen,
   state,
 }: FiltersBarPrimaryFiltersProps) {
   const { messages } = useLocale();
@@ -85,29 +125,11 @@ export function FiltersBarPrimaryFilters({
     setEchoedRequestId(state.request_id);
     setRequestLookupValue(state.request_id);
   }
-  const [moreOpen, setMoreOpen] = useState(false);
   const {
     options: proxyKeyOptions,
     search: proxyKeySearch,
     setSearch: setProxyKeySearch,
   } = useRequestLogProxyApiKeyOptions(state.proxy_api_key_id);
-
-  // Conditions that live inside the collapsed panel.
-  const hiddenFilterCount = [
-    state.model_id,
-    state.resolved_target_model_id,
-    state.endpoint_id,
-    state.terminal_target_id,
-    state.proxy_api_key_id,
-    state.client_rule_id,
-    state.status_code,
-    state.error_text,
-    state.unpriced_reason,
-    state.pricing_card_role,
-    state.pricing_selection_state,
-    state.status_family !== "all" ? state.status_family : "",
-    state.pricing_status !== "all" ? state.pricing_status : "",
-  ].filter(Boolean).length;
 
   const commitRequestLookup = () => {
     const normalized = requestLookupValue.trim();
@@ -119,362 +141,457 @@ export function FiltersBarPrimaryFilters({
   };
 
   // Compact layout (Requests SPEC §10.5/AC 20): the visible row stays to
-  // request ID search + time range + the More Filters toggle; the remaining
-  // filters collapse under More Filters instead of a permanent 12-control
-  // grid.
+  // request ID search + time range; the remaining filters collapse under the
+  // More Filters toggle in the card's action row instead of a permanent
+  // 12-control grid.
   return (
-    <div className="flex flex-col gap-3">
-      <div className="grid gap-3 xl:grid-cols-12">
-      {/* Explicit submit: typing an id no longer silently swaps the page into
-          a different mode, and the filters stay adjustable afterwards. */}
-      <div className="min-w-0 xl:col-span-3">
-        <ToolbarLabel>{messages.requestLogs.requestId}</ToolbarLabel>
-        <div className="flex items-center gap-1">
-          <Input
-            name="request_id_lookup"
-            autoComplete="off"
-            className="h-9 rounded-md border-border bg-panel text-sm"
-            placeholder={messages.requestLogs.locateRequestPlaceholder}
-            value={requestLookupValue}
-            onChange={(event) => setRequestLookupValue(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault();
-                commitRequestLookup();
-              }
-            }}
-          />
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-9 shrink-0"
-            disabled={!requestLookupValue.trim()}
-            onClick={commitRequestLookup}
-            data-testid="request-logs-locate"
-          >
-            {messages.requestLogs.locateRequest}
-          </Button>
-        </div>
-      </div>
-
-      <div className="min-w-0 xl:col-span-2">
-        <ToolbarLabel>{messages.requestLogs.ingressRequestId}</ToolbarLabel>
-        <Input
-          name="ingress_request_id"
-          autoComplete="off"
-          className="h-9 rounded-lg border-border bg-panel text-sm font-mono"
-          placeholder={messages.requestLogs.ingressRequestId}
-          value={state.ingress_request_id}
-          onChange={(event) => actions.setIngressRequestId(event.target.value)}
-        />
-      </div>
-
-      </div>
-      <div className="flex flex-col gap-2 rounded-lg border border-border bg-inset/50 p-3">
-        {/* The count makes conditions hidden behind the collapse visible even
-            when the panel is shut, so a deep link cannot filter silently. */}
-        <button
-          type="button"
-          aria-expanded={moreOpen}
-          className="inline-flex items-center gap-1.5 self-start rounded-md border border-border bg-panel px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-inset"
-          onClick={() => setMoreOpen((open) => !open)}
+    <div className="flex flex-col gap-2">
+      {/* 弹性行而不是 12 栏栅格：<1280 时栅格塌成单列，一个下拉独占整行；
+          栅格轨道又是 minmax(0,1fr)，把控件压到读不出当前取值。 */}
+      <div className="flex flex-wrap items-end gap-3">
+        {/* Explicit submit: typing an id no longer silently swaps the page into
+            a different mode, and the filters stay adjustable afterwards. */}
+        <FilterField
+          label={messages.requestLogs.requestId}
+          className="min-w-[17rem] flex-[2]"
         >
-          <ChevronDown className={cn("size-3.5 transition-transform", moreOpen && "rotate-180")} />
-          {messages.requestLogs.moreFilters ?? "更多筛选"}
-          {hiddenFilterCount > 0 ? (
-            <span
-              data-testid="more-filters-count"
-              className="inline-flex h-4 min-w-4 items-center justify-center rounded-[4px] bg-primary px-1 font-mono text-[10px] tabular-nums text-on-primary"
+          {({ controlId }) => (
+            <div className="flex items-center gap-1">
+              <Input
+                id={controlId}
+                name="request_id_lookup"
+                autoComplete="off"
+                className="h-9 rounded-md border-border bg-panel text-sm"
+                placeholder={messages.requestLogs.locateRequestPlaceholder}
+                value={requestLookupValue}
+                onChange={(event) => setRequestLookupValue(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    commitRequestLookup();
+                  }
+                }}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-9 shrink-0"
+                disabled={!requestLookupValue.trim()}
+                onClick={commitRequestLookup}
+                data-testid="request-logs-locate"
+              >
+                {messages.requestLogs.locateRequest}
+              </Button>
+            </div>
+          )}
+        </FilterField>
+
+        <FilterField
+          label={messages.requestLogs.ingressRequestId}
+          className="min-w-[13rem] flex-1"
+        >
+          {({ controlId }) => (
+            <Input
+              id={controlId}
+              name="ingress_request_id"
+              autoComplete="off"
+              className="h-9 rounded-lg border-border bg-panel font-mono text-sm"
+              placeholder={messages.requestLogs.ingressRequestId}
+              value={state.ingress_request_id}
+              onChange={(event) => actions.setIngressRequestId(event.target.value)}
+            />
+          )}
+        </FilterField>
+
+        {/* 时间范围是这一屏的口径，不是众多筛选之一：它留在常显行里，
+            默认 24h 落地空表时操作者一眼能找到唯一的解法。 */}
+        <FilterField
+          label={messages.requestLogs.timeRange}
+          className="w-[10rem] shrink-0"
+        >
+          {({ controlId, labelId }) => (
+            <Select
+              value={state.time_range}
+              onValueChange={(value) => actions.setTimeRange(value as typeof state.time_range)}
             >
-              {hiddenFilterCount}
-            </span>
-          ) : null}
-        </button>
-        {moreOpen ? (
-          <div className="grid gap-3 xl:grid-cols-12">
-      <div className="min-w-0">
-        <ToolbarLabel>{messages.requestLogs.entryModel}</ToolbarLabel>
-        <Select
-          value={state.model_id || "__all__"}
-          onValueChange={(value) => actions.setModelId(value === "__all__" ? "" : value)}
-        >
-          <SelectTrigger
-            aria-label={messages.requestLogs.entryModel}
-            className="h-9 w-full min-w-0 max-w-full rounded-lg border-border bg-panel text-xs"
-          >
-            <SelectValue className="min-w-0" placeholder={messages.requestLogs.allModels} />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="__all__">{messages.requestLogs.allModels}</SelectItem>
-            {filterOptionsLoaded &&
-              filterOptions.models.map((model) => (
-                <SelectItem key={model.ingress_model_id} value={model.ingress_model_id}>
-                  {model.model_label}
-                </SelectItem>
-              ))}
-          </SelectContent>
-        </Select>
+              <SelectTrigger
+                id={controlId}
+                aria-labelledby={`${labelId} ${controlId}`}
+                className={SELECT_TRIGGER_CLASS}
+                data-testid="request-logs-time-range"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {TIME_RANGE_OPTIONS.map((timeRange) => (
+                  <SelectItem key={timeRange} value={timeRange}>
+                    {getTimeLabel(timeRange)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        </FilterField>
       </div>
 
-      <div className="min-w-0">
-        <ToolbarLabel>{messages.requestLogs.client}</ToolbarLabel>
-        <Select
-          value={state.client_rule_id || "__all__"}
-          onValueChange={(value) => actions.setClientRuleId(value === "__all__" ? "" : value)}
+      {moreOpen ? (
+        // auto-fit 轨道给每个控件一个 9.5rem 下限，宽屏放更多列、窄屏自动换行：
+        // 屏幕越宽控件越窄的方向反了的问题在这里一次解决。
+        <div
+          id="request-logs-more-filters"
+          data-testid="request-logs-more-filters"
+          className="grid gap-3 rounded-lg border border-border bg-inset/50 p-3 grid-cols-[repeat(auto-fit,minmax(9.5rem,1fr))]"
         >
-          <SelectTrigger
-            aria-label={messages.requestLogs.client}
-            className="h-9 w-full min-w-0 max-w-full rounded-lg border-border bg-panel text-xs"
-          >
-            <SelectValue className="min-w-0" placeholder={messages.requestLogs.allClients} />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="__all__">{messages.requestLogs.allClients}</SelectItem>
-            {filterOptionsLoaded &&
-              filterOptions.clients.map((client) => (
-                <SelectItem key={client.client_rule_id} value={String(client.client_rule_id)}>
-                  {client.client_label}
-                </SelectItem>
-              ))}
-          </SelectContent>
-        </Select>
-      </div>
+          <FilterField label={messages.requestLogs.entryModel}>
+            {({ controlId, labelId }) => (
+              <Select
+                value={state.model_id || "__all__"}
+                onValueChange={(value) => actions.setModelId(value === "__all__" ? "" : value)}
+              >
+                <SelectTrigger
+                  id={controlId}
+                  aria-labelledby={`${labelId} ${controlId}`}
+                  className={SELECT_TRIGGER_CLASS}
+                >
+                  <SelectValue placeholder={messages.requestLogs.allModels} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">{messages.requestLogs.allModels}</SelectItem>
+                  {filterOptionsLoaded &&
+                    filterOptions.models.map((model) => (
+                      <SelectItem key={model.ingress_model_id} value={model.ingress_model_id}>
+                        {model.model_label}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            )}
+          </FilterField>
 
-      <div className="min-w-0 xl:col-span-2">
-        <ToolbarLabel>{messages.requestLogs.proxyKey}</ToolbarLabel>
-        <div className="flex items-center gap-1">
-          <Input
-            name="proxy_api_key_search"
-            autoComplete="off"
-            className="h-9 w-28 rounded-lg border-border bg-panel text-xs"
-            placeholder={messages.requestLogs.proxyKeySearch}
-            value={proxyKeySearch}
-            onChange={(event) => setProxyKeySearch(event.target.value)}
-          />
-          <Select
-            value={state.proxy_api_key_id || "__all__"}
-            onValueChange={(value) => actions.setProxyApiKeyId(value === "__all__" ? "" : value)}
+          <FilterField label={messages.requestLogs.client}>
+            {({ controlId, labelId }) => (
+              <Select
+                value={state.client_rule_id || "__all__"}
+                onValueChange={(value) => actions.setClientRuleId(value === "__all__" ? "" : value)}
+              >
+                <SelectTrigger
+                  id={controlId}
+                  aria-labelledby={`${labelId} ${controlId}`}
+                  className={SELECT_TRIGGER_CLASS}
+                >
+                  <SelectValue placeholder={messages.requestLogs.allClients} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">{messages.requestLogs.allClients}</SelectItem>
+                  {filterOptionsLoaded &&
+                    filterOptions.clients.map((client) => (
+                      <SelectItem key={client.client_rule_id} value={String(client.client_rule_id)}>
+                        {client.client_label}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            )}
+          </FilterField>
+
+          <FilterField
+            label={messages.requestLogs.proxyKey}
+            className="col-span-full sm:col-span-2"
           >
-            <SelectTrigger aria-label={messages.requestLogs.proxyKey} className="h-9 w-full min-w-0 rounded-lg border-border bg-panel text-xs">
-              <SelectValue placeholder={messages.requestLogs.allProxyKeys} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__all__">{messages.requestLogs.allProxyKeys}</SelectItem>
-              {proxyKeyOptions.map((option) => (
-                <SelectItem key={option.proxy_api_key_id} value={String(option.proxy_api_key_id)}>
-                  {option.proxy_api_key_name}
-                  {option.key_preview ? ` · ${option.key_preview}` : ""}
-                  {!option.configured ? ` · ${messages.requestLogs.proxyKeyDeleted}` : ""}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            {({ controlId, labelId }) => (
+              <div className="flex items-center gap-1">
+                <Input
+                  name="proxy_api_key_search"
+                  autoComplete="off"
+                  aria-label={messages.requestLogs.proxyKeySearch}
+                  className="h-9 w-24 shrink-0 rounded-lg border-border bg-panel text-xs"
+                  placeholder={messages.requestLogs.proxyKeySearch}
+                  value={proxyKeySearch}
+                  onChange={(event) => setProxyKeySearch(event.target.value)}
+                />
+                <Select
+                  value={state.proxy_api_key_id || "__all__"}
+                  onValueChange={(value) => actions.setProxyApiKeyId(value === "__all__" ? "" : value)}
+                >
+                  <SelectTrigger
+                    id={controlId}
+                    aria-labelledby={`${labelId} ${controlId}`}
+                    className={SELECT_TRIGGER_CLASS}
+                  >
+                    <SelectValue placeholder={messages.requestLogs.allProxyKeys} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__all__">{messages.requestLogs.allProxyKeys}</SelectItem>
+                    {proxyKeyOptions.map((option) => (
+                      <SelectItem key={option.proxy_api_key_id} value={String(option.proxy_api_key_id)}>
+                        {option.proxy_api_key_name}
+                        {option.key_preview ? ` · ${option.key_preview}` : ""}
+                        {!option.configured ? ` · ${messages.requestLogs.proxyKeyDeleted}` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+          </FilterField>
+
+          <FilterField label={messages.requestLogs.attemptTargetModel}>
+            {({ controlId, labelId }) => (
+              <Select
+                value={state.resolved_target_model_id || "__all__"}
+                onValueChange={(value) => actions.setResolvedTargetModelId(value === "__all__" ? "" : value)}
+              >
+                <SelectTrigger
+                  id={controlId}
+                  aria-labelledby={`${labelId} ${controlId}`}
+                  className={SELECT_TRIGGER_CLASS}
+                >
+                  <SelectValue placeholder={messages.requestLogs.allAttemptTargetModels} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">{messages.requestLogs.allAttemptTargetModels}</SelectItem>
+                  {filterOptionsLoaded &&
+                    filterOptions.resolved_target_models.map((model) => (
+                      <SelectItem key={model.attempt_target_model_id} value={model.attempt_target_model_id}>
+                        {model.model_label}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            )}
+          </FilterField>
+
+          <FilterField label={messages.requestLogs.endpoint}>
+            {({ controlId, labelId }) => (
+              <Select
+                value={state.endpoint_id || "__all__"}
+                onValueChange={(value) => actions.setEndpointId(value === "__all__" ? "" : value)}
+              >
+                <SelectTrigger
+                  id={controlId}
+                  aria-labelledby={`${labelId} ${controlId}`}
+                  className={SELECT_TRIGGER_CLASS}
+                >
+                  <SelectValue placeholder={messages.requestLogs.allEndpoints} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">{messages.requestLogs.allEndpoints}</SelectItem>
+                  {filterOptionsLoaded &&
+                    filterOptions.endpoints.map((endpoint) => (
+                      <SelectItem key={endpoint.endpoint_id} value={String(endpoint.endpoint_id)}>
+                        {endpoint.endpoint_label}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            )}
+          </FilterField>
+
+          <FilterField label={messages.requestLogs.terminalTarget}>
+            {({ controlId }) => (
+              <Input
+                id={controlId}
+                name="terminal_target_id"
+                autoComplete="off"
+                inputMode="numeric"
+                className="h-9 rounded-lg border-border bg-panel font-mono text-sm"
+                placeholder="#"
+                value={state.terminal_target_id}
+                onChange={(event) => actions.setTerminalTargetId(event.target.value)}
+              />
+            )}
+          </FilterField>
+
+          <FilterField label={messages.requestLogs.status}>
+            {({ controlId, labelId }) => (
+              <Select
+                value={state.status_family}
+                onValueChange={(value) => actions.setStatusFamily(value as typeof state.status_family)}
+              >
+                <SelectTrigger
+                  id={controlId}
+                  aria-labelledby={`${labelId} ${controlId}`}
+                  className={SELECT_TRIGGER_CLASS}
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {STATUS_FAMILY_OPTIONS.map((statusFamily) => (
+                    <SelectItem key={statusFamily} value={statusFamily}>
+                      {statusFamily === "all"
+                        ? messages.requestLogs.allStatuses
+                        : statusFamily === "2xx"
+                          ? messages.requestLogs.twoHundredsOnly
+                          : statusFamily === "4xx"
+                          ? messages.requestLogs.fourHundredsOnly
+                          : messages.requestLogs.fiveHundredsOnly}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </FilterField>
+
+          <FilterField label={messages.requestLogs.pricedFilterLabel}>
+            {({ controlId, labelId }) => (
+              <Select
+                value={state.pricing_status}
+                onValueChange={(value) => actions.setPricingStatus(value as typeof state.pricing_status)}
+              >
+                <SelectTrigger
+                  id={controlId}
+                  aria-labelledby={`${labelId} ${controlId}`}
+                  className={SELECT_TRIGGER_CLASS}
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {PRICING_STATUS_OPTIONS.map((pricingStatus) => (
+                    <SelectItem key={pricingStatus} value={pricingStatus}>
+                      {pricingStatus === "all"
+                        ? messages.requestLogs.any
+                        : pricingStatus === "priced"
+                          ? messages.requestLogs.pricedOnly
+                          : pricingStatus === "unpriced"
+                            ? messages.requestLogs.unpricedOnly
+                            : pricingStatus === "ineligible"
+                              ? messages.requestLogs.ineligible
+                              : messages.requestLogs.unknown}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </FilterField>
+
+          <FilterField
+            label={messages.requestLogs.unpricedReasonLabel}
+            className="sm:col-span-2"
+          >
+            {({ controlId, labelId }) => (
+              <Select
+                value={state.unpriced_reason || "__all__"}
+                onValueChange={(value) => actions.setUnpricedReason(value === "__all__" ? "" : value)}
+                disabled={state.pricing_status !== "unpriced"}
+              >
+                <SelectTrigger
+                  id={controlId}
+                  aria-labelledby={`${labelId} ${controlId}`}
+                  className={SELECT_TRIGGER_CLASS}
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">{messages.requestLogs.any}</SelectItem>
+                  {UNPRICED_REASON_OPTIONS.map((reason) => (
+                    <SelectItem key={reason} value={reason}>
+                      {getUnpricedReasonLabel(reason)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </FilterField>
+
+          <FilterField label={messages.requestLogs.pricingCardRole}>
+            {({ controlId, labelId }) => (
+              <Select
+                value={state.pricing_card_role || "__all__"}
+                onValueChange={(value) => actions.setPricingCardRole(value === "__all__" ? "" : value as typeof state.pricing_card_role)}
+              >
+                <SelectTrigger
+                  id={controlId}
+                  aria-labelledby={`${labelId} ${controlId}`}
+                  className={SELECT_TRIGGER_CLASS}
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">{messages.requestLogs.allPricingCardRoles}</SelectItem>
+                  {PRICING_CARD_ROLE_OPTIONS.map((role) => (
+                    <SelectItem key={role} value={role}>
+                      {role === "standard"
+                        ? messages.requestLogs.pricingCardStandard
+                        : role === "tier_base"
+                          ? messages.requestLogs.pricingCardTierBase
+                          : role === "tier_above"
+                            ? messages.requestLogs.pricingCardTierAbove
+                            : role === "peak"
+                              ? messages.requestLogs.pricingCardPeak
+                              : messages.requestLogs.pricingCardOffpeak}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </FilterField>
+
+          <FilterField label={messages.requestLogs.pricingSelectionState}>
+            {({ controlId, labelId }) => (
+              <Select
+                value={state.pricing_selection_state || "__all__"}
+                onValueChange={(value) => actions.setPricingSelectionState(value === "__all__" ? "" : value as typeof state.pricing_selection_state)}
+              >
+                <SelectTrigger
+                  id={controlId}
+                  aria-labelledby={`${labelId} ${controlId}`}
+                  className={SELECT_TRIGGER_CLASS}
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">{messages.requestLogs.allPricingSelectionStates}</SelectItem>
+                  {PRICING_SELECTION_STATE_OPTIONS.map((selection) => (
+                    <SelectItem key={selection} value={selection}>
+                      {selection === "not_evaluated"
+                        ? messages.requestLogs.pricingSelectionNotEvaluated
+                        : selection === "not_applicable"
+                          ? messages.requestLogs.pricingSelectionNotApplicable
+                          : selection === "selected"
+                            ? messages.requestLogs.pricingSelectionSelected
+                            : messages.requestLogs.pricingSelectionUnresolved}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </FilterField>
+
+          <FilterField label={messages.requestLogs.statusCodeFilterLabel}>
+            {({ controlId }) => (
+              <Input
+                id={controlId}
+                name="status_code"
+                autoComplete="off"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                className="h-9 rounded-lg border-border bg-panel font-mono text-sm"
+                placeholder="429"
+                value={state.status_code}
+                onChange={(event) => actions.setStatusCode(event.target.value)}
+              />
+            )}
+          </FilterField>
+
+          <FilterField
+            label={messages.requestLogs.errorTextFilterLabel}
+            className="sm:col-span-2"
+          >
+            {({ controlId }) => (
+              <Input
+                id={controlId}
+                name="error_text"
+                autoComplete="off"
+                className="h-9 rounded-lg border-border bg-panel text-sm"
+                placeholder={messages.requestLogs.errorDetail}
+                value={state.error_text}
+                onChange={(event) => actions.setErrorText(event.target.value)}
+              />
+            )}
+          </FilterField>
         </div>
-      </div>
-
-      <div className="min-w-0">
-        <ToolbarLabel>{messages.requestLogs.attemptTargetModel}</ToolbarLabel>
-        <Select
-          value={state.resolved_target_model_id || "__all__"}
-          onValueChange={(value) => actions.setResolvedTargetModelId(value === "__all__" ? "" : value)}
-        >
-          <SelectTrigger
-            aria-label={messages.requestLogs.attemptTargetModel}
-            className="h-9 w-full min-w-0 max-w-full rounded-lg border-border bg-panel text-xs"
-          >
-            <SelectValue className="min-w-0" placeholder={messages.requestLogs.allAttemptTargetModels} />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="__all__">{messages.requestLogs.allAttemptTargetModels}</SelectItem>
-            {filterOptionsLoaded &&
-              filterOptions.resolved_target_models.map((model) => (
-                <SelectItem key={model.attempt_target_model_id} value={model.attempt_target_model_id}>
-                  {model.model_label}
-                </SelectItem>
-              ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="min-w-0">
-        <ToolbarLabel>{messages.requestLogs.endpoint}</ToolbarLabel>
-        <Select
-          value={state.endpoint_id || "__all__"}
-          onValueChange={(value) => actions.setEndpointId(value === "__all__" ? "" : value)}
-        >
-          <SelectTrigger className="h-9 w-full min-w-0 max-w-full rounded-lg border-border bg-panel text-xs">
-            <SelectValue className="min-w-0" placeholder={messages.requestLogs.allEndpoints} />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="__all__">{messages.requestLogs.allEndpoints}</SelectItem>
-            {filterOptionsLoaded &&
-              filterOptions.endpoints.map((endpoint) => (
-                <SelectItem key={endpoint.endpoint_id} value={String(endpoint.endpoint_id)}>
-                  {endpoint.endpoint_label}
-                </SelectItem>
-              ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="min-w-0">
-        <ToolbarLabel>{messages.requestLogs.terminalTarget ?? "Terminal Target"}</ToolbarLabel>
-        <Input
-          name="terminal_target_id"
-          autoComplete="off"
-          inputMode="numeric"
-          className="h-9 rounded-lg border-border bg-panel text-sm font-mono"
-          placeholder="#"
-          value={state.terminal_target_id}
-          onChange={(event) => actions.setTerminalTargetId(event.target.value)}
-        />
-      </div>
-
-      <div className="min-w-0">
-        <ToolbarLabel>{messages.requestLogs.status}</ToolbarLabel>
-        <Select
-          value={state.status_family}
-          onValueChange={(value) => actions.setStatusFamily(value as typeof state.status_family)}
-        >
-          <SelectTrigger className="h-9 w-full min-w-0 max-w-full rounded-lg border-border bg-panel text-xs">
-            <SelectValue className="min-w-0" />
-          </SelectTrigger>
-          <SelectContent>
-            {STATUS_FAMILY_OPTIONS.map((statusFamily) => (
-              <SelectItem key={statusFamily} value={statusFamily}>
-                {statusFamily === "all"
-                  ? messages.requestLogs.allStatuses
-                  : statusFamily === "2xx"
-                    ? messages.requestLogs.twoHundredsOnly
-                    : statusFamily === "4xx"
-                    ? messages.requestLogs.fourHundredsOnly
-                    : messages.requestLogs.fiveHundredsOnly}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="min-w-0">
-        <ToolbarLabel>{messages.requestLogs.pricedFilterLabel}</ToolbarLabel>
-        <Select
-          value={state.pricing_status}
-          onValueChange={(value) => actions.setPricingStatus(value as typeof state.pricing_status)}
-        >
-          <SelectTrigger className="h-9 w-full min-w-0 max-w-full rounded-lg border-border bg-panel text-xs">
-            <SelectValue className="min-w-0" />
-          </SelectTrigger>
-          <SelectContent>
-            {PRICING_STATUS_OPTIONS.map((pricingStatus) => (
-              <SelectItem key={pricingStatus} value={pricingStatus}>
-                {pricingStatus === "all"
-                  ? messages.requestLogs.any
-                  : pricingStatus === "priced"
-                    ? messages.requestLogs.pricedOnly
-                    : pricingStatus === "unpriced"
-                      ? messages.requestLogs.unpricedOnly
-                      : pricingStatus === "ineligible"
-                        ? (messages.requestLogs.ineligible ?? "不适用")
-                        : (messages.requestLogs.unknown ?? "未知")}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="min-w-0 xl:col-span-2">
-        <ToolbarLabel>{messages.requestLogs.unpricedReasonLabel}</ToolbarLabel>
-        <Select
-          value={state.unpriced_reason || "__all__"}
-          onValueChange={(value) => actions.setUnpricedReason(value === "__all__" ? "" : value)}
-          disabled={state.pricing_status !== "unpriced"}
-        >
-          <SelectTrigger className="h-9 w-full min-w-0 max-w-full rounded-lg border-border bg-panel text-xs">
-            <SelectValue className="min-w-0" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="__all__">{messages.requestLogs.any}</SelectItem>
-            {UNPRICED_REASON_OPTIONS.map((reason) => (
-              <SelectItem key={reason} value={reason}>
-                {getUnpricedReasonLabel(reason)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="min-w-0">
-        <ToolbarLabel>{messages.requestLogs.pricingCardRole}</ToolbarLabel>
-        <Select value={state.pricing_card_role || "__all__"} onValueChange={(value) => actions.setPricingCardRole(value === "__all__" ? "" : value as typeof state.pricing_card_role)}>
-          <SelectTrigger className="h-9 w-full rounded-lg border-border bg-panel text-xs"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="__all__">{messages.requestLogs.allPricingCardRoles}</SelectItem>
-            {PRICING_CARD_ROLE_OPTIONS.map((role) => <SelectItem key={role} value={role}>{role === "standard" ? messages.requestLogs.pricingCardStandard : role === "tier_base" ? messages.requestLogs.pricingCardTierBase : role === "tier_above" ? messages.requestLogs.pricingCardTierAbove : role === "peak" ? messages.requestLogs.pricingCardPeak : messages.requestLogs.pricingCardOffpeak}</SelectItem>)}
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="min-w-0">
-        <ToolbarLabel>{messages.requestLogs.pricingSelectionState}</ToolbarLabel>
-        <Select value={state.pricing_selection_state || "__all__"} onValueChange={(value) => actions.setPricingSelectionState(value === "__all__" ? "" : value as typeof state.pricing_selection_state)}>
-          <SelectTrigger className="h-9 w-full rounded-lg border-border bg-panel text-xs"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="__all__">{messages.requestLogs.allPricingSelectionStates}</SelectItem>
-            {PRICING_SELECTION_STATE_OPTIONS.map((selection) => <SelectItem key={selection} value={selection}>{selection === "not_evaluated" ? messages.requestLogs.pricingSelectionNotEvaluated : selection === "not_applicable" ? messages.requestLogs.pricingSelectionNotApplicable : selection === "selected" ? messages.requestLogs.pricingSelectionSelected : messages.requestLogs.pricingSelectionUnresolved}</SelectItem>)}
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="min-w-0">
-        <ToolbarLabel>{messages.requestLogs.statusCodeFilterLabel}</ToolbarLabel>
-        <Input
-          name="status_code"
-          autoComplete="off"
-          inputMode="numeric"
-          pattern="[0-9]*"
-          className="h-9 rounded-lg border-border bg-panel text-sm font-mono"
-          placeholder="429"
-          value={state.status_code}
-          onChange={(event) => actions.setStatusCode(event.target.value)}
-        />
-      </div>
-
-      <div className="min-w-0 xl:col-span-2">
-        <ToolbarLabel>{messages.requestLogs.errorTextFilterLabel}</ToolbarLabel>
-        <Input
-          name="error_text"
-          autoComplete="off"
-          className="h-9 rounded-lg border-border bg-panel text-sm"
-          placeholder={messages.requestLogs.errorDetail}
-          value={state.error_text}
-          onChange={(event) => actions.setErrorText(event.target.value)}
-        />
-      </div>
-
-          </div>
-        ) : null}
-      </div>
-      <div className="grid gap-3 xl:grid-cols-12">
-      <div className="min-w-0">
-        <ToolbarLabel>{messages.requestLogs.timeRange}</ToolbarLabel>
-        <Select
-          value={state.time_range}
-          onValueChange={(value) => actions.setTimeRange(value as typeof state.time_range)}
-        >
-          <SelectTrigger className="h-9 w-full min-w-0 max-w-full rounded-lg border-border bg-panel text-xs">
-            <SelectValue className="min-w-0" />
-          </SelectTrigger>
-          <SelectContent>
-            {TIME_RANGE_OPTIONS.map((timeRange) => (
-              <SelectItem key={timeRange} value={timeRange}>
-                {getTimeLabel(timeRange)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-      </div>
+      ) : null}
     </div>
   );
 }

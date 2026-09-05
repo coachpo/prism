@@ -78,7 +78,7 @@ export function DeleteConfirmDialog({
       title={copy.deleteConfirmTitle}
       description={copy.deleteConfirmDescription}
       cancelLabel={copy.cancel}
-      confirmLabel={copy.delete}
+      confirmLabel={dialogConfirm ? copy.deleteCleanupType(cleanupTypeLabel) : copy.delete}
       confirmingLabel={copy.deleting}
       confirming={deleting}
       confirmDisabled={!preflightSemanticsComplete || !isDeletePhraseValid}

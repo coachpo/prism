@@ -193,7 +193,7 @@ export function BanPolicyDialog({ editingStrategy, initialValues, open, saving, 
 
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => { if (nextOpen) onOpenChange(true); else { setPresetConfirmKey(null); onClose() } }}>
-      <DialogContent className="flex h-[min(94vh,58rem)] max-h-[94vh] max-w-4xl flex-col overflow-hidden p-0">
+      <DialogContent size="lg" className="flex flex-col overflow-hidden p-0">
         <DialogHeader className="shrink-0 border-b border-border bg-panel px-6 py-5">
           <DialogTitle>{editingStrategy ? copy.editTitle : copy.addTitle}</DialogTitle>
           <DialogDescription>{copy.description}</DialogDescription>
@@ -212,18 +212,24 @@ export function BanPolicyDialog({ editingStrategy, initialValues, open, saving, 
               ) : null}
               {saveError ? <OperatorCallout intent="danger" title={copy.saveFailed}>{saveError}</OperatorCallout> : null}
 
-              <FieldSet className="rounded-lg border border-border p-4">
+              <FieldSet>
                 <FieldLegend>{copy.groupRouting}</FieldLegend>
                 <div className="flex flex-col gap-4">
                   <Field data-invalid={Boolean(form.formState.errors.name)}>
                     <FieldLabel htmlFor="strategy-name">{copy.nameLabel}</FieldLabel>
-                    <Input id="strategy-name" placeholder={copy.namePlaceholder} {...registerField(form, "name")} />
-                    {form.formState.errors.name ? <FieldError>{form.formState.errors.name.message}</FieldError> : null}
+                    <Input
+                      id="strategy-name"
+                      placeholder={copy.namePlaceholder}
+                      aria-describedby={describedBy("strategy-name", false, Boolean(form.formState.errors.name))}
+                      aria-invalid={Boolean(form.formState.errors.name) || undefined}
+                      {...registerField(form, "name")}
+                    />
+                    {form.formState.errors.name ? <FieldError id="strategy-name-error">{form.formState.errors.name.message}</FieldError> : null}
                   </Field>
                   <Field>
                     <FieldLabel htmlFor="strategy-type">{copy.routingTypeLabel}</FieldLabel>
                     <Select value={strategyType} onValueChange={(value) => form.setValue("legacy_strategy_type", value as BanPolicyFormValues["legacy_strategy_type"], { shouldDirty: true })}>
-                      <SelectTrigger id="strategy-type" className="w-full">
+                      <SelectTrigger id="strategy-type" className="w-full" aria-describedby="strategy-type-description">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -234,24 +240,30 @@ export function BanPolicyDialog({ editingStrategy, initialValues, open, saving, 
                         </SelectGroup>
                       </SelectContent>
                     </Select>
-                    <FieldDescription>{strategyCopy[strategySummaryKey(strategyType)]}</FieldDescription>
+                    <FieldDescription id="strategy-type-description">{strategyCopy[strategySummaryKey(strategyType)]}</FieldDescription>
                   </Field>
                 </div>
               </FieldSet>
 
-              <FieldSet className="rounded-lg border border-border p-4">
+              <FieldSet>
                 <FieldLegend>{copy.groupFailure}</FieldLegend>
                 <Field data-invalid={Boolean(form.formState.errors.failure_status_codes_input)}>
                   <FieldLabel htmlFor="strategy-status-codes">{copy.failureStatusCodesLabel}</FieldLabel>
-                  <Textarea id="strategy-status-codes" rows={2} {...registerField(form, "failure_status_codes_input")} />
-                  <FieldDescription>{copy.failureStatusCodesDescription}</FieldDescription>
-                  {form.formState.errors.failure_status_codes_input ? <FieldError>{form.formState.errors.failure_status_codes_input.message}</FieldError> : null}
+                  <Textarea
+                    id="strategy-status-codes"
+                    rows={2}
+                    aria-describedby={describedBy("strategy-status-codes", true, Boolean(form.formState.errors.failure_status_codes_input))}
+                    aria-invalid={Boolean(form.formState.errors.failure_status_codes_input) || undefined}
+                    {...registerField(form, "failure_status_codes_input")}
+                  />
+                  <FieldDescription id="strategy-status-codes-description">{copy.failureStatusCodesDescription}</FieldDescription>
+                  {form.formState.errors.failure_status_codes_input ? <FieldError id="strategy-status-codes-error">{form.formState.errors.failure_status_codes_input.message}</FieldError> : null}
                 </Field>
               </FieldSet>
 
               {/* 三个预设是最快的配置路径，排在九个裸数字之前：先给一键起点，
                   再让操作者按需微调，而不是手填完才发现有预设。 */}
-              <FieldSet className="rounded-lg border border-border p-4">
+              <FieldSet>
                 <FieldLegend>{copy.presetsLabel}</FieldLegend>
                 <div className="flex flex-wrap gap-2">
                   {BAN_POLICY_PRESET_ORDER.map((key) => (
@@ -278,7 +290,7 @@ export function BanPolicyDialog({ editingStrategy, initialValues, open, saving, 
                 ) : null}
               </FieldSet>
 
-              <FieldSet className="rounded-lg border border-border p-4">
+              <FieldSet>
                 <FieldLegend>{copy.groupRetry}</FieldLegend>
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <RetryField form={form} name="retry_base_delay_ms" label={copy.baseDelayLabel} description={copy.baseDelayDescription} register={registerField} />
@@ -289,7 +301,7 @@ export function BanPolicyDialog({ editingStrategy, initialValues, open, saving, 
                 </div>
               </FieldSet>
 
-              <FieldSet className="rounded-lg border border-border p-4">
+              <FieldSet>
                 <FieldLegend>{copy.groupBan}</FieldLegend>
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <Field>
@@ -430,6 +442,17 @@ function presetLabel(key: BanPolicyPresetKey, copy: ReturnType<typeof useLocale>
   }
 }
 
+// FieldDescription / FieldError 原语既不生成 id 也不回连控件，帮助文案对读屏
+// 就不存在。这里在调用处显式给出 id 并拼进 aria-describedby：单位与取值范围
+// （毫秒？0–1 的比例？0 是关闭还是无穷？）不能只存在于视觉上。
+function describedBy(controlId: string, hasDescription: boolean, hasError: boolean): string | undefined {
+  const ids = [
+    hasDescription ? `${controlId}-description` : null,
+    hasError ? `${controlId}-error` : null,
+  ].filter((id): id is string => id !== null)
+  return ids.length > 0 ? ids.join(" ") : undefined
+}
+
 function registerField(form: ReturnType<typeof useForm<BanPolicyFormValues>>, name: keyof BanPolicyFormValues): UseFormRegisterReturn {
   const { onChange, onBlur, name: fieldName, ref } = form.register(name)
   return { onChange, onBlur, name: fieldName, ref }
@@ -447,13 +470,16 @@ function RetryField({ form, name, label, description, register, onChange }: {
   // register 的返回值必须整体展开：只挑走 onChange 会丢掉 ref / name / onBlur，
   // 这一格就再也画不回值，setValue 与预设按钮对它也失效。
   const field = register(form, name)
+  const controlId = `strategy-${name}`
   return (
     <Field data-invalid={Boolean(error)}>
-      <FieldLabel htmlFor={`strategy-${name}`}>{label}</FieldLabel>
+      <FieldLabel htmlFor={controlId}>{label}</FieldLabel>
       <Input
-        id={`strategy-${name}`}
+        id={controlId}
         type="number"
         step="any"
+        aria-describedby={describedBy(controlId, true, Boolean(error))}
+        aria-invalid={Boolean(error) || undefined}
         {...field}
         onChange={
           onChange
@@ -464,8 +490,8 @@ function RetryField({ form, name, label, description, register, onChange }: {
             : field.onChange
         }
       />
-      <FieldDescription>{description}</FieldDescription>
-      {error ? <FieldError>{error.message}</FieldError> : null}
+      <FieldDescription id={`${controlId}-description`}>{description}</FieldDescription>
+      {error ? <FieldError id={`${controlId}-error`}>{error.message}</FieldError> : null}
     </Field>
   )
 }
@@ -529,11 +555,6 @@ function PreviewPanel({ preview, onRetry }: {
         {copy.previewBanProjection(data.ban_projection.mode, data.ban_projection.cumulative_retry_attempt_threshold)}
       </p>
       <p className="text-xs text-foreground/60">{copy.previewValidationNote}</p>
-      {data.ban_projection.mode === "temporary" || data.ban_projection.mode === "until_reset" ? (
-        <p className="text-xs text-foreground/60">
-          {messages.routingStrategyDialog.previewBanProjection(data.ban_projection.mode, data.ban_projection.cumulative_retry_attempt_threshold)}
-        </p>
-      ) : null}
     </div>
   )
 }

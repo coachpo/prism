@@ -313,8 +313,10 @@ export function AuthProvider({
       logout,
       retryLogout,
       retryRecovery: async () => {
-        // A manual retry that fails must land back on the coordinator: the
-        // gate would otherwise keep reporting the previous attempt forever.
+        // A deliberate retry re-arms automatic recovery, and its failure must
+        // land back on the coordinator: the gate would otherwise keep
+        // reporting the previous attempt forever.
+        authSessionCoordinator.cancelAutoRecovery();
         await runAuthBootstrap(false).catch(reportBootstrapFailure);
       },
     }),

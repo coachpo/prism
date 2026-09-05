@@ -97,6 +97,7 @@ export function NowStrip({
       <OperatorMetricTile
         label={copy.enabledModels}
         value={formatNumber(fragment.data.enabled_model_count)}
+        detail={copy.enabledModelsBasis}
       />
     </section>
   );

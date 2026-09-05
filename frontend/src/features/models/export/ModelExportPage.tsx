@@ -124,6 +124,7 @@ export function ModelExportPage() {
         <ExportKeyDialog
           open={render.keyDialogOpen}
           selectedCount={source.selectedCount}
+          riskSummary={source.selectedRiskSummary}
           error={dialogError}
           confirmDisabled={source.sourceActionsBlocked}
           onClose={render.closeKeyDialog}

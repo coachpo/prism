@@ -3,6 +3,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "@/i18n/LocaleProvider";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuditConfigurationAPIFamilyCard } from "./AuditConfigurationAPIFamilyCard";
 import type { AuditAPIFamilySetting } from "@/lib/types";
 
@@ -27,7 +28,10 @@ function renderCard(overrides?: Partial<Parameters<typeof AuditConfigurationAPIF
 
   render(
     <LocaleProvider>
-      <AuditConfigurationAPIFamilyCard {...props} />
+      {/* 禁用理由挂在 OperatorHelpHint 上，它是 tooltip，需要 provider 才能挂载。 */}
+      <TooltipProvider>
+        <AuditConfigurationAPIFamilyCard {...props} />
+      </TooltipProvider>
     </LocaleProvider>,
   );
 
@@ -39,7 +43,7 @@ describe("AuditConfigurationAPIFamilyCard", () => {
     renderCard();
 
     const rows = screen.getAllByTestId(/audit-api-family-row-/);
-    expect(rows.map((row) => row.textContent)).toEqual([
+    expect(rows.map((row) => row.querySelector("td")?.textContent)).toEqual([
       "OpenAI",
       "Anthropic",
       "Gemini",
@@ -47,6 +51,21 @@ describe("AuditConfigurationAPIFamilyCard", () => {
     expect(screen.getByRole("switch", { name: "OpenAI 捕获正文" })).toBeDisabled();
     expect(screen.getByRole("switch", { name: "Anthropic 捕获正文" })).toBeEnabled();
     expect(screen.getByRole("switch", { name: "Gemini 捕获正文" })).toBeDisabled();
+  });
+
+  it("names why capture bodies is disabled, in text and on a focusable control", () => {
+    renderCard();
+
+    const reason = "先启用该 API 家族的审计日志，才能捕获请求与响应正文。";
+    const openaiCapture = screen.getByRole("switch", { name: "OpenAI 捕获正文" });
+    const describedBy = openaiCapture.getAttribute("aria-describedby");
+    expect(describedBy).toBe("audit-openai-capture-bodies-reason");
+    expect(document.getElementById(describedBy ?? "")?.textContent).toBe(reason);
+    // 已启用审计的那一行没有理由可给，也就不该多出一个帮助按钮。
+    expect(screen.getAllByRole("button", { name: reason })).toHaveLength(2);
+    expect(
+      screen.getByRole("switch", { name: "Anthropic 捕获正文" }).getAttribute("aria-describedby"),
+    ).toBeNull();
   });
 
   it("sends family-specific switch updates through the card callbacks", async () => {

@@ -37,9 +37,11 @@ export function AuditCaptureLedger({
   );
 
   return (
+    // 截断字节数是「这段 body 不是全部」的唯一量化证据，11px 只属于 Label 角色、
+    // 不承载数值：整块提到 Caption 下限的 12px。
     <div
       data-testid="audit-capture-ledger"
-      className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-border bg-inset px-2 py-1 text-[11px] text-muted-foreground"
+      className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-border bg-inset px-2 py-1 text-xs text-muted-foreground"
     >
       <span>
         {copy.captureObserved}

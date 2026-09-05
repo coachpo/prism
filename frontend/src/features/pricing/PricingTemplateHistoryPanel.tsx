@@ -240,87 +240,86 @@ export function PricingTemplateHistoryPanel({
           reason={error}
         />
       ) : null}
-      <div className="overflow-x-auto">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{copy.columnVersion}</TableHead>
-              <TableHead>{history.tableKind}</TableHead>
-              <TableHead>{history.tableCards}</TableHead>
-              <TableHead>{history.effectiveAt}</TableHead>
-              <TableHead>{history.createdBy}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {revisions.map((revision, index) => {
-              // 接口按 version 升序返回，上一版在前一行。取 index + 1 会把
-              // 结构变更整体归到更旧的那一版上，等于指认错误的责任版本。
-              const previous = revisions[index - 1];
-              const changed = Boolean(
-                previous &&
-                  revisionStructure(revision) !== revisionStructure(previous),
-              );
-              const isCurrent = revision.version === template.version;
-              const cardCount = cardEntries(revision).filter(([, card]) =>
-                Boolean(card),
-              ).length;
-              const kind =
-                revision.template_kind === "standard"
-                  ? copy.kindStandard
-                  : revision.template_kind === "tiered"
-                    ? copy.kindTiered
-                    : revision.template_kind === "peak_valley"
-                      ? copy.kindPeakValley
-                      : revision.template_kind;
-              return (
-                <TableRow key={revision.revision_id}>
-                  <TableCell>
-                    <div className="flex flex-wrap items-center gap-1">
-                      <OperatorValueBadge
-                        label={`v${revision.version}`}
-                        className="text-xs"
-                      />
-                      {isCurrent ? (
-                        <OperatorTypeBadge
-                          intent="accent"
-                          preserveLabel
-                          label={history.currentVersion}
-                          title={history.currentVersionReason}
-                        />
-                      ) : null}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <OperatorValueBadge label={kind} className="text-xs" />
-                  </TableCell>
-                  <TableCell className="text-xs">
-                    {copy.multiCardSummary(cardCount)}
-                    {changed ? (
-                      <span className="ml-2 text-failing">
-                        {history.structureChanged}
-                      </span>
-                    ) : null}
-                    <RevisionEvidence
-                      revision={revision}
-                      symbol={revisionCurrencySymbol(revision, template)}
+      {/* Table 自带 overflow-x-auto 容器；再套一层只会让两个滚动条谁都滚不动。 */}
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>{copy.columnVersion}</TableHead>
+            <TableHead>{history.tableKind}</TableHead>
+            <TableHead>{history.tableCards}</TableHead>
+            <TableHead>{history.effectiveAt}</TableHead>
+            <TableHead>{history.createdBy}</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {revisions.map((revision, index) => {
+            // 接口按 version 升序返回，上一版在前一行。取 index + 1 会把
+            // 结构变更整体归到更旧的那一版上，等于指认错误的责任版本。
+            const previous = revisions[index - 1];
+            const changed = Boolean(
+              previous &&
+                revisionStructure(revision) !== revisionStructure(previous),
+            );
+            const isCurrent = revision.version === template.version;
+            const cardCount = cardEntries(revision).filter(([, card]) =>
+              Boolean(card),
+            ).length;
+            const kind =
+              revision.template_kind === "standard"
+                ? copy.kindStandard
+                : revision.template_kind === "tiered"
+                  ? copy.kindTiered
+                  : revision.template_kind === "peak_valley"
+                    ? copy.kindPeakValley
+                    : revision.template_kind;
+            return (
+              <TableRow key={revision.revision_id}>
+                <TableCell>
+                  <div className="flex flex-wrap items-center gap-1">
+                    <OperatorValueBadge
+                      label={`v${revision.version}`}
+                      className="text-xs"
                     />
-                  </TableCell>
-                  <TableCell className="font-mono text-xs tabular-nums">
-                    {revision.effective_at ? (
-                      formatTime(revision.effective_at)
-                    ) : (
-                      <OperatorMissingValue className="text-xs" />
-                    )}
-                  </TableCell>
-                  <TableCell className="text-xs">
-                    {history.createdByKind(revision.created_by_kind)}
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
-      </div>
+                    {isCurrent ? (
+                      <OperatorTypeBadge
+                        intent="accent"
+                        preserveLabel
+                        label={history.currentVersion}
+                        title={history.currentVersionReason}
+                      />
+                    ) : null}
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <OperatorValueBadge label={kind} className="text-xs" />
+                </TableCell>
+                <TableCell className="text-xs">
+                  {copy.multiCardSummary(cardCount)}
+                  {changed ? (
+                    <span className="ml-2 text-failing">
+                      {history.structureChanged}
+                    </span>
+                  ) : null}
+                  <RevisionEvidence
+                    revision={revision}
+                    symbol={revisionCurrencySymbol(revision, template)}
+                  />
+                </TableCell>
+                <TableCell className="font-mono text-xs tabular-nums">
+                  {revision.effective_at ? (
+                    formatTime(revision.effective_at)
+                  ) : (
+                    <OperatorMissingValue className="text-xs" />
+                  )}
+                </TableCell>
+                <TableCell className="text-xs">
+                  {history.createdByKind(revision.created_by_kind)}
+                </TableCell>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
     </OperatorInsetPanel>
   );
 }

@@ -743,6 +743,7 @@ export function ModelDetailFeaturePage({
             (target) => target.target_model_id?.trim() === model.model_id,
           ),
         )}
+        referrersCheckedCount={data.allModels.length}
         onDelete={handleDelete}
         setDeleteTarget={(next) => setDeleteTarget(next as never)}
       />

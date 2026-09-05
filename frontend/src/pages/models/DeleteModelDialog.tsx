@@ -12,6 +12,8 @@ type Props = {
    * 点下去换一条英文 toast，不如先把引用者列出来并挡住确认键。
    */
   referrers?: ModelConfigListItem[];
+  /** 预检扫过的模型配置总数；通过时把这个结论说出来，而不是静默放行。 */
+  referrersCheckedCount?: number;
   /** 删除失败的原因，就地显示而不是弹一条稍纵即逝的 toast。 */
   error?: string | null;
 };
@@ -21,6 +23,7 @@ export function DeleteModelDialog({
   onDelete,
   setDeleteTarget,
   referrers = [],
+  referrersCheckedCount,
   error = null,
 }: Props) {
   const { messages } = useLocale();
@@ -89,6 +92,21 @@ export function DeleteModelDialog({
               <p className="truncate text-sm text-foreground">{deleteTarget.access_targets.length}</p>
             </div>
           </div>
+
+          {/* 预检通过也要留下痕迹：不然「跑过预检」与「没跑」在界面上一样。
+              不可撤销只属于真的会执行删除的那一支。 */}
+          {!blocked ? (
+            <div className="flex flex-col gap-1">
+              {referrersCheckedCount !== undefined ? (
+                <p className="text-sm text-muted-foreground">
+                  {copy.deleteModelReferrersClear(referrersCheckedCount)}
+                </p>
+              ) : null}
+              <p className="text-sm text-muted-foreground">
+                {messages.common.thisActionCannotBeUndone}
+              </p>
+            </div>
+          ) : null}
         </div>
       ) : null}
     </OperatorDestructiveDialog>

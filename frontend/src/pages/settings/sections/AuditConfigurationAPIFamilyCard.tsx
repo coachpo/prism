@@ -13,6 +13,7 @@ import {
 import { useLocale } from "@/i18n/useLocale";
 import type { ApiFamily, AuditAPIFamilySetting, AuditStorageSummary } from "@/lib/types";
 import {
+  OperatorHelpHint,
   OperatorLoadingState,
   OperatorMissingValue,
   OperatorSectionCard,
@@ -79,6 +80,10 @@ export function AuditConfigurationAPIFamilyCard({
           <TableBody>
             {apiFamilyAuditSettings.map((setting) => {
               const familyLabel = getAPIFamilyLabel(setting.api_family, copy);
+              // 「捕获正文」要先开同行的「启用审计」才可用。禁用而不给理由，
+              // 与「已关闭」在屏幕上完全同色，操作者只会反复点一个不响应的开关。
+              const captureBodiesLocked = !setting.audit_enabled;
+              const captureBodiesReasonId = `audit-${setting.api_family}-capture-bodies-reason`;
               return (
                 <TableRow key={setting.api_family} data-testid={`audit-api-family-row-${setting.api_family}`}>
                   <TableCell>
@@ -98,14 +103,26 @@ export function AuditConfigurationAPIFamilyCard({
                     />
                   </TableCell>
                   <TableCell>
-                    <Switch
-                      aria-label={`${familyLabel} ${copy.captureBodies}`}
-                      checked={setting.audit_capture_bodies}
-                      disabled={!setting.audit_enabled || savingAPIFamilyAuditSettings}
-                      onCheckedChange={(checked) =>
-                        setAPIFamilyAuditCaptureBodies(setting.api_family, checked)
-                      }
-                    />
+                    <div className="flex items-center gap-1">
+                      <Switch
+                        aria-label={`${familyLabel} ${copy.captureBodies}`}
+                        aria-describedby={captureBodiesLocked ? captureBodiesReasonId : undefined}
+                        checked={setting.audit_capture_bodies}
+                        disabled={captureBodiesLocked || savingAPIFamilyAuditSettings}
+                        onCheckedChange={(checked) =>
+                          setAPIFamilyAuditCaptureBodies(setting.api_family, checked)
+                        }
+                      />
+                      {captureBodiesLocked ? (
+                        <>
+                          {/* 禁用的开关聚焦不了，理由必须另有一个可 Tab 的载体。 */}
+                          <span id={captureBodiesReasonId} className="sr-only">
+                            {copy.captureBodiesRequiresAudit}
+                          </span>
+                          <OperatorHelpHint label={copy.captureBodiesRequiresAudit} />
+                        </>
+                      ) : null}
+                    </div>
                   </TableCell>
                 </TableRow>
               );

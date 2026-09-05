@@ -1,4 +1,5 @@
 import type { CSSProperties, ReactNode } from "react";
+import { useEffect } from "react";
 import { useLocale } from "@/i18n/useLocale";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "./app-layout/AppSidebar";
@@ -15,6 +16,13 @@ const SHELL_SIDEBAR_STYLE = {
 function Shell({ children }: { children?: ReactNode }) {
   const state = useAppLayoutState();
   const { messages } = useLocale();
+
+  // 浏览器标签是身份线索的最外层：全站都叫「Prism」时，多开几个标签就分不清哪个是哪个。
+  // 取面包屑叶子，与页内的 group › page › entity 同源。
+  const documentTitle = state.breadcrumbs.at(-1)?.label ?? null;
+  useEffect(() => {
+    document.title = documentTitle ? `${documentTitle} · Prism` : "Prism";
+  }, [documentTitle]);
 
   return (
     <SidebarProvider

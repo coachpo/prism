@@ -128,6 +128,7 @@ export function buildRequestLogQueryParams(
   const paginationFields: Partial<StatsRequestParams> = isChainView
     ? {
         chain_cursor: state.chain_cursor || undefined,
+        chain_limit: state.chain_limit,
       }
     : {
         limit: state.limit,

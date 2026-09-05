@@ -23,6 +23,9 @@ export function useEndpointList() {
   const [endpoints, setEndpoints] = useState<Endpoint[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [endpointLoadError, setEndpointLoadError] = useState(false);
+  // 「后端在我用着的时候挂了」不等于「这台网关没有端点」：留住上次成功的数据，
+  // 用陈旧徽章说清它读于何时、这次为什么失败。
+  const [endpointsLoadedAt, setEndpointsLoadedAt] = useState<string | null>(null);
   const [endpointLoadAttempt, setEndpointLoadAttempt] = useState(0);
   const [searchQuery, setSearchQuery] = useState("");
   const [reviewFilter, setReviewFilter] = useState<ReviewFilter>("all");
@@ -50,6 +53,7 @@ export function useEndpointList() {
         const loaded = await getSharedEndpoints(revision, true);
         if (cancelled) return;
         setEndpoints(loaded);
+        setEndpointsLoadedAt(new Date().toISOString());
       } catch {
         if (!cancelled) {
           setEndpointLoadError(true);
@@ -222,6 +226,7 @@ export function useEndpointList() {
   return {
     commitEndpoints,
     endpointLoadError,
+    endpointsLoadedAt,
     endpoints,
     filteredEndpoints: sortedEndpoints,
     formatTime,

@@ -1,4 +1,5 @@
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -72,6 +73,41 @@ import {
 
 const PRICING_PAGE_SIZES = [10, 25, 50] as const;
 const PRICING_COLUMN_COUNT = 13;
+
+/**
+ * 把展开面板钉在表格滚动视口上。
+ *
+ * 展开行的 colSpan 单元格跟随表格的固有宽（1440 视口下 1427px），而外层
+ * `[data-slot=table-container]` 只有 1405px 可见：面板自己的 overflow-x-auto
+ * 包在一个已经超宽的盒子里永远不会滚，修订历史右侧的「生效时间」「来源」两列
+ * 因此被裁掉，只能拖动外层表格看——而拖过去左边的版本徽章又滚出了视区。
+ * 这里把内容 sticky 在视口左边并把宽度绑到视口宽，面板内的横向滚动才真正生效。
+ */
+function ExpandedPanelViewport({ children }: { children: ReactNode }) {
+  const anchorRef = useRef<HTMLDivElement>(null);
+  const [viewportWidth, setViewportWidth] = useState<number | null>(null);
+
+  useEffect(() => {
+    const container = anchorRef.current?.closest("[data-slot=table-container]");
+    if (!(container instanceof HTMLElement)) return;
+    if (typeof ResizeObserver === "undefined") return;
+    const measure = () => setViewportWidth(container.clientWidth);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <div
+      ref={anchorRef}
+      className="sticky left-0"
+      style={viewportWidth === null ? undefined : { width: viewportWidth }}
+    >
+      {children}
+    </div>
+  );
+}
 
 type PricingSortColumn =
   | "name"
@@ -668,18 +704,23 @@ export function PricingTemplatesTable({
                         <TableRow>
                           <TableCell
                             colSpan={PRICING_COLUMN_COUNT}
-                            className="bg-inset"
+                            className="bg-inset p-0 whitespace-normal"
                           >
-                            <div className="flex flex-col gap-3">
+                            <ExpandedPanelViewport>
+                              <div className="flex flex-col gap-3 px-[var(--density-table-cell-px)] py-[var(--density-table-cell-py)]">
+                              {/* 单选视图切换器：选中状态既要给眼睛（primary-soft
+                                  底，与侧栏 active item 同一套），也要给辅助技术
+                                  （aria-pressed），不能只靠 4% 的明度差。 */}
                               <div className="flex items-center gap-1">
                                 <Button
                                   type="button"
                                   size="sm"
-                                  variant={
-                                    detailView === "usage"
-                                      ? "secondary"
-                                      : "ghost"
-                                  }
+                                  variant="ghost"
+                                  aria-pressed={detailView === "usage"}
+                                  className={cn(
+                                    detailView === "usage" &&
+                                      "bg-primary-soft text-on-primary-soft hover:bg-primary-soft hover:text-on-primary-soft",
+                                  )}
                                   onClick={() =>
                                     void toggleRow(template, "usage")
                                   }
@@ -689,11 +730,12 @@ export function PricingTemplatesTable({
                                 <Button
                                   type="button"
                                   size="sm"
-                                  variant={
-                                    detailView === "history"
-                                      ? "secondary"
-                                      : "ghost"
-                                  }
+                                  variant="ghost"
+                                  aria-pressed={detailView === "history"}
+                                  className={cn(
+                                    detailView === "history" &&
+                                      "bg-primary-soft text-on-primary-soft hover:bg-primary-soft hover:text-on-primary-soft",
+                                  )}
                                   onClick={() =>
                                     void toggleRow(template, "history")
                                   }
@@ -720,7 +762,8 @@ export function PricingTemplatesTable({
                                   template={template}
                                 />
                               )}
-                            </div>
+                              </div>
+                            </ExpandedPanelViewport>
                           </TableCell>
                         </TableRow>
                       ) : null}

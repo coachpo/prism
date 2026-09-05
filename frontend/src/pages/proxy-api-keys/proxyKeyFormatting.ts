@@ -1,7 +1,7 @@
 import type { AuthSettings, ProxyApiKey } from "@/lib/types";
 import { getCurrentLocale } from "@/i18n/format";
 import { getStaticMessages } from "@/i18n/staticMessages";
-import type { OperatorStatusTier } from "@/shared/design-system";
+import type { OperatorBadgeIntent, OperatorStatusTier } from "@/shared/design-system";
 
 function getProxyKeyMessages() {
   return getStaticMessages();
@@ -82,18 +82,20 @@ export function getProxyKeyLifecycleLabel(item: ProxyApiKey, authEnabled: boolea
 }
 
 /**
- * Expired is `failing`, not `degraded`: the credential is refused outright.
- * Retired is `idle` because an operator chose it, so it carries no row stripe.
+ * 生命周期档位读的全是配置字段（expires_at / is_active / 鉴权开关），不是运行观测：
+ * 只有「已过期」是上游当场拒绝的运行结果，仍走 failing；活跃 / 已准备 / 已退役
+ * 三档改用非运行时色调。否则鉴权一开整列变绿，连一次请求都没承载过的僵尸密钥
+ * 也会被读成「正在正常服务」。
  */
-export function getProxyKeyLifecycleTier(item: ProxyApiKey, authEnabled: boolean): OperatorStatusTier {
+export function getProxyKeyLifecycleIntent(item: ProxyApiKey, authEnabled: boolean): OperatorBadgeIntent {
   if (isProxyKeyExpired(item.expires_at)) {
     return "failing";
   }
   if (!item.is_active) {
-    return "idle";
+    return "muted";
   }
 
-  return authEnabled ? "healthy" : "idle";
+  return authEnabled ? "neutral" : "muted";
 }
 
 // Rotation is in-place, so a key carries its own rotation history instead of

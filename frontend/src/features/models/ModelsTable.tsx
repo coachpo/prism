@@ -419,9 +419,11 @@ export function ModelsTable({
       ) : null}
 
       {/* 同一个容器同时管纵横滚动：只有这样 thead 的 sticky 才有滚动祖先。
+          高度上限必须走 scrollAreaClassName 落到表格自己的滚动容器上——
+          加在外面再包一层，表头会跟着内容一起滚走。
           行数少于一屏时 max-h 不生效，页面照常整体滚动。 */}
-      <div className="max-h-[calc(100dvh-18rem)] overflow-auto border-t border-border">
-        <Table>
+      <div className="border-t border-border">
+        <Table scrollAreaClassName="max-h-[calc(100dvh-18rem)]">
           <TableHeader className="z-20">
             {/* 口径控件必须挨着它重算的那四列：它原来在卡头，与被它改名的
                 列头相距一千多像素，切换后首屏看不到任何变化。 */}
@@ -495,13 +497,17 @@ export function ModelsTable({
                 sort={sort}
                 sortKey="spend"
                 stale={metricsFailed}
+                // 路由尝试口径明说不声明成本，再给它挂一个 30 天时间窗，
+                // 读起来就成了「这一列只是取不到数」。没有量，就没有窗口。
                 window={
-                  spendRetentionFrom
-                    ? copy.spendWindowClipped(spendRetentionFrom)
-                    : copy.window30d
+                  scope === "route_attempt"
+                    ? messages.common.notApplicable
+                    : spendRetentionFrom
+                      ? copy.spendWindowClipped(spendRetentionFrom)
+                      : copy.window30d
                 }
                 clipped={
-                  spendRetentionFrom ? (
+                  scope !== "route_attempt" && spendRetentionFrom ? (
                     <OperatorClippedBadge
                       label={messages.honesty.outsideRetention}
                       reason={copy.spendWindowClippedReason(spendRetentionFrom)}

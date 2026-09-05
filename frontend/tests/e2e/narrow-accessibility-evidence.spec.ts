@@ -344,7 +344,7 @@ test("narrow 390x844 observe page has no horizontal overflow and all tabs reacha
   expect(noHorizontalOverflow).toBe(true);
 
   const analysisScopes = page
-    .getByRole("group", { name: "分析单位" })
+    .getByRole("radiogroup", { name: "分析单位" })
     .getByRole("radio");
   await expect(analysisScopes).toHaveCount(3);
   await analysisScopes.nth(0).focus();
@@ -370,7 +370,7 @@ test("narrow 390x844 observe page has no horizontal overflow and all tabs reacha
   // visible label the group is named by.
   await expect(page.getByText("终端目标统计口径")).toBeVisible();
   const terminalScopes = page
-    .getByRole("group", { name: "终端目标统计口径" })
+    .getByRole("radiogroup", { name: "终端目标统计口径" })
     .getByRole("radio");
   await expect(terminalScopes).toHaveCount(2);
   await terminalScopes.nth(0).focus();
@@ -414,7 +414,7 @@ test("narrow 390x844 observe main chart exposes seven keyboard-operable metrics"
   // tokens, cache read, cost. The metrics this scope cannot serve stay in the
   // strip, disabled and carrying their reason, so they are excluded by
   // enabled-ness rather than by index.
-  const metricGroup = chart.getByRole("group", { name: "指标" });
+  const metricGroup = chart.getByRole("radiogroup", { name: "指标" });
   const metrics = metricGroup.getByRole("radio", { disabled: false });
   await expect(metrics).toHaveCount(7);
   const labels = await metrics.allInnerTexts();
@@ -432,7 +432,7 @@ test("narrow 390x844 observe main chart exposes seven keyboard-operable metrics"
   await expect(metrics.nth(0)).not.toBeChecked();
 
   // The chart/table switch is its own keyboard-operable group.
-  const viewSwitcher = chart.getByRole("group", { name: "图表或数据表" });
+  const viewSwitcher = chart.getByRole("radiogroup", { name: "图表或数据表" });
   await viewSwitcher.getByRole("radio", { name: "表" }).focus();
   await page.keyboard.press("Enter");
   await expect(chart.getByRole("table")).toBeVisible();
@@ -876,7 +876,7 @@ test("narrow 390x844 entry-model list keeps scope switch keyboard operable and l
   // Scope switch: keyboard operable single-select segmented control whose
   // selection round-trips through the scope URL.
   const scopeRadios = page
-    .getByRole("group", { name: "统计口径" })
+    .getByRole("radiogroup", { name: "统计口径" })
     .getByRole("radio");
   await expect(scopeRadios).toHaveCount(3);
   await scopeRadios.nth(0).focus();
@@ -887,7 +887,7 @@ test("narrow 390x844 entry-model list keeps scope switch keyboard operable and l
   await expect(page).toHaveURL(/scope=final_execution/);
 
   const inventoryRadios = page
-    .getByRole("group", { name: "模型视图" })
+    .getByRole("radiogroup", { name: "模型视图" })
     .getByRole("radio");
   await inventoryRadios.nth(0).focus();
   await page.keyboard.press("ArrowRight");

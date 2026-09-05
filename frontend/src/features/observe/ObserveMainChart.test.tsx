@@ -382,7 +382,7 @@ describe("ObserveMainChart honest chart states", () => {
     (scope, metric, labels) => {
       const view = renderChart(metric, SERIES, scope);
       const items = within(
-        screen.getByRole("group", { name: "指标" }),
+        screen.getByRole("radiogroup", { name: "指标" }),
       ).getAllByRole("radio") as HTMLButtonElement[];
       expect(
         items.filter((item) => !item.disabled).map((item) => item.textContent),
@@ -417,7 +417,7 @@ describe("ObserveMainChart honest chart states", () => {
     (scope, labels) => {
       const view = renderChart("requests", SERIES, scope);
       const items = within(
-        screen.getByRole("group", { name: "分组" }),
+        screen.getByRole("radiogroup", { name: "分组" }),
       ).getAllByRole("radio") as HTMLButtonElement[];
       expect(
         items.filter((item) => !item.disabled).map((item) => item.textContent),

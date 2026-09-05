@@ -235,7 +235,8 @@ export function GlobalSearch({ sidebarItems }: { sidebarItems: LocalizedShellSid
 
       <Dialog open={open} onOpenChange={setOpenState}>
         <DialogContent
-          className="top-24 max-w-[36rem] translate-y-0 gap-0 p-0"
+          size="md"
+          className="top-24 translate-y-0 gap-0 p-0"
           data-testid="shell-global-search"
           onOpenAutoFocus={(event) => {
             event.preventDefault();

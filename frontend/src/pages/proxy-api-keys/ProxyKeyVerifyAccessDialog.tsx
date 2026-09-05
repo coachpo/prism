@@ -103,7 +103,7 @@ export function ProxyKeyVerifyAccessDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={handleOpenChange}>
-        <DialogContent className="sm:max-w-xl" data-testid="proxy-key-verify-access">
+        <DialogContent size="md" data-testid="proxy-key-verify-access">
           <DialogHeader>
             <DialogTitle>{copy.verifyAccess}</DialogTitle>
             <DialogDescription>{copy.verifyAccessDescription}</DialogDescription>

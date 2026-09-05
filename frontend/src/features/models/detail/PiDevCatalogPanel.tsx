@@ -18,7 +18,6 @@ import {
   OperatorDestructiveDialog,
   OperatorErrorState,
   OperatorLoadingState,
-  OperatorMissingValue,
   OperatorRetryButton,
   OperatorStalenessBadge,
   OperatorStatusBadge,
@@ -373,8 +372,13 @@ export function PiDevCatalogPanel({
         </div>
       ) : null}
 
-      {!view.piApi ? (
-        <OperatorMissingValue reason={copy.noPiApiCannotBind} />
+      {/* 这里要说的是「为什么没有绑定按钮」，不是某个字段缺值：上方
+          「最终 Pi API」行已经写了缺失本身，一个没有标签的破折号只会
+          让人以为还有第二处没读到。 */}
+      {!canBind ? (
+        <p className="text-xs text-muted-foreground">
+          {copy.noPiApiCannotBind}
+        </p>
       ) : null}
 
       <div className="flex flex-wrap gap-1">

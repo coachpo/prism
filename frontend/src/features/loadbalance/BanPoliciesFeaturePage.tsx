@@ -36,6 +36,8 @@ export function BanPoliciesFeaturePage() {
     previewRef.current?.scrollIntoView({ block: "nearest" })
   }, [selected])
 
+  const deleteImpactStrategyId = (data.deleteConfirm ?? data.displayDelete)?.id ?? null
+
   const stats = useMemo(() => {
     const strategies = data.strategiesFragment.data ?? []
     const defaultStrategy = strategies.find((strategy) => strategy.is_default) ?? null
@@ -124,6 +126,11 @@ export function BanPoliciesFeaturePage() {
         onClose={data.closeDelete}
         onDelete={data.deleteStrategy}
         open={data.deleteConfirm !== null}
+        // 阻塞删除的绑定名单与表格行内展开共用同一个分页器；retryImpact 在
+        // 还没读过时取的就是第一页，读失败后重复的是上一次的游标。
+        impactState={deleteImpactStrategyId !== null ? data.impactStates[deleteImpactStrategyId] : undefined}
+        onLoadAttachedModels={data.retryImpact}
+        onLoadMoreAttachedModels={data.loadMoreImpact}
       />
     </OperatorPageShell>
   )

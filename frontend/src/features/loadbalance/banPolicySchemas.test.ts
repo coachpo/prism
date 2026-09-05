@@ -10,7 +10,7 @@ describe("Ban Policy strategy schema", () => {
     const result = banPolicyFormSchema.safeParse(validForm({ failure_status_codes_input: "99,600" }))
     expect(result.success).toBe(false)
     if (!result.success) {
-      expect(result.error.issues.map((issue) => issue.message).join("\n")).toMatch(/between 100 and 599/)
+      expect(result.error.issues.map((issue) => issue.message).join("\n")).toMatch(/100–599/)
     }
   })
 

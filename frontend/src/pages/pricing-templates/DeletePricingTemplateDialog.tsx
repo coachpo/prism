@@ -78,7 +78,7 @@ export function DeletePricingTemplateDialog({
                 dialogTemplate?.name ?? "",
             )}
             cancelLabel={messages.settingsDialogs.cancel}
-            confirmLabel={messages.settingsDialogs.delete}
+            confirmLabel={copy.deletePricingTemplate}
             confirmingLabel={messages.settingsDialogs.deleting}
             confirming={pricingTemplateDeleting}
             confirmDisabled={deleteDisabled}

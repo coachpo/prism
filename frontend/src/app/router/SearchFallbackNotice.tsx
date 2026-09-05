@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouterState } from "@tanstack/react-router";
 
 import { Button } from "@/components/ui/button";
 import { useLocale } from "@/i18n/useLocale";
 import { OperatorCallout } from "@/shared/design-system";
-import { readSearchFallback } from "./searchFallback";
+import { readSearchFallback, retireSearchFallbackUnless } from "./searchFallback";
 
 /**
  * 路由 search schema 用 `.catch()` 把非法参数折回默认值，页面因此不再整块崩掉。
@@ -13,12 +13,15 @@ import { readSearchFallback } from "./searchFallback";
  */
 export function SearchFallbackNotice() {
   const { messages } = useLocale();
-  // 整个 location 而不只是 pathname：路由把非法参数从地址栏抹掉时只有 search
-  // 变了，这条通知必须在那一次重渲染里仍然在场。
-  const location = useRouterState({ select: (state) => state.location });
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname,
+  });
   const [dismissed, setDismissed] = useState<string | null>(null);
-  const rejected = readSearchFallback(location.pathname);
+  const rejected = readSearchFallback(pathname);
   const signature = rejected.join("、");
+
+  // 换页即失效：留在同一页时（包括路由把地址栏整理干净的那一次）记录必须还在。
+  useEffect(() => retireSearchFallbackUnless(pathname), [pathname]);
 
   if (rejected.length === 0 || dismissed === signature) {
     return null;

@@ -144,7 +144,7 @@ export function RuntimeSelfTestDialog({ open, onOpenChange, spec, context }: Run
 
   return (
     <Dialog open={open} onOpenChange={(next) => (next ? undefined : onOpenChange(false))}>
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent size="lg">
         <DialogHeader>
           <DialogTitle>{copy.selfTestTitle}</DialogTitle>
           <DialogDescription>{copy.selfTestDescription}</DialogDescription>

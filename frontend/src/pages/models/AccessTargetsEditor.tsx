@@ -554,9 +554,14 @@ export function AccessTargetsEditor({
         />
       ) : (
         <>
-          {/* 卡片自己的边框就是这张表的边框，不再套第二圈。 */}
-          <div className="overflow-x-auto">
-            <Table data-testid="access-targets-mixed-list">
+          {/* 卡片自己的边框就是这张表的边框，不再套第二圈。
+              横竖两轴必须在同一个容器上：只包 overflow-x-auto 的话，
+              那一层会成为 sticky 的包含块而它从不纵向滚动，表头会静默失效。 */}
+          <div>
+            <Table
+              data-testid="access-targets-mixed-list"
+              scrollAreaClassName="max-h-[calc(100dvh-22rem)]"
+            >
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-16">

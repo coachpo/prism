@@ -179,7 +179,8 @@ function CoverageCard({
           {toLabel ?? <OperatorMissingValue reason={copy.coverageToUnknownReason} />}
         </dd>
         <dt className="text-muted-foreground">{copy.coverageBasisLabel}</dt>
-        <dd className="truncate">{coverage.source}</dd>
+        {/* 「口径」这一栏说的是这个数从哪来、按什么算，不是后端字段路径。 */}
+        <dd>{copy.coverageBasisSource(coverage.source)}</dd>
         <dt className="text-muted-foreground">{copy.coverageGenerationLabel}</dt>
         <dd className="truncate font-mono tabular-nums">{coverage.retention_generation}</dd>
       </dl>
@@ -286,7 +287,9 @@ export function RetentionDeletionSection({
             {retentionSettings.state === "repair_required" ? (
               <OperatorCallout intent="danger" title={copy.repairRequired} description={copy.repairRequiredDescription} />
             ) : null}
-            <OperatorInsetPanel title={copy.retentionPolicyTitle} description={copy.retentionPolicyDescription}>
+            {/* 卡头已经写了同样的标题和描述，这里不再复述一遍。四个字段共用的
+                逻辑 cutoff 口径提到块级说明位，只讲一次而不是每个字段各讲一次。 */}
+            <OperatorInsetPanel description={copy.logicalCutoffDescription}>
               <div className="grid gap-4 md:grid-cols-2">
                 {[
                   { key: "request_logs_retention_days", label: copy.requestLogsPolicy },
@@ -353,11 +356,13 @@ export function RetentionDeletionSection({
                           }}
                         />
                       ) : null}
-                      <FieldDescription>
-                        {selectValue === "custom" && customValues[settingKey] !== undefined && customValues[settingKey] !== "" && !isValidCustomRetentionValue(customValues[settingKey] ?? "")
-                          ? copy.retentionRangeInvalid
-                          : value === null ? copy.noAutomaticCleanupDescription : copy.logicalCutoffDescription}
-                      </FieldDescription>
+                      {/* 只有值本身另有含义时才补一句：非法输入，或者选了「不自动清理」。
+                          正常态的口径说明由整块的描述承担。 */}
+                      {selectValue === "custom" && customValues[settingKey] !== undefined && customValues[settingKey] !== "" && !isValidCustomRetentionValue(customValues[settingKey] ?? "") ? (
+                        <FieldDescription>{copy.retentionRangeInvalid}</FieldDescription>
+                      ) : value === null ? (
+                        <FieldDescription>{copy.noAutomaticCleanupDescription}</FieldDescription>
+                      ) : null}
                     </Field>
                   );
                 })}

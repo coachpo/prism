@@ -41,7 +41,9 @@ export function WindowKpiGrid({
       <section
         aria-busy="true"
         aria-label={copy.windowLabel}
-        className="grid grid-cols-7 gap-[var(--density-card-gap)]"
+        // 七列只在内容区够宽时成立。断点按容器算（外壳的 @container/main），
+        // 侧栏展开与否会改内容区宽度，按视口算会在手机上把六个核心指标压成 1px 竖排。
+        className="grid min-w-0 grid-cols-2 gap-[var(--density-card-gap)] @2xl/main:grid-cols-4 @5xl/main:grid-cols-7"
       >
         {Array.from({ length: 6 }, (_, index) => (
           <Skeleton
@@ -117,7 +119,9 @@ export function WindowKpiGrid({
       <section
         aria-label={copy.windowLabel}
         data-testid="window-kpi-grid"
-        className="grid grid-cols-7 gap-[var(--density-card-gap)]"
+        // 七列只在内容区够宽时成立。断点按容器算（外壳的 @container/main），
+        // 侧栏展开与否会改内容区宽度，按视口算会在手机上把六个核心指标压成 1px 竖排。
+        className="grid min-w-0 grid-cols-2 gap-[var(--density-card-gap)] @2xl/main:grid-cols-4 @5xl/main:grid-cols-7"
       >
         <OperatorKpiCard
           label={copy.requests}

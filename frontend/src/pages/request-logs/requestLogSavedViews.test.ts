@@ -73,6 +73,7 @@ function makeState(overrides: Partial<RequestLogPageState> = {}): RequestLogPage
     sort_by: "created_at",
     sort_order: "desc",
     chain_cursor: "",
+    chain_limit: 20,
     ...overrides,
   };
 }

@@ -178,6 +178,7 @@ export const operatorDensityVariables = {
     "--density-table-row-h",
     "--density-table-cell-px",
     "--density-table-cell-py",
+    "--density-table-cell-lh",
   ],
 } as const
 

@@ -241,6 +241,6 @@ describe("ConnectionCustomRequestParametersEditor", () => {
 
     const textarea = screen.getByRole("textbox", { name: "自定义请求参数（JSON）" })
     expect(textarea.getAttribute("aria-invalid")).toBe("true")
-    expect(screen.getByText("“custom_request_parameters.model”是受保护字段，不可设置。")).toBeTruthy()
+    expect(screen.getByText("「custom_request_parameters.model」是受保护字段，不可设置。")).toBeTruthy()
   })
 })

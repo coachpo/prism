@@ -10,11 +10,15 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { OperatorCallout, OperatorTypeBadge } from "@/shared/design-system";
 import type { ExportRenderResponse } from "@/lib/types";
 
 const EXPORT_FILE_NAME = "prism-pi-models.json";
 const EXPORT_MIME_TYPE = "application/json;charset=utf-8";
+// 「已复制」是一次瞬时反馈，不是按钮的终态：剪贴板随时会被别的内容顶掉。
+const COPY_FEEDBACK_MS = 2000;
+const PREVIEW_ID = "export-content-preview";
 
 /**
  * The generated-file sheet. Copy, Blob download, and the raw view all reuse
@@ -31,7 +35,10 @@ export function ExportResultSheet(props: {
   const [copiedPiFragmentSha, setCopiedPiFragmentSha] = useState<string | null>(
     null,
   );
+  const [copyFailed, setCopyFailed] = useState(false);
+  const [previewExpanded, setPreviewExpanded] = useState(false);
   const blobURLs = useRef<Set<string>>(new Set());
+  const copyResetTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const sha = props.result?.content_sha256 ?? null;
   const copied = sha !== null && copiedSha === sha;
   const copiedPiFragment = sha !== null && copiedPiFragmentSha === sha;
@@ -53,6 +60,18 @@ export function ExportResultSheet(props: {
     [sha],
   );
 
+  useEffect(
+    () => () => {
+      for (const timer of copyResetTimers.current) clearTimeout(timer);
+      copyResetTimers.current = [];
+    },
+    [],
+  );
+
+  const scheduleCopyReset = (reset: () => void) => {
+    copyResetTimers.current.push(setTimeout(reset, COPY_FEEDBACK_MS));
+  };
+
   if (!props.result || !sha) return null;
 
   const fileName = EXPORT_FILE_NAME;
@@ -66,15 +85,25 @@ export function ExportResultSheet(props: {
 
   const handleCopy = async () => {
     if (await copyTextToClipboard(props.result!.content)) {
+      setCopyFailed(false);
       setCopiedSha(sha);
+      scheduleCopyReset(() => setCopiedSha(null));
+      return;
     }
+    setCopiedSha(null);
+    setCopyFailed(true);
   };
 
   const handleCopyPiProviderFragment = async () => {
     if (!piProvidersFragment) return;
     if (await copyTextToClipboard(piProvidersFragment)) {
+      setCopyFailed(false);
       setCopiedPiFragmentSha(sha);
+      scheduleCopyReset(() => setCopiedPiFragmentSha(null));
+      return;
     }
+    setCopiedPiFragmentSha(null);
+    setCopyFailed(true);
   };
 
   const handleDownload = () => {
@@ -111,7 +140,8 @@ export function ExportResultSheet(props: {
   return (
     <Sheet open onOpenChange={(open) => !open && handleClose()}>
       <SheetContent
-        className="flex w-full max-w-3xl flex-col gap-4 overflow-y-auto sm:max-w-3xl"
+        size="lg"
+        className="flex flex-col gap-4 overflow-y-auto"
         data-testid="export-result-sheet"
       >
         <SheetHeader>
@@ -122,6 +152,16 @@ export function ExportResultSheet(props: {
             <code className="font-mono text-xs">{EXPORT_MIME_TYPE}</code>
           </SheetDescription>
         </SheetHeader>
+
+        {/* 抽屉开着的时候只能就地报错。复制失败一直是静默的，而这一页唯一的
+            产出就是要粘出去的那段文本。 */}
+        {copyFailed ? (
+          <OperatorCallout
+            intent="danger"
+            data-testid="export-copy-failed"
+            description={copy.copyFailedInline}
+          />
+        ) : null}
 
         <div className="flex flex-wrap items-center gap-3 text-xs">
           {/* 「无提示 / 3 条提示」不能只靠颜色区分：两个 Badge variant 的前景
@@ -161,12 +201,35 @@ export function ExportResultSheet(props: {
           />
         )}
 
-        <pre
-          data-testid="export-content-preview"
-          className="max-h-[50vh] overflow-auto rounded border bg-inset p-3 font-mono text-xs whitespace-pre"
-        >
-          {props.result.content}
-        </pre>
+        {/* 预览默认只给半屏，但它必须能被键盘聚焦滚动，也必须能整段展开：
+            操作者即将粘出去的是这里的全文，不是可见的那 385px。 */}
+        <div className="flex flex-col gap-1">
+          <div className="flex justify-end">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              aria-controls={PREVIEW_ID}
+              aria-expanded={previewExpanded}
+              onClick={() => setPreviewExpanded((expanded) => !expanded)}
+            >
+              {previewExpanded ? copy.previewCollapse : copy.previewExpand}
+            </Button>
+          </div>
+          <pre
+            id={PREVIEW_ID}
+            data-testid="export-content-preview"
+            role="region"
+            aria-label={copy.previewRegionLabel}
+            tabIndex={0}
+            className={cn(
+              "overflow-auto rounded border bg-inset p-3 font-mono text-xs leading-[18px] whitespace-pre",
+              previewExpanded ? "max-h-none" : "max-h-[50vh]",
+            )}
+          >
+            {props.result.content}
+          </pre>
+        </div>
 
         <p className="text-xs text-muted-foreground">
           {copy.costZeroDisclaimer}
@@ -178,15 +241,15 @@ export function ExportResultSheet(props: {
           </p>
         )}
 
-        <SheetFooter className="gap-2">
-          <Button onClick={() => void handleCopy()} disabled={copied}>
+        {/* 五个全宽竖排按钮占掉 202px 高，把内容挤出屏幕；宽屏一行放得下。 */}
+        <SheetFooter className="gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+          <Button onClick={() => void handleCopy()}>
             {copied ? copy.copied : copy.copyButton}
           </Button>
           {piProvidersFragment && (
             <Button
               variant="outline"
               onClick={() => void handleCopyPiProviderFragment()}
-              disabled={copiedPiFragment}
             >
               {copiedPiFragment ? copy.copied : copy.copyPiProviderFragment}
             </Button>

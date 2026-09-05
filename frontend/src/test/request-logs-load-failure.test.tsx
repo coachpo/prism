@@ -58,6 +58,7 @@ class ResizeObserverStub {
 }
 
 const messages = getStaticMessages().requestLogs;
+const tableMessages = getStaticMessages().operationalTable;
 const honesty = getStaticMessages().honesty;
 
 function coverage(): QueryCoverage {
@@ -510,7 +511,9 @@ describe("request-log list read failure", () => {
     await screen.findByTestId("chain-summary-ingress-first", undefined, {
       timeout: 3000,
     });
-    await user.click(screen.getByTestId("chain-more"));
+    await user.click(
+      screen.getByRole("button", { name: tableMessages.nextPage }),
+    );
 
     await waitFor(() =>
       expect(
@@ -520,14 +523,18 @@ describe("request-log list read failure", () => {
     expect(
       screen.queryByTestId("chain-summary-ingress-first"),
     ).not.toBeInTheDocument();
-    expect(screen.getByTestId("chain-previous")).toBeEnabled();
-    expect(screen.getByTestId("chain-page-range")).toHaveTextContent("2-2 / 2");
+    const previousPage = screen.getByRole("button", {
+      name: tableMessages.previousPage,
+    });
+    expect(previousPage).toBeEnabled();
+    // 分页行走共享实现：左侧「共 N 条」与本页区间同时在场。
+    expect(screen.getByText(`共 2 条 · 2-2 / 2`)).toBeInTheDocument();
     expect(listChains.mock.calls[1]?.[0]).toMatchObject({
       view: "ingress_chains",
       chain_cursor: "signed-chain-cursor",
     });
 
-    await user.click(screen.getByTestId("chain-previous"));
+    await user.click(previousPage);
     await waitFor(() =>
       expect(
         screen.getByTestId("chain-summary-ingress-first"),

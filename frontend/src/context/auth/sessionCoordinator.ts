@@ -238,7 +238,7 @@ export class AuthSessionCoordinator {
     this.epochController?.abort();
     this.epochController = new AbortController();
     this.flight = null;
-    this.cancelAutoRecovery();
+    this.cancelAutoRecoveryTimer();
     return this.epoch;
   }
 
@@ -251,13 +251,20 @@ export class AuthSessionCoordinator {
     this.recoveryRunner = run;
   }
 
-  /** Clears a pending backoff and the spent retry budget. */
+  /** Returns the retry budget, so the next transient failure heals itself again. */
   cancelAutoRecovery(): void {
+    this.cancelAutoRecoveryTimer();
+    this.autoRetryAttempts = 0;
+  }
+
+  // An epoch change abandons a scheduled retry but not the budget: once the
+  // gate is up the breaker stays open, and the console must not keep polling
+  // /api/auth/status behind it forever.
+  private cancelAutoRecoveryTimer(): void {
     if (this.autoRetryTimer !== null) {
       clearTimeout(this.autoRetryTimer);
       this.autoRetryTimer = null;
     }
-    this.autoRetryAttempts = 0;
   }
 
   // scheduleAutoRecovery returns true when the failure was absorbed into a
@@ -365,7 +372,6 @@ export class AuthSessionCoordinator {
         if (this.scheduleAutoRecovery(event.reason, event.retry_after_seconds)) {
           break;
         }
-        // advanceEpoch resets the budget, so the gate reads it first.
         const spentRetries = this.autoRetryAttempts;
         const lastConfirmedAt = this.lastConfirmedAt;
         this.advanceEpoch();

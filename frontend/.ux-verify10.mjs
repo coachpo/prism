@@ -1,0 +1,12 @@
+import { chromium } from "@playwright/test";
+const BASE = "http://127.0.0.1:5222";
+const browser = await chromium.launch();
+let hits = 0;
+const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+page.on("console", (m) => { const t = m.text(); if (t.startsWith("SC:")) console.log("  " + t.slice(0, 160)); if (t.includes("hmr") || t.includes("[vite]")) console.log("  VITE: " + t.slice(0,120)); });
+page.on("framenavigated", (f) => { if (f === page.mainFrame()) console.log("  NAV " + f.url()); });
+await page.route("**/api/auth/status", (r) => { hits += 1; console.log("  HIT#" + hits); return r.fulfill({ status: 503, contentType: "application/json", body: "{}" }); });
+await page.goto(BASE + "/route/models", { waitUntil: "domcontentloaded" }).catch(() => {});
+await page.waitForTimeout(14000);
+console.log("body:", (await page.evaluate(() => document.body.innerText.replace(/\s+/g, " ").slice(0, 200))));
+await browser.close();

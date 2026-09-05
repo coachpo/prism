@@ -205,6 +205,7 @@ Two density modes, `standard` and `compact`, are declared in `foundation.ts` and
 | Control height | 30px | 34px |
 | Table header height | 32px | 38px |
 | Table row height | 34px | 42px |
+| Table cell leading | 16px | 18.4px |
 | Control height (sm) | 28px | 30px |
 | Control height (xs) | 24px | 26px |
 

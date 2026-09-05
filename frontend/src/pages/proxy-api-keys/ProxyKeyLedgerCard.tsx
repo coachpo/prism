@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import {
     KeyRound,
     Loader2,
@@ -32,11 +32,13 @@ import { cn } from "@/lib/utils";
 import {
     OperatorClippedBadge,
     OperatorEmptyState,
+    OperatorHelpHint,
     OperatorMissingValue,
     OperatorSearchInput,
     OperatorStalenessBadge,
     OperatorStatusBadge,
     OperatorTableShell,
+    OperatorTypeBadge,
 } from "@/shared/design-system";
 import {
     OperationalTableSkeletonRows,
@@ -55,8 +57,8 @@ import {
 import type { ProxyKeyUsageEntry } from "@/features/proxy-keys/useProxyKeyUsage";
 import {
     formatDateTime,
+    getProxyKeyLifecycleIntent,
     getProxyKeyLifecycleLabel,
-    getProxyKeyLifecycleTier,
     getProxyKeyUsagePercent,
     isProxyKeyExpired,
 } from "./proxyKeyFormatting";
@@ -212,7 +214,10 @@ function ProxyKeyLedgerRow({
 }) {
     const { formatNumber, formatRelativeTimeFromNow, messages } = useLocale();
     const copy = messages.proxyApiKeys;
-    const tier = getProxyKeyLifecycleTier(item, authEnabled);
+    // 生命周期是配置分类，只有「已过期」保留运行态语气——行左状态条同理。
+    const lifecycleIntent = getProxyKeyLifecycleIntent(item, authEnabled);
+    const LifecycleBadge =
+        lifecycleIntent === "failing" ? OperatorStatusBadge : OperatorTypeBadge;
     const note = item.notes?.trim();
     const expired = isProxyKeyExpired(item.expires_at);
     const busy = rotating || deleting;
@@ -224,33 +229,44 @@ function ProxyKeyLedgerRow({
         : copy.neverExpires;
 
     return (
-        <TableRow className={cn("group/row", operationalRowStripe(tier))}>
+        <TableRow
+            className={cn(
+                "group/row",
+                operationalRowStripe(
+                    lifecycleIntent === "failing" ? "failing" : null,
+                ),
+            )}
+        >
             <TableCell className="align-top">
+                {/* 一行标题 + 一行标识：备注与预览同行省略，紧凑密度下
+                    单元格不超过两行。 */}
                 <div className="flex min-w-0 flex-col gap-0.5">
                     <span className="truncate font-medium" title={item.name}>
                         {item.name}
                     </span>
-                    <span
-                        className="truncate font-mono text-xs text-muted-foreground"
-                        title={item.key_preview}
-                    >
-                        {item.key_preview}
-                    </span>
-                    {note ? (
+                    <span className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
                         <span
-                            className="truncate text-xs text-muted-foreground"
-                            title={note}
+                            className="shrink-0 font-mono"
+                            title={item.key_preview}
                         >
-                            {note}
+                            {item.key_preview}
                         </span>
-                    ) : null}
+                        {note ? (
+                            <>
+                                <span aria-hidden="true">·</span>
+                                <span className="truncate" title={note}>
+                                    {note}
+                                </span>
+                            </>
+                        ) : null}
+                    </span>
                 </div>
             </TableCell>
 
             <TableCell className="align-top">
                 <div className="flex flex-col items-start gap-1">
-                    <OperatorStatusBadge
-                        intent={tier}
+                    <LifecycleBadge
+                        intent={lifecycleIntent}
                         label={getProxyKeyLifecycleLabel(item, authEnabled)}
                         preserveLabel
                     />
@@ -278,10 +294,14 @@ function ProxyKeyLedgerRow({
                             {formatDateTime(item.last_used_at)}
                         </span>
                     ) : (
-                        <OperatorMissingValue
-                            className="text-xs"
-                            reason={copy.lastUsedNeverReason}
-                        />
+                        // 「从未使用」是已知事实，与读不到值是两回事：删除对话框
+                        // 里写的也是「从未」，两处必须是同一句话。
+                        <span
+                            className="text-xs text-muted-foreground"
+                            title={copy.lastUsedNeverReason}
+                        >
+                            {copy.never}
+                        </span>
                     )}
                     {item.last_used_ip ? (
                         <span className="truncate font-mono text-xs text-muted-foreground">
@@ -315,9 +335,20 @@ function ProxyKeyLedgerRow({
             </TableCell>
 
             <TableCell className="align-top">
-                <div className="flex min-w-0 flex-col gap-0.5 font-mono text-xs tabular-nums text-muted-foreground">
-                    <span>{formatDateTime(item.created_at)}</span>
-                    <span>{formatDateTime(item.updated_at)}</span>
+                {/* 两个时间戳常常只差几分钟，不带标签就分不出哪个是最后修改。 */}
+                <div className="flex min-w-0 flex-col gap-0.5 text-xs text-muted-foreground">
+                    <span>
+                        <span className="text-[11px]">{copy.created}</span>{" "}
+                        <span className="font-mono tabular-nums">
+                            {formatDateTime(item.created_at)}
+                        </span>
+                    </span>
+                    <span>
+                        <span className="text-[11px]">{copy.updated}</span>{" "}
+                        <span className="font-mono tabular-nums">
+                            {formatDateTime(item.updated_at)}
+                        </span>
+                    </span>
                 </div>
             </TableCell>
 
@@ -400,6 +431,10 @@ export function ProxyKeyLedgerCard({
     });
     const [pageIndex, setPageIndex] = useState(0);
     const [pageSize, setPageSize] = useState<number>(LEDGER_PAGE_SIZES[0]);
+    // columnheader 的名字只能是列名。名字若由内容计算，帮助按钮的 aria-label
+    // （口径全文）会被并进列名，扫表时每一列都要先听完 32 个汉字。
+    const requests7dNameId = useId();
+    const requests7dBasisId = useId();
 
     const filtered = useMemo(
         () => displayedProxyKeys.filter((item) => matchesQuery(item, query)),
@@ -531,25 +566,31 @@ export function ProxyKeyLedgerCard({
                             </SortableTableHead>
                             <TableHead
                                 className="text-right"
-                                title={copy.columnRequests7dBasis}
+                                aria-labelledby={requests7dNameId}
+                                aria-describedby={requests7dBasisId}
                             >
+                                {/* 这一列的时间窗与全表其余列不同，口径最需要说明：
+                                    交给可聚焦的 OperatorHelpHint，并用
+                                    aria-describedby 关联，而不是塞进列名或只挂
+                                    title。 */}
                                 <span className="inline-flex flex-wrap items-center justify-end gap-1">
                                     {copy.columnRequests7d}
-                                    <span
-                                        aria-hidden="true"
-                                        className="text-text-disabled"
-                                    >
-                                        ?
-                                    </span>
-                                    <span className="sr-only">
-                                        {copy.columnRequests7dBasis}
-                                    </span>
+                                    <OperatorHelpHint
+                                        align="end"
+                                        label={copy.columnRequests7dBasis}
+                                    />
                                     {usageFailed ? (
                                         <OperatorStalenessBadge
                                             label={copy.requests7dFailedBadge}
                                             reason={copy.requests7dFailedReason}
                                         />
                                     ) : null}
+                                </span>
+                                <span id={requests7dNameId} className="sr-only">
+                                    {copy.columnRequests7d}
+                                </span>
+                                <span id={requests7dBasisId} className="sr-only">
+                                    {copy.columnRequests7dBasis}
                                 </span>
                             </TableHead>
                             <SortableTableHead

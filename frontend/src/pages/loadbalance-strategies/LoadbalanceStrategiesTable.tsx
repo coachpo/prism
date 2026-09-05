@@ -20,7 +20,7 @@ import { OperationalTableSkeletonRows } from "@/shared/table/operationalTable";
 import { LoadMoreControl } from "@/shared/table/paginationControls";
 import {
     banBadges,
-    failureStatusCodeLabel,
+    failureStatusCodeSummary,
     retryBadges,
 } from "./strategyValueBadges";
 import { useLocale } from "@/i18n/useLocale";
@@ -34,6 +34,7 @@ import {
     OperatorCallout,
     OperatorEmptyState,
     OperatorErrorState,
+    OperatorHelpHint,
     OperatorLoadingState,
     OperatorTableShell,
     OperatorTypeBadge,
@@ -445,6 +446,7 @@ function StrategyRow(props: StrategyRowProps) {
         strategy.ban_cumulative_retry_attempt_threshold ===
             balancedPreset.ban_cumulative_retry_attempt_threshold &&
         strategy.ban_duration_seconds === balancedPreset.ban_duration_seconds;
+    const statusCodes = failureStatusCodeSummary(strategy);
 
     return (
         <>
@@ -568,19 +570,28 @@ function StrategyRow(props: StrategyRowProps) {
 
                 <TableCell className="align-top">
                     <div className="flex flex-col gap-1">
-                        <div className="flex flex-wrap gap-1">
+                        {/* 状态码名单收进同一排徽章：单元格默认一行，最多两行。 */}
+                        <div className="flex flex-wrap items-center gap-1">
                             {retryBadges(strategy).map((badge) => (
                                 <OperatorValueBadge
                                     key={badge.key}
                                     label={badge.label}
                                 />
                             ))}
+                            <OperatorValueBadge label={statusCodes.label} />
+                            {statusCodes.detail ? (
+                                // 整行点击会选中策略并把预览滚进视口；读名单不该顺带这么做。
+                                <span
+                                    onClick={(event) => event.stopPropagation()}
+                                >
+                                    <OperatorHelpHint
+                                        label={statusCodes.detail}
+                                    />
+                                </span>
+                            ) : null}
                         </div>
-                        <span className="text-[11px] whitespace-normal text-foreground/60">
-                            {failureStatusCodeLabel(strategy)}
-                        </span>
                         {retryIsBalanced ? (
-                            <span className="text-[11px] text-foreground/60">
+                            <span className="text-xs text-muted-foreground">
                                 {props.copy.retryBalancedDefault}
                             </span>
                         ) : null}
@@ -590,7 +601,7 @@ function StrategyRow(props: StrategyRowProps) {
                 <TableCell className="align-top">
                     <div className="flex flex-col gap-1">
                         {strategy.ban_mode === "off" ? (
-                            <span className="text-xs text-foreground/60">
+                            <span className="text-xs text-muted-foreground">
                                 {props.copy.banOff}
                             </span>
                         ) : (
@@ -604,7 +615,7 @@ function StrategyRow(props: StrategyRowProps) {
                             </div>
                         )}
                         {banIsBalanced ? (
-                            <span className="text-[11px] text-foreground/60">
+                            <span className="text-xs text-muted-foreground">
                                 {props.copy.banBalancedDefault}
                             </span>
                         ) : null}

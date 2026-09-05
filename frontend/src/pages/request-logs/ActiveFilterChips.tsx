@@ -103,11 +103,14 @@ export function ActiveFilterChips({ actions }: { actions: Actions }) {
           </button>
         </span>
       ))}
+      {/* 全站只保留这一个「清除筛选条件」；28px 是最小命中区，20px 高的按钮
+          恰恰出现在操作者最需要它的时候。 */}
       <Button
         type="button"
         variant="ghost"
         size="sm"
-        className="h-5 px-1.5 text-xs"
+        className="h-7 px-2 text-xs"
+        data-testid="request-logs-clear-filters"
         onClick={actions.clearFilters}
       >
         {messages.statistics.clearFilters}
