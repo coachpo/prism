@@ -645,6 +645,18 @@ async function mockCatalogRoutes(page: Page, options: CatalogMockOptions = {}) {
   return state;
 }
 
+// 「外部目录来源」是支持性的只读证据区，DESIGN.md 的 Layout Composition 要求
+// “不属于当前任务的参考面板默认折叠并记住操作员的选择”，所以模型详情页打开时
+// 该区块是收起的。models.dev 的 journey 因此从操作员展开区块这一真实步骤开始。
+async function expandExternalCatalogSection(page: Page) {
+  // 区块开关限定在详情页内：外壳侧栏的「折叠或展开侧栏」也含「展开」二字。
+  const detail = page.getByTestId("model-detail-feature-page");
+  await detail.getByRole("button", { name: "展开", exact: true }).click();
+  await expect(
+    detail.getByRole("button", { name: "收起", exact: true }),
+  ).toBeVisible();
+}
+
 test("model catalog binds via unique match and renders metadata", async ({
   page,
 }) => {
@@ -654,6 +666,7 @@ test("model catalog binds via unique match and renders metadata", async ({
   await page
     .getByTestId("model-detail-feature-page")
     .waitFor({ timeout: 15000 });
+  await expandExternalCatalogSection(page);
 
   // Unbound state stays visible and honest. The hint paragraph is the
   // unambiguous anchor: the badge text is a substring of it.
@@ -701,6 +714,7 @@ test("catalog candidate pager appends all pages and selects a later candidate", 
   await page
     .getByTestId("model-detail-feature-page")
     .waitFor({ timeout: 15000 });
+  await expandExternalCatalogSection(page);
   await page.getByRole("button", { name: "绑定目录" }).click();
 
   const dialog = page.getByRole("dialog");
@@ -726,9 +740,11 @@ test("catalog candidate pager appends all pages and selects a later candidate", 
   await expect(dialog.getByRole("textbox", { name: "models.dev 目录 Provider" })).toHaveValue(
     "openai",
   );
-  await expect(dialog.getByRole("textbox", { name: "models.dev 目录 model_id" })).toHaveValue(
-    "paged-46",
-  );
+  // 手动坐标字段的可见标签在术语统一后是「models.dev 目录模型 ID」：
+  // DESIGN.md 的 Copy 约定界面用简体中文术语（模型 ID），不直接暴露后端字段名。
+  await expect(
+    dialog.getByRole("textbox", { name: "models.dev 目录模型 ID" }),
+  ).toHaveValue("paged-46");
 });
 
 test("catalog candidate pager isolates stale reads and retries failures", async ({
@@ -795,6 +811,7 @@ test("catalog candidate pager isolates stale reads and retries failures", async 
   await page
     .getByTestId("model-detail-feature-page")
     .waitFor({ timeout: 15000 });
+  await expandExternalCatalogSection(page);
   await page.getByRole("button", { name: "绑定目录" }).click();
 
   const dialog = page.getByRole("dialog");

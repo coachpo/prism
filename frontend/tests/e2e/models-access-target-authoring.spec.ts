@@ -543,7 +543,9 @@ test("create model dialog supports configure-later and a decoupled initial targe
   await editDialog
     .getByRole("switch", { name: "允许客户端直接请求" })
     .uncheck();
-  await editDialog.getByRole("button", { name: "保存", exact: true }).click();
+  await editDialog
+    .getByRole("button", { name: "保存更改", exact: true })
+    .click();
   await expect.poll(() => routes.getUpdatedPayloads().length).toBe(1);
   expect(routes.getUpdatedPayloads()[0]).toMatchObject({
     direct_request_enabled: false,
@@ -1301,7 +1303,7 @@ test("model detail canonicalizes dead tab and one-shot target actions", async ({
       .getByTitle("上游模型 ID: provider/Responses-Primary"),
   ).toBeVisible();
   await page.getByRole("button", { name: "编辑模型配置" }).click();
-  const modelSettings = page.getByRole("dialog", { name: "模型配置设置" });
+  const modelSettings = page.getByRole("dialog", { name: "编辑模型配置" });
   await expect(
     modelSettings.getByText(
       /修改模型配置 ID 不会改写已有终端目标的上游模型 ID/,
@@ -1363,13 +1365,13 @@ test("model detail canonicalizes dead tab and one-shot target actions", async ({
   await expect(page.getByTestId("access-target-92")).toHaveCount(1);
   await expect(page).toHaveURL(/\/models\/7$/);
 
-  await page.getByLabel("选择目标模型").click();
+  await page.getByLabel("添加模型目标").click();
   await page
     .getByRole("option", {
-      name: "Internal Detail Target (internal-detail-target)",
+      name: "Internal Detail Target internal-detail-target",
     })
     .click();
-  await page.getByRole("button", { name: "添加目标" }).click();
+  await page.getByRole("button", { name: "添加模型目标" }).click();
 
   await expect.poll(() => routes.targetPayloads.length).toBe(1);
   expect(routes.targetPayloads[0]).toEqual({
@@ -1513,7 +1515,7 @@ test("entry-model list journey: navigation, scope switch, and identity filters",
 
   // Stats scope: a controlled single-select segmented control with the
   // attribution note; each selection round-trips through the scope URL.
-  const scopeSwitch = page.getByTestId("models-scope-switcher");
+  const scopeSwitch = page.getByRole("radiogroup", { name: "统计口径" });
   await expect(
     scopeSwitch.getByRole("radio", { name: "入口请求" }),
   ).toHaveAttribute("aria-checked", "true");
@@ -1530,9 +1532,12 @@ test("entry-model list journey: navigation, scope switch, and identity filters",
   ).toHaveAttribute("aria-checked", "true");
   await scopeSwitch.getByRole("radio", { name: "路由尝试" }).click();
   await expect(page).toHaveURL(/[?&]scope=route_attempt/);
-  // The scope note names the attribution basis for the active scope.
+  // The scope note names the attribution basis for the active scope: the
+  // help hint beside the switch is named for whichever scope is active.
   await expect(
-    page.getByText("口径：按实际路由尝试计数，失败重试也计入。"),
+    page.getByRole("button", {
+      name: "口径：按实际路由尝试计数，失败重试也计入。",
+    }),
   ).toBeVisible();
 
   // Identity flag filter: upstream_decoupled matches the case-sensitive

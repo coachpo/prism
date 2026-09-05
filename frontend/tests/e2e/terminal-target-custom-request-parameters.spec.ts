@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import {
   createEmptyIngressSpendingReport,
   expectIngressSpendingRequest,
@@ -241,12 +241,42 @@ async function openEditTerminalTargetDialog(page: Page) {
   return dialog;
 }
 
+/**
+ * The custom request parameters editor lives inside the dialog's 高级请求设置
+ * disclosure group. That group opens by default only when the Terminal Target
+ * already carries a limiter, a custom header, or custom parameters; otherwise it
+ * stays folded and its summary line states what is folded away. Assert the
+ * summary and the disclosure state, then reach the editor the way an operator
+ * does.
+ */
+async function revealCustomRequestParametersEditor(
+  dialog: Locator,
+  options: { summary: string; expanded: boolean },
+) {
+  const trigger = dialog.getByRole("button", { name: /^高级请求设置/ });
+  await expect(trigger).toHaveAccessibleName(`高级请求设置 ${options.summary}`);
+  await expect(trigger).toHaveAttribute(
+    "aria-expanded",
+    options.expanded ? "true" : "false",
+  );
+  if (!options.expanded) {
+    await trigger.click();
+    await expect(trigger).toHaveAttribute("aria-expanded", "true");
+  }
+
+  const editor = dialog.getByTestId("connection-dialog-custom-request-parameters-card");
+  await expect(editor).toBeVisible();
+  return editor;
+}
+
 test("terminal target custom request parameters editor saves and round-trips an OpenRouter provider object", async ({ page }) => {
   const routes = await mockModelDetailRoutes(page);
   const dialog = await openEditTerminalTargetDialog(page);
 
-  const editor = dialog.getByTestId("connection-dialog-custom-request-parameters-card");
-  await expect(editor).toBeVisible();
+  const editor = await revealCustomRequestParametersEditor(dialog, {
+    summary: "未限流 · 0 个请求头 · 无自定义参数",
+    expanded: false,
+  });
   const textarea = editor.getByRole("textbox", { name: "自定义请求参数（JSON）" });
   await expect(editor.getByText("未配置")).toBeVisible();
 
@@ -268,7 +298,12 @@ test("terminal target custom request parameters editor saves and round-trips an 
   // Reopen: the saved object hydrates back into the editor with full JSON
   // semantics preserved.
   const reopened = await openEditTerminalTargetDialog(page);
-  const reopenedEditor = reopened.getByTestId("connection-dialog-custom-request-parameters-card");
+  // A Terminal Target that now carries custom parameters opens the group by
+  // itself, so the saved value is never folded out of sight.
+  const reopenedEditor = await revealCustomRequestParametersEditor(reopened, {
+    summary: "未限流 · 0 个请求头 · 有自定义参数",
+    expanded: true,
+  });
   const reopenedTextarea = reopenedEditor.getByRole("textbox", { name: "自定义请求参数（JSON）" });
   await expect(reopenedEditor.getByText("已配置 1 个顶层参数")).toBeVisible();
   await expect(reopenedTextarea).toHaveValue(
@@ -287,7 +322,10 @@ test("terminal target custom request parameters editor blocks save on invalid JS
     },
   });
   const dialog = await openEditTerminalTargetDialog(page);
-  const editor = dialog.getByTestId("connection-dialog-custom-request-parameters-card");
+  const editor = await revealCustomRequestParametersEditor(dialog, {
+    summary: "未限流 · 0 个请求头 · 无自定义参数",
+    expanded: false,
+  });
   const textarea = editor.getByRole("textbox", { name: "自定义请求参数（JSON）" });
 
   // Invalid JSON blocks the mutation before any request.
