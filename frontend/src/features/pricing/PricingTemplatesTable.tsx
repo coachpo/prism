@@ -433,8 +433,15 @@ export function PricingTemplatesTable({
               <TableHead />
             </TableRow>
             <TableRow>
-              <TableHead className="w-8" />
-              <SortableTableHead sortKey="name" sort={sort} onSort={updateSort}>
+              {/* 身份两列与操作列冻结：横滚后仍要知道这一行是哪个模板，
+                  也要够得到行尾的编辑与删除。 */}
+              <TableHead className="sticky left-0 z-20 w-8 bg-inset" />
+              <SortableTableHead
+                sortKey="name"
+                sort={sort}
+                onSort={updateSort}
+                className="sticky left-8 z-20 bg-inset shadow-[inset_-1px_0_0_0_var(--color-border)]"
+              >
                 {messages.settingsDialogs.name}
               </SortableTableHead>
               <SortableTableHead
@@ -483,7 +490,9 @@ export function PricingTemplatesTable({
               >
                 {copy.columnUpdatedAt}
               </SortableTableHead>
-              <TableHead className="text-right">{copy.actions}</TableHead>
+              <TableHead className="sticky right-0 z-20 bg-inset text-right shadow-[inset_1px_0_0_0_var(--color-border)]">
+                {copy.actions}
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -510,7 +519,7 @@ export function PricingTemplatesTable({
                         className="group/row"
                         data-testid={`pricing-template-row-${template.id}`}
                       >
-                        <TableCell className="align-top">
+                        <TableCell className="sticky left-0 z-10 w-8 bg-panel align-top">
                           <Button
                             type="button"
                             variant="ghost"
@@ -526,7 +535,7 @@ export function PricingTemplatesTable({
                             {expanded ? <ChevronDown /> : <ChevronRight />}
                           </Button>
                         </TableCell>
-                        <TableCell className="align-top">
+                        <TableCell className="sticky left-8 z-10 bg-panel align-top shadow-[inset_-1px_0_0_0_var(--color-border)]">
                           <div className="flex min-w-48 flex-col gap-0.5">
                             <span className="font-medium">{template.name}</span>
                             {/* Source-linked provenance: the models.dev offering
@@ -642,7 +651,7 @@ export function PricingTemplatesTable({
                             {formatTime(template.updated_at)}
                           </span>
                         </TableCell>
-                        <TableCell className="align-top text-right">
+                        <TableCell className="sticky right-0 z-10 bg-panel align-top text-right shadow-[inset_1px_0_0_0_var(--color-border)]">
                           <div
                             className={cn(
                               operationalRowActionsClassName,

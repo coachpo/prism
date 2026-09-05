@@ -277,7 +277,7 @@ export function BanPolicyDialog({ editingStrategy, initialValues, open, saving, 
                   <OperatorCallout intent="warning" title={copy.presetAggressiveWarning} className="mt-2" />
                 ) : null}
                 {activePresetKey === null && (banMode !== "off" || cycleRetryAttemptLimit !== 3) ? (
-                  <p className="mt-2 text-xs text-foreground/60">{copy.presetCustomLabel("均衡")}</p>
+                  <p className="mt-2 text-xs text-muted-foreground">{copy.presetCustomLabel("均衡")}</p>
                 ) : null}
                 {presetConfirmKey ? (
                   <OperatorCallout intent="warning" title={copy.presetReplaceConfirm} className="mt-2">
@@ -521,7 +521,7 @@ function PreviewPanel({ preview, onRetry }: {
   if (preview.phase === "idle") {
     return (
       <div className="flex flex-col gap-2">
-        <p className="text-sm text-foreground/60">{copy.previewDescription}</p>
+        <p className="text-sm text-muted-foreground">{copy.previewDescription}</p>
         <PreviewDetails copy={copy} label={messages.common.moreDetails} />
       </div>
     )
@@ -531,7 +531,7 @@ function PreviewPanel({ preview, onRetry }: {
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
         <OperatorTypeBadge label={copy.previewRetryCycleBadge} intent="accent" />
-        <span className="text-xs text-foreground/60">{copy.previewDescription}</span>
+        <span className="text-xs text-muted-foreground">{copy.previewDescription}</span>
       </div>
       <PreviewDetails copy={copy} label={messages.common.moreDetails} />
       <ol className="flex flex-col gap-2">
@@ -547,21 +547,21 @@ function PreviewPanel({ preview, onRetry }: {
           </li>
         ))}
       </ol>
-      {data.has_more ? <p className="text-sm text-foreground/60">{copy.previewHasMore}</p> : null}
+      {data.has_more ? <p className="text-sm text-muted-foreground">{copy.previewHasMore}</p> : null}
       <p className="text-sm text-foreground/70">
         {terminationCopy(data.termination_reason, data.cycle_exhaustion_after_attempt, copy)}
       </p>
       <p className="text-sm text-foreground/70">
         {copy.previewBanProjection(data.ban_projection.mode, data.ban_projection.cumulative_retry_attempt_threshold)}
       </p>
-      <p className="text-xs text-foreground/60">{copy.previewValidationNote}</p>
+      <p className="text-xs text-muted-foreground">{copy.previewValidationNote}</p>
     </div>
   )
 }
 
 function PreviewDetails({ copy, label }: { copy: ReturnType<typeof useLocale>["messages"]["routingStrategyDialog"]; label: string }) {
   return (
-    <details className="text-xs text-foreground/60">
+    <details className="text-xs text-muted-foreground">
       <summary className="cursor-pointer font-medium text-foreground">{label}</summary>
       <p className="pt-2">{copy.previewDescriptionDetails}</p>
     </details>

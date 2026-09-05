@@ -373,6 +373,8 @@ export const zhCNMessages = {
     completeBuiltInStrategies: "补齐内置策略",
     builtInComplete: "内置策略已齐全",
     attachedModels: "已绑定模型配置",
+    attachedModelsLink: (name: MessageArg) =>
+      `查看绑定在路由策略「${name}」上的模型配置`,
     attachedModelsExpand: (count: MessageArg) =>
       `展开查看 ${count} 个已绑定模型`,
     attachedModelsCollapse: "收起模型名单",
@@ -660,6 +662,8 @@ export const zhCNMessages = {
     addStrategy: "新增策略",
     createDefaults: "创建默认策略",
     attachedModels: "已绑定模型配置",
+    attachedModelsLink: (name: MessageArg) =>
+      `查看绑定在路由策略「${name}」上的模型配置`,
     banOff: "封禁关闭；累计阈值已禁用",
     banPolicy: "封禁策略",
     banTemporaryPolicy: (threshold: MessageArg, durationSeconds: MessageArg) =>
