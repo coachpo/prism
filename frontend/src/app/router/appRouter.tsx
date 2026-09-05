@@ -15,16 +15,31 @@ import {
   createBrowserHistory,
   useNavigate as useTanStackNavigate,
   useParams as useTanStackParams,
+  useRouter as useTanStackRouter,
   useSearch as useTanStackSearch,
+  type ErrorComponentProps,
   type RouterHistory,
 } from "@tanstack/react-router";
 import { AuthProvider } from "@/context/AuthContext";
-import { ReportingCurrencyProvider } from "@/context/ReportingCurrencyContext";
+import {
+  ReportingCurrencyDegradedNotice,
+  ReportingCurrencyProvider,
+} from "@/context/ReportingCurrencyContext";
 import { useAuth } from "@/context/useAuth";
 import { Page } from "@/components/layout/page";
+import { useShellNavigation } from "@/components/layout/app-layout/useShellNavigation";
+import { Button } from "@/components/ui/button";
 import { useLocale } from "@/i18n/useLocale";
-import { OperatorLoadingState } from "@/shared/design-system";
 import {
+  OperatorEmptyState,
+  OperatorErrorState,
+  OperatorLoadingState,
+  OperatorPageShell,
+  OperatorRetryButton,
+} from "@/shared/design-system";
+import {
+  MODELS_LIST_FALLBACK_SEARCH_KEYS,
+  SETTINGS_FALLBACK_SEARCH_KEYS,
   emptySearchSchema,
   authLoginSearchSchema,
   modelsListSearchSchema,
@@ -34,7 +49,11 @@ import {
   routingHealthSearchSchema,
   settingsSearchSchema,
 } from "./rewriteRoutes";
-import { modelDetailSearchSchema } from "@/features/models/detail/modelDetailSchemas";
+import { SearchFallbackNotice } from "./SearchFallbackNotice";
+import {
+  MODEL_DETAIL_FALLBACK_SEARCH_KEYS,
+  modelDetailSearchSchema,
+} from "@/features/models/detail/modelDetailSchemas";
 import {
   needsGlobalAccessLayer,
   resolveProtectedRedirect,
@@ -98,18 +117,113 @@ function withRouteSuspense(element: ReactElement) {
   return <Suspense fallback={<RouteFallback />}>{element}</Suspense>;
 }
 
+/**
+ * A dead bookmark or a mistyped path lands here, so it keeps the shell: the
+ * sidebar is the only in-app way back, and the page says what happened rather
+ * than only that something is missing. Same shape as the request-audit 404.
+ */
 function NotFoundRoute() {
   const { messages } = useLocale();
+  const navigate = useTanStackNavigate();
 
   return (
-    <main className="flex min-h-svh items-center justify-center bg-background px-6 text-foreground">
-      <div className="max-w-md text-center">
-        <h1 className="text-2xl font-semibold tracking-tight">
-          {messages.common.pageNotFound}
-        </h1>
-      </div>
-    </main>
+    <ProtectedRoute>
+      <OperatorPageShell>
+        <OperatorEmptyState
+          testId="route-not-found"
+          title={messages.common.pageNotFound}
+          description={messages.common.pageNotFoundDescription(
+            window.location.pathname,
+          )}
+          action={
+            <Button onClick={() => void navigate({ to: "/observe" })}>
+              {messages.common.backToDashboard}
+            </Button>
+          }
+        />
+      </OperatorPageShell>
+    </ProtectedRoute>
   );
+}
+
+/**
+ * The router's own error component is English and prints the raw validation
+ * issue list — including every legal enum member — straight onto the page. This
+ * one keeps the shell so the sidebar is still a way out, names the page that
+ * failed, and puts the raw error behind 查看详情.
+ */
+function RouteErrorSurface({
+  error,
+  pageLabel,
+  reset,
+}: ErrorComponentProps & { pageLabel: string }) {
+  const { messages } = useLocale();
+  const router = useTanStackRouter();
+  const detail =
+    error instanceof Error ? (error.stack ?? error.message) : String(error);
+
+  return (
+    <OperatorErrorState
+      testId="route-error"
+      title={messages.common.routeRenderFailedTitle(pageLabel)}
+      description={messages.common.routeRenderFailedDescription}
+      details={<pre className="whitespace-pre-wrap break-all">{detail}</pre>}
+      detailsLabel={messages.honesty.viewDetails}
+      action={
+        <>
+          <OperatorRetryButton
+            onClick={() => {
+              reset();
+              void router.invalidate();
+            }}
+          >
+            {messages.common.retry}
+          </OperatorRetryButton>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => void router.navigate({ to: "/observe" })}
+          >
+            {messages.common.backToDashboard}
+          </Button>
+        </>
+      }
+    />
+  );
+}
+
+function ShelledRouteErrorComponent(props: ErrorComponentProps) {
+  const { messages } = useLocale();
+  const { activeSidebarItem } = useShellNavigation();
+
+  return (
+    <ProtectedRoute>
+      <OperatorPageShell>
+        <RouteErrorSurface
+          {...props}
+          pageLabel={activeSidebarItem?.label ?? messages.common.thisPage}
+        />
+      </OperatorPageShell>
+    </ProtectedRoute>
+  );
+}
+
+function RouteErrorComponent(props: ErrorComponentProps) {
+  const { messages } = useLocale();
+
+  // The public auth page has no shell to keep, and running it through the
+  // protected gate would bounce a failed login page to itself.
+  if (PUBLIC_AUTH_PATHS.has(window.location.pathname)) {
+    return (
+      <main className="flex min-h-svh items-center justify-center bg-canvas px-6 py-8 text-foreground">
+        <div className="w-full max-w-md">
+          <RouteErrorSurface {...props} pageLabel={messages.common.thisPage} />
+        </div>
+      </main>
+    );
+  }
+
+  return <ShelledRouteErrorComponent {...props} />;
 }
 
 export function RoutedAuthProvider({ children }: { children: ReactNode }) {
@@ -143,8 +257,11 @@ function ProtectedRoute({ children }: { children: ReactElement }) {
   }
 
   return (
-    <ReportingCurrencyProvider fallback={<RouteFallback />}>
-      <Page>{children}</Page>
+    <ReportingCurrencyProvider>
+      <Page>
+        <ReportingCurrencyDegradedNotice />
+        {children}
+      </Page>
     </ReportingCurrencyProvider>
   );
 }
@@ -228,7 +345,19 @@ function ProtectedObserveRoute() {
 }
 
 function ProtectedModelsRoute() {
-  return <ProtectedRoute>{withRouteSuspense(<ModelsPage />)}</ProtectedRoute>;
+  const search = useTanStackSearch({ from: "/route/models" });
+
+  return (
+    <ProtectedRoute>
+      <>
+        <SearchFallbackNotice
+          keys={MODELS_LIST_FALLBACK_SEARCH_KEYS}
+          search={search}
+        />
+        {withRouteSuspense(<ModelsPage />)}
+      </>
+    </ProtectedRoute>
+  );
 }
 
 function ProtectedModelExportRoute() {
@@ -296,38 +425,44 @@ function ProtectedModelDetailRoute() {
     searchParams.set("metrics_scope", search.metrics_scope);
   return (
     <ProtectedRoute>
-      {withRouteSuspense(
-        <ModelDetailFeaturePage
-          modelId={modelId}
-          searchParams={searchParams}
-          onNavigateTo={(to) => void navigate({ to })}
-          onSearchParamsChange={(nextSearchParams, options) =>
-            void navigate({
-              to: "/route/models/$modelId",
-              params: { modelId },
-              search: {
-                action:
-                  nextSearchParams.get("action") === "create-terminal-target"
-                    ? "create-terminal-target"
-                    : undefined,
-                endpoint_id: nextSearchParams.get("endpoint_id") ?? undefined,
-                focus_connection_id:
-                  nextSearchParams.get("focus_connection_id") ?? undefined,
-                metrics_scope:
-                  nextSearchParams.get("metrics_scope") === "final_execution"
-                    ? "final_execution"
-                    : undefined,
-              },
-              replace: options?.replace,
-              // The detail page consumes its one-shot params by writing them back
-              // out; `focus_connection_id` in particular is cleared while the page
-              // is smooth-scrolling to that card, and a scroll reset here would
-              // fight it.
-              resetScroll: false,
-            })
-          }
-        />,
-      )}
+      <>
+        <SearchFallbackNotice
+          keys={MODEL_DETAIL_FALLBACK_SEARCH_KEYS}
+          search={search}
+        />
+        {withRouteSuspense(
+          <ModelDetailFeaturePage
+            modelId={modelId}
+            searchParams={searchParams}
+            onNavigateTo={(to) => void navigate({ to })}
+            onSearchParamsChange={(nextSearchParams, options) =>
+              void navigate({
+                to: "/route/models/$modelId",
+                params: { modelId },
+                search: {
+                  action:
+                    nextSearchParams.get("action") === "create-terminal-target"
+                      ? "create-terminal-target"
+                      : undefined,
+                  endpoint_id: nextSearchParams.get("endpoint_id") ?? undefined,
+                  focus_connection_id:
+                    nextSearchParams.get("focus_connection_id") ?? undefined,
+                  metrics_scope:
+                    nextSearchParams.get("metrics_scope") === "final_execution"
+                      ? "final_execution"
+                      : undefined,
+                },
+                replace: options?.replace,
+                // The detail page consumes its one-shot params by writing them
+                // back out; `focus_connection_id` in particular is cleared while
+                // the page is smooth-scrolling to that card, and a scroll reset
+                // here would fight it.
+                resetScroll: false,
+              })
+            }
+          />,
+        )}
+      </>
     </ProtectedRoute>
   );
 }
@@ -355,9 +490,17 @@ function ProtectedBanPoliciesRoute() {
 }
 
 function ProtectedSettingsRoute() {
+  const search = useTanStackSearch({ from: "/system/settings" });
+
   return (
     <ProtectedRoute>
-      {withRouteSuspense(<SettingsFeaturePage />)}
+      <>
+        <SearchFallbackNotice
+          keys={SETTINGS_FALLBACK_SEARCH_KEYS}
+          search={search}
+        />
+        {withRouteSuspense(<SettingsFeaturePage />)}
+      </>
     </ProtectedRoute>
   );
 }
@@ -475,7 +618,7 @@ const authLoginRoute = createRoute({
 const modelsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/route/models",
-  validateSearch: (search) => modelsListSearchSchema.parse(search),
+  validateSearch: (search) => { const r = modelsListSearchSchema.parse(search); console.log("VS: models raw=" + JSON.stringify(search) + " parsed=" + JSON.stringify(r) + " keys=" + Object.keys(r)); return r; },
   component: ProtectedModelsRoute,
 });
 const modelsExportRoute = createRoute({
@@ -492,6 +635,7 @@ const modelDetailRoute = createRoute({
   // canonical URL.
   validateSearch: (search) => {
     const canonicalSearch = modelDetailSearchSchema.parse(search);
+    console.log("VS: detail raw=" + JSON.stringify(search) + " keys=" + Object.keys(canonicalSearch));
     return { ...canonicalSearch, tab: undefined };
   },
   // Moving between two models (16 → 17) reuses this route match, so without a
@@ -636,5 +780,10 @@ export function createRewriteRouter(options: { history?: RouterHistory } = {}) {
     history: options.history ?? createBrowserHistory(),
     parseSearch: parsePlainSearch,
     stringifySearch: stringifyPlainSearch,
+    // Without these the router falls back to its own English surfaces, which
+    // is the only place in the console where an operator can end up on a page
+    // with no shell, no navigation and no localized copy.
+    defaultErrorComponent: RouteErrorComponent,
+    defaultPendingComponent: RouteFallback,
   });
 }

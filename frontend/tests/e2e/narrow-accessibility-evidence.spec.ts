@@ -365,14 +365,19 @@ test("narrow 390x844 observe page has no horizontal overflow and all tabs reacha
     await expect(tabs.nth(index)).toBeFocused();
   }
 
+  // The Terminal Target basis is a metrics scope switch, so it is the same
+  // segmented control as every other one — never tabs — and it carries the
+  // visible label the group is named by.
+  await expect(page.getByText("终端目标统计口径")).toBeVisible();
   const terminalScopes = page
-    .getByRole("tablist", { name: "终端目标统计口径" })
-    .getByRole("tab");
+    .getByRole("group", { name: "终端目标统计口径" })
+    .getByRole("radio");
   await expect(terminalScopes).toHaveCount(2);
   await terminalScopes.nth(0).focus();
   await page.keyboard.press("ArrowRight");
   await expect(terminalScopes.nth(1)).toBeFocused();
-  await expect(terminalScopes.nth(1)).toHaveAttribute("data-state", "active");
+  await page.keyboard.press("Space");
+  await expect(terminalScopes.nth(1)).toBeChecked();
 });
 
 /**
@@ -406,9 +411,11 @@ test("narrow 390x844 observe main chart exposes seven keyboard-operable metrics"
   expect(noHorizontalOverflow).toBe(true);
 
   // Fixed ingress order: requests, errors, first-token latency, output rate,
-  // tokens, cache read, cost.
+  // tokens, cache read, cost. The metrics this scope cannot serve stay in the
+  // strip, disabled and carrying their reason, so they are excluded by
+  // enabled-ness rather than by index.
   const metricGroup = chart.getByRole("group", { name: "指标" });
-  const metrics = metricGroup.getByRole("radio");
+  const metrics = metricGroup.getByRole("radio", { disabled: false });
   await expect(metrics).toHaveCount(7);
   const labels = await metrics.allInnerTexts();
   expect(labels).toEqual(SEVEN_METRICS);

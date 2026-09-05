@@ -189,7 +189,9 @@ function Sidebar({
           data-slot="sidebar"
           data-mobile="true"
           className={cn(
-            "w-(--sidebar-width-mobile) border-sidebar-border/70 bg-sidebar p-0 text-sidebar-foreground shadow-xl [&>button]:hidden",
+            // SheetContent 走 portal，取不到 SidebarProvider 内联在 wrapper 上的
+            // --sidebar-width-mobile，抽屉宽度会退化成由文案决定的一小条。
+            "w-[min(88vw,20rem)] border-sidebar-border/70 bg-sidebar p-0 text-sidebar-foreground shadow-xl [&>button]:hidden",
             className
           )}
           {...props}

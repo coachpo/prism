@@ -4,6 +4,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { LocaleProvider } from "@/i18n/LocaleProvider";
 import { PricingTemplateHistoryPanel } from "@/features/pricing/PricingTemplateHistoryPanel";
 import { PricingTemplatesTable } from "@/features/pricing/PricingTemplatesTable";
@@ -84,33 +85,36 @@ describe("pricing template source provenance", () => {
       it("shows the offering coordinate under a source-linked template row", () => {
             const { rerender } = render(
                   <LocaleProvider>
-                        <PricingTemplatesTable
-                              detailHistory={[]}
-                              detailHistoryError={null}
-                              detailHistoryLoading={false}
-                              detailUsage={[]}
-                              detailUsageError={null}
-                              detailUsageLoading={false}
-                              facts={
-                                    {
-                                          byId: new Map(),
-                                          failed: false,
-                                          loading: false,
-                                          refresh: vi.fn(),
-                                    } as never
-                              }
-                              filter="all"
-                              onDelete={vi.fn()}
-                              onEdit={vi.fn()}
-                              onFilterChange={vi.fn()}
-                              onLoadHistory={vi.fn()}
-                              onLoadUsage={vi.fn()}
-                              onRetry={vi.fn()}
-                              pricingTemplateError={null}
-                              pricingTemplatePreparingEditId={null}
-                              pricingTemplates={[sourceLinkedTemplate()]}
-                              pricingTemplatesLoading={false}
-                        />
+                        {/* 费率列的口径说明是 OperatorHelpHint，需要 TooltipProvider 才能挂载。 */}
+                        <TooltipProvider>
+                              <PricingTemplatesTable
+                                    detailHistory={[]}
+                                    detailHistoryError={null}
+                                    detailHistoryLoading={false}
+                                    detailUsage={[]}
+                                    detailUsageError={null}
+                                    detailUsageLoading={false}
+                                    facts={
+                                          {
+                                                byId: new Map(),
+                                                failed: false,
+                                                loading: false,
+                                                refresh: vi.fn(),
+                                          } as never
+                                    }
+                                    filter="all"
+                                    onDelete={vi.fn()}
+                                    onEdit={vi.fn()}
+                                    onFilterChange={vi.fn()}
+                                    onLoadHistory={vi.fn()}
+                                    onLoadUsage={vi.fn()}
+                                    onRetry={vi.fn()}
+                                    pricingTemplateError={null}
+                                    pricingTemplatePreparingEditId={null}
+                                    pricingTemplates={[sourceLinkedTemplate()]}
+                                    pricingTemplatesLoading={false}
+                              />
+                        </TooltipProvider>
                   </LocaleProvider>,
             );
 
@@ -121,42 +125,45 @@ describe("pricing template source provenance", () => {
             // A manual template carries no coordinate and must not render a placeholder.
             rerender(
                   <LocaleProvider>
-                        <PricingTemplatesTable
-                              detailHistory={[]}
-                              detailHistoryError={null}
-                              detailHistoryLoading={false}
-                              detailUsage={[]}
-                              detailUsageError={null}
-                              detailUsageLoading={false}
-                              facts={
-                                    {
-                                          byId: new Map(),
-                                          failed: false,
-                                          loading: false,
-                                          refresh: vi.fn(),
-                                    } as never
-                              }
-                              filter="all"
-                              onDelete={vi.fn()}
-                              onEdit={vi.fn()}
-                              onFilterChange={vi.fn()}
-                              onLoadHistory={vi.fn()}
-                              onLoadUsage={vi.fn()}
-                              onRetry={vi.fn()}
-                              pricingTemplateError={null}
-                              pricingTemplatePreparingEditId={null}
-                              pricingTemplates={[
-                                    sourceLinkedTemplate({
-                                          id: 42,
-                                          name: "Manual",
-                                          catalog_provider_id: null,
-                                          catalog_model_id: null,
-                                          revision_source: "manual",
-                                          catalog_revision: null,
-                                    }),
-                              ]}
-                              pricingTemplatesLoading={false}
-                        />
+                        {/* 费率列的口径说明是 OperatorHelpHint，需要 TooltipProvider 才能挂载。 */}
+                        <TooltipProvider>
+                              <PricingTemplatesTable
+                                    detailHistory={[]}
+                                    detailHistoryError={null}
+                                    detailHistoryLoading={false}
+                                    detailUsage={[]}
+                                    detailUsageError={null}
+                                    detailUsageLoading={false}
+                                    facts={
+                                          {
+                                                byId: new Map(),
+                                                failed: false,
+                                                loading: false,
+                                                refresh: vi.fn(),
+                                          } as never
+                                    }
+                                    filter="all"
+                                    onDelete={vi.fn()}
+                                    onEdit={vi.fn()}
+                                    onFilterChange={vi.fn()}
+                                    onLoadHistory={vi.fn()}
+                                    onLoadUsage={vi.fn()}
+                                    onRetry={vi.fn()}
+                                    pricingTemplateError={null}
+                                    pricingTemplatePreparingEditId={null}
+                                    pricingTemplates={[
+                                          sourceLinkedTemplate({
+                                                id: 42,
+                                                name: "Manual",
+                                                catalog_provider_id: null,
+                                                catalog_model_id: null,
+                                                revision_source: "manual",
+                                                catalog_revision: null,
+                                          }),
+                                    ]}
+                                    pricingTemplatesLoading={false}
+                              />
+                        </TooltipProvider>
                   </LocaleProvider>,
             );
             expect(
@@ -180,6 +187,7 @@ describe("pricing template source provenance", () => {
                                           catalog_revision: null,
                                     }),
                               ]}
+                              template={sourceLinkedTemplate()}
                         />
                   </LocaleProvider>,
             );
@@ -205,6 +213,7 @@ describe("pricing template source provenance", () => {
                                                 "future_kind" as never,
                                     }),
                               ]}
+                              template={sourceLinkedTemplate()}
                         />
                   </LocaleProvider>,
             );

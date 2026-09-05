@@ -84,6 +84,9 @@ function getResolvedState() {
     scope,
     explicitScope,
     activeSectionId: resolveSection(scope, sectionParam),
+    // 深链才滚：section 参数缺省时也会回落到一个默认分区，
+    // 拿它当滚动依据的话，裸 /system/settings 落地就已经滚过了页头。
+    explicitSection: sectionBelongsToScope,
     shouldNormalize: !explicitScope
       || (sectionParam !== "" && !sectionBelongsToScope)
       || getSearchParam("tab") !== ""
@@ -97,12 +100,14 @@ export function useSettingsPageSectionState() {
   const [initialState] = useState(getResolvedState);
   const [scope, setScopeState] = useState<SettingsScope>(initialState.scope);
   const [activeSectionId, setActiveSectionIdState] = useState<string>(initialState.activeSectionId);
+  const [explicitSection, setExplicitSectionState] = useState<boolean>(initialState.explicitSection);
 
   useEffect(() => {
     const handleLocationStateChange = () => {
       const nextState = getResolvedState();
       setScopeState(nextState.scope);
       setActiveSectionIdState(nextState.activeSectionId);
+      setExplicitSectionState(nextState.explicitSection);
       if (nextState.shouldNormalize) {
         const currentSection = getSearchParam("section");
         const sectionIsValid = (nextState.scope === "global" ? GLOBAL_SECTION_IDS : INSTANCE_SECTION_IDS).has(currentSection);
@@ -153,8 +158,9 @@ export function useSettingsPageSectionState() {
   return useMemo(() => ({
     scope,
     activeSectionId,
+    explicitSection,
     jumpToSection,
     setActiveSectionId,
     setScope,
-  }), [scope, activeSectionId, jumpToSection, setActiveSectionId, setScope]);
+  }), [scope, activeSectionId, explicitSection, jumpToSection, setActiveSectionId, setScope]);
 }

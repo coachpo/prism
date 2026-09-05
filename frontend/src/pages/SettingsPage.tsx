@@ -29,6 +29,7 @@ export function SettingsPage() {
     scope,
     setScope,
     activeSectionId,
+    explicitSection,
     setActiveSectionId,
     jumpToSection,
   } = useSettingsPageSectionState();
@@ -39,8 +40,10 @@ export function SettingsPage() {
   }, []);
   const isAuditConfigurationFocused = scope === SETTINGS_SCOPES.global && activeSectionId === "audit-privacy";
 
+  // 只有 URL 里显式带了 section 才滚。没带时 activeSectionId 也会回落到默认分区，
+  // 无条件滚动会让页头、h1 与这一族唯一的新鲜度条一落地就在视口之外。
   useEffect(() => {
-    if (!activeSectionId) return;
+    if (!activeSectionId || !explicitSection) return;
     const frame = window.requestAnimationFrame(() => {
       const target = document.getElementById(activeSectionId);
       if (!target) return;
@@ -48,7 +51,7 @@ export function SettingsPage() {
       target.focus({ preventScroll: true });
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [activeSectionId, scope]);
+  }, [activeSectionId, explicitSection, scope]);
 
   const handleJumpToSection = (sectionId: string) => {
     const target = document.getElementById(sectionId);

@@ -67,7 +67,9 @@ export function SiteHeader({
               </BreadcrumbPage>
             ) : breadcrumb.href ? (
               <BreadcrumbLink asChild className="truncate">
-                <Link to={breadcrumb.href}>{breadcrumb.label}</Link>
+                <Link to={breadcrumb.href} search={breadcrumb.search}>
+                  {breadcrumb.label}
+                </Link>
               </BreadcrumbLink>
             ) : (
               <span className="truncate text-muted-foreground">{breadcrumb.label}</span>

@@ -1,5 +1,10 @@
 import type { ComponentProps } from "react";
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 type ButtonProps = ComponentProps<typeof Button>;
@@ -33,7 +38,7 @@ export function IconActionButton({
   type = "button",
   ...props
 }: IconActionButtonProps) {
-  return (
+  const button = (
     <Button
       type={type}
       variant="ghost"
@@ -45,5 +50,19 @@ export function IconActionButton({
       )}
       {...props}
     />
+  );
+
+  // 只有图标的按钮必须带 tooltip：这一组里往往夹着一个不可逆的删除，
+  // 光看图标分不出来。有可见文本时不重复挂。
+  const tooltipLabel = props["aria-label"];
+  if (props.children || !tooltipLabel) {
+    return button;
+  }
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{button}</TooltipTrigger>
+      <TooltipContent>{tooltipLabel}</TooltipContent>
+    </Tooltip>
   );
 }

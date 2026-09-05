@@ -56,6 +56,7 @@ export function useRequestLogAuditRequest({
       phase: "loading",
       request: null,
       captureMode: null,
+      fetchedAt: null,
       error: null,
     });
     void (async () => {
@@ -63,8 +64,9 @@ export function useRequestLogAuditRequest({
         const response = await api.stats.requestDetail(requestId);
         if (cancelled) return;
         const captureMode = resolveRequestAuditCaptureMode(response.routing);
+        const fetchedAt = new Date().toISOString();
         if (captureMode === "disabled") {
-          setRequest({ phase: "disabled", request: response, captureMode, error: null });
+          setRequest({ phase: "disabled", request: response, captureMode, fetchedAt, error: null });
           return;
         }
         if (!parseAuditWindow(response)) {
@@ -72,11 +74,12 @@ export function useRequestLogAuditRequest({
             phase: "invalid_timestamp",
             request: response,
             captureMode,
+            fetchedAt,
             error: null,
           });
           return;
         }
-        setRequest({ phase: "ready", request: response, captureMode, error: null });
+        setRequest({ phase: "ready", request: response, captureMode, fetchedAt, error: null });
       } catch (error) {
         if (cancelled) return;
         if (isRequestLogAuditMissing(error)) {
@@ -87,6 +90,7 @@ export function useRequestLogAuditRequest({
           phase: "error",
           request: null,
           captureMode: null,
+          fetchedAt: null,
           error: getRequestLogAuditErrorMessage(
             error,
             messages.requestLogs.loadFailed,

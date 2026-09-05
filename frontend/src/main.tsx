@@ -8,11 +8,18 @@ import {
   applyDensityMode,
   readDensityMode,
 } from "@/components/layout/app-layout/densityMode";
+import {
+  applyThemeMode,
+  readThemeMode,
+} from "@/components/layout/app-layout/themeMode";
 import "./index.css";
 import App from "./App.tsx";
 
 // Before first paint, so a compact operator never sees a standard-density flash.
 applyDensityMode(readDensityMode());
+// Same reason: next-themes only lands on the first React commit, so a dark
+// operator would otherwise get a full light frame on every cold load.
+applyThemeMode(readThemeMode());
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

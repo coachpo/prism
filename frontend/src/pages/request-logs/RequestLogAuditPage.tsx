@@ -1,9 +1,9 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import {
-  AlertTriangle,
   ArrowLeft,
   RefreshCw,
+  SearchX,
   ShieldOff,
   Terminal,
 } from "lucide-react";
@@ -18,12 +18,14 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Separator } from "@/components/ui/separator";
-import { Skeleton } from "@/components/ui/skeleton";
 import { useTimezone } from "@/hooks/useTimezone";
 import { useLocale } from "@/i18n/useLocale";
 import type { ApiFamily, AuditLogDetail, AuditLogListItem } from "@/lib/types";
 import {
+  OperatorClippedBadge,
+  OperatorEmptyState,
   OperatorErrorState,
+  OperatorLoadingState,
   OperatorMissingValue,
   OperatorPageHeader,
   OperatorTypeBadge,
@@ -73,55 +75,18 @@ function getCaptureLabel(
   return messages.requestLogs.auditDisabledAtRequest;
 }
 
-function StatusPanel({
-  action,
-  description,
-  status,
-  title,
-}: {
-  action?: ReactNode;
-  description: string;
-  status: "neutral" | "warning" | "error";
-  title: string;
-}) {
-  const icon =
-    status === "neutral" ? (
-      <ShieldOff className="mt-0.5 size-5 shrink-0 text-muted-foreground" />
-    ) : (
-      <AlertTriangle className="mt-0.5 size-5 shrink-0 text-degraded" />
-    );
-
+/**
+ * `OperatorEmptyState` carries the empty-state spec but no live region, and a
+ * silent body is exactly what a screen-reader user hits when tabbing down this
+ * page. The states that are "nothing is here" rather than "a read failed" get
+ * announced politely from here; failures use `OperatorErrorState`'s own
+ * `role="alert"`.
+ */
+function AuditStateRegion({ children }: { children: ReactNode }) {
   return (
-    <Card
-      className={status === "error" ? "border-destructive/35" : "border-border"}
-    >
-      <CardContent className="flex flex-col gap-4 pt-0 sm:flex-row sm:items-start sm:justify-between">
-        <div className="flex items-start gap-3">
-          {icon}
-          <div className="flex flex-col gap-1">
-            <p className="text-sm font-medium">{title}</p>
-            <p className="max-w-2xl text-sm text-muted-foreground">
-              {description}
-            </p>
-          </div>
-        </div>
-        {action ? <div className="shrink-0">{action}</div> : null}
-      </CardContent>
-    </Card>
-  );
-}
-function LoadingCard() {
-  return (
-    <Card className="border-border">
-      <CardHeader>
-        <Skeleton className="h-5 w-48" />
-        <Skeleton className="h-4 w-72" />
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3">
-        <Skeleton className="h-24 w-full rounded-lg" />
-        <Skeleton className="h-24 w-full rounded-lg" />
-      </CardContent>
-    </Card>
+    <div role="status" aria-live="polite">
+      {children}
+    </div>
   );
 }
 
@@ -163,7 +128,9 @@ function AuditRecordsTable({
         </p>
       </CardHeader>
       <CardContent className="p-0">
-        <div className="overflow-x-auto">
+        {/* 列表要有高度上限：20 行不封顶就把详情卡推到首屏之外，
+            每切一条记录都要付一个来回的滚动。 */}
+        <div className="max-h-[24rem] overflow-auto">
           <Table aria-label={copy.auditRecordList}>
             <TableHeader>
               <TableRow>
@@ -502,7 +469,7 @@ export function RequestLogAuditPage({
   const auditCursor = searchParams.get("cursor")?.trim() || null;
   const selectedAuditId = parsePositiveAuditId(auditIdParam);
   const { format } = useTimezone();
-  const { messages } = useLocale();
+  const { formatNumber, messages } = useLocale();
   const requestIdLabel = requestIdParam?.trim() || "";
   const defaultAuditPath =
     requestId === null
@@ -520,6 +487,27 @@ export function RequestLogAuditPage({
   const detailLane = state.detail;
   const auditRequestApiFamily =
     (requestLane.request?.summary.api_family as ApiFamily | null) ?? null;
+  const detailAnchorRef = useRef<HTMLDivElement>(null);
+  const previousDetailIdRef = useRef<number | null>(null);
+  const selectedDetailId = detailLane.selectedAuditId;
+
+  // 选中一条记录后详情卡必然落在首屏之外，页面既不滚动也不提示，第一次点的
+  // 人会以为没反应。只在记录之间切换时滚动——落地时把页头滚掉是另一个问题。
+  useEffect(() => {
+    const previous = previousDetailIdRef.current;
+    previousDetailIdRef.current = selectedDetailId;
+    if (selectedDetailId === null || previous === null) return;
+    if (previous === selectedDetailId) return;
+    const anchor = detailAnchorRef.current;
+    if (!anchor) return;
+    const reduceMotion = window.matchMedia?.(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+    anchor.scrollIntoView({
+      block: "start",
+      behavior: reduceMotion ? "auto" : "smooth",
+    });
+  }, [selectedDetailId]);
 
   const requestFailureCopy = (() => {
     switch (requestLane.phase) {
@@ -539,6 +527,26 @@ export function RequestLogAuditPage({
     }
   })();
 
+  const requestFailureActions = (
+    <>
+      <Button variant="outline" size="sm" onClick={state.retryRequest}>
+        <RefreshCw data-icon="inline-start" />
+        {messages.common.retry}
+      </Button>
+      <Button variant="outline" size="sm" asChild>
+        <Link to="/observe/requests">
+          {messages.requestLogs.returnToRequestList}
+        </Link>
+      </Button>
+    </>
+  );
+
+  // 后端把不确定性作为一等数据发过来了：窗口内没有返回记录，且这次查询
+  // 覆盖不完整时，「未找到审计记录」是在替一段被删掉的证据下结论。
+  const listCoverage = listLane.coverage;
+  const listCoverageIncomplete = listCoverage?.complete === false;
+  const listCoverageGapCount = listCoverage?.gaps.length ?? 0;
+
   return (
     <div
       className="flex flex-col gap-6 pb-8"
@@ -549,13 +557,15 @@ export function RequestLogAuditPage({
         title={messages.requestLogs.auditPageTitle(requestIdLabel || "-")}
         description={messages.requestLogs.auditPageDescription}
       >
+        {/* query 串写进 to 不会被路由解析：request_id 与时间窗必须走 search，
+            否则这条出口把操作者扔进一个空的默认 24h 列表。 */}
         <Button variant="outline" asChild>
           <Link
-            to={
-              requestId === null
-                ? "/observe/requests"
-                : `/observe/requests?request_id=${requestId}`
-            }
+            to="/observe/requests"
+            search={{
+              request_id: requestId ?? undefined,
+              time_range: "all",
+            }}
           >
             <ArrowLeft data-icon="inline-start" />
             {messages.requestLogs.viewRequestInLogs}
@@ -564,19 +574,19 @@ export function RequestLogAuditPage({
       </OperatorPageHeader>
 
       {invalidRequestId(requestId, requestIdParam) ? (
-        <StatusPanel
+        <OperatorErrorState
+          testId="audit-invalid-route"
+          title={messages.requestLogs.invalidRequestAuditRouteTitle}
+          description={messages.requestLogs.invalidRequestAuditRouteDescription(
+            requestIdLabel,
+          )}
           action={
-            <Button variant="outline" asChild>
+            <Button variant="outline" size="sm" asChild>
               <Link to="/observe/requests">
                 {messages.requestLogs.returnToRequestList}
               </Link>
             </Button>
           }
-          description={messages.requestLogs.invalidRequestAuditRouteDescription(
-            requestIdLabel,
-          )}
-          status="neutral"
-          title={messages.requestLogs.invalidRequestAuditRouteTitle}
         />
       ) : null}
 
@@ -585,6 +595,10 @@ export function RequestLogAuditPage({
       {requestLane.request ? (
         <>
           <RequestLogAuditWindowBar
+            coverage={listLane.coverage}
+            lastFetchedAt={state.lastFetchedAt}
+            onRefresh={state.refresh}
+            refreshing={state.refreshing}
             requestCreatedAt={requestLane.request.summary.created_at}
           />
           <Card
@@ -618,47 +632,72 @@ export function RequestLogAuditPage({
         </>
       ) : null}
 
-      {requestLane.phase === "loading" ? <LoadingCard /> : null}
+      {requestLane.phase === "loading" ? (
+        <OperatorLoadingState title={messages.requestLogs.auditRequestLoading} />
+      ) : null}
 
       {requestFailureCopy ? (
-        <StatusPanel
-          action={
-            <>
-              <Button variant="outline" onClick={state.retryRequest}>
-                <RefreshCw data-icon="inline-start" />
-                {messages.common.retry}
-              </Button>
-              <Button variant="outline" asChild>
-                <Link to="/observe/requests">
-                  {messages.requestLogs.returnToRequestList}
-                </Link>
-              </Button>
-            </>
-          }
-          description={requestFailureCopy.description}
-          status={requestLane.phase === "error" ? "error" : "neutral"}
-          title={requestFailureCopy.title}
-        />
+        requestLane.phase === "error" ? (
+          <OperatorErrorState
+            testId="audit-request-error"
+            title={requestFailureCopy.title}
+            description={requestFailureCopy.description}
+            action={requestFailureActions}
+          />
+        ) : (
+          <AuditStateRegion>
+            <OperatorEmptyState
+              testId="audit-request-missing"
+              icon={<SearchX />}
+              title={requestFailureCopy.title}
+              description={requestFailureCopy.description}
+              action={requestFailureActions}
+            />
+          </AuditStateRegion>
+        )
       ) : null}
 
       {requestLane.phase === "disabled" ? (
-        <StatusPanel
-          description={messages.requestLogs.auditDisabledDescription}
-          status="neutral"
-          title={messages.requestLogs.auditDisabledAtRequest}
-        />
+        <AuditStateRegion>
+          <OperatorEmptyState
+            testId="audit-disabled"
+            icon={<ShieldOff />}
+            title={messages.requestLogs.auditDisabledAtRequest}
+            description={messages.requestLogs.auditDisabledDescription}
+            action={
+              // 解释了原因却不给去处，这一屏就是死胡同：审计开关就在系统设置里。
+              <Button variant="outline" size="sm" asChild>
+                <Link
+                  to="/system/settings"
+                  search={{ scope: "global", section: "audit-privacy" }}
+                >
+                  {messages.requestLogs.auditDisabledSettingsLink}
+                </Link>
+              </Button>
+            }
+          />
+        </AuditStateRegion>
       ) : null}
 
       {requestLane.phase === "invalid_timestamp" ? (
-        <StatusPanel
-          description={messages.requestLogs.invalidAuditTimestampDescription}
-          status="warning"
+        <OperatorErrorState
+          testId="audit-invalid-timestamp"
           title={messages.requestLogs.invalidAuditTimestampTitle}
+          description={messages.requestLogs.invalidAuditTimestampDescription}
+          action={
+            <Button variant="outline" size="sm" asChild>
+              <Link to="/observe/requests">
+                {messages.requestLogs.returnToRequestList}
+              </Link>
+            </Button>
+          }
         />
       ) : null}
 
       {/* Lane 2: the audit record page. */}
-      {listLane.phase === "loading" ? <LoadingCard /> : null}
+      {listLane.phase === "loading" ? (
+        <OperatorLoadingState title={messages.requestLogs.auditListLoading} />
+      ) : null}
 
       {listLane.phase === "error" ? (
         <OperatorErrorState
@@ -683,11 +722,35 @@ export function RequestLogAuditPage({
       ) : null}
 
       {listLane.phase === "empty" ? (
-        <StatusPanel
-          description={messages.requestLogs.noAuditRecordsDescription}
-          status="neutral"
-          title={messages.requestLogs.noAuditRecords}
-        />
+        <AuditStateRegion>
+          <OperatorEmptyState
+            testId="audit-no-records"
+            title={
+              listCoverageIncomplete
+                ? messages.requestLogs.auditCoverageIncompleteTitle
+                : messages.requestLogs.noAuditRecords
+            }
+            description={
+              listCoverageIncomplete ? (
+                <span className="inline-flex flex-col items-center gap-2">
+                  <span>
+                    {listCoverageGapCount > 0
+                      ? messages.requestLogs.auditCoverageIncompleteDescription(
+                          formatNumber(listCoverageGapCount),
+                        )
+                      : messages.requestLogs.auditCoverageIncompleteNoGaps}
+                  </span>
+                  <OperatorClippedBadge
+                    label={messages.honesty.outsideRetention}
+                    reason={messages.honesty.outsideRetentionReason}
+                  />
+                </span>
+              ) : (
+                messages.requestLogs.noAuditRecordsDescription
+              )
+            }
+          />
+        </AuditStateRegion>
       ) : null}
 
       {requestId !== null && listLane.items.length > 0 ? (
@@ -700,46 +763,57 @@ export function RequestLogAuditPage({
             requestId={requestId}
             selectedAuditId={detailLane.selectedAuditId}
           />
-          <div className="flex min-w-0 flex-col gap-4">
+          <div className="flex min-w-0 flex-col gap-4" ref={detailAnchorRef}>
             {/* Lane 3: the selected record's payload. Its states compose below
                 the list; a failure here never removes the list or the context. */}
             {detailLane.phase === "missing_selection" ? (
-              <StatusPanel
-                action={
-                  <Button variant="outline" asChild>
-                    <Link to={defaultAuditPath}>
-                      {messages.requestLogs.showDefaultAuditRecord}
-                    </Link>
-                  </Button>
-                }
-                description={messages.requestLogs.missingAuditRecordDescription(
-                  detailLane.missingAuditLabel ?? "",
-                )}
-                status="warning"
-                title={messages.requestLogs.missingAuditRecordTitle}
+              <AuditStateRegion>
+                <OperatorEmptyState
+                  testId="audit-missing-selection"
+                  icon={<SearchX />}
+                  title={messages.requestLogs.missingAuditRecordTitle}
+                  description={messages.requestLogs.missingAuditRecordDescription(
+                    detailLane.missingAuditLabel ?? "",
+                  )}
+                  action={
+                    <Button variant="outline" size="sm" asChild>
+                      <Link to={defaultAuditPath}>
+                        {messages.requestLogs.showDefaultAuditRecord}
+                      </Link>
+                    </Button>
+                  }
+                />
+              </AuditStateRegion>
+            ) : null}
+            {detailLane.phase === "loading" ? (
+              <OperatorLoadingState
+                title={messages.requestLogs.auditPayloadLoading}
               />
             ) : null}
-            {detailLane.phase === "loading" ? <LoadingCard /> : null}
             {detailLane.phase === "error" ? (
-              <StatusPanel
+              <OperatorErrorState
+                testId="audit-detail-error"
+                title={messages.requestLogs.auditDetailLoadFailedTitle}
+                description={messages.honesty.readFailedDescription}
+                details={detailLane.error}
+                detailsLabel={messages.honesty.viewDetails}
                 action={
                   <>
-                    <Button variant="outline" onClick={state.retryDetail}>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={state.retryDetail}
+                    >
                       <RefreshCw data-icon="inline-start" />
                       {messages.common.retry}
                     </Button>
-                    <Button variant="outline" asChild>
+                    <Button variant="outline" size="sm" asChild>
                       <Link to={defaultAuditPath}>
                         {messages.requestLogs.showDefaultAuditRecord}
                       </Link>
                     </Button>
                   </>
                 }
-                description={
-                  detailLane.error ?? messages.requestLogs.auditDetailLoadFailed
-                }
-                status="error"
-                title={messages.requestLogs.auditDetailLoadFailedTitle}
               />
             ) : null}
             {detailLane.detail && auditRequestApiFamily ? (

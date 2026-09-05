@@ -54,6 +54,7 @@ export function useRequestLogAuditDetail({
         detail: null,
         selectedAuditId: null,
         missingAuditLabel: selectedAuditParamLabel,
+        fetchedAt: null,
         error: null,
       });
       return;
@@ -69,6 +70,7 @@ export function useRequestLogAuditDetail({
       detail: null,
       selectedAuditId: selected.id,
       missingAuditLabel: null,
+      fetchedAt: null,
       error: null,
     });
     void (async () => {
@@ -80,6 +82,7 @@ export function useRequestLogAuditDetail({
           detail: response,
           selectedAuditId: selected.id,
           missingAuditLabel: null,
+          fetchedAt: new Date().toISOString(),
           error: null,
         });
       } catch (error) {
@@ -89,6 +92,7 @@ export function useRequestLogAuditDetail({
           detail: null,
           selectedAuditId: selected.id,
           missingAuditLabel: null,
+          fetchedAt: null,
           error: getRequestLogAuditErrorMessage(
             error,
             messages.requestLogs.auditDetailLoadFailed,

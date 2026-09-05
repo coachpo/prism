@@ -150,7 +150,9 @@ export const SHELL_ROUTE_METADATA: readonly ShellRouteMetadata[] = [
     groupId: "system",
     id: "settings",
     pathPattern: "/system/settings",
-    sidebarItem: { groupId: "system", icon: Settings, id: "settings", labelKey: "settings", to: "/system/settings?scope=global&section=billing-currency" },
+    // 一个视图一个规范地址：侧栏原来落到带 section 的那一个、面包屑回链落到裸路径，
+    // 同一份内容有了两个合法 URL、两种面包屑形态。分区选择交给页内的分区导航。
+    sidebarItem: { groupId: "system", icon: Settings, id: "settings", labelKey: "settings", to: "/system/settings" },
     sidebarItemId: "settings",
   },
   {
@@ -184,6 +186,8 @@ type ShellBreadcrumbLeafId =
 export interface ShellBreadcrumbItem {
   current: boolean;
   href: string | null;
+  /** 回程的查询参数。路由不解析写进 href 的 query 串，必须单独带上。 */
+  search?: Record<string, string>;
   id: ShellRouteId | ShellSidebarGroupId | ShellBreadcrumbLeafId;
   label: string;
 }
@@ -323,6 +327,12 @@ function buildBreadcrumbs(
   crumbs.push({
     current: !entityLabel,
     href: entityLabel ? pageHref : null,
+    // 审计页不知道操作者原本的时间窗，但默认的 24 小时几乎肯定不含这条请求。
+    // 回到保留期内的全部时间，至少保证落点不是一个空列表。
+    search:
+      entityLabel && route.id === "request-log-audit"
+        ? { time_range: "all" }
+        : undefined,
     id: route.id,
     label: getPageLabel(messages, route),
   });

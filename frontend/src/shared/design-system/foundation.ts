@@ -107,9 +107,12 @@ export const operatorColorTokens: readonly OperatorColorToken[] = [
   // Runtime status — four tiers
   { name: "healthy", light: "#0f7b4f", dark: "#66d9a0", against: "panel", minContrast: 4.5, role: "status" },
   { name: "degraded", light: "#8c5200", dark: "#f5c063", against: "panel", minContrast: 4.5, role: "status" },
-  { name: "failing", light: "#c0342b", dark: "#f4a9a3", against: "panel", minContrast: 4.5, role: "status" },
+  { name: "failing", light: "#c0342b", dark: "#ff8a80", against: "panel", minContrast: 4.5, role: "status" },
   { name: "idle", light: "#5b6370", dark: "#8a93a1", against: "panel", minContrast: 4.5, role: "status" },
-  { name: "destructive", light: "#c0342b", dark: "#f4a9a3", against: "panel", minContrast: 4.5, role: "status" },
+  { name: "destructive", light: "#c0342b", dark: "#ff6b61", against: "panel", minContrast: 4.5, role: "status" },
+  // Text on a filled destructive button. Measured against `destructive`, not
+  // `panel`, so it carries no panel floor of its own.
+  { name: "on-destructive", light: "#ffffff", dark: "#2b0705", against: null, minContrast: null, role: "status" },
 
   // Spectrum — categorical data encoding, graphics threshold
   { name: "spectrum-1", light: "#1e4fd8", dark: "#9fbeff", against: "panel", minContrast: 3, role: "spectrum" },

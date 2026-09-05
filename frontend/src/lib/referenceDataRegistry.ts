@@ -5,6 +5,7 @@ import type {
   LoadbalanceStrategy,
   ModelConfigListItem,
   PricingTemplate,
+  ProxyApiKey,
 } from "@/lib/types";
 
 export interface ReferenceDataMap {
@@ -13,6 +14,7 @@ export interface ReferenceDataMap {
   loadbalanceStrategies: LoadbalanceStrategy[];
   models: ModelConfigListItem[];
   pricingTemplates: PricingTemplate[];
+  proxyKeys: ProxyApiKey[];
 }
 
 export type ReferenceDataKind = keyof ReferenceDataMap;
@@ -49,6 +51,12 @@ export const referenceDataRegistry = {
   },
   pricingTemplates: {
     load: () => api.pricingTemplates.list(),
+  },
+  proxyKeys: {
+    load: async () => {
+      const response = await api.settings.auth.proxyKeys.list();
+      return response.items;
+    },
   },
 } satisfies ReferenceDataRegistry;
 

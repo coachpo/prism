@@ -138,6 +138,7 @@ export function ObserveSeriesTable({
                 {metric === "errors" ? (
                   <TableCell className="text-right font-mono tabular-nums">
                     <Cell
+                      reason={copy.seriesNoWindowSample}
                       value={item.points.reduce(
                         (total, point) =>
                           total +
@@ -151,6 +152,7 @@ export function ObserveSeriesTable({
                 {metric === "tokens" ? (
                   <TableCell className="text-right font-mono tabular-nums">
                     <Cell
+                      reason={copy.seriesNoWindowSample}
                       value={sumWindowValues(
                         item.points.map((point) => point.total_tokens),
                       )}
@@ -173,20 +175,40 @@ export function ObserveSeriesTable({
                 {metric === "requests" ? (
                   <>
                     <TableCell className="text-right font-mono tabular-nums">
-                      <Cell value={lastPoint?.http_success_count} />
+                      <Cell
+                        reason={copy.seriesNoBucketObservation}
+                        value={lastPoint?.http_success_count}
+                      />
                     </TableCell>
                     <TableCell className="text-right font-mono tabular-nums">
-                      <Cell value={lastPoint?.http_failed_count} />
+                      <Cell
+                        reason={copy.seriesNoBucketObservation}
+                        value={lastPoint?.http_failed_count}
+                      />
                     </TableCell>
                   </>
                 ) : null}
                 {isLatencyMetric(metric) ? (
                   <>
                     <TableCell className="text-right font-mono tabular-nums">
-                      <Cell value={lastPoint?.p50_ttft_ms} />
+                      <Cell
+                        reason={
+                          lastPoint
+                            ? copy.bucketNoLatencySample
+                            : copy.seriesNoBucketObservation
+                        }
+                        value={lastPoint?.p50_ttft_ms}
+                      />
                     </TableCell>
                     <TableCell className="text-right font-mono tabular-nums">
-                      <Cell value={lastPoint?.p95_ttft_ms} />
+                      <Cell
+                        reason={
+                          lastPoint
+                            ? copy.bucketNoLatencySample
+                            : copy.seriesNoBucketObservation
+                        }
+                        value={lastPoint?.p95_ttft_ms}
+                      />
                     </TableCell>
                   </>
                 ) : null}
@@ -228,7 +250,8 @@ export function ObserveSeriesTable({
 function OutputRateCell({ point }: { point: SeriesPoint | undefined }) {
   const { messages } = useLocale();
   const copy = messages.observe;
-  if (!point) return <OperatorMissingValue reason={messages.honesty.noValue} />;
+  if (!point)
+    return <OperatorMissingValue reason={copy.seriesNoBucketObservation} />;
   const rate = bucketOutputRate(point);
   if (rate.kind === "no_sample") {
     return <OperatorMissingValue reason={copy.noSampleReason} />;
@@ -249,7 +272,8 @@ function OutputRateCell({ point }: { point: SeriesPoint | undefined }) {
 function CacheShareCell({ point }: { point: SeriesPoint | undefined }) {
   const { messages } = useLocale();
   const copy = messages.observe;
-  if (!point) return <OperatorMissingValue reason={messages.honesty.noValue} />;
+  if (!point)
+    return <OperatorMissingValue reason={copy.seriesNoBucketObservation} />;
   const share = bucketCacheReadShare(point);
   if (share.kind === "no_comparable_rows") {
     return <OperatorMissingValue reason={copy.bucketNoComparableReason} />;
@@ -284,15 +308,25 @@ function SampleBasisCell({
     requests === null ||
     requests === undefined
   ) {
-    return <OperatorMissingValue reason={messages.honesty.noValue} />;
+    return (
+      <OperatorMissingValue
+        reason={messages.observe.seriesNoBucketObservation}
+      />
+    );
   }
   return <>{`${formatNumber(measured)} / ${formatNumber(requests)}`}</>;
 }
 
-function Cell({ value }: { value: number | null | undefined }) {
-  const { formatNumber, messages } = useLocale();
+function Cell({
+  reason,
+  value,
+}: {
+  reason: string;
+  value: number | null | undefined;
+}) {
+  const { formatNumber } = useLocale();
   if (value === null || value === undefined || Number.isNaN(value)) {
-    return <OperatorMissingValue reason={messages.honesty.noValue} />;
+    return <OperatorMissingValue reason={reason} />;
   }
   return <>{formatNumber(value)}</>;
 }
@@ -313,7 +347,9 @@ function sumWindowValues(
 function MoneyCell({ micros }: { micros: number | null }) {
   const { messages } = useLocale();
   if (micros === null) {
-    return <OperatorMissingValue reason={messages.honesty.noValue} />;
+    return (
+      <OperatorMissingValue reason={messages.observe.noTrustedCostSample} />
+    );
   }
   return <>{formatMoneyMicros(micros, getActiveReportingCurrency().symbol)}</>;
 }

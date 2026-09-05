@@ -8,6 +8,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { LocaleProvider } from "@/i18n/LocaleProvider";
 import { LoadbalanceEventsFragment } from "@/features/observe/LoadbalanceEventsFragment";
 
@@ -72,12 +73,16 @@ function StatefulHarness({
   return (
     <QueryClientProvider client={new QueryClient()}>
       <LocaleProvider>
-        <LoadbalanceEventsFragment
-          search={search}
-          onSearchChange={(patch) =>
-            setSearch((current) => ({ ...current, ...patch }))
-          }
-        />
+        {/* 列头的口径说明是 OperatorHelpHint（tooltip），和 main.tsx 一样需要
+            TooltipProvider 才能挂载。 */}
+        <TooltipProvider>
+          <LoadbalanceEventsFragment
+            search={search}
+            onSearchChange={(patch) =>
+              setSearch((current) => ({ ...current, ...patch }))
+            }
+          />
+        </TooltipProvider>
       </LocaleProvider>
     </QueryClientProvider>
   );

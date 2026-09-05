@@ -188,6 +188,19 @@ export function getColumns(): ColumnDef[] {
       ),
     },
     {
+      // 审计页是 /observe/requests/:requestId/audit：列表上没有请求 ID，
+      // 一行就没法和一条深链对上，也没法粘到别处去查。
+      key: "request_id",
+      label: messages.requestId,
+      width: 132,
+      grow: 0,
+      render: (row) => (
+        <span className="block truncate font-mono text-xs">
+          {row.request_log_id}
+        </span>
+      ),
+    },
+    {
       key: "status_code",
       label: messages.status,
       width: 84,

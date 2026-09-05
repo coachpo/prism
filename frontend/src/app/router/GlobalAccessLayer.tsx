@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useAuth } from "@/context/useAuth";
 import { useLocale } from "@/i18n/useLocale";
+import { useTimezone } from "@/hooks/useTimezone";
 import { Button } from "@/components/ui/button";
 import { OperatorCallout, OperatorLoadingState } from "@/shared/design-system";
 import { AuthPageShell } from "@/pages/AuthPageShell";
@@ -15,6 +16,7 @@ export function GlobalAccessLayer() {
   const { phase, retryLogout, retryRecovery, logout } = useAuth();
   const navigate = useNavigate();
   const { messages } = useLocale();
+  const { format: formatTime } = useTimezone();
   const blockerRef = useRef<HTMLDivElement | null>(null);
 
   // Trap focus inside the blocker while it is mounted.
@@ -85,6 +87,22 @@ export function GlobalAccessLayer() {
         <AuthPageShell title={messages.auth.unavailableTitle} description={messages.auth.unavailableDescription}>
           <div className="flex flex-col items-start gap-3">
             <OperatorCallout intent="danger">{messages.auth.unavailableHint}</OperatorCallout>
+            {/* 这道门是全站范围的，所以它必须说清自己已经替操作者试过什么、
+                上一次确认是什么时候，而不只是给一个按钮。 */}
+            <ul className="flex list-none flex-col gap-1 text-xs text-muted-foreground">
+              <li>
+                {phase.auto_retry_attempts
+                  ? messages.auth.unavailableRetryAttempts(phase.auto_retry_attempts)
+                  : messages.auth.unavailableNoAutoRetry}
+              </li>
+              <li>
+                {phase.last_confirmed_at
+                  ? messages.auth.unavailableLastConfirmed(
+                      formatTime(new Date(phase.last_confirmed_at).toISOString()),
+                    )
+                  : messages.auth.unavailableNeverConfirmed}
+              </li>
+            </ul>
             <Button onClick={() => void retryRecovery()}>{messages.auth.retryAuthStatus}</Button>
           </div>
         </AuthPageShell>

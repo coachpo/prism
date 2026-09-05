@@ -1,5 +1,5 @@
 import { api } from "@/lib/api";
-import { formatTimestampForLocale, getCurrentLocale, type Locale } from "@/i18n/format";
+import { formatTimestampForLocale, formatTimestampWithZoneForLocale, getCurrentLocale, type Locale } from "@/i18n/format";
 import { getStaticMessages } from "@/i18n/staticMessages";
 
 const timezonePreferenceCache = new Map<string, string | null>();
@@ -55,6 +55,16 @@ export function formatTimestamp(
   locale: Locale = getCurrentLocale(),
 ): string {
   return formatTimestampForLocale(locale, timezone, isoString, options);
+}
+
+/** 同上，但带 `UTC+8` 这样的偏移量后缀。新鲜度条与详情页时间戳用它。 */
+export function formatTimestampWithZone(
+  isoString: string,
+  timezone: string,
+  options?: Intl.DateTimeFormatOptions,
+  locale: Locale = getCurrentLocale(),
+): string {
+  return formatTimestampWithZoneForLocale(locale, timezone, isoString, options);
 }
 
 // Current-instant timezone preview (SPEC §11.2): the preview always uses the

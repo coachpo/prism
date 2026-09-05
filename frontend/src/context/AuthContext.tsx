@@ -10,12 +10,29 @@ import {
   sessionExpiredEventForCrossTab,
   broadcastAuthStateChange,
 } from "@/context/auth/crossTab";
+import type { AuthUnavailableReason } from "@/context/auth/sessionCoordinator";
 import { AuthContext, type AuthContextValue } from "./auth-context";
 import {
   PROACTIVE_REFRESH_MS,
   shouldRefreshOnVisibilityChange,
   shouldRunProactiveRefresh,
 } from "@/context/auth/refresh";
+
+// The bootstrap read fails for two different kinds of reason and the
+// coordinator's recovery policy depends on telling them apart: 403 is an
+// answer, a 5xx or a dead connection is not. `bootstrap_failed` stays the
+// catch-all for anything that is neither.
+function classifyBootstrapFailure(error: unknown): AuthUnavailableReason {
+  if (error instanceof ApiError) {
+    if (error.status === 403) return "forbidden";
+    if (error.status === 429) return "rate_limited";
+    if (error.status >= 500) return "server";
+    return "bootstrap_failed";
+  }
+  // fetch rejects with a TypeError when the request never reached the server.
+  if (error instanceof TypeError) return "network";
+  return "bootstrap_failed";
+}
 
 // The React provider is a render subscriber of the process-local session
 // coordinator; it never commits phases itself.
@@ -77,24 +94,47 @@ export function AuthProvider({
     [bootstrapMode],
   );
 
+  // A failed bootstrap is reported with the reason it actually failed for:
+  // the coordinator retries a transient backend fault on its own and only
+  // fails closed on an authorization answer.
+  const reportBootstrapFailure = useCallback((error: unknown) => {
+    if (error instanceof AuthPhaseChangedError || error instanceof StaleSessionEpochError) {
+      return;
+    }
+    authSessionCoordinator.dispatch({
+      type: "AUTH_UNAVAILABLE",
+      observed_epoch: authSessionCoordinator.getEpoch(),
+      reason: classifyBootstrapFailure(error),
+      recovery_kind: "public_bootstrap",
+      retry_after_seconds:
+        error instanceof ApiError && error.retryAfterMs !== null
+          ? Math.max(0, Math.round(error.retryAfterMs / 1000))
+          : undefined,
+    });
+  }, []);
+
   // Run the initial bootstrap once.
   useEffect(() => {
     let active = true;
     void runAuthBootstrap(true).catch((error: unknown) => {
-      if (!active || error instanceof AuthPhaseChangedError || error instanceof StaleSessionEpochError) {
+      if (!active) {
         return;
       }
-      authSessionCoordinator.dispatch({
-        type: "AUTH_UNAVAILABLE",
-        observed_epoch: authSessionCoordinator.getEpoch(),
-        reason: "bootstrap_failed",
-        recovery_kind: "public_bootstrap",
-      });
+      reportBootstrapFailure(error);
     });
     return () => {
       active = false;
     };
-  }, [runAuthBootstrap]);
+  }, [reportBootstrapFailure, runAuthBootstrap]);
+
+  // Let the coordinator re-run the bootstrap read itself while it is backing
+  // off, so a 503 on /api/auth/status no longer costs a manual click.
+  useEffect(() => {
+    authSessionCoordinator.setRecoveryRunner(() => {
+      void runAuthBootstrap(false).catch(reportBootstrapFailure);
+    });
+    return () => authSessionCoordinator.setRecoveryRunner(null);
+  }, [reportBootstrapFailure, runAuthBootstrap]);
 
   const refreshAuth = useCallback(async () => {
     await runAuthBootstrap(false);
@@ -273,10 +313,12 @@ export function AuthProvider({
       logout,
       retryLogout,
       retryRecovery: async () => {
-        await runAuthBootstrap(false);
+        // A manual retry that fails must land back on the coordinator: the
+        // gate would otherwise keep reporting the previous attempt forever.
+        await runAuthBootstrap(false).catch(reportBootstrapFailure);
       },
     }),
-    [authEnabled, authenticated, loading, username, phase, refreshAuth, login, logout, retryLogout, runAuthBootstrap],
+    [authEnabled, authenticated, loading, username, phase, refreshAuth, login, logout, retryLogout, reportBootstrapFailure, runAuthBootstrap],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

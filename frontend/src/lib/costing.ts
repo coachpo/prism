@@ -125,7 +125,8 @@ export function formatMoneyMicros(
   locale: Locale = getCurrentLocale(),
 ): string {
   if (micros === null || micros === undefined) {
-    return "-";
+    // 缺值一律是 em dash，不是 ASCII 连字符。
+    return "—";
   }
   const value = microsToDecimal(micros);
   const activeCurrency = getActiveReportingCurrency();
@@ -144,7 +145,8 @@ export function formatTokenCount(
   locale: Locale = getCurrentLocale(),
 ): string {
   if (value === null || value === undefined) {
-    return "-";
+    // 缺值一律是 em dash，不是 ASCII 连字符。
+    return "—";
   }
   return formatNumber(value, locale);
 }

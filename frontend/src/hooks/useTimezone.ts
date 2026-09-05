@@ -3,6 +3,7 @@ import { useLocale } from "@/i18n/useLocale";
 import {
   clearUserTimezonePreference,
   formatTimestamp,
+  formatTimestampWithZone,
   getUserTimezonePreference,
 } from "@/lib/timezone";
 
@@ -48,9 +49,20 @@ export function useTimezone() {
     return formatTimestamp(isoString, effectiveTimezone, options, locale);
   };
 
+  // 带偏移量后缀。新鲜度条与详情页的绝对时间用它：同屏并排着后端的 UTC 串时，
+  // 不标时区就分不出「差三小时」是数据延迟还是换算差。
+  const formatWithZone = (
+    isoString: string,
+    options?: Intl.DateTimeFormatOptions,
+  ) => {
+    const effectiveTimezone = timezone ?? getBrowserTimezone();
+    return formatTimestampWithZone(isoString, effectiveTimezone, options, locale);
+  };
+
   return {
     timezone,
     format,
+    formatWithZone,
     loading,
     refresh: async () => {
       clearUserTimezonePreference(timezoneKey);

@@ -39,6 +39,7 @@ import {
   OperatorEmptyState,
   OperatorCallout,
   OperatorErrorState,
+  OperatorHelpHint,
   OperatorMissingValue,
   OperatorRetryButton,
   OperatorStalenessBadge,
@@ -61,6 +62,7 @@ import {
 import { normalizeTemplatePrice } from "./pricingSchemas";
 import { PricingTemplateHistoryPanel } from "./PricingTemplateHistoryPanel";
 import { PricingTemplateRatePanel, RateCell } from "./PricingTemplateRatePanel";
+import { cardRoleLabel, templateRateCards } from "./pricingRateCards";
 import { PricingTemplateUsagePanel } from "./PricingTemplateUsagePanel";
 import {
   isRecentlyChanged,
@@ -107,13 +109,78 @@ interface PricingTemplatesTableProps {
 }
 
 function priceSortValue(value: string | null | undefined) {
-  const parsed = Number(normalizeTemplatePrice(value));
+  const normalized = normalizeTemplatePrice(value);
+  // 空串不是 0：没有价的模板不参与比价排序，由调用方统一沉到末尾。
+  if (normalized === "") return null;
+  const parsed = Number(normalized);
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+/** 排序口径：一律取首档（普通卡 / 阶梯基础卡 / 峰段卡），表头已写明。 */
 function representativeCard(template: PricingTemplate): PricingCard | null {
-  if (template.template_kind === "standard") return template.card ?? null;
-  if (template.template_kind === "tiered") return template.base_card ?? null;
+  return templateRateCards(template)[0]?.card ?? null;
+}
+
+/**
+ * 一行的一个费率分量。两张卡的模板两档不同就并排渲染成区间，相同时只渲染
+ * 一次；区间的两端各带一个只给读屏的档位名，避免读出两个没有口径的裸数字。
+ */
+function TemplateRateCell({
+  cards,
+  field,
+  specialty,
+  symbol,
+}: {
+  cards: Array<{ role: string; card: PricingCard | null }>;
+  field: keyof PricingCard;
+  specialty?: boolean;
+  symbol: string;
+}) {
+  const copy = useLocale().messages.pricingTemplatesUi;
+  const distinct =
+    cards.length > 1 &&
+    normalizeTemplatePrice(cards[0].card?.[field]) !==
+      normalizeTemplatePrice(cards[1].card?.[field]);
+  const shown = distinct ? cards : [cards[0] ?? { role: "standard", card: null }];
+  return (
+    <span className="inline-flex flex-wrap items-center justify-end gap-1">
+      {shown.map(({ role, card }, index) => (
+        <Fragment key={role}>
+          {index > 0 ? (
+            <span aria-hidden="true" className="text-muted-foreground">
+              –
+            </span>
+          ) : null}
+          {distinct ? (
+            <span className="sr-only">{cardRoleLabel(role, copy)}</span>
+          ) : null}
+          <RateCell
+            specialty={specialty}
+            symbol={symbol}
+            value={card?.[field]}
+          />
+        </Fragment>
+      ))}
+    </span>
+  );
+}
+
+/** 该行两档口径的全文说明，挂在类型徽章旁的帮助按钮上。 */
+function rateBasisHint(
+  template: PricingTemplate,
+  copy: ReturnType<typeof useLocale>["messages"]["pricingTemplatesUi"],
+): string | null {
+  if (template.template_kind === "tiered") {
+    return template.tier
+      ? copy.rateBasisTiered(template.tier.input_tokens_above)
+      : copy.rateBasisTieredUnknown;
+  }
+  if (template.template_kind === "peak_valley") {
+    const windows = template.schedule?.windows?.length ?? 0;
+    return template.schedule?.timezone && windows > 0
+      ? copy.rateBasisPeakValley(template.schedule.timezone, windows)
+      : copy.rateBasisPeakValleyUnknown;
+  }
   return null;
 }
 
@@ -210,10 +277,23 @@ export function PricingTemplatesTable({
       }),
     [facts.byId, filter, pricingTemplates, query],
   );
-  const sortedTemplates = useMemo(
-    () => sortOperationalRows(filteredTemplates, sort, getSortValue, locale),
-    [filteredTemplates, locale, sort],
-  );
+  const sortedTemplates = useMemo(() => {
+    const sorted = sortOperationalRows(
+      filteredTemplates,
+      sort,
+      getSortValue,
+      locale,
+    );
+    // 共享排序器只在升序把空值排到末尾，降序会把它们整体反转到最前。一个
+    // 价格都显示不出来的行不该占据比价视图的首屏，两个方向都沉底。
+    const present: PricingTemplate[] = [];
+    const missing: PricingTemplate[] = [];
+    for (const template of sorted) {
+      const value = getSortValue(template, sort.column);
+      (value === null || value === undefined ? missing : present).push(template);
+    }
+    return [...present, ...missing];
+  }, [filteredTemplates, locale, sort]);
   const page = paginateOperationalRows(sortedTemplates, pageIndex, pageSize);
   const updateSort = (column: PricingSortColumn) => {
     setSort((current) => getNextOperationalSort(current, column));
@@ -300,11 +380,17 @@ export function PricingTemplatesTable({
               <TableHead className="w-8" />
               <TableHead colSpan={4}>{copy.groupIdentity}</TableHead>
               <TableHead colSpan={5} className="text-center">
+                {/* 单位与口径都只在分组表头写一次：阶梯与峰谷并列两档，
+                    排序取首档，全文说明挂在可聚焦的帮助按钮上。 */}
                 <span className="inline-flex items-center gap-1">
                   {copy.groupRates}
                   <span className="font-normal text-muted-foreground">
-                    {copy.rateUnitPerMillion}
+                    {copy.rateUnitPerMillion} · {copy.rateColumnBasis}
                   </span>
+                  <OperatorHelpHint
+                    align="center"
+                    label={copy.rateColumnBasisHint}
+                  />
                 </span>
               </TableHead>
               <TableHead colSpan={2}>{copy.groupUsage}</TableHead>
@@ -379,7 +465,8 @@ export function PricingTemplatesTable({
                   const item = facts.byId.get(template.id);
                   const references = totalReferences(item);
                   const expanded = expandedId === template.id;
-                  const card = representativeCard(template);
+                  const cards = templateRateCards(template);
+                  const basisHint = rateBasisHint(template, copy);
 
                   return (
                     <Fragment key={template.id}>
@@ -440,55 +527,54 @@ export function PricingTemplatesTable({
                           />
                         </TableCell>
                         <TableCell className="align-top">
-                          <OperatorValueBadge
-                            label={kindLabel(template, copy)}
-                            className="text-xs"
-                          />
-                        </TableCell>
-                        {template.template_kind === "peak_valley" ? (
-                          <TableCell colSpan={5} className="align-top">
+                          <span className="inline-flex items-center gap-0.5">
                             <OperatorValueBadge
-                              label={copy.multiCardSummary(2)}
+                              label={kindLabel(template, copy)}
                               className="text-xs"
                             />
-                          </TableCell>
-                        ) : (
-                          <>
-                            <TableCell className="align-top text-right">
-                              <RateCell
-                                symbol={template.active_currency_symbol}
-                                value={card?.input_price}
-                              />
-                            </TableCell>
-                            <TableCell className="align-top text-right">
-                              <RateCell
-                                symbol={template.active_currency_symbol}
-                                value={card?.output_price}
-                              />
-                            </TableCell>
-                            <TableCell className="align-top text-right">
-                              <RateCell
-                                specialty
-                                symbol={template.active_currency_symbol}
-                                value={card?.cached_input_price}
-                              />
-                            </TableCell>
-                            <TableCell className="align-top text-right">
-                              <RateCell
-                                specialty
-                                symbol={template.active_currency_symbol}
-                                value={card?.cache_creation_price}
-                              />
-                            </TableCell>
-                            <TableCell className="align-top text-right">
-                              <RateCell
-                                specialty
-                                symbol={template.active_currency_symbol}
-                                value={card?.reasoning_price}
-                              />
-                            </TableCell>
-                          </>
-                        )}
+                            {basisHint ? (
+                              <OperatorHelpHint label={basisHint} />
+                            ) : null}
+                          </span>
+                        </TableCell>
+                        <TableCell className="align-top text-right">
+                          <TemplateRateCell
+                            cards={cards}
+                            field="input_price"
+                            symbol={template.active_currency_symbol}
+                          />
+                        </TableCell>
+                        <TableCell className="align-top text-right">
+                          <TemplateRateCell
+                            cards={cards}
+                            field="output_price"
+                            symbol={template.active_currency_symbol}
+                          />
+                        </TableCell>
+                        <TableCell className="align-top text-right">
+                          <TemplateRateCell
+                            cards={cards}
+                            field="cached_input_price"
+                            specialty
+                            symbol={template.active_currency_symbol}
+                          />
+                        </TableCell>
+                        <TableCell className="align-top text-right">
+                          <TemplateRateCell
+                            cards={cards}
+                            field="cache_creation_price"
+                            specialty
+                            symbol={template.active_currency_symbol}
+                          />
+                        </TableCell>
+                        <TableCell className="align-top text-right">
+                          <TemplateRateCell
+                            cards={cards}
+                            field="reasoning_price"
+                            specialty
+                            symbol={template.active_currency_symbol}
+                          />
+                        </TableCell>
                         <TableCell className="align-top">
                           {facts.loading && !item ? (
                             <Skeleton className="h-4 w-24" />
@@ -631,6 +717,7 @@ export function PricingTemplatesTable({
                                   loading={detailHistoryLoading}
                                   revisions={detailHistory}
                                   onRetry={() => void onLoadHistory(template)}
+                                  template={template}
                                 />
                               )}
                             </div>

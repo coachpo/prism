@@ -377,15 +377,25 @@ describe("ObserveMainChart honest chart states", () => {
     ["ingress", "requests", ["请求数", "错误", "首字耗时", "输出速率", "令牌", "缓存读取", "花费"]],
     ["final_execution", "requests", ["请求数", "错误", "最终尝试耗时", "令牌", "缓存读取", "花费"]],
     ["route_attempt", "attempts", ["尝试数", "错误", "尝试耗时"]],
-  ] as const)("limits %s metrics to its server matrix", (scope, metric, labels) => {
-    const view = renderChart(metric, SERIES, scope);
-    expect(
-      within(screen.getByRole("group", { name: "指标" }))
-        .getAllByRole("radio")
-        .map((item) => item.textContent),
-    ).toEqual(labels);
-    view.unmount();
-  });
+  ] as const)(
+    "keeps %s metrics selectable and disables the rest with a reason",
+    (scope, metric, labels) => {
+      const view = renderChart(metric, SERIES, scope);
+      const items = within(
+        screen.getByRole("group", { name: "指标" }),
+      ).getAllByRole("radio") as HTMLButtonElement[];
+      expect(
+        items.filter((item) => !item.disabled).map((item) => item.textContent),
+      ).toEqual(labels);
+      // 不可用的指标禁用而不是删掉，并且每一个都说得出为什么。
+      const unavailable = items.filter((item) => item.disabled);
+      expect(unavailable.length).toBeGreaterThan(0);
+      for (const item of unavailable) {
+        expect(item.getAttribute("title")).toBeTruthy();
+      }
+      view.unmount();
+    },
+  );
 
   it.each([
     ["ingress", ["合计", "按入口模型", "按 API 家族"]],
@@ -402,15 +412,24 @@ describe("ObserveMainChart honest chart states", () => {
         "按终端目标",
       ],
     ],
-  ] as const)("limits %s grouping controls to that analysis unit", (scope, labels) => {
-    const view = renderChart("requests", SERIES, scope);
-    expect(
-      within(screen.getByRole("group", { name: "分组" }))
-        .getAllByRole("radio")
-        .map((item) => item.textContent),
-    ).toEqual(labels);
-    view.unmount();
-  });
+  ] as const)(
+    "keeps %s grouping dimensions selectable and disables the rest with a reason",
+    (scope, labels) => {
+      const view = renderChart("requests", SERIES, scope);
+      const items = within(
+        screen.getByRole("group", { name: "分组" }),
+      ).getAllByRole("radio") as HTMLButtonElement[];
+      expect(
+        items.filter((item) => !item.disabled).map((item) => item.textContent),
+      ).toEqual(labels);
+      const unavailable = items.filter((item) => item.disabled);
+      expect(unavailable.length).toBeGreaterThan(0);
+      for (const item of unavailable) {
+        expect(item.getAttribute("title")).toBeTruthy();
+      }
+      view.unmount();
+    },
+  );
 
   it("distinguishes output no-sample from both cache missing-basis states", () => {
     const output = renderChart("output_rate", [

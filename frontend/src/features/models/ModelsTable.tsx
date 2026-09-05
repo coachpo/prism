@@ -554,7 +554,11 @@ export function ModelsTable({
                                 ? messages.routing.capabilityDual
                                 : model.openai_image_operations
                                   ? messages.routing.capabilityImageOnly
-                                  : <OperatorMissingValue />}
+                                  : (
+                                      <OperatorMissingValue
+                                        reason={messages.routing.capabilityUnknownReason}
+                                      />
+                                    )}
                         </span>
                       ) : null}
                     </div>

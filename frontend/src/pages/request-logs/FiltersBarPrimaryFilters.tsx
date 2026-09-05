@@ -58,6 +58,7 @@ interface FiltersBarPrimaryFiltersProps {
     | "pricing_card_role"
     | "pricing_selection_state"
     | "time_range"
+    | "request_id"
   >;
 }
 
@@ -76,7 +77,14 @@ export function FiltersBarPrimaryFilters({
   state,
 }: FiltersBarPrimaryFiltersProps) {
   const { messages } = useLocale();
-  const [requestLookupValue, setRequestLookupValue] = useState("");
+  // URL 里带着 request_id 时输入框却是空的，操作者看不出是什么条件造成了
+  // 当前这一屏。定位值以 URL 为准，回显进来。
+  const [requestLookupValue, setRequestLookupValue] = useState(state.request_id);
+  const [echoedRequestId, setEchoedRequestId] = useState(state.request_id);
+  if (echoedRequestId !== state.request_id) {
+    setEchoedRequestId(state.request_id);
+    setRequestLookupValue(state.request_id);
+  }
   const [moreOpen, setMoreOpen] = useState(false);
   const {
     options: proxyKeyOptions,

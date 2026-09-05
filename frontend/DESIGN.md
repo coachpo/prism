@@ -105,13 +105,13 @@ A third grey is exactly the grey noise this system removes, and it necessarily f
 | Tier | Meaning | Light | Dark | Shape |
 | --- | --- | --- | --- | --- |
 | `healthy` | Serving normally | `#0F7B4F` | `#66D9A0` | ● |
-| `degraded` | Retrying, partial failure, nearing a limit | `#A56200` | `#F5C063` | ◐ |
-| `failing` | Banned, consecutive failures, unreachable | `#C0342B` | `#F4A9A3` | ▲ |
-| `idle` | Idle, not enabled, no data | `#69717F` | `#8A93A1` | ○ |
+| `degraded` | Retrying, partial failure, nearing a limit | `#8C5200` | `#F5C063` | ◐ |
+| `failing` | Banned, consecutive failures, unreachable | `#C0342B` | `#FF8A80` | ▲ |
+| `idle` | Idle, not enabled, no data | `#5B6370` | `#8A93A1` | ○ |
 
 **Status is always color plus shape plus text.** Badge geometry: 8px shape marker, 12px label, 20px tall, 4px radius, 6px horizontal padding; background at 10% of the status color, outline at 25%.
 
-`destructive` shares the `failing` hue but not its meaning: it marks **irreversible operations only** (delete buttons, confirmation dialogs) and never describes runtime state.
+`destructive` shares the `failing` hue but not its meaning: it marks **irreversible operations only** (delete buttons, confirmation dialogs) and never describes runtime state. It is its own token in both themes (`#C0342B` light, `#FF6B61` dark) and carries `on-destructive` (`#FFFFFF` light, `#2B0705` dark) for text on a filled destructive surface — never a hard-coded `text-white`, whose 1.9:1 on the dark ground fails outright.
 
 ### Spectrum — categorical palette
 
@@ -139,9 +139,12 @@ The foreground values below are measured against their theme's `panel` using the
 | `text-muted` | 6.00 | 6.72 |
 | `healthy` | 5.29 | 9.88 |
 | `degraded` | 6.32 | 10.38 |
-| `failing` | 5.57 | 9.10 |
+| `failing` | 5.57 | 7.58 |
 | `idle` | 6.06 | 5.58 |
+| `destructive` | 5.57 | 6.20 |
 | Spectrum 1–6 | 4.83 – 6.63 | > 7 |
+
+`on-destructive` is measured against `destructive`, not `panel`: 5.57 light, 6.63 dark. Dark `idle` is the floor of the whole table — 5.58 on `panel`, 5.10 on `raised` (dialogs, dropdowns, drawers), 5.85 on `inset` — so it is the token to re-measure first whenever a surface changes.
 
 A badge's background is an **opaque mix** (`color-mix(... , var(--color-panel))`), not a translucent overlay: the same badge lands on `panel` and on `inset`, and a translucent ground makes its contrast depend on whichever container it happens to sit in. Against `inset` the measured floor stays above 4.5 — `degraded` 5.64, `idle` 5.41.
 

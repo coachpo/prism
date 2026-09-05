@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useState, type ReactNode } from "react"
 import { ExternalLink, RefreshCw } from "lucide-react"
 import { Link } from "@tanstack/react-router"
 import { Button } from "@/components/ui/button"
@@ -7,7 +7,7 @@ import { useLocale } from "@/i18n/useLocale"
 import { useTimezone } from "@/hooks/useTimezone"
 import { api } from "@/lib/api"
 import type { LoadbalanceEventDetail } from "@/lib/types"
-import { OperatorCallout, OperatorLoadingState, OperatorTypeBadge } from "@/shared/design-system"
+import { OperatorCallout, OperatorLoadingState, OperatorMissingValue, OperatorTypeBadge } from "@/shared/design-system"
 import { encodeObserveReturn, type ObserveReturnPayload } from "@/lib/observeReturn"
 import { renderEventSummary } from "./eventSummary"
 
@@ -122,6 +122,7 @@ function EventDetailBody({ detail, summaryLabel, summaryReason, formatTime, copy
   sourceSearch: Record<string, unknown>
 }) {
   const { messages } = useLocale()
+  const banDisabled = detail.ban_mode === "off"
   const handoffAvailable = detail.request_context_filters != null && detail.request_context_unavailable_reason == null
   const requestSearch = detail.request_context_filters
     ? {
@@ -162,7 +163,10 @@ function EventDetailBody({ detail, summaryLabel, summaryReason, formatTime, copy
             <DetailField label={copy.timeField} value={formatTime(detail.created_at)} />
             <DetailField label={copy.cycleAttemptsField} value={String(detail.cycle_retry_attempts)} />
             <DetailField label={copy.cumulativeAttemptsField} value={String(detail.cumulative_retry_attempts)} />
-            <DetailField label={copy.nextRetryField} value={detail.next_retry_at ? formatTime(detail.next_retry_at) : "—"} />
+            <DetailField
+              label={copy.nextRetryField}
+              value={detail.next_retry_at ? formatTime(detail.next_retry_at) : <OperatorMissingValue reason={copy.nextRetryMissingReason} />}
+            />
             <DetailField label={copy.lastDelayField} value={`${detail.last_retry_delay_ms}ms`} />
           </dl>
         </section>
@@ -199,12 +203,29 @@ function EventDetailBody({ detail, summaryLabel, summaryReason, formatTime, copy
 
         <section className="flex flex-col gap-2 rounded-lg border border-border p-4" aria-labelledby="detail-snapshot">
           <h3 id="detail-snapshot" className="text-sm font-medium">{copy.detailSnapshot}</h3>
+          {/* 「封禁模式 off」和「阈值读不到」不是一回事：模式走标签字典，
+              每个缺失的破折号各自带上它自己的原因。 */}
           <dl className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
-            <DetailField label={copy.banModeField} value={detail.ban_mode ?? "—"} />
-            <DetailField label={copy.banUntilField} value={detail.banned_until_at ? formatTime(detail.banned_until_at) : "—"} />
-            <DetailField label={copy.lastSuccessField} value={detail.last_success_at ? formatTime(detail.last_success_at) : "—"} />
-            <DetailField label={copy.policyCycleLimitField} value={detail.policy_cycle_retry_attempt_limit != null ? String(detail.policy_cycle_retry_attempt_limit) : "—"} />
-            <DetailField label={copy.policyBanThresholdField} value={detail.policy_ban_cumulative_retry_attempt_threshold != null ? String(detail.policy_ban_cumulative_retry_attempt_threshold) : "—"} />
+            <DetailField
+              label={copy.banModeField}
+              value={detail.ban_mode ? banModeLabel(detail.ban_mode, copy) : <OperatorMissingValue reason={copy.banModeMissingReason} />}
+            />
+            <DetailField
+              label={copy.banUntilField}
+              value={detail.banned_until_at ? formatTime(detail.banned_until_at) : <OperatorMissingValue reason={banDisabled ? copy.banUntilOffReason : copy.banUntilNoneReason} />}
+            />
+            <DetailField
+              label={copy.lastSuccessField}
+              value={detail.last_success_at ? formatTime(detail.last_success_at) : <OperatorMissingValue reason={copy.lastSuccessMissingReason} />}
+            />
+            <DetailField
+              label={copy.policyCycleLimitField}
+              value={detail.policy_cycle_retry_attempt_limit != null ? String(detail.policy_cycle_retry_attempt_limit) : <OperatorMissingValue reason={copy.policyCycleLimitMissingReason} />}
+            />
+            <DetailField
+              label={copy.policyBanThresholdField}
+              value={detail.policy_ban_cumulative_retry_attempt_threshold != null ? String(detail.policy_ban_cumulative_retry_attempt_threshold) : <OperatorMissingValue reason={banDisabled ? copy.policyBanThresholdOffReason : copy.policyBanThresholdMissingReason} />}
+            />
           </dl>
         </section>
 
@@ -234,13 +255,26 @@ function EventDetailBody({ detail, summaryLabel, summaryReason, formatTime, copy
   )
 }
 
-function DetailField({ label, value }: { label: string; value: string }) {
+function DetailField({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="flex flex-col gap-0.5">
       <dt className="text-xs text-foreground/60">{label}</dt>
       <dd className="font-medium">{value}</dd>
     </div>
   )
+}
+
+function banModeLabel(mode: string, copy: ReturnType<typeof useLocale>["messages"]["routingHealth"]): string {
+  switch (mode) {
+    case "off":
+      return copy.banModeOff
+    case "temporary":
+      return copy.banModeTemporary
+    case "until_reset":
+      return copy.banModeUntilReset
+    default:
+      return copy.banModeUnknown
+  }
 }
 
 function ObjectLink({ enabled, label, to }: { enabled: boolean; label: string; to: string }) {

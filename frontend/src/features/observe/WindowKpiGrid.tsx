@@ -160,7 +160,13 @@ export function WindowKpiGrid({
           label={copy.ttftP95}
           value={
             data.p95_ttft_ms === null ? (
-              <OperatorMissingValue reason={messages.honesty.noValue} />
+              <OperatorMissingValue
+                reason={
+                  data.ttft_sample_count === 0
+                    ? copy.ttftNoSample
+                    : copy.ttftNoQuantile(formatNumber(data.ttft_sample_count))
+                }
+              />
             ) : (
               `${formatNumber(data.p95_ttft_ms)} ms`
             )
@@ -171,7 +177,15 @@ export function WindowKpiGrid({
           label={copy.outputRate}
           value={
             data.avg_output_rate_tps === null ? (
-              <OperatorMissingValue reason={messages.honesty.noValue} />
+              <OperatorMissingValue
+                reason={
+                  data.output_rate_sample_count === 0
+                    ? copy.outputRateNoSample
+                    : copy.outputRateNoAverage(
+                        formatNumber(data.output_rate_sample_count),
+                      )
+                }
+              />
             ) : (
               `${data.avg_output_rate_tps.toFixed(1)} tok/s`
             )
@@ -262,7 +276,9 @@ export function WindowKpiGrid({
 function Count({ value }: { value: number | null | undefined }) {
   const { formatNumber, messages } = useLocale();
   if (value === null || value === undefined || Number.isNaN(value)) {
-    return <OperatorMissingValue reason={messages.honesty.noValue} />;
+    return (
+      <OperatorMissingValue reason={messages.observe.readMissingField} />
+    );
   }
   return <>{formatNumber(value)}</>;
 }
@@ -276,11 +292,15 @@ function Money({
 }) {
   const { messages } = useLocale();
   if (micros === null || micros === undefined) {
-    return <OperatorMissingValue reason={messages.honesty.noValue} />;
+    return (
+      <OperatorMissingValue reason={messages.observe.noTrustedCostSample} />
+    );
   }
   const amount = Number(micros) / 1_000_000;
   if (Number.isNaN(amount)) {
-    return <OperatorMissingValue reason={messages.honesty.noValue} />;
+    return (
+      <OperatorMissingValue reason={messages.observe.costValueUnparsable} />
+    );
   }
   return (
     <>

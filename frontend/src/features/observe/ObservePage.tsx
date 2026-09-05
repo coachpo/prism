@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
@@ -17,6 +17,8 @@ import {
   isObserveScope,
   isValidMetricForScope,
   OBSERVE_SCOPES,
+  type ObserveGroupBy,
+  type ObserveMetric,
   type ObservePreset,
   type ObserveScope,
 } from "@/features/observe/observeSearch";
@@ -83,13 +85,41 @@ export function ObservePage() {
   const parsedGroupBy = isObserveGroupBy(search.group_by)
     ? search.group_by
     : "none";
-  const groupBy = groupBelongsToScope(parsedGroupBy, scope)
-    ? parsedGroupBy
-    : "none";
+  // The error view renders no grouped ranking and carries no grouping control,
+  // so a `group_by` in its URL is read-only-not-writable: it re-bases a read
+  // nobody can see or undo. It is dropped instead of left dangling.
+  const groupBy =
+    view === "errors" || !groupBelongsToScope(parsedGroupBy, scope)
+      ? "none"
+      : parsedGroupBy;
   const needsMetricNormalize = rawMetric !== metric;
   const needsGroupNormalize = parsedGroupBy !== groupBy;
+  /**
+   * A scope switch that rewrites the metric or the grouping must say so: the
+   * same URL, shared or reloaded, otherwise renders a different chart under an
+   * unchanged-looking control strip.
+   */
+  const [scopeRewrite, setScopeRewrite] = useState<{
+    fromMetric: ObserveMetric | null;
+    toMetric: ObserveMetric;
+    fromGroup: ObserveGroupBy | null;
+  } | null>(null);
   useEffect(() => {
     if (!needsMetricNormalize && !needsGroupNormalize) return;
+    const fromMetric =
+      isObserveMetric(rawMetric) && !isValidMetricForScope(rawMetric, scope)
+        ? rawMetric
+        : null;
+    const fromGroup =
+      view !== "errors" &&
+      parsedGroupBy !== "none" &&
+      !groupBelongsToScope(parsedGroupBy, scope)
+        ? parsedGroupBy
+        : null;
+    if (fromMetric || fromGroup) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setScopeRewrite({ fromMetric, toMetric: metric, fromGroup });
+    }
     void navigate({
       to: "/observe",
       search: {
@@ -106,8 +136,11 @@ export function ObservePage() {
     metric,
     groupBy,
     navigate,
+    parsedGroupBy,
+    rawMetric,
     search,
     scope,
+    view,
   ]);
 
   const setSearch = useCallback(
@@ -159,7 +192,11 @@ export function ObservePage() {
   const refreshing =
     fragments.now.phase === "loading" ||
     fragments.summary.phase === "loading" ||
-    analysisContext.phase === "loading";
+    analysisContext.phase === "loading" ||
+    setup.loading;
+
+  /** The bucket width the server actually applied, not the requested `auto`. */
+  const effectiveInterval = seriesFragment.data?.interval ?? null;
 
   return (
     <div
@@ -190,8 +227,12 @@ export function ObservePage() {
         nowFragment={fragments.now}
         summaryFragment={fragments.summary}
         onRefresh={() => {
+          // Every read that feeds this page, not a third of them: the setup
+          // block shares the page's observation timestamp, so leaving it on the
+          // previous read would repaint stale readiness facts as fresh.
           fragments.refresh();
           analysisContext.refresh();
+          setup.refresh();
         }}
         refreshing={refreshing}
       />
@@ -267,15 +308,24 @@ export function ObservePage() {
             onValueChange={(value) => {
               if (!value || !isObserveScope(value)) return;
               const nextScope = value as ObserveScope;
-              const nextMetric = isValidMetricForScope(metric, nextScope)
+              const metricKept = isValidMetricForScope(metric, nextScope);
+              const nextMetric = metricKept
                 ? metric
                 : defaultMetricForScope(nextScope);
+              const groupKept = groupBelongsToScope(groupBy, nextScope);
+              setScopeRewrite(
+                metricKept && groupKept
+                  ? null
+                  : {
+                      fromMetric: metricKept ? null : metric,
+                      toMetric: nextMetric,
+                      fromGroup: groupKept || groupBy === "none" ? null : groupBy,
+                    },
+              );
               setSearch({
                 scope: nextScope === "ingress" ? undefined : nextScope,
                 metric: nextMetric,
-                group_by: groupBelongsToScope(groupBy, nextScope)
-                  ? groupBy
-                  : "none",
+                group_by: groupKept ? groupBy : "none",
               });
             }}
           >
@@ -304,14 +354,53 @@ export function ObservePage() {
       {view === "trend" ? (
         <OperatorSectionCard
           title={messages.observe.mainChartTitle}
-          description={messages.observe.windowBasis(preset)}
+          description={
+            effectiveInterval
+              ? `${messages.observe.windowBasis(preset)} · ${messages.observe.bucketBasis(
+                  messages.observe.intervalName(effectiveInterval),
+                )}`
+              : messages.observe.windowBasis(preset)
+          }
         >
+          {scopeRewrite ? (
+            <OperatorCallout
+              intent="muted"
+              className="mb-3"
+              data-testid="observe-scope-rewrite-notice"
+              title={messages.observe.scopeRewriteTitle}
+            >
+              {scopeRewrite.fromMetric ? (
+                <p>
+                  {messages.observe.scopeRewriteMetric(
+                    messages.observe.metricName(scopeRewrite.fromMetric),
+                    messages.observe.metricName(scopeRewrite.toMetric),
+                  )}
+                </p>
+              ) : null}
+              {scopeRewrite.fromGroup ? (
+                <p>
+                  {messages.observe.scopeRewriteGroup(
+                    messages.observe.groupName(scopeRewrite.fromGroup),
+                  )}
+                </p>
+              ) : null}
+            </OperatorCallout>
+          ) : null}
           <ObserveMainChart
             fragment={seriesFragment}
             metric={metric}
             groupBy={groupBy}
-            onMetricChange={(next) => setSearch({ metric: next })}
-            onGroupByChange={(next) => setSearch({ group_by: next })}
+            interval={search.interval ?? "auto"}
+            onMetricChange={(next) => {
+              setScopeRewrite(null);
+              setSearch({ metric: next });
+            }}
+            onGroupByChange={(next) => {
+              setScopeRewrite(null);
+              setSearch({ group_by: next });
+            }}
+            onIntervalChange={(next) => setSearch({ interval: next })}
+            onRetry={seriesFragment.refresh}
             scope={scope}
           />
           <div className="mt-2 flex justify-end">

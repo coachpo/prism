@@ -525,21 +525,21 @@ function ActivityRow({
       </TableCell>
       <TableCell className="text-right font-mono tabular-nums">
         {item.ttft_ms === null ? (
-          <OperatorMissingValue reason={messages.honesty.noValue} />
+          <OperatorMissingValue reason={copy.activityNoTtft} />
         ) : (
           `${formatNumber(item.ttft_ms)} ms`
         )}
       </TableCell>
       <TableCell className="text-right font-mono tabular-nums">
         {item.total_tokens === null || item.total_tokens === undefined ? (
-          <OperatorMissingValue reason={messages.honesty.noValue} />
+          <OperatorMissingValue reason={copy.activityNoTokens} />
         ) : (
           formatNumber(item.total_tokens)
         )}
       </TableCell>
       <TableCell className="text-right font-mono tabular-nums">
         {item.known_cost_micros === null ? (
-          <OperatorMissingValue reason={messages.honesty.noValue} />
+          <OperatorMissingValue reason={copy.noTrustedCostSample} />
         ) : (
           `${item.report_currency_symbol ?? "$"}${(Number(item.known_cost_micros) / 1_000_000).toFixed(4)}`
         )}

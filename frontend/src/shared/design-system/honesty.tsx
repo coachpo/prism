@@ -1,5 +1,7 @@
 import type { ComponentProps, ReactNode } from "react"
+import { useId } from "react"
 
+import { getStaticMessages } from "@/i18n/staticMessages"
 import { cn } from "@/lib/utils"
 import { OperatorTypeBadge } from "./status"
 
@@ -22,12 +24,19 @@ export type OperatorMissingValueProps = ComponentProps<"span"> & {
   reason?: string
 }
 
-/** An absent value. Never `0`, never blank. */
+/**
+ * An absent value. Never `0`, never blank.
+ *
+ * 破折号本身是 `aria-hidden` 的，没有 reason 时读屏听到的是一个空单元格——
+ * 与「这一格没渲染出来」无法区分。所以缺省也要有一句具名兜底文案；
+ * 调用点仍应尽量给出具体原因（无流量 / 无样本 / 无可信成本是三件事）。
+ */
 export function OperatorMissingValue({
   className,
   reason,
   ...props
 }: OperatorMissingValueProps) {
+  const spoken = reason ?? getStaticMessages().honesty.noValue
   return (
     <span
       data-slot="missing-value"
@@ -36,7 +45,7 @@ export function OperatorMissingValue({
       {...props}
     >
       <span aria-hidden="true">—</span>
-      {reason ? <span className="sr-only">{reason}</span> : null}
+      <span className="sr-only">{spoken}</span>
     </span>
   )
 }
@@ -79,13 +88,11 @@ export function OperatorStalenessBadge({
   reason?: string
 }) {
   return (
-    <OperatorTypeBadge
-      data-slot="staleness-badge"
-      intent="degraded"
+    <BadgeWithReason
+      badgeClassName={cn("font-normal", className)}
+      dataSlot="staleness-badge"
       label={`◐ ${label}`}
-      preserveLabel
-      title={reason}
-      className={cn("font-normal", className)}
+      reason={reason}
       {...props}
     />
   )
@@ -107,14 +114,61 @@ export function OperatorClippedBadge({
   reason?: string
 }) {
   return (
-    <OperatorTypeBadge
-      data-slot="clipped-badge"
-      intent="degraded"
+    <BadgeWithReason
+      badgeClassName={cn("font-normal", className)}
+      dataSlot="clipped-badge"
       label={`⋯ ${label}`}
-      preserveLabel
-      title={reason}
-      className={cn("font-normal", className)}
+      reason={reason}
       {...props}
     />
+  )
+}
+
+/**
+ * 「保留期外」「部分覆盖」这四个字本身不说明缺了什么，唯一能回答
+ * 「这个数到底可不可信」的是 reason。只挂在 `title` 上等于对键盘与读屏
+ * 用户不存在——所以 reason 同时进 sr-only 节点并用 `aria-describedby` 关联。
+ */
+function BadgeWithReason({
+  badgeClassName,
+  dataSlot,
+  label,
+  reason,
+  ...props
+}: Omit<ComponentProps<typeof OperatorTypeBadge>, "intent" | "label"> & {
+  badgeClassName?: string
+  dataSlot: string
+  label: string
+  reason?: string
+}) {
+  const reasonId = useId()
+  if (!reason) {
+    return (
+      <OperatorTypeBadge
+        data-slot={dataSlot}
+        intent="degraded"
+        label={label}
+        preserveLabel
+        className={badgeClassName}
+        {...props}
+      />
+    )
+  }
+  return (
+    <span className="inline-flex items-center">
+      <OperatorTypeBadge
+        data-slot={dataSlot}
+        intent="degraded"
+        label={label}
+        preserveLabel
+        title={reason}
+        aria-describedby={reasonId}
+        className={badgeClassName}
+        {...props}
+      />
+      <span id={reasonId} className="sr-only">
+        {reason}
+      </span>
+    </span>
   )
 }

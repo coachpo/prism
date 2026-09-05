@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { ArrowRight, Plus } from "lucide-react"
 import { Link } from "@tanstack/react-router"
 import { Button } from "@/components/ui/button"
@@ -12,6 +12,7 @@ import {
   OperatorPageHeader,
   OperatorPageShell,
 } from "@/shared/design-system"
+import { PaginationLiveStatus } from "@/shared/table/paginationControls"
 import { BanPolicyDialog } from "./BanPolicyDialog"
 import { useBanPoliciesFeatureData } from "./useBanPoliciesFeatureData"
 
@@ -20,6 +21,20 @@ export function BanPoliciesFeaturePage() {
   const data = useBanPoliciesFeatureData(0)
   const copy = messages.routingStrategyTable
   const [selected, setSelected] = useState<LoadbalanceStrategy | null>(null)
+  const [announcement, setAnnouncement] = useState<string | null>(null)
+  const previewRef = useRef<HTMLDivElement>(null)
+
+  // 推演卡在折线以下：选中后既不滚动也不播报，会被当成「没反应」。
+  const selectStrategy = (strategy: LoadbalanceStrategy) => {
+    setSelected(strategy)
+    setAnnouncement(copy.previewAnnounced(strategy.name))
+  }
+
+  // 滚动必须等这一次渲染提交完：在点击处理里量到的还是选中之前的布局。
+  useEffect(() => {
+    if (!selected) return
+    previewRef.current?.scrollIntoView({ block: "nearest" })
+  }, [selected])
 
   const stats = useMemo(() => {
     const strategies = data.strategiesFragment.data ?? []
@@ -64,8 +79,10 @@ export function BanPoliciesFeaturePage() {
         <OperatorKpiCard label={copy.kpiUnbound} value={formatNumber(stats.unbound)} detail={copy.kpiUnboundDetail} />
       </div>
 
+      <PaginationLiveStatus message={announcement} />
+
       <LoadbalanceStrategiesTable
-        onSelect={setSelected}
+        onSelect={selectStrategy}
         selectedId={selected?.id ?? null}
         fragment={data.strategiesFragment}
         defaultsCompleteness={data.defaultsCompleteness}
@@ -85,7 +102,9 @@ export function BanPoliciesFeaturePage() {
         onRetry={data.refreshStrategies}
       />
 
-      <StrategyPreviewTimeline key={selected?.id ?? "none"} strategy={selected} />
+      <div ref={previewRef}>
+        <StrategyPreviewTimeline key={selected?.id ?? "none"} strategy={selected} />
+      </div>
 
       <BanPolicyDialog
         editingStrategy={data.editingStrategy}

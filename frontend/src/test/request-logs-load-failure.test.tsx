@@ -353,6 +353,8 @@ describe("request-log list read failure", () => {
       screen.queryByText(messages.totalRowsSummary("0")),
     ).not.toBeInTheDocument();
     expect(screen.queryByText(messages.zeroResults)).not.toBeInTheDocument();
+    // 计数只在表卡头与分页行各一处；切换器旁边只说口径，不再报一个数。
+    expect(screen.getByText(messages.viewBasisAttempts)).toBeInTheDocument();
   });
 
   it("retries the read from the failure surface", async () => {
@@ -405,9 +407,12 @@ describe("request-log list read failure", () => {
         timeout: 3000,
       }),
     ).toBeInTheDocument();
+    // 真的读到 0 行仍然是空态：分页行报 0，切换器旁只说口径。
+    expect(screen.getByText(messages.zeroResults)).toBeInTheDocument();
+    expect(screen.getByText(messages.viewBasisAttempts)).toBeInTheDocument();
     expect(
-      screen.getByText(messages.totalRowsSummary("0")),
-    ).toBeInTheDocument();
+      screen.queryByText(messages.totalRowsSummary("0")),
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByTestId("request-logs-load-error"),
     ).not.toBeInTheDocument();

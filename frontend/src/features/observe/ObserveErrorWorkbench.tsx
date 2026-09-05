@@ -25,6 +25,7 @@ import {
   OperatorEmptyState,
   OperatorErrorState,
   OperatorInsetPanel,
+  OperatorMissingValue,
   OperatorRetryButton,
   OperatorStatusBadge,
   OperatorTypeBadge,
@@ -312,9 +313,11 @@ function StreamRow({
         />
       </TableCell>
       <TableCell className="text-right font-mono text-xs tabular-nums">
-        {item.total_tokens === null
-          ? messages.honesty.noValue
-          : formatNumber(item.total_tokens)}
+        {item.total_tokens === null ? (
+          <OperatorMissingValue reason={messages.observe.activityNoTokens} />
+        ) : (
+          formatNumber(item.total_tokens)
+        )}
       </TableCell>
     </TableRow>
   );

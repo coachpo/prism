@@ -254,6 +254,32 @@ describe("ModelExportPage Pi-only", () => {
     expect(screen.getByRole("checkbox", { name: "gpt-x" })).toBeChecked();
   });
 
+  it("names why the primary action is disabled and offers a way out", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId("export-row-3");
+
+    const generate = screen.getByRole("button", { name: /生成配置文件/ });
+    expect(generate).toBeDisabled();
+    expect(generate).toHaveAttribute(
+      "aria-describedby",
+      "model-export-blocked-notice",
+    );
+    expect(
+      screen.getByText(/已选模型里有 1 个缺少可渲染的 Pi 绑定/),
+    ).toBeVisible();
+
+    await user.click(
+      screen.getByRole("button", { name: "只保留可渲染的 1 个" }),
+    );
+    expect(
+      screen.getByRole("button", { name: /生成配置文件 \(1\)/ }),
+    ).toBeEnabled();
+    expect(
+      screen.queryByText(/缺少可渲染的 Pi 绑定/),
+    ).not.toBeInTheDocument();
+  });
+
   it("does not treat an optional missing thinking map as incomplete metadata", async () => {
     renderPage();
     await screen.findByTestId("export-row-3");

@@ -16,6 +16,8 @@ import {
   type ReportingCurrency,
   type ReportingCurrencyState,
 } from "@/lib/reportingCurrency";
+import { useLocale } from "@/i18n/useLocale";
+import { OperatorCallout, OperatorRetryButton } from "@/shared/design-system";
 
 export interface ReportingCurrencySource {
   code?: string | null;
@@ -26,6 +28,8 @@ export interface ReportingCurrencySource {
 
 interface ReportingCurrencyContextValue {
   ready: boolean;
+  /** The read settled on the fallback currency: amounts are not in the instance's reporting currency. */
+  degraded: boolean;
   currency: ReportingCurrency;
   currencyState: ReportingCurrencyState;
   refresh: () => Promise<ReportingCurrencyState>;
@@ -36,13 +40,13 @@ const ReportingCurrencyContext = createContext<ReportingCurrencyContextValue | u
 
 const pinnedReportingCurrencyCacheKey = "profile:1";
 
-export function ReportingCurrencyProvider({
-  children,
-  fallback = null,
-}: {
-  children: ReactNode;
-  fallback?: ReactNode;
-}) {
+/**
+ * One global currency read must not decide whether the console renders at all.
+ * The provider is transparent: children mount immediately against the default
+ * currency (`trust: "fallback"`, which the honesty layer already reads as "not
+ * verified"), and a settled read re-renders them with the real one.
+ */
+export function ReportingCurrencyProvider({ children }: { children: ReactNode }) {
   const cacheKey = pinnedReportingCurrencyCacheKey;
   const requestIdRef = useRef(0);
   const [readyCacheKey, setReadyCacheKey] = useState<string | null>(null);
@@ -170,6 +174,9 @@ export function ReportingCurrencyProvider({
   const value = useMemo<ReportingCurrencyContextValue>(
     () => ({
       ready: isReady,
+      // Only a settled read can be degraded; before that the fallback currency
+      // is just the not-yet-loaded state.
+      degraded: isReady && exposedCurrencyState.trust === "fallback",
       currency: exposedCurrency,
       currencyState: exposedCurrencyState,
       refresh,
@@ -180,8 +187,36 @@ export function ReportingCurrencyProvider({
 
   return (
     <ReportingCurrencyContext.Provider value={value}>
-      {isReady ? children : fallback}
+      {children}
     </ReportingCurrencyContext.Provider>
+  );
+}
+
+/**
+ * The degraded notice for a costing read that failed. Amounts stay on screen —
+ * withholding them would be a different (and false) claim — but the notice
+ * names the currency they are actually denominated in.
+ */
+export function ReportingCurrencyDegradedNotice() {
+  const { currency, degraded, refresh } = useReportingCurrencyContext();
+  const { messages } = useLocale();
+
+  if (!degraded) {
+    return null;
+  }
+
+  return (
+    <OperatorCallout
+      intent="warning"
+      data-testid="reporting-currency-degraded"
+      title={messages.common.reportingCurrencyFallbackTitle}
+      description={messages.common.reportingCurrencyFallbackDescription(currency.code)}
+      action={
+        <OperatorRetryButton onClick={() => void refresh()}>
+          {messages.common.retry}
+        </OperatorRetryButton>
+      }
+    />
   );
 }
 

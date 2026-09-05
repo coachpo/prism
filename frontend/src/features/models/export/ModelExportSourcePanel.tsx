@@ -114,7 +114,7 @@ export function ModelExportSourcePanel({
             <dd className="font-mono">
               {catalogStatusLabel(copy, source.catalog.status)}{" "}
               {source.catalog.revision
-                ? `(${source.catalog.revision.slice(0, 8)})`
+                ? `(${shortRevision(source.catalog.revision)})`
                 : ""}
             </dd>
             <dt className="text-muted-foreground">{copy.digestLabel}</dt>
@@ -126,6 +126,16 @@ export function ModelExportSourcePanel({
       )}
     </>
   );
+}
+
+/**
+ * 修订号是给操作者做重放核对的标识符，必须真的能标识。`sha256-…` 的前 7 位
+ * 是算法名，不携带信息：截断只从摘要本体取 12 位十六进制。
+ */
+function shortRevision(revision: string): string {
+  const separator = revision.indexOf("-");
+  if (separator < 0) return revision.slice(0, 12);
+  return revision.slice(0, separator + 13);
 }
 
 function catalogStatusLabel(

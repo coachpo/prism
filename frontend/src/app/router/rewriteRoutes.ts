@@ -263,8 +263,12 @@ export const requestAuditSearchSchema = z.object({
 // canonicalization (old tab=global meant instance, so it is never mapped).
 // Billing-currency section-owned Pricing keys are allowlisted only under an
 // explicit section=billing-currency.
+// Every enumerated key carries `.catch(undefined)`: a stale bookmark or a
+// hand-edited value must degrade to the default view, never throw the whole
+// route into the error boundary (and never print the enum members back out).
+// `SETTINGS_FALLBACK_SEARCH_KEYS` is what the page reports as ignored.
 export const settingsSearchSchema = z.object({
-  scope: z.enum(["global", "instance"]).optional(),
+  scope: z.enum(["global", "instance"]).optional().catch(undefined),
   section: z
     .enum([
       "billing-currency",
@@ -277,12 +281,20 @@ export const settingsSearchSchema = z.object({
       "manual-cleanup",
       "retention-jobs",
     ])
-    .optional(),
+    .optional()
+    .catch(undefined),
   costing_action: z
     .enum(["currency_cutover", "repair_same_currency", "archive_unused_fx"])
-    .optional(),
+    .optional()
+    .catch(undefined),
   pricing_inventory_id: z.string().optional(),
 });
+
+export const SETTINGS_FALLBACK_SEARCH_KEYS = [
+  "scope",
+  "section",
+  "costing_action",
+] as const;
 
 // Models list canonical search: filters, sort and pagination are URL state so
 // a filtered view is a shareable link. `/route/models` previously accepted no
@@ -290,13 +302,17 @@ export const settingsSearchSchema = z.object({
 export const modelsListSearchSchema = z.object({
   // Entry qualification view is URL-backed so operators can deep-link the
   // default client-entry list, Model Target-only list, or the full inventory.
-  view: z.enum(["entries", "model_targets", "all"]).optional(),
+  view: z.enum(["entries", "model_targets", "all"]).optional().catch(undefined),
   scope: z
     .enum(["ingress", "final_execution", "route_attempt"])
-    .optional(),
+    .optional()
+    .catch(undefined),
   search: z.string().optional(),
-  api_family: z.enum(["all", "openai", "anthropic", "gemini"]).optional(),
-  status: z.enum(["all", "enabled", "disabled"]).optional(),
+  api_family: z
+    .enum(["all", "openai", "anthropic", "gemini"])
+    .optional()
+    .catch(undefined),
+  status: z.enum(["all", "enabled", "disabled"]).optional().catch(undefined),
   // Identity filters: upstream_decoupled matches entry models whose direct
   // Terminal Targets hold a persisted upstream identity differing from the
   // entry model_id (case-sensitive); has_model_target matches entries with at
@@ -309,7 +325,8 @@ export const modelsListSearchSchema = z.object({
       "upstream_decoupled",
       "has_model_target",
     ])
-    .optional(),
+    .optional()
+    .catch(undefined),
   sort_by: z
     .enum([
       "name",
@@ -322,13 +339,55 @@ export const modelsListSearchSchema = z.object({
       "requests",
       "spend",
     ])
-    .optional(),
-  sort_order: z.enum(["asc", "desc"]).optional(),
-  page: z.coerce.number().int().min(1).optional(),
-  page_size: z.coerce.number().int().min(1).max(200).optional(),
+    .optional()
+    .catch(undefined),
+  sort_order: z.enum(["asc", "desc"]).optional().catch(undefined),
+  // Paging is the easiest thing to hand-edit wrong (`?page=0`), so it degrades
+  // to the first page instead of taking the list down.
+  page: z.coerce.number().int().min(1).optional().catch(undefined),
+  page_size: z.coerce.number().int().min(1).max(200).optional().catch(undefined),
 });
 
+export const MODELS_LIST_FALLBACK_SEARCH_KEYS = [
+  "view",
+  "scope",
+  "api_family",
+  "status",
+  "flag",
+  "sort_by",
+  "sort_order",
+  "page",
+  "page_size",
+] as const;
+
 export const emptySearchSchema = z.object({});
+
+/** Longest raw value echoed back in the ignored-parameter notice. */
+const REJECTED_SEARCH_VALUE_MAX_LENGTH = 40;
+
+// A `.catch()` turns an illegal value into the default silently, which trades a
+// visible broken link for an invisible one. Comparing the raw query string with
+// the parsed result names every key that fell back — the value was written in
+// the URL but did not survive validation — so the page can say so.
+export function collectRejectedSearchKeys(
+  searchStr: string,
+  parsed: Record<string, unknown>,
+  keys: readonly string[],
+): string[] {
+  const raw = new URLSearchParams(searchStr);
+  const rejected: string[] = [];
+  for (const key of keys) {
+    const rawValue = raw.get(key);
+    if (rawValue === null || rawValue.trim() === "") continue;
+    if (parsed[key] !== undefined) continue;
+    rejected.push(
+      rawValue.length > REJECTED_SEARCH_VALUE_MAX_LENGTH
+        ? `${key}=${rawValue.slice(0, REJECTED_SEARCH_VALUE_MAX_LENGTH)}…`
+        : `${key}=${rawValue}`,
+    );
+  }
+  return rejected;
+}
 
 export type ObserveSearch = z.input<typeof observeSearchSchema>;
 export type AuthLoginSearch = z.input<typeof authLoginSearchSchema>;

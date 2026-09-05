@@ -37,6 +37,7 @@ import {
   OperatorClippedBadge,
   OperatorEmptyState,
   OperatorErrorState,
+  OperatorInsetPanel,
   OperatorSectionCard,
   OperatorStalenessBadge,
   OperatorTypeBadge,
@@ -81,9 +82,22 @@ export function GlobalCurrentStatePresentation({
     (item) =>
       item.observation_state === "observed" && item.state === "retry_wait",
   ).length;
-  const unobservedCount = rows.filter(
+  const unobservedRows = rows.filter(
     (item) => item.observation_state !== "observed",
-  ).length;
+  );
+  const unobservedCount = unobservedRows.length;
+  // 尚未观测的行整片都是同一个徽章加四个 —，信息量等于卡头那句摘要，却把真正
+  // 有事实的行推出首屏，还各自占一个 tab 停点。默认折起来，展开与否记在本地。
+  const [unobservedExpanded, setUnobservedExpanded] = useState(
+    readUnobservedExpanded,
+  );
+  const observedRows = rows.filter(
+    (item) => item.observation_state === "observed",
+  );
+  // 只有当还剩下有事实的行时才折叠；操作者专门筛「尚未观测」时不能把表清空。
+  const foldsUnobserved = unobservedCount > 0 && observedRows.length > 0;
+  const visibleRows =
+    foldsUnobserved && !unobservedExpanded ? observedRows : rows;
   const showPendingRows = shouldShowPendingRows(fragment);
   const showCommittedRows = keepsCommittedRows(fragment) && rows.length > 0;
   const showTableShell = showPendingRows || showCommittedRows;
@@ -324,7 +338,11 @@ export function GlobalCurrentStatePresentation({
       ) : null}
 
       {showTableShell ? (
-        <div className="overflow-x-auto" aria-busy={fragment.reading}>
+        <div
+          id="runtime-current-state-table"
+          className="overflow-x-auto"
+          aria-busy={fragment.reading}
+        >
           <Table aria-label={copy.currentStateTitle}>
             <TableHeader>
               <TableRow>
@@ -345,7 +363,7 @@ export function GlobalCurrentStatePresentation({
               {showPendingRows ? (
                 <OperationalTableSkeletonRows columns={7} rows={5} />
               ) : (
-                rows.map((item) => (
+                visibleRows.map((item) => (
                   <GlobalCurrentStateRow
                     key={item.terminal_target.id}
                     item={item}
@@ -356,13 +374,40 @@ export function GlobalCurrentStatePresentation({
                     formatTime={formatTime}
                     formatNumber={formatNumber}
                     copy={copy}
-                    missingLabel={messages.honesty.noValue}
                   />
                 ))
               )}
             </TableBody>
           </Table>
         </div>
+      ) : null}
+
+      {showCommittedRows && foldsUnobserved ? (
+        <OperatorInsetPanel
+          data-testid="runtime-unobserved-fold"
+          title={copy.currentStateSummaryUnobserved(
+            formatNumber(unobservedCount),
+          )}
+          description={copy.unobservedFoldDescription}
+          actions={
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              aria-expanded={unobservedExpanded}
+              aria-controls="runtime-current-state-table"
+              onClick={() => {
+                const next = !unobservedExpanded;
+                setUnobservedExpanded(next);
+                writeUnobservedExpanded(next);
+              }}
+            >
+              {unobservedExpanded
+                ? copy.unobservedFoldCollapse
+                : copy.unobservedFoldExpand}
+            </Button>
+          }
+        />
       ) : null}
 
       {cursorStack.length > 0 || fragment.data?.has_more || fragment.reading ? (
@@ -420,6 +465,23 @@ export function GlobalCurrentStatePresentation({
         </AlertDialogContent>
       </AlertDialog>
     </OperatorSectionCard>
+  );
+}
+
+const UNOBSERVED_EXPANDED_STORAGE_KEY = "prism.routingHealth.unobservedExpanded";
+
+function readUnobservedExpanded(): boolean {
+  if (typeof window === "undefined") return false;
+  return (
+    window.localStorage?.getItem(UNOBSERVED_EXPANDED_STORAGE_KEY) === "true"
+  );
+}
+
+function writeUnobservedExpanded(expanded: boolean): void {
+  if (typeof window === "undefined") return;
+  window.localStorage?.setItem(
+    UNOBSERVED_EXPANDED_STORAGE_KEY,
+    expanded ? "true" : "false",
   );
 }
 

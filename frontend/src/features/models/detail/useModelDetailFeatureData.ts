@@ -49,7 +49,6 @@ interface UseModelDetailFeatureDataInput {
   modelId: string | undefined
   searchParams: URLSearchParams
   setSearchParams: SetURLSearchParams
-  navigateTo: (to: string) => void
   // The mutations hook has always accepted refreshDiagnostics and calls it in
   // four places, but nothing ever passed one in, so every call was a no-op and
   // the diagnostics panel kept showing pre-mutation results until a reload.
@@ -60,7 +59,6 @@ export function useModelDetailFeatureData({
   modelId,
   searchParams,
   setSearchParams,
-  navigateTo,
   refreshDiagnostics,
 }: UseModelDetailFeatureDataInput) {
   const revision = 0
@@ -157,13 +155,14 @@ export function useModelDetailFeatureData({
         : 60_000
 
   const [loadError, setLoadError] = useState<string | null>(null)
+  // 「不存在」与「没读到」是两件事，页面要分开渲染，所以分开记。
+  const [notFound, setNotFound] = useState(false)
   const [degradedParts, setDegradedParts] =
     useState<ModelDetailDegradedParts>(NO_DEGRADED_PARTS)
 
   const { fetchModel } = useModelDetailBootstrap({
     id: modelId,
     revision,
-    navigate: navigateTo,
     setModel,
     setConnections,
     setAllConnections,
@@ -173,6 +172,7 @@ export function useModelDetailFeatureData({
     setPricingTemplates,
     setLoading,
     setLoadError,
+    setNotFound,
     setDegradedParts,
   })
 
@@ -318,6 +318,7 @@ export function useModelDetailFeatureData({
     model,
     loading,
     loadError,
+    notFound,
     degradedParts,
     retryLoad: fetchModel,
     autoRefreshValue,

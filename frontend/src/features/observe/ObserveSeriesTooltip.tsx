@@ -124,7 +124,9 @@ function TooltipMetricValue({
   }
 
   if (entryValue === null || entryValue === undefined) {
-    return <OperatorMissingValue reason={messages.honesty.noValue} />;
+    return (
+      <OperatorMissingValue reason={copy.seriesNoBucketObservation} />
+    );
   }
   const rendered =
     typeof entryValue === "number" ? formatNumber(entryValue) : String(entryValue);
@@ -211,7 +213,9 @@ function TooltipDetailRow({
     <div className="flex items-center justify-between gap-3">
       <span>{label}</span>
       {value === null ? (
-        <OperatorMissingValue reason={messages.honesty.noValue} />
+        <OperatorMissingValue
+          reason={messages.observe.bucketComponentNotReported}
+        />
       ) : (
         <span className="font-mono tabular-nums">
           {formatNumber(value)} {unit}

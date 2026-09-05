@@ -3,8 +3,18 @@ import { useNavigate } from "@tanstack/react-router";
 import { CornerDownLeft, Search } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { getSharedModels } from "@/lib/referenceData";
-import type { ModelConfigListItem } from "@/lib/types";
+import {
+  getSharedEndpoints,
+  getSharedModels,
+  getSharedPricingTemplates,
+  getSharedProxyKeys,
+} from "@/lib/referenceData";
+import type {
+  Endpoint,
+  ModelConfigListItem,
+  PricingTemplate,
+  ProxyApiKey,
+} from "@/lib/types";
 import {
   Dialog,
   DialogContent,
@@ -23,6 +33,8 @@ type Entry = {
   key: string;
   label: string;
   to: string;
+  /** 查询参数必须走 search：写进 to 的 query 串路由不解析，会被静默丢弃。 */
+  search?: Record<string, string>;
 };
 
 const REQUEST_ID_PATTERN = /^#?\d+$/;
@@ -61,9 +73,14 @@ export function GlobalSearch({ sidebarItems }: { sidebarItems: LocalizedShellSid
   }
 
   // 输入模型名却得到「没有匹配的页面」是这个搜索框最常见的落空。
-  // 打开时懒加载一次模型配置列表，读失败就明说，不静默缺组。
+  // 打开时懒加载一次各实体列表（走共享引用数据，不另建缓存），读失败就明说，
+  // 不静默缺组——少一组结果和「确实没有」在界面上是同一个样子。
   const [models, setModels] = useState<ModelConfigListItem[]>([]);
+  const [endpointList, setEndpointList] = useState<Endpoint[]>([]);
+  const [templates, setTemplates] = useState<PricingTemplate[]>([]);
+  const [proxyKeyList, setProxyKeyList] = useState<ProxyApiKey[]>([]);
   const [modelsFailed, setModelsFailed] = useState(false);
+  const [entitiesFailed, setEntitiesFailed] = useState(false);
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
@@ -76,6 +93,21 @@ export function GlobalSearch({ sidebarItems }: { sidebarItems: LocalizedShellSid
       .catch(() => {
         if (!cancelled) setModelsFailed(true);
       });
+    void Promise.allSettled([
+      getSharedEndpoints(0),
+      getSharedPricingTemplates(0),
+      getSharedProxyKeys(0),
+    ]).then(([endpointResult, templateResult, proxyKeyResult]) => {
+      if (cancelled) return;
+      if (endpointResult.status === "fulfilled") setEndpointList(endpointResult.value);
+      if (templateResult.status === "fulfilled") setTemplates(templateResult.value);
+      if (proxyKeyResult.status === "fulfilled") setProxyKeyList(proxyKeyResult.value);
+      setEntitiesFailed(
+        [endpointResult, templateResult, proxyKeyResult].some(
+          (result) => result.status === "rejected",
+        ),
+      );
+    });
     return () => {
       cancelled = true;
     };
@@ -105,7 +137,7 @@ export function GlobalSearch({ sidebarItems }: { sidebarItems: LocalizedShellSid
           )
           .slice(0, 8)
           .map<Entry>((model) => ({
-            description: model.model_id,
+            description: copy.searchModelGroupLabel,
             icon: CornerDownLeft,
             key: `model:${model.id}`,
             label: model.display_name?.trim() || model.model_id,
@@ -113,16 +145,56 @@ export function GlobalSearch({ sidebarItems }: { sidebarItems: LocalizedShellSid
           }))
       : [];
 
-    if (!REQUEST_ID_PATTERN.test(trimmed)) return [...modelEntries, ...pages];
+    // 实体条目按侧栏分组顺序排在页面之前：搜「gpt」的人要的是那条配置，不是路由页。
+    const entityEntries = trimmed
+      ? [
+          ...endpointList
+            .filter((endpoint) => endpoint.name.toLowerCase().includes(needle))
+            .slice(0, 5)
+            .map<Entry>((endpoint) => ({
+              description: copy.searchEndpointGroupLabel,
+              icon: CornerDownLeft,
+              key: `endpoint:${endpoint.id}`,
+              label: endpoint.name,
+              to: "/route/endpoints",
+            })),
+          ...templates
+            .filter((template) => template.name.toLowerCase().includes(needle))
+            .slice(0, 5)
+            .map<Entry>((template) => ({
+              description: copy.searchPricingTemplateGroupLabel,
+              icon: CornerDownLeft,
+              key: `pricing:${template.id}`,
+              label: template.name,
+              to: "/route/pricing",
+            })),
+          ...proxyKeyList
+            .filter((key) => key.name.toLowerCase().includes(needle))
+            .slice(0, 5)
+            .map<Entry>((key) => ({
+              description: copy.searchProxyKeyGroupLabel,
+              icon: CornerDownLeft,
+              key: `proxy-key:${key.id}`,
+              label: key.name,
+              to: "/system/proxy-keys",
+            })),
+        ]
+      : [];
+
+    if (!REQUEST_ID_PATTERN.test(trimmed)) {
+      return [...modelEntries, ...entityEntries, ...pages];
+    }
 
     const requestId = trimmed.replace(/^#/, "");
     return [
       ...modelEntries,
+      ...entityEntries,
       {
         icon: CornerDownLeft,
         key: `request:${requestId}`,
         label: copy.searchJumpToRequest(requestId),
-        to: `/observe/requests?request_id=${requestId}`,
+        to: "/observe/requests",
+        search: { request_id: requestId, time_range: "all" },
       },
       {
         icon: CornerDownLeft,
@@ -132,14 +204,14 @@ export function GlobalSearch({ sidebarItems }: { sidebarItems: LocalizedShellSid
       },
       ...pages,
     ];
-  }, [copy, messages.shell.groupLabels, models, query, sidebarItems]);
+  }, [copy, endpointList, messages.shell.groupLabels, models, proxyKeyList, query, sidebarItems, templates]);
 
   const boundedIndex = entries.length === 0 ? 0 : Math.min(activeIndex, entries.length - 1);
 
   function go(entry: Entry | undefined) {
     if (!entry) return;
     setOpenState(false);
-    void navigate({ to: entry.to });
+    void navigate({ to: entry.to, search: entry.search });
   }
 
   return (
@@ -209,6 +281,11 @@ export function GlobalSearch({ sidebarItems }: { sidebarItems: LocalizedShellSid
             {modelsFailed ? (
               <p className="px-2 pb-1 text-xs text-muted-foreground">
                 {copy.searchModelsUnavailable}
+              </p>
+            ) : null}
+            {entitiesFailed ? (
+              <p className="px-2 pb-1 text-xs text-muted-foreground">
+                {copy.searchEntitiesUnavailable}
               </p>
             ) : null}
             {entries.length === 0 ? (

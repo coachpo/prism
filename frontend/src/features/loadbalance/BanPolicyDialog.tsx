@@ -249,6 +249,35 @@ export function BanPolicyDialog({ editingStrategy, initialValues, open, saving, 
                 </Field>
               </FieldSet>
 
+              {/* 三个预设是最快的配置路径，排在九个裸数字之前：先给一键起点，
+                  再让操作者按需微调，而不是手填完才发现有预设。 */}
+              <FieldSet className="rounded-lg border border-border p-4">
+                <FieldLegend>{copy.presetsLabel}</FieldLegend>
+                <div className="flex flex-wrap gap-2">
+                  {BAN_POLICY_PRESET_ORDER.map((key) => (
+                      <Button key={key} type="button" variant={activePresetKey === key ? "default" : "outline"} size="sm" onClick={() => applyPreset(key)} aria-pressed={activePresetKey === key}>
+                        <Sparkles data-icon="inline-start" />
+                        {presetLabel(key, copy)}
+                      </Button>
+                    ))}
+                </div>
+                {activePresetKey === "aggressive" ? (
+                  <OperatorCallout intent="warning" title={copy.presetAggressiveWarning} className="mt-2" />
+                ) : null}
+                {activePresetKey === null && (banMode !== "off" || cycleRetryAttemptLimit !== 3) ? (
+                  <p className="mt-2 text-xs text-foreground/60">{copy.presetCustomLabel("均衡")}</p>
+                ) : null}
+                {presetConfirmKey ? (
+                  <OperatorCallout intent="warning" title={copy.presetReplaceConfirm} className="mt-2">
+                    {copy.presetReplaceConfirmDescription}
+                    <div className="mt-2 flex gap-2">
+                      <Button type="button" variant="default" size="sm" onClick={() => applyPreset(presetConfirmKey)}>{copy.continue}</Button>
+                      <Button type="button" variant="outline" size="sm" onClick={() => setPresetConfirmKey(null)}>{copy.cancelApply}</Button>
+                    </div>
+                  </OperatorCallout>
+                ) : null}
+              </FieldSet>
+
               <FieldSet className="rounded-lg border border-border p-4">
                 <FieldLegend>{copy.groupRetry}</FieldLegend>
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -296,33 +325,6 @@ export function BanPolicyDialog({ editingStrategy, initialValues, open, saving, 
                 ) : null}
               </FieldSet>
 
-              <FieldSet className="rounded-lg border border-border p-4">
-                <FieldLegend>{copy.presetsLabel}</FieldLegend>
-                <div className="flex flex-wrap gap-2">
-                  {BAN_POLICY_PRESET_ORDER.map((key) => (
-                      <Button key={key} type="button" variant={activePresetKey === key ? "default" : "outline"} size="sm" onClick={() => applyPreset(key)} aria-pressed={activePresetKey === key}>
-                        <Sparkles data-icon="inline-start" />
-                        {presetLabel(key, copy)}
-                      </Button>
-                    ))}
-                </div>
-                {activePresetKey === "aggressive" ? (
-                  <OperatorCallout intent="warning" title={copy.presetAggressiveWarning} className="mt-2" />
-                ) : null}
-                {activePresetKey === null && (banMode !== "off" || cycleRetryAttemptLimit !== 3) ? (
-                  <p className="mt-2 text-xs text-foreground/60">{copy.presetCustomLabel("均衡")}</p>
-                ) : null}
-                {presetConfirmKey ? (
-                  <OperatorCallout intent="warning" title={copy.presetReplaceConfirm} className="mt-2">
-                    {copy.presetReplaceConfirmDescription}
-                    <div className="mt-2 flex gap-2">
-                      <Button type="button" variant="default" size="sm" onClick={() => applyPreset(presetConfirmKey)}>{copy.continue}</Button>
-                      <Button type="button" variant="outline" size="sm" onClick={() => setPresetConfirmKey(null)}>{copy.cancelApply}</Button>
-                    </div>
-                  </OperatorCallout>
-                ) : null}
-              </FieldSet>
-
               {Object.entries(provenance).length > 0 ? (
                 <div className="flex flex-col gap-2 rounded-lg border border-border bg-inset p-4">
                   <span className="text-sm font-medium">{copy.provenanceSystemAdjusted}</span>
@@ -336,11 +338,21 @@ export function BanPolicyDialog({ editingStrategy, initialValues, open, saving, 
                 </div>
               ) : null}
 
-              <FieldSet className="rounded-lg border border-border p-4">
-                <FieldLegend>{copy.groupPreview}</FieldLegend>
-                <PreviewPanel preview={preview} onRetry={() => void runPreview()} />
-              </FieldSet>
             </FieldGroup>
+            {/* 预览推演的就是上面那几个输入框：钉在正文底部，改一个延迟立刻
+                看得到退避怎么变，不必往下滚一千像素再滚回来。正文本身会滚动，
+                所以这里限高，长推演在自己的区域内滚。 */}
+            <section
+              aria-labelledby="ban-policy-preview-heading"
+              className="sticky bottom-[-1.25rem] -mx-6 -mb-5 border-t border-border bg-panel px-6 pt-3 pb-8"
+            >
+              <h3 id="ban-policy-preview-heading" className="pb-2 text-sm font-medium">
+                {copy.groupPreview}
+              </h3>
+              <div className="max-h-[30vh] overflow-y-auto">
+                <PreviewPanel preview={preview} onRetry={() => void runPreview()} />
+              </div>
+            </section>
           </DialogBody>
           <DialogFooter className="shrink-0 border-t border-border px-6 py-4">
             <Button type="button" variant="outline" onClick={() => { setPresetConfirmKey(null); onClose() }}>{copy.cancel}</Button>

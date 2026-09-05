@@ -9,6 +9,7 @@ import {
   ChevronRight,
   FileSearch,
 } from "lucide-react";
+import type { ReactNode } from "react";
 import { useLocale } from "@/i18n/useLocale";
 import { Button } from "@/components/ui/button";
 import {
@@ -21,7 +22,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import type { RequestLogListItem } from "@/lib/types";
-import { OperatorEmptyState } from "@/shared/design-system";
+import { OperatorClippedBadge, OperatorEmptyState } from "@/shared/design-system";
 import { PaginationLiveStatus } from "@/shared/table/paginationControls";
 import {
   getColumns,
@@ -51,6 +52,10 @@ interface RequestLogsTableProps {
   sortBy: string;
   sortOrder: "asc" | "desc";
   onSortChange: (key: string) => void;
+  /** True only when the backend's coverage says this window was clipped. */
+  retentionClipped: boolean;
+  /** Next step for a filtered-to-nothing result; omitted when there is none. */
+  emptyAction?: ReactNode;
 }
 
 interface ResolvedColumn extends ColumnDef {
@@ -139,6 +144,8 @@ export function RequestLogsTable({
   sortBy,
   sortOrder,
   onSortChange,
+  retentionClipped,
+  emptyAction,
 }: RequestLogsTableProps) {
   const { formatNumber, messages } = useLocale();
   const columns = useMemo(() => getColumns(), []);
@@ -294,8 +301,27 @@ export function RequestLogsTable({
               <OperatorEmptyState
                 className="py-20"
                 icon={<FileSearch className="h-6 w-6" />}
-                title={messages.requestLogs.noRequestLogsMatchSlice}
-                description={messages.statistics.adjustFiltersOrTimeRange}
+                title={
+                  retentionClipped
+                    ? messages.requestLogs.emptyCoverageClipped
+                    : messages.requestLogs.noRequestLogsMatchSlice
+                }
+                description={
+                  retentionClipped ? (
+                    <span className="inline-flex flex-col items-center gap-2">
+                      <span>
+                        {messages.requestLogs.emptyCoverageClippedDescription}
+                      </span>
+                      <OperatorClippedBadge
+                        label={messages.honesty.outsideRetention}
+                        reason={messages.honesty.outsideRetentionReason}
+                      />
+                    </span>
+                  ) : (
+                    messages.requestLogs.attemptsEmptyDescription
+                  )
+                }
+                action={emptyAction}
               />
             </div>
           ) : (

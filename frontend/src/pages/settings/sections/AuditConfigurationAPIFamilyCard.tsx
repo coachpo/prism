@@ -12,7 +12,12 @@ import {
 } from "@/components/ui/table";
 import { useLocale } from "@/i18n/useLocale";
 import type { ApiFamily, AuditAPIFamilySetting, AuditStorageSummary } from "@/lib/types";
-import { OperatorLoadingState, OperatorSectionCard } from "@/shared/design-system";
+import {
+  OperatorLoadingState,
+  OperatorMissingValue,
+  OperatorSectionCard,
+  OperatorTypeBadge,
+} from "@/shared/design-system";
 
 interface AuditConfigurationAPIFamilyCardProps {
   apiFamilyAuditSettings: AuditAPIFamilySetting[];
@@ -110,11 +115,22 @@ export function AuditConfigurationAPIFamilyCard({
         {auditStorageLoading ? (
           <p className="text-sm text-muted-foreground">{copy.loadingStorageSummary}</p>
         ) : auditStorageSummary ? (
-          <div className="grid gap-3 rounded-lg border border-border bg-inset p-4 sm:grid-cols-2 lg:grid-cols-4">
-            <StorageFact label={copy.retainedAuditRows} value={auditStorageSummary.retained_rows ?? copy.storageUnavailable} />
-            <StorageFact label={copy.logicalHeaderBytes} value={formatBytes(auditStorageSummary.logical_header_bytes, copy.storageUnavailable)} />
-            <StorageFact label={copy.logicalBodyBytes} value={formatBytes(auditStorageSummary.logical_body_bytes, copy.storageUnavailable)} />
-            <StorageFact label={copy.storageFreshness} value={auditStorageSummary.freshness === "fresh" ? copy.storageFresh : copy.storagePartial} />
+          /* 摘要状态是这块的元字段，不是第四个数值：它挂在摘要条上，
+             三个数值位只放真正的数字或缺值的破折号。 */
+          <div className="flex flex-col gap-3 rounded-lg border border-border bg-inset p-4">
+            <OperatorTypeBadge
+              className="w-fit font-normal"
+              intent={auditStorageSummary.freshness === "fresh" ? "neutral" : "degraded"}
+              preserveLabel
+              label={copy.storageFreshnessBadge(
+                auditStorageSummary.freshness === "fresh" ? copy.storageFresh : copy.storagePartial,
+              )}
+            />
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <StorageFact label={copy.retainedAuditRows} reason={copy.storageSummaryUnavailable} value={auditStorageSummary.retained_rows} />
+              <StorageFact label={copy.logicalHeaderBytes} reason={copy.storageSummaryUnavailable} value={formatBytes(auditStorageSummary.logical_header_bytes)} />
+              <StorageFact label={copy.logicalBodyBytes} reason={copy.storageSummaryUnavailable} value={formatBytes(auditStorageSummary.logical_body_bytes)} />
+            </div>
           </div>
         ) : (
           <p className="text-sm text-muted-foreground">{copy.storageSummaryUnavailable}</p>
@@ -129,17 +145,22 @@ export function AuditConfigurationAPIFamilyCard({
   );
 }
 
-function StorageFact({ label, value }: { label: string; value: string }) {
+/** 缺值走破折号 + text-muted，绝不能和一个真实数字长得一模一样。 */
+function StorageFact({ label, reason, value }: { label: string; reason: string; value: string | null }) {
   return (
     <div className="min-w-0">
       <p className="text-xs font-medium text-muted-foreground">{label}</p>
-      <p className="truncate text-sm font-semibold text-foreground">{value}</p>
+      {value === null ? (
+        <OperatorMissingValue className="text-sm" reason={reason} />
+      ) : (
+        <p className="truncate text-sm font-semibold text-foreground">{value}</p>
+      )}
     </div>
   );
 }
 
-function formatBytes(value: string | null, unavailable: string) {
-  if (value === null) return unavailable;
+function formatBytes(value: string | null) {
+  if (value === null) return null;
   const bytes = Number(value);
   if (!Number.isSafeInteger(bytes)) return value;
   if (bytes < 1024) return `${bytes} B`;

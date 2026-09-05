@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -16,11 +16,13 @@ import { useTimezone } from "@/hooks/useTimezone";
 import { useLocale } from "@/i18n/useLocale";
 import {
   metricsForScope,
-  OBSERVE_GROUPS,
+  OBSERVE_INTERVAL_OPTIONS,
+  unavailableGroupsForScope,
+  unavailableMetricsForScope,
   type ObserveGroupBy,
   type ObserveMetric,
   type ObserveScope,
-  groupBelongsToScope,
+  groupsForScope,
 } from "@/features/observe/observeSearch";
 import {
   buildObserveChartRows,
@@ -45,6 +47,7 @@ import {
   OperatorClippedBadge,
   OperatorEmptyState,
   OperatorErrorState,
+  OperatorRetryButton,
   OperatorStalenessBadge,
 } from "@/shared/design-system";
 
@@ -101,15 +104,21 @@ export function ObserveMainChart({
   fragment,
   metric,
   groupBy,
+  interval = "auto",
   onMetricChange,
   onGroupByChange,
+  onIntervalChange,
+  onRetry,
   scope = "ingress",
 }: {
   fragment: FragmentState<UsageSeriesResponse>;
   metric: ObserveMetric;
   groupBy: ObserveGroupBy;
+  interval?: string;
   onMetricChange: (metric: ObserveMetric) => void;
   onGroupByChange: (groupBy: ObserveGroupBy) => void;
+  onIntervalChange?: (interval: string) => void;
+  onRetry?: () => void;
   scope?: ObserveScope;
 }) {
   const { formatNumber, messages } = useLocale();
@@ -117,6 +126,14 @@ export function ObserveMainChart({
   const copy = messages.observe;
   const [mode, setMode] = useState<"chart" | "table">("chart");
   const [hidden, setHidden] = useState<ReadonlySet<string>>(() => new Set());
+  const intervalLabelId = useId();
+  // A deep link may carry a width the strip does not offer; appending it keeps
+  // the active bucket visible and re-selectable instead of clamping the URL.
+  const intervalOptions = (
+    OBSERVE_INTERVAL_OPTIONS as readonly string[]
+  ).includes(interval)
+    ? OBSERVE_INTERVAL_OPTIONS
+    : [...OBSERVE_INTERVAL_OPTIONS, interval];
 
   const series = useMemo(
     () =>
@@ -235,6 +252,18 @@ export function ObserveMainChart({
               {copy.metricName(value)}
             </ToggleGroupItem>
           ))}
+          {/* 本口径不支持的指标禁用并带理由，而不是删掉：删掉之后操作者
+              只会看到曲线换了一根，不会知道自己选的指标去了哪里。 */}
+          {unavailableMetricsForScope(scope).map((value) => (
+            <ToggleGroupItem
+              key={value}
+              value={value}
+              disabled
+              title={copy.metricUnavailableReason(value, scope)}
+            >
+              {copy.metricName(value)}
+            </ToggleGroupItem>
+          ))}
         </ToggleGroup>
         <div className="flex items-center gap-2">
           {fragment.data?.truncated ? (
@@ -250,18 +279,56 @@ export function ObserveMainChart({
             spacing={2}
             value={groupBy}
             aria-label={copy.groupLabel}
+            className="max-w-full flex-wrap"
             onValueChange={(value) => {
               if (value) onGroupByChange(value as ObserveGroupBy);
             }}
           >
-            {OBSERVE_GROUPS.filter((value) =>
-              groupBelongsToScope(value, scope),
-            ).map((value) => (
+            {groupsForScope(scope).map((value) => (
               <ToggleGroupItem key={value} value={value}>
                 {copy.groupName(value)}
               </ToggleGroupItem>
             ))}
+            {unavailableGroupsForScope(scope).map((value) => (
+              <ToggleGroupItem
+                key={value}
+                value={value}
+                disabled
+                title={copy.groupUnavailableReason(scope)}
+              >
+                {copy.groupName(value)}
+              </ToggleGroupItem>
+            ))}
           </ToggleGroup>
+          {/* 桶宽是基准，控件必须挨着它重新定基的那张图；卡副标题写出
+              服务端实际生效的宽度，而不是这里请求的 auto。 */}
+          {onIntervalChange ? (
+            <div className="flex min-w-0 items-center gap-1.5">
+              <span
+                id={intervalLabelId}
+                className="shrink-0 text-xs text-muted-foreground"
+              >
+                {copy.intervalLabel}
+              </span>
+              <ToggleGroup
+                type="single"
+                variant="outline"
+                size="sm"
+                spacing={2}
+                value={interval}
+                aria-labelledby={intervalLabelId}
+                onValueChange={(value) => {
+                  if (value) onIntervalChange(value);
+                }}
+              >
+                {intervalOptions.map((value) => (
+                  <ToggleGroupItem key={value} value={value}>
+                    {copy.intervalName(value)}
+                  </ToggleGroupItem>
+                ))}
+              </ToggleGroup>
+            </div>
+          ) : null}
           <ToggleGroup
             type="single"
             variant="outline"
@@ -297,6 +364,13 @@ export function ObserveMainChart({
           description={messages.honesty.readFailedDescription}
           details={fragment.error}
           detailsLabel={messages.honesty.viewDetails}
+          action={
+            onRetry ? (
+              <OperatorRetryButton onClick={onRetry}>
+                {copy.retry}
+              </OperatorRetryButton>
+            ) : undefined
+          }
         />
       ) : chartData.length === 0 ? (
         // No data draws no empty axes.

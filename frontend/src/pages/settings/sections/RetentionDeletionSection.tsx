@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   OperatorCallout,
   OperatorInsetPanel,
+  OperatorMissingValue,
   OperatorSectionCard,
   OperatorStatusBadge,
 } from "@/shared/design-system";
@@ -55,7 +56,35 @@ function formatCoverageTime(value: string | null | undefined, noCutoff: string, 
 }
 
 function coverageState(coverage: RetentionCoverageSummary) {
+  // owner 明确报告了缺口就不是完整覆盖，哪怕它同时把 complete 置为 true：
+  // 缺口是「不能确认没有事件」的证据，界面不能只转述那个布尔值。
+  if (coverageGaps(coverage).length > 0) return "partial";
   return coverage.complete && coverage.freshness === "fresh" ? "complete" : "partial";
+}
+
+function coverageGaps(coverage: RetentionCoverageSummary) {
+  return Array.isArray(coverage.gaps) ? coverage.gaps : [];
+}
+
+/**
+ * 缺口两端可能都是 null（该数据集与保留范围整段没有交集），那就只讲原因。
+ * 两条呈现完全相同的缺口合并成一行：信息量一致，重复行只会读成渲染错误。
+ */
+function coverageGapLabels(
+  coverage: RetentionCoverageSummary,
+  copy: ReturnType<typeof useLocale>["messages"]["settingsRetentionDeletion"],
+  format: (value: string) => string,
+) {
+  const labels = new Set<string>();
+  for (const gap of coverageGaps(coverage)) {
+    const reason = copy.coverageGapReason(
+      typeof gap.reason === "string" ? gap.reason : "",
+    );
+    const from = typeof gap.from_time === "string" ? format(gap.from_time) : null;
+    const to = typeof gap.to_time === "string" ? format(gap.to_time) : null;
+    labels.add(from && to ? copy.coverageGapDetail(from, to, reason) : reason);
+  }
+  return [...labels];
 }
 
 type CoverageAxis = { start: number; end: number } | null;
@@ -112,8 +141,9 @@ function CoverageCard({
 
   const state = coverageState(coverage);
   const fromLabel = formatCoverageTime(coverage.from_time, copy.noLogicalCutoff, format);
-  const toLabel = formatCoverageTime(coverage.to_time, copy.notAvailable, format);
+  const toLabel = coverage.to_time ? format(coverage.to_time) : null;
   const span = spanGeometry(axis, coverage);
+  const gapLabels = coverageGapLabels(coverage, copy, format);
 
   return (
     <div className="flex flex-col gap-2 rounded-md border border-border bg-panel p-3" data-coverage-state={state}>
@@ -130,7 +160,7 @@ function CoverageCard({
         <div
           className="h-1.5 w-full rounded-full bg-inset"
           role="img"
-          aria-label={copy.coverageSpanAria(label, fromLabel, toLabel)}
+          aria-label={copy.coverageSpanAria(label, fromLabel, toLabel ?? copy.notAvailable)}
         >
           <div
             className={state === "complete" ? "h-full rounded-full bg-healthy" : "h-full rounded-full bg-degraded"}
@@ -145,20 +175,36 @@ function CoverageCard({
         <dt className="text-muted-foreground">{copy.coverageFromLabel}</dt>
         <dd className="truncate font-mono tabular-nums">{fromLabel}</dd>
         <dt className="text-muted-foreground">{copy.coverageToLabel}</dt>
-        <dd className="truncate font-mono tabular-nums">{toLabel}</dd>
+        <dd className="truncate font-mono tabular-nums">
+          {toLabel ?? <OperatorMissingValue reason={copy.coverageToUnknownReason} />}
+        </dd>
         <dt className="text-muted-foreground">{copy.coverageBasisLabel}</dt>
         <dd className="truncate">{coverage.source}</dd>
         <dt className="text-muted-foreground">{copy.coverageGenerationLabel}</dt>
         <dd className="truncate font-mono tabular-nums">{coverage.retention_generation}</dd>
       </dl>
+
+      {gapLabels.length > 0 ? (
+        <div className="flex flex-col gap-0.5 text-xs">
+          <p className="text-muted-foreground">{copy.coverageGapsTitle}</p>
+          <ul className="list-inside list-disc">
+            {gapLabels.map((gapLabel) => (
+              <li key={gapLabel}>{gapLabel}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
     </div>
   );
 }
 
 function spanGeometry(axis: CoverageAxis, coverage: RetentionCoverageSummary) {
   if (!axis) return null;
-  const from = coverage.from_time ? new Date(coverage.from_time).getTime() : axis.start;
-  const to = coverage.to_time ? new Date(coverage.to_time).getTime() : axis.end;
+  // 边界未知就没有区间可画。用轴的两端顶替 null 会画出一条满格的条，
+  // 把「起点终点都不知道」说成「覆盖了整段时间轴」，与 `?? 0` 同类。
+  if (!coverage.from_time || !coverage.to_time) return null;
+  const from = new Date(coverage.from_time).getTime();
+  const to = new Date(coverage.to_time).getTime();
   if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from) return null;
   const total = axis.end - axis.start;
   const offsetPercent = Math.max(0, Math.min(100, ((from - axis.start) / total) * 100));

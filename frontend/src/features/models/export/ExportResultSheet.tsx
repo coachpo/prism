@@ -10,7 +10,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { OperatorCallout, OperatorTypeBadge } from "@/shared/design-system";
 import type { ExportRenderResponse } from "@/lib/types";
 
 const EXPORT_FILE_NAME = "prism-pi-models.json";
@@ -38,6 +38,7 @@ export function ExportResultSheet(props: {
   const piProvidersFragment = props.result
     ? derivePiProvidersFragment(props.result.content)
     : null;
+  const warnings = props.result?.warnings ?? [];
 
   const revokeBlobURLs = () => {
     for (const url of blobURLs.current) URL.revokeObjectURL(url);
@@ -123,18 +124,42 @@ export function ExportResultSheet(props: {
         </SheetHeader>
 
         <div className="flex flex-wrap items-center gap-3 text-xs">
-          <Badge
-            variant={props.result.warnings?.length ? "outline" : "secondary"}
-          >
-            {props.result.warnings?.length
-              ? `${copy.warningCount.replace("{count}", String(props.result.warnings.length))}`
-              : copy.noWarnings}
-          </Badge>
+          {/* 「无提示 / 3 条提示」不能只靠颜色区分：两个 Badge variant 的前景
+              都落在 --text，扫一眼是同一个东西。 */}
+          <OperatorTypeBadge
+            intent={warnings.length > 0 ? "degraded" : "muted"}
+            preserveLabel
+            label={
+              warnings.length > 0
+                ? `⚠ ${copy.warningCount.replace("{count}", String(warnings.length))}`
+                : `✓ ${copy.noWarnings}`
+            }
+          />
           <span>
             SHA-256:{" "}
             <code className="font-mono">{props.result.content_sha256}</code>
           </span>
         </div>
+
+        {/* 缺失的 cost 组会让客户端把未配置价格显示成 0：这正是诚实契约要求
+            突出的事实，不能是代码块下方最弱的一行灰字。 */}
+        {warnings.length > 0 && (
+          <OperatorCallout
+            intent="warning"
+            title={copy.warningsTitle}
+            data-testid="export-result-warnings"
+            description={
+              <ul className="list-disc pl-5">
+                {warnings.map((warning) => (
+                  <li key={warning}>
+                    {(copy as Record<string, string>)[warningKey(warning)] ??
+                      copy.warnGeneric}
+                  </li>
+                ))}
+              </ul>
+            }
+          />
+        )}
 
         <pre
           data-testid="export-content-preview"
@@ -142,17 +167,6 @@ export function ExportResultSheet(props: {
         >
           {props.result.content}
         </pre>
-
-        {props.result.warnings && props.result.warnings.length > 0 && (
-          <ul className="list-disc pl-5 text-xs text-muted-foreground">
-            {props.result.warnings.map((warning) => (
-              <li key={warning}>
-                {(copy as Record<string, string>)[warningKey(warning)] ??
-                  copy.warnGeneric}
-              </li>
-            ))}
-          </ul>
-        )}
 
         <p className="text-xs text-muted-foreground">
           {copy.costZeroDisclaimer}

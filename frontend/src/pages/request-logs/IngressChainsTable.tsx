@@ -1,5 +1,13 @@
-import { Fragment, useState } from "react";
-import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
+import { Fragment, useState, type ReactNode } from "react";
+import { Link } from "@tanstack/react-router";
+import {
+	ChevronDown,
+	ChevronLeft,
+	ChevronRight,
+	Copy,
+	FileSearch,
+	PanelRight,
+} from "lucide-react";
 import { useLocale } from "@/i18n/useLocale";
 import { useTimezone } from "@/hooks/useTimezone";
 import { Button } from "@/components/ui/button";
@@ -21,6 +29,7 @@ import {
 	OperatorValueBadge,
 	type OperatorStatusTier,
 } from "@/shared/design-system";
+import { copyRequestLogText } from "./detail/requestLogClipboard";
 import {
 	OperationalTableSkeletonRows,
 	operationalRowStripe,
@@ -41,7 +50,7 @@ import {
 import type { ChainRowReadState } from "./useRequestLogIngressChains";
 import { UpstreamModelIdValue } from "./UpstreamModelIdValue";
 
-const CHAIN_COLUMN_COUNT = 11;
+const CHAIN_COLUMN_COUNT = 12;
 
 /**
  * Ingress-chain view (SPEC: `view=ingress_chains`): outer pages of retained
@@ -74,6 +83,8 @@ export function IngressChainsTable({
 	onLoadMoreRows,
 	onSelectRow,
 	loading,
+	retentionClipped,
+	emptyAction,
 }: {
 	chains: ChainIngressItem[];
 	total: number;
@@ -89,6 +100,10 @@ export function IngressChainsTable({
 	onLoadMoreRows: (ingressRequestId: string, rowCursor: string) => void;
 	onSelectRow: (requestLogId: string) => void;
 	loading: boolean;
+	/** True only when the backend's coverage says this window was clipped. */
+	retentionClipped: boolean;
+	/** Next step for a filtered-to-nothing result; omitted when there is none. */
+	emptyAction?: ReactNode;
 }) {
 	const { formatNumber, messages } = useLocale();
 	const copy = messages.requestLogs;
@@ -142,8 +157,23 @@ export function IngressChainsTable({
 
 			{chains.length === 0 && !loading ? (
 				<OperatorEmptyState
-					title={copy.chainEmpty}
-					description={copy.chainEmptyDescription}
+					title={
+						retentionClipped ? copy.emptyCoverageClipped : copy.chainEmpty
+					}
+					description={
+						retentionClipped ? (
+							<span className="inline-flex flex-col items-center gap-2">
+								<span>{copy.emptyCoverageClippedDescription}</span>
+								<OperatorClippedBadge
+									label={messages.honesty.outsideRetention}
+									reason={messages.honesty.outsideRetentionReason}
+								/>
+							</span>
+						) : (
+							copy.chainEmptyDescription
+						)
+					}
+					action={emptyAction}
 				/>
 			) : (
 				<div className="overflow-x-auto" aria-busy={showPendingRows}>
@@ -162,6 +192,9 @@ export function IngressChainsTable({
 								<TableHead className="text-right">{copy.chainColumnTokens}</TableHead>
 								<TableHead className="text-right">{copy.chainColumnCost}</TableHead>
 								<TableHead>{copy.chainColumnPricing}</TableHead>
+								<TableHead className="text-right">
+									{copy.chainRowActions}
+								</TableHead>
 							</TableRow>
 						</TableHeader>
 						<TableBody>
@@ -178,6 +211,7 @@ export function IngressChainsTable({
 												chain={chain}
 												expanded={expanded.has(chain.ingress_request_id)}
 												onToggle={() => toggle(chain.ingress_request_id)}
+												onSelectRow={onSelectRow}
 											/>
 											{expanded.has(chain.ingress_request_id) ? (
 												<TableRow data-testid={`chain-${chain.ingress_request_id}`}>
@@ -334,14 +368,29 @@ function pricingIntent(status: string) {
 	}
 }
 
+/**
+ * The chain's own request-log row: the finalized winner when the backend named
+ * one, otherwise the winning retained row, otherwise the first retained row.
+ * A chain with no retained row has no request log to open — that is a gap in
+ * the record, not a row we may invent an id for.
+ */
+function chainRequestLogId(chain: ChainIngressItem): string | null {
+	const finalized = chain.finalized_summary?.request_log_id;
+	if (finalized) return finalized;
+	const winner = chain.retained_rows.find((row) => row.is_winner === true);
+	return winner?.request_log_id ?? chain.retained_rows[0]?.request_log_id ?? null;
+}
+
 function ChainSummaryRow({
 	chain,
 	expanded,
 	onToggle,
+	onSelectRow,
 }: {
 	chain: ChainIngressItem;
 	expanded: boolean;
 	onToggle: () => void;
+	onSelectRow: (requestLogId: string) => void;
 }) {
 	const { formatNumber, messages } = useLocale();
 	const { format } = useTimezone();
@@ -349,6 +398,7 @@ function ChainSummaryRow({
 	const observe = messages.observe;
 	const summary = chain.finalized_summary;
 	const tier = resultTier(summary);
+	const requestLogId = chainRequestLogId(chain);
 	// Finalized evidence is either authoritative or unavailable; unavailable is a
 	// gap in the record, not a completed request with empty numbers.
 	const evidenceMissing =
@@ -360,15 +410,25 @@ function ChainSummaryRow({
 	return (
 		<TableRow
 			data-testid={`chain-summary-${chain.ingress_request_id}`}
-			className={cn("group/row", operationalRowStripe(tier))}
+			className={cn(
+				"group/row",
+				requestLogId !== null && "cursor-pointer",
+				operationalRowStripe(tier),
+			)}
+			onClick={
+				requestLogId === null ? undefined : () => onSelectRow(requestLogId)
+			}
 		>
 			<TableCell className="w-8 pr-0">
 				<button
 					type="button"
-					onClick={onToggle}
+					onClick={(event) => {
+						event.stopPropagation();
+						onToggle();
+					}}
 					aria-expanded={expanded}
 					aria-label={copy.chainToggleAria(chain.ingress_request_id)}
-					className="flex size-6 items-center justify-center rounded-[4px] text-muted-foreground hover:bg-inset hover:text-foreground"
+					className="flex size-7 items-center justify-center rounded-[4px] text-muted-foreground hover:bg-inset hover:text-foreground"
 				>
 					{expanded ? (
 						<ChevronDown className="size-4" />
@@ -545,6 +605,65 @@ function ChainSummaryRow({
 					/>
 				) : (
 					<OperatorMissingValue reason={missingReason} />
+				)}
+			</TableCell>
+
+			{/* 行操作：点行只有鼠标能用，审计页与请求 ID 必须有键盘可达的入口。 */}
+			<TableCell className="text-right">
+				{requestLogId === null ? (
+					<OperatorMissingValue reason={copy.chainRequestLogIdUnavailable} />
+				) : (
+					<div className="flex items-center justify-end gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover/row:opacity-100 [@media(hover:none)]:opacity-100">
+						<Button
+							type="button"
+							variant="ghost"
+							size="icon"
+							className="size-7"
+							aria-label={copy.chainOpenDetailAria(chain.ingress_request_id)}
+							title={copy.requestDetails}
+							onClick={(event) => {
+								event.stopPropagation();
+								onSelectRow(requestLogId);
+							}}
+							data-testid={`chain-open-detail-${chain.ingress_request_id}`}
+						>
+							<PanelRight />
+						</Button>
+						<Button
+							type="button"
+							variant="ghost"
+							size="icon"
+							className="size-7"
+							aria-label={copy.chainViewAuditAria(chain.ingress_request_id)}
+							title={copy.viewAudit}
+							onClick={(event) => event.stopPropagation()}
+							asChild
+						>
+							<Link
+								to="/observe/requests/$requestId/audit"
+								params={{ requestId: requestLogId }}
+								search={{}}
+								data-testid={`chain-view-audit-${chain.ingress_request_id}`}
+							>
+								<FileSearch />
+							</Link>
+						</Button>
+						<Button
+							type="button"
+							variant="ghost"
+							size="icon"
+							className="size-7"
+							aria-label={copy.chainCopyRequestIdAria(chain.ingress_request_id)}
+							title={copy.copyRequestId}
+							onClick={(event) => {
+								event.stopPropagation();
+								void copyRequestLogText(requestLogId, copy.requestId);
+							}}
+							data-testid={`chain-copy-request-id-${chain.ingress_request_id}`}
+						>
+							<Copy />
+						</Button>
+					</div>
 				)}
 			</TableCell>
 		</TableRow>

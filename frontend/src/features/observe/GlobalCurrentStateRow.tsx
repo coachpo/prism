@@ -29,7 +29,6 @@ export function GlobalCurrentStateRow({
   formatNumber,
   formatTime,
   item,
-  missingLabel,
   onRequestReset,
   resetting,
 }: {
@@ -37,7 +36,6 @@ export function GlobalCurrentStateRow({
   formatNumber: (value: number) => string;
   formatTime: (value: string, options?: Intl.DateTimeFormatOptions) => string;
   item: GlobalCurrentStateItem;
-  missingLabel: string;
   onRequestReset: () => void;
   resetting: boolean;
 }) {
@@ -87,7 +85,9 @@ export function GlobalCurrentStateRow({
           `${formatNumber(item.cycle_retry_attempts!)} / ${formatNumber(item.cumulative_retry_attempts!)}`
         ) : (
           <OperatorMissingValue
-            reason={observed ? missingLabel : copy.stateUnobserved}
+            reason={
+              observed ? copy.attemptsMissingReason : copy.stateUnobserved
+            }
           />
         )}
       </TableCell>
@@ -96,7 +96,9 @@ export function GlobalCurrentStateRow({
           formatTime(item.next_retry_at)
         ) : (
           <OperatorMissingValue
-            reason={observed ? missingLabel : copy.stateUnobserved}
+            reason={
+              observed ? copy.nextRetryAbsentReason : copy.stateUnobserved
+            }
           />
         )}
       </TableCell>
@@ -105,7 +107,9 @@ export function GlobalCurrentStateRow({
           formatTime(item.banned_until_at)
         ) : (
           <OperatorMissingValue
-            reason={observed ? missingLabel : copy.stateUnobserved}
+            reason={
+              observed ? copy.banUntilAbsentReason : copy.stateUnobserved
+            }
           />
         )}
       </TableCell>

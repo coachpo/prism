@@ -171,6 +171,36 @@ test("every runtime tier carries a distinct shape marker", () => {
   assert.equal(new Set(markers).size, markers.length);
 });
 
+/**
+ * DESIGN.md prints the same hex values in its token tables. They drifted once
+ * already — a contrast fix updated the measured table and left the token table
+ * on the old values — so the document is checked against the contract too.
+ */
+test("DESIGN.md token tables carry the contracted hex values", () => {
+  const design = readFileSync(path.join(rootDir, "DESIGN.md"), "utf8");
+  const byName = new Map(operatorColorTokens.map((token) => [token.name, token]));
+  const drift = [];
+  for (const line of design.split("\n")) {
+    if (!line.startsWith("|")) continue;
+    const name = line.match(/^\|\s*`([a-z0-9-]+)`\s*\|/)?.[1];
+    const token = name ? byName.get(name) : undefined;
+    if (!token) continue;
+    const hexes = [...line.matchAll(/`(#[0-9A-Fa-f]{6})`/g)].map((match) =>
+      match[1].toLowerCase(),
+    );
+    if (hexes.length !== 2) continue;
+    if (hexes[0] !== token.light) drift.push(`${name} light ${hexes[0]} != ${token.light}`);
+    if (hexes[1] !== token.dark) drift.push(`${name} dark ${hexes[1]} != ${token.dark}`);
+  }
+  assert.deepEqual(drift, []);
+  // Guard the guard: if the tables are ever restructured, this test must not
+  // silently stop checking anything.
+  assert.ok(
+    design.includes("| `healthy` |") && design.includes("| `panel` |"),
+    "DESIGN.md no longer has the token tables this test reads",
+  );
+});
+
 function toLab(hex) {
   const value = hex.replace("#", "");
   const [r, g, b] = [0, 2, 4]

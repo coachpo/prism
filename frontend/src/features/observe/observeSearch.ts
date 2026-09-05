@@ -61,6 +61,13 @@ export const OBSERVE_GROUPS = [
 ] as const;
 export type ObserveGroupBy = (typeof OBSERVE_GROUPS)[number];
 
+/**
+ * Bucket widths offered by the control. The search schema accepts a wider set
+ * (down to `1y`), so a deep link carrying one of the rarer widths keeps it and
+ * the control appends it rather than clamping the operator's URL silently.
+ */
+export const OBSERVE_INTERVAL_OPTIONS = ["auto", "5m", "1h", "1d"] as const;
+
 export const OBSERVE_SCOPES = [
   "ingress",
   "final_execution",
@@ -103,6 +110,30 @@ export function groupBelongsToScope(
 
 export function metricsForScope(scope: ObserveScope): readonly ObserveMetric[] {
   return SCOPE_METRICS[scope] ?? SCOPE_METRICS.ingress;
+}
+
+/**
+ * The metrics this scope cannot serve, in the catalog's fixed order. The
+ * controls render them disabled with their reason rather than deleting them:
+ * a metric that silently disappears from the strip reads as a metric that
+ * never existed, and the operator has no way to learn why the curve changed.
+ */
+export function unavailableMetricsForScope(
+  scope: ObserveScope,
+): readonly ObserveMetric[] {
+  const available = metricsForScope(scope) as readonly string[];
+  return OBSERVE_METRICS.filter((metric) => !available.includes(metric));
+}
+
+export function groupsForScope(scope: ObserveScope): readonly ObserveGroupBy[] {
+  return OBSERVE_GROUPS.filter((group) => groupBelongsToScope(group, scope));
+}
+
+/** Same rule for the grouping dimensions. */
+export function unavailableGroupsForScope(
+  scope: ObserveScope,
+): readonly ObserveGroupBy[] {
+  return OBSERVE_GROUPS.filter((group) => !groupBelongsToScope(group, scope));
 }
 
 export function defaultMetricForScope(scope: ObserveScope): ObserveMetric {

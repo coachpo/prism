@@ -222,8 +222,23 @@ export function ModelsFeaturePage() {
   }
 
   if (data.loadError) {
+    // 一次读取失败不该把操作者所在的位置也抹掉：页头留在原处，标题说明
+    // 这里仍是模型配置页，「新建模型配置」这条出路也仍然可用。
     return (
       <OperatorPageShell data-testid="models-feature-error">
+        <OperatorPageHeader title={copy.title}>
+          <Button
+            variant="outline"
+            onClick={() => void navigate({ to: "/route/models/export" })}
+          >
+            {messages.modelExportPage.entryButton}
+          </Button>
+          <Button onClick={() => data.setCreateDialogOpen(true)}>
+            <Plus data-icon="inline-start" />
+            {copy.newModel}
+          </Button>
+        </OperatorPageHeader>
+
         <OperatorErrorState
           title={messages.modelsData.fetchFailed}
           description={messages.honesty.readFailedDescription}
@@ -234,6 +249,19 @@ export function ModelsFeaturePage() {
               {messages.common.retry}
             </OperatorRetryButton>
           }
+        />
+
+        <CreateModelDialog
+          isOpen={data.createDialogOpen}
+          loadbalanceStrategies={data.loadbalanceStrategies}
+          createLoadbalanceStrategyDefaultsPending={
+            data.loadbalanceStrategyDefaultsCreating
+          }
+          onCreateLoadbalanceStrategyDefaults={
+            data.handleCreateLoadbalanceStrategyDefaults
+          }
+          onClose={() => data.setCreateDialogOpen(false)}
+          onCreated={data.handleModelCreated}
         />
       </OperatorPageShell>
     );

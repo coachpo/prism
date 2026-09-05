@@ -101,6 +101,21 @@ export function LoginPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lockedRemainingSeconds]);
 
+  // 浏览器标签页与历史记录里，这一页此前和控制台内页一样都叫「Prism」，
+  // 存下来的链接分不出是哪一页。这里让标签页跟着卡片标题走。
+  const documentTitle =
+    !loading && !authEnabled
+      ? messages.auth.disabledTitle
+      : status.kind === "locked"
+        ? messages.auth.lockedTitle
+        : messages.auth.signIn;
+  useEffect(() => {
+    document.title = messages.auth.documentTitle(documentTitle);
+    return () => {
+      document.title = messages.auth.productName;
+    };
+  }, [documentTitle, messages.auth]);
+
   const instanceFacts = publicStatusFailed ? (
     <span>{messages.auth.statusUnavailable}</span>
   ) : publicStatus ? (

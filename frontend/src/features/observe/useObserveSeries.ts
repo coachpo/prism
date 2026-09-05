@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { observe, type UsageSeriesResponse } from "@/lib/api/observability";
 import type {
@@ -22,9 +22,12 @@ export function useUsageSeriesFragment(
   queryContext: string | null,
   state: MainChartState,
   queryContextPhase: "loading" | "ready" | "error" = "ready",
-): FragmentState<UsageSeriesResponse> {
+): FragmentState<UsageSeriesResponse> & { refresh: () => void } {
   const { metric, groupBy, interval, scope } = state;
-  const key = `${queryContext ?? ""}:${metric}:${groupBy}:${interval}:${queryContextPhase}:${scope ?? ""}`;
+  // A failed read owns its own retry: the only recovery used to be the page's
+  // freshness bar, a screen above the error it was meant to clear.
+  const [reloadToken, setReloadToken] = useState(0);
+  const key = `${queryContext ?? ""}:${metric}:${groupBy}:${interval}:${queryContextPhase}:${scope ?? ""}:${reloadToken}`;
   const [snapshot, setSnapshot] = useState<{
     key: string;
     fragment: FragmentState<UsageSeriesResponse>;
@@ -95,8 +98,18 @@ export function useUsageSeriesFragment(
     return () => {
       controller.abort();
     };
-  }, [queryContext, queryContextPhase, metric, groupBy, interval, scope, key]);
-  return fragment;
+  }, [
+    queryContext,
+    queryContextPhase,
+    metric,
+    groupBy,
+    interval,
+    scope,
+    key,
+    reloadToken,
+  ]);
+  const refresh = useCallback(() => setReloadToken((value) => value + 1), []);
+  return { ...fragment, refresh };
 }
 
 function loadingFragment(): FragmentState<UsageSeriesResponse> {

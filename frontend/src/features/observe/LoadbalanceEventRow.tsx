@@ -30,10 +30,17 @@ export function LoadbalanceEventRow({
   const endpointLabel =
     item.endpoint.label ||
     (item.endpoint.id != null ? `#${item.endpoint.id}` : null);
-  const windowTimeValue =
+  // 「相关窗口」按事件类型换口径：已封禁看封禁截止，其余优先看下次重试，
+  // 都没有才回落到上次成功。相邻两行的口径可以不同、相对事件时间的方向也会
+  // 翻转，所以这里连口径标签一起给出，单元格不能只留一个裸时间戳。
+  const windowBasis =
     item.event_type === "banned" && item.banned_until_at
-      ? item.banned_until_at
-      : (item.next_retry_at ?? item.last_success_at ?? null);
+      ? { label: copy.banUntilColumn, value: item.banned_until_at }
+      : item.next_retry_at
+        ? { label: copy.nextRetryColumn, value: item.next_retry_at }
+        : item.last_success_at
+          ? { label: copy.lastSuccessField, value: item.last_success_at }
+          : null;
 
   return (
     <TableRow data-testid={`event-row-${item.event_id}`}>
@@ -84,11 +91,18 @@ export function LoadbalanceEventRow({
           </span>
         </div>
       </TableCell>
-      <TableCell className="whitespace-nowrap font-mono tabular-nums">
-        {windowTimeValue ? (
-          formatTime(windowTimeValue)
+      <TableCell className="whitespace-nowrap">
+        {windowBasis ? (
+          <div className="flex flex-col">
+            <span className="text-xs text-muted-foreground">
+              {windowBasis.label}
+            </span>
+            <span className="font-mono tabular-nums">
+              {formatTime(windowBasis.value)}
+            </span>
+          </div>
         ) : (
-          <OperatorMissingValue />
+          <OperatorMissingValue reason={copy.windowMissingReason} />
         )}
       </TableCell>
       <TableCell className="text-right">

@@ -75,7 +75,7 @@ export function OperatorFreshnessBar({
             <SelectTrigger
               size="sm"
               aria-label={autoRefresh.ariaLabel}
-              className="h-6 gap-1 border-0 bg-transparent px-1 text-xs shadow-none"
+              className="h-7 gap-1 border-0 bg-transparent px-1 text-xs shadow-none"
             >
               <SelectValue />
             </SelectTrigger>
@@ -102,7 +102,8 @@ export function OperatorFreshnessBar({
             onClick={refresh.onRefresh}
             disabled={refresh.pending}
             data-testid="freshness-refresh"
-            className="h-6 gap-1 px-1 text-xs text-muted-foreground hover:text-foreground"
+            // 命中区不低于 28×28：这是「这份数据读于何时」的唯一入口。
+            className="h-7 gap-1 px-1.5 text-xs text-muted-foreground hover:text-foreground"
           >
             <RefreshCw aria-hidden="true" className={cn("size-3.5", refresh.pending && "animate-spin")} />
             {refresh.label}
@@ -113,7 +114,9 @@ export function OperatorFreshnessBar({
       {basis ? (
         <>
           <Separator />
-          <span className="min-w-0 truncate">{basis}</span>
+          {/* 口径不截断：窄屏上它常常正好被切掉后半句，而 truncate 之后
+              没有任何途径能读到完整那句（title 不算实现）。 */}
+          <span className="min-w-0">{basis}</span>
         </>
       ) : null}
 
@@ -123,8 +126,10 @@ export function OperatorFreshnessBar({
 }
 
 function Separator() {
+  // 12px 的文本节点，既不是禁用控件也不是 ≥24px 装饰图标，
+  // 拿不到 text-disabled 的两条豁免（亮色下只有 3.10:1）。
   return (
-    <span aria-hidden="true" className="text-text-disabled">
+    <span aria-hidden="true" className="text-muted-foreground">
       ·
     </span>
   )

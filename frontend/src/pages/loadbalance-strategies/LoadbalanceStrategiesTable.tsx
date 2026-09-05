@@ -24,6 +24,7 @@ import {
     retryBadges,
 } from "./strategyValueBadges";
 import { useLocale } from "@/i18n/useLocale";
+import { cn } from "@/lib/utils";
 import type { LoadbalanceStrategy } from "@/lib/types";
 import type { SetDefaultState } from "@/features/loadbalance/useBanPolicyMutations";
 import type { StrategyImpactState } from "@/features/loadbalance/useStrategyImpactPager";
@@ -450,14 +451,32 @@ function StrategyRow(props: StrategyRowProps) {
             <TableRow
                 data-testid={`strategy-row-${strategy.id}`}
                 data-selected={props.selected || undefined}
-                className={props.selected ? "bg-primary-soft/25" : undefined}
+                className={cn(
+                    "cursor-pointer",
+                    props.selected && "bg-primary-soft/25",
+                )}
                 onClick={() => props.onSelect(strategy)}
             >
                 <TableCell className="align-top">
                     {/* 单元格默认 whitespace-nowrap，这里的路由方式说明是整句，
               必须允许换行，否则它会把整张表撑出横向滚动。 */}
                     <div className="flex min-w-0 flex-col gap-1">
-                        <span className="font-medium">{strategy.name}</span>
+                        {/* 推演过去只有行 onClick 一个入口：鼠标能点，键盘够不到。
+                名称本身做成按钮后它才有名字、有角色、有 tab 停点。 */}
+                        <button
+                            type="button"
+                            className="text-left font-medium underline-offset-4 hover:underline"
+                            aria-current={props.selected ? "true" : undefined}
+                            aria-label={props.copy.previewRowAction(
+                                strategy.name,
+                            )}
+                            onClick={(event) => {
+                                event.stopPropagation();
+                                props.onSelect(strategy);
+                            }}
+                        >
+                            {strategy.name}
+                        </button>
                         <span className="text-xs whitespace-normal text-foreground/60">
                             {summaryByStrategyType}
                         </span>

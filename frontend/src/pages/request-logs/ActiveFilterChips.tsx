@@ -33,6 +33,8 @@ export function ActiveFilterChips({ actions }: { actions: Actions }) {
     chips.push({ key, label, onClear, value });
   };
 
+  // 按请求 ID 定位是 URL 里最强的一个条件，却是唯一不出现在生效筛选条里的。
+  push("request_id", copy.requestId, state.request_id, () => actions.clearRequest());
   push("ingress_request_id", copy.ingressRequestId, state.ingress_request_id, () => actions.setIngressRequestId(""));
   push("ingress_model_id", copy.entryModel, state.model_id, () => actions.setModelId(""));
   push("attempt_target_model_id", copy.attemptTargetModel, state.resolved_target_model_id, () => actions.setResolvedTargetModelId(""));
