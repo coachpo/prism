@@ -276,7 +276,7 @@ When a connection has `custom_headers` configured, they are injected into the up
 
 ```
 build_upstream_headers():
-  1. Start with the fixed client-header allowlist (accept, accept-language, content-type, user-agent, anthropic-version/beta, openai-beta/organization/project); every other client header, including cookie and any credential header, is dropped
+  1. Start with the fixed client-header allowlist (accept, accept-language, content-type, anthropic-version/beta, openai-beta/organization/project); every other client header, including cookie, user-agent, and any credential header, is dropped
   2. Apply blocklist sanitization to client-supplied headers
   3. Add api-family auth headers
   4. Add api-family extra headers (e.g., anthropic-version)
