@@ -271,6 +271,29 @@ if (pathname === "/api/stats/usage-errors") {
       return;
     }
 
+    // 仪表盘的路由健康入口卡读 cohort 级当前状态；这条 spec 测的是会话生命周期，
+    // 给它一个「零配置」响应即可，不必造行。
+    if (pathname === "/api/loadbalance/current-state") {
+      await fulfillJson(route, {
+        generated_at: timestamp,
+        scope: "process",
+        instance_id: "auth-lifecycle-instance",
+        configuration_revision: "1",
+        completeness: {
+          state: "no_config",
+          complete: true,
+          configured_target_count: 0,
+          observed_target_count: 0,
+          unobserved_target_count: 0,
+          observed_subset_counts: null,
+        },
+        items: [],
+        has_more: false,
+        next_cursor: null,
+      });
+      return;
+    }
+
     if (pathname === "/api/loadbalance/incidents") {
       await fulfillJson(route, { active_bans: [], recent_events: [], generated_at: timestamp });
       return;
@@ -508,8 +531,14 @@ test.describe("auth session lifecycle", () => {
     });
     await controlPage.reload();
 
-    await expect(controlPage.getByText("身份验证已禁用")).toBeVisible();
-    await expect(page.getByText("身份验证已禁用")).toBeVisible();
+    // 代理密钥页现在用与外壳同一句说法陈述鉴权状态（术语统一后的结果），
+    // 所以按 sidebar 页脚定位那一处，断言的是外壳收到了新状态。
+    await expect(
+      controlPage.getByTestId("sidebar-auth-status").getByText("身份验证已禁用"),
+    ).toBeVisible();
+    await expect(
+      page.getByTestId("sidebar-auth-status").getByText("身份验证已禁用"),
+    ).toBeVisible();
     await expect(page).toHaveURL(/\/system\/proxy-keys$/);
   });
 

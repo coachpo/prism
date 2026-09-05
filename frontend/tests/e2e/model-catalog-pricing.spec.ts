@@ -891,7 +891,7 @@ test("terminal target generates catalog prices atomically", async ({
   await expect(dialog).toBeVisible();
   await expect(dialog.getByText(/长上下文阶梯价/)).toBeVisible();
   await expect(
-    dialog.getByText(/输入超过 272000 tokens 时整单切换/),
+    dialog.getByText(/输入超过 272000 令牌时整单切换/),
   ).toBeVisible();
   await expect(dialog.getByText("30")).toBeVisible();
   await expect(dialog.getByText("60")).toBeVisible();
@@ -990,7 +990,7 @@ test("pricing page imports a unique match as a template with no target", async (
   await expect(previewPanel.getByText('"catalog-e2e-1"')).toBeVisible();
   await expect(previewPanel.getByText(/USD\/PER_1M/).first()).toBeVisible();
   await expect(
-    previewPanel.getByText(/输入超过 272000 tokens 时整单切换/),
+    previewPanel.getByText(/输入超过 272000 令牌时整单切换/),
   ).toBeVisible();
   // An explicit catalog zero renders as 0, never as the missing marker.
   await expect(dialog.getByTestId("catalog-pricing-cards")).toContainText("0");

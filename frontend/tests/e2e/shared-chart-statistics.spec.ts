@@ -598,15 +598,20 @@ test.describe("observe page regression", () => {
     await page.getByRole("button", { name: /使用同一口径查看错误/ }).click();
     await expect(page.getByTestId("observe-error-panel")).toBeVisible();
     await expect(page.getByRole("radio", { name: "最终承载" })).toBeChecked();
+    // 错误视图不渲染任何分组产物，所以它不再把 group_by 带进读里——悬空的分组
+    // 参数会让 URL 声明一个页面上看不见的口径。共享的是 scope 的 query context。
     await expect
       .poll(() =>
         reads.errorQueries.some(
-          (query) =>
-            query.groupBy === "final_target_model" &&
-            query.queryContext === "signed-token-final_execution",
+          (query) => query.queryContext === "signed-token-final_execution",
         ),
       )
       .toBe(true);
+    expect(
+      reads.errorQueries.every(
+        (query) => !query.groupBy || query.groupBy === "none",
+      ),
+    ).toBe(true);
     await page.getByRole("tab", { name: "趋势" }).click();
 
     // These controls write to the URL, but they are in-page state changes, not
@@ -681,9 +686,7 @@ test.describe("observe page regression", () => {
     await expect
       .poll(() =>
         reads.errorQueries.some(
-          (query) =>
-            query.groupBy === "attempt_target_model" &&
-            query.queryContext === "signed-token-route_attempt",
+          (query) => query.queryContext === "signed-token-route_attempt",
         ),
       )
       .toBe(true);

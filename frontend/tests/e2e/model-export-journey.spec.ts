@@ -298,7 +298,7 @@ test("export journey: bind an uncatalogued Prism id through directory search, th
   await option.click();
   await expect(sourceDialog.getByText("已选目录坐标")).toBeVisible();
   // Evidence renders as separate label/value nodes (dt/dd).
-  await expect(sourceDialog.getByText("上下文窗口（tokens）")).toBeVisible();
+  await expect(sourceDialog.getByText("上下文窗口（令牌）")).toBeVisible();
   await expect(sourceDialog.getByText("200000")).toBeVisible();
   await expect(sourceDialog.getByText("目录 Provider")).toBeVisible();
   await expect(sourceDialog.getByText(/跨目录绑定/)).toBeVisible();
