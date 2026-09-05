@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { useLocale } from "@/i18n/useLocale";
 import { applyRequestLogStatePatch } from "./queryParams";
 import type { useRequestLogPageState } from "./useRequestLogPageState";
+import { getTimeLabel } from "./FiltersBar.constants";
 
 type Actions = ReturnType<typeof useRequestLogPageState>;
 
@@ -71,7 +72,8 @@ export function ActiveFilterChips({ actions }: { actions: Actions }) {
     push("confirmed_failover", copy.confirmedFailoverChip, copy.chipOn, () => actions.setConfirmedFailover(false));
   }
   if (state.time_range !== "24h") {
-    push("time_range", copy.timeRange, state.time_range, () => actions.setTimeRange("24h"));
+    // chip 上显示的是时间窗名字，不是枚举键。
+    push("time_range", copy.timeRange, getTimeLabel(state.time_range), () => actions.setTimeRange("24h"));
   }
 
   if (chips.length === 0) return null;

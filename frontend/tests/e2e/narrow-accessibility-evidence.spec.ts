@@ -944,9 +944,11 @@ test("narrow 390x844 entry-model list keeps scope switch keyboard operable and l
 
   // Long upstream identity: the visible cell truncates, the full value stays
   // in the tooltip, and the wrapping detail link is keyboard reachable.
-  const exitLink = page.getByRole("link", {
-    name: "打开模型配置 Entry Model A 的详情",
-  });
+  // 链接的可访问名称就是单元格里那几行出口文本本身，末尾跟一句 sr-only 的去向说明
+  // ——整格 aria-label 会把出口文本从读屏里整段抹掉，所以这里按去向说明定位。
+  const exitLink = page
+    .getByRole("link", { name: /，打开模型配置详情$/ })
+    .first();
   await expect(exitLink).toBeVisible();
   await exitLink.focus();
   await expect(exitLink).toBeFocused();

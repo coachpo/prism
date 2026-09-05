@@ -16,7 +16,8 @@ export function getTimeLabel(value: string) {
     case "all":
       return copy.requestLogsAllTime;
     default:
-      return value;
+      // 字典没学过的键也不能原样上屏：具名兜底把它说成「未知时间窗」。
+      return getStaticMessages().observe.presetName(value);
   }
 }
 
