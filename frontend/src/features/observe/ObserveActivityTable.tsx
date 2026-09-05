@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -18,7 +17,10 @@ import {
   type ObserveActivityResponse,
 } from "@/lib/api/observability";
 import { fragmentErrorFrom } from "@/features/observe/useObserveFragments";
-import type { ObservePreset } from "@/features/observe/observeSearch";
+import {
+  OBSERVE_PRESETS,
+  type ObservePreset,
+} from "@/features/observe/observeSearch";
 import { cn } from "@/lib/utils";
 import {
   OperatorEmptyState,
@@ -51,6 +53,12 @@ import { nextObserveActivityCursor } from "@/features/observe/observeActivityPag
 const ACTIVITY_PAGE_SIZE = 20;
 
 /**
+ * 表头要黏住，就必须让表格自己的滚动容器同时纵向滚动：Table 原语内部那层
+ * `overflow-x` 已经是最近的滚动祖先，在外面再包一层 `max-h` 不会生效。
+ */
+const ACTIVITY_SCROLL_AREA = "max-h-[calc(100dvh-22rem)]";
+
+/**
  * Compact finalized activity feed: one row per retained finalized ingress
  * request. Route changes, HTTP/stream results and finalized pricing are shown
  * inline; every row has a named "查看请求" action.
@@ -61,14 +69,68 @@ const ACTIVITY_PAGE_SIZE = 20;
  * failed page presents its own retry instead of repainting the old page as
  * the new one.
  */
+/** 表头是表的身份：加载态保留它，操作者才知道自己在等哪张表。 */
+const ACTIVITY_COLUMN_COUNT = 10;
+
+function ActivityTableHead() {
+  const { messages } = useLocale();
+  return (
+    <TableHeader>
+      <TableRow>
+        <TableHead>{messages.observe.time}</TableHead>
+        <TableHead>{messages.observe.activityRoute}</TableHead>
+        <TableHead>{messages.observe.result}</TableHead>
+        <TableHead className="text-right">
+          {messages.observe.activityAttempts}
+        </TableHead>
+        <TableHead>{messages.observe.activityExecutionTarget}</TableHead>
+        <TableHead className="text-right">
+          {messages.observe.metricName("ttft")}
+        </TableHead>
+        <TableHead className="text-right">{messages.observe.tokens}</TableHead>
+        <TableHead className="text-right">{messages.observe.cost}</TableHead>
+        <TableHead>{messages.observe.pricingStatus}</TableHead>
+        <TableHead className="text-right">
+          {messages.routingHealth.actionsColumn}
+        </TableHead>
+      </TableRow>
+    </TableHeader>
+  );
+}
+
+/** 首读等待态：保留表壳画骨架行，并作为 live region 播报。 */
+function ActivityTableSkeleton({ label }: { label: string }) {
+  const { messages } = useLocale();
+  return (
+    <div role="status" aria-busy="true" aria-label={label}>
+      <Table
+        aria-label={messages.observe.activityTitle}
+        scrollAreaClassName={ACTIVITY_SCROLL_AREA}
+      >
+        <ActivityTableHead />
+        <TableBody>
+          <OperationalTableSkeletonRows
+            columns={ACTIVITY_COLUMN_COUNT}
+            rows={5}
+          />
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
+
 export function ObserveActivityTable({
+  onPresetChange,
   preset,
   queryContext,
 }: {
+  onPresetChange?: (preset: ObservePreset) => void;
   preset: ObservePreset;
   queryContext: string | null;
 }) {
   const { formatNumber, messages } = useLocale();
+  // 空态里唯一能给的下一步：预设表里紧挨着的下一档更宽窗口。
+  const widerPreset = OBSERVE_PRESETS[OBSERVE_PRESETS.indexOf(preset) + 1];
   const navigate = useNavigate();
   const [fragment, setFragment] = useState<
     PagedListState<ObserveActivityResponse>
@@ -182,13 +244,13 @@ export function ObserveActivityTable({
 
   // The card content is px-0 so the table can reach the card edge; every
   // non-table block carries the gutter itself.
-  if (!queryContext || (fragment.phase === "idle" && !fragment.reading)) {
-    return (
-      <Skeleton
-        className="mx-[var(--density-card-pad-x)] h-48 rounded-md"
-        aria-busy="true"
-      />
-    );
+  // 读失败后 phase 仍停在 idle：不排除 error 的话，错误分支永远轮不到，
+  // 后端挂掉会被渲染成一块永远转不完的骨架。
+  if (
+    !queryContext ||
+    (fragment.phase === "idle" && !fragment.reading && fragment.error === null)
+  ) {
+    return <ActivityTableSkeleton label={tableCopy.loadingFirstPage} />;
   }
 
   if (fragment.data === null && !fragment.reading && fragment.error !== null) {
@@ -219,12 +281,7 @@ export function ObserveActivityTable({
   }
 
   if (fragment.data === null) {
-    return (
-      <Skeleton
-        className="mx-[var(--density-card-pad-x)] h-48 rounded-md"
-        aria-busy="true"
-      />
-    );
+    return <ActivityTableSkeleton label={tableCopy.loadingFirstPage} />;
   }
 
   const items = fragment.data.items;
@@ -252,9 +309,29 @@ export function ObserveActivityTable({
             reason={fragment.error ?? undefined}
           />
         ) : null}
+        {/* 这一视图没有指标与分组控件，空态的下一步只能是它真有的那一个：
+            把时间窗放宽。已经在最长的窗口时不给按钮，只说清楚为什么。 */}
         <OperatorEmptyState
           title={messages.observe.noData}
-          description={messages.observe.adjustFiltersHint}
+          description={
+            widerPreset
+              ? messages.observe.activityAdjustWindowHint
+              : messages.observe.activityWidestWindowHint
+          }
+          action={
+            widerPreset && onPresetChange ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => onPresetChange(widerPreset)}
+              >
+                {messages.observe.widenWindowAction(
+                  messages.observe.presetName(widerPreset),
+                )}
+              </Button>
+            ) : undefined
+          }
         />
       </div>
     );
@@ -283,48 +360,29 @@ export function ObserveActivityTable({
 
       {/* The card border is this table's border; no second ring around it. */}
       <div data-testid="observe-activity-table" aria-busy={fragment.reading}>
-        <div className="overflow-x-auto">
-          <Table aria-label={messages.observe.activityTitle}>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{messages.observe.time}</TableHead>
-                <TableHead>{messages.observe.activityRoute}</TableHead>
-                <TableHead>{messages.observe.result}</TableHead>
-                <TableHead className="text-right">
-                  {messages.observe.activityAttempts}
-                </TableHead>
-                <TableHead>
-                  {messages.observe.activityExecutionTarget}
-                </TableHead>
-                <TableHead className="text-right">TTFT</TableHead>
-                <TableHead className="text-right">
-                  {messages.observe.tokens}
-                </TableHead>
-                <TableHead className="text-right">
-                  {messages.observe.cost}
-                </TableHead>
-                <TableHead>{messages.observe.pricingStatus}</TableHead>
-                <TableHead className="text-right">
-                  {messages.routingHealth.actionsColumn}
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {showPendingRows ? (
-                <OperationalTableSkeletonRows columns={10} rows={5} />
-              ) : null}
-              {showCommittedRows
-                ? items.map((item) => (
-                    <ActivityRow
-                      key={item.usage_event_id}
-                      item={item}
-                      onOpenRequest={openRequests}
-                    />
-                  ))
-                : null}
-            </TableBody>
-          </Table>
-        </div>
+        <Table
+          aria-label={messages.observe.activityTitle}
+          scrollAreaClassName={ACTIVITY_SCROLL_AREA}
+        >
+          <ActivityTableHead />
+          <TableBody>
+            {showPendingRows ? (
+              <OperationalTableSkeletonRows
+                columns={ACTIVITY_COLUMN_COUNT}
+                rows={5}
+              />
+            ) : null}
+            {showCommittedRows
+              ? items.map((item) => (
+                  <ActivityRow
+                    key={item.usage_event_id}
+                    item={item}
+                    onOpenRequest={openRequests}
+                  />
+                ))
+              : null}
+          </TableBody>
+        </Table>
 
         {replaceFailureVisible ? (
           <div className="px-[var(--density-card-pad-x)] py-3">
@@ -486,39 +544,42 @@ function ActivityRow({
       <TableCell className="text-right font-mono tabular-nums">
         {formatNumber(item.attempt_count)}
       </TableCell>
+      {/* 出口先给端点这个操作者认得的身份，#id 降为次要行——它是数据库行号，
+          单独一行读不出这是哪个上游；终端目标明细的行上渲染同一个 #id，
+          两个视图才有一个能对上的公共字段。 */}
       <TableCell>
-        <div className="flex min-w-40 flex-col gap-0.5 text-xs">
-          <span>
+        <div className="flex min-w-40 flex-col gap-0.5">
+          <span className="truncate">
+            {item.endpoint_label || (
+              <OperatorMissingValue reason={copy.noEndpointEvidence} />
+            )}
+          </span>
+          <span className="text-xs text-muted-foreground">
             {item.terminal_target_id === null ? (
               <OperatorMissingValue reason={copy.noTerminalTargetEvidence} />
             ) : (
               copy.terminalTargetId(item.terminal_target_id)
             )}
           </span>
-          <span className="truncate text-muted-foreground">
-            {item.endpoint_label || (
-              <OperatorMissingValue reason={copy.noEndpointEvidence} />
-            )}
-          </span>
         </div>
       </TableCell>
       <TableCell className="text-right font-mono tabular-nums">
         {item.ttft_ms === null ? (
-          <OperatorMissingValue reason={messages.honesty.noValue} />
+          <OperatorMissingValue reason={copy.activityNoTtft} />
         ) : (
           `${formatNumber(item.ttft_ms)} ms`
         )}
       </TableCell>
       <TableCell className="text-right font-mono tabular-nums">
         {item.total_tokens === null || item.total_tokens === undefined ? (
-          <OperatorMissingValue reason={messages.honesty.noValue} />
+          <OperatorMissingValue reason={copy.activityNoTokens} />
         ) : (
           formatNumber(item.total_tokens)
         )}
       </TableCell>
       <TableCell className="text-right font-mono tabular-nums">
         {item.known_cost_micros === null ? (
-          <OperatorMissingValue reason={messages.honesty.noValue} />
+          <OperatorMissingValue reason={copy.noTrustedCostSample} />
         ) : (
           `${item.report_currency_symbol ?? "$"}${(Number(item.known_cost_micros) / 1_000_000).toFixed(4)}`
         )}

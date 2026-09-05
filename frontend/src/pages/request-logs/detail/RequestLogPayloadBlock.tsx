@@ -12,6 +12,7 @@ import {
   buildRequestLogPayloadDocument,
   formatRequestLogHeaderRaw,
   formatRequestLogPayloadRaw,
+  payloadRoleLabel,
   type RequestLogPayloadBodyKind,
 } from "./requestLogPayloadDocuments";
 import { buildPayloadViewModel, prettyPrintJson, type PayloadViewKind } from "./payloadDocumentViewModel";
@@ -76,6 +77,8 @@ function ToolResultCard({ result }: { result: TranscriptToolResult }) {
 }
 
 function TranscriptView({ transcript }: { transcript: TranscriptDocument }) {
+  const { messages } = useLocale();
+  const payloadCopy = messages.requestLogPayload;
   const visibleTurns = transcript.turns.filter(
     (turn) => turn.text.length > 0 || turn.toolCalls.length > 0 || turn.toolResults.length > 0,
   );
@@ -87,17 +90,18 @@ function TranscriptView({ transcript }: { transcript: TranscriptDocument }) {
       {visibleTurns.map((turn, index) => (
         <article key={`${turn.role}-${index}`} className="rounded-lg border border-border bg-inset p-3">
           <div className="mb-2 flex flex-wrap items-center gap-2">
-            <Badge variant="outline" className="border-border bg-background font-mono text-xs">
-              {turn.role}
+            {/* 角色徽章不能直出枚举键；终止状态是上游原值，带上字段名再显示。 */}
+            <Badge variant="outline" className="border-border bg-background text-xs">
+              {payloadRoleLabel(turn.role)}
             </Badge>
             {turn.terminalState ? (
-              <Badge variant="secondary" className="rounded-md px-2 py-0.5 font-mono text-[10px]">
-                {turn.terminalState}
+              <Badge variant="secondary" className="rounded-md px-2 py-0.5 text-[10px]">
+                {payloadCopy.finishReason(turn.terminalState)}
               </Badge>
             ) : null}
           </div>
           {turn.text.length > 0 ? (
-            <p className="whitespace-pre-wrap break-words text-sm leading-6 text-foreground [overflow-wrap:anywhere]">
+            <p className="whitespace-pre-wrap break-words text-[0.8125rem] leading-5 text-foreground [overflow-wrap:anywhere]">
               {turn.text}
             </p>
           ) : null}
@@ -119,8 +123,8 @@ function TranscriptView({ transcript }: { transcript: TranscriptDocument }) {
       ))}
       {transcript.usage ? (
         <div className="rounded-lg border border-border bg-inset p-3">
-          <p className="mb-1 text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-            Token usage
+          <p className="mb-1 text-xs font-medium text-muted-foreground">
+            {payloadCopy.tokenUsage}
           </p>
           <pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-5 text-foreground [overflow-wrap:anywhere]">
             {prettyPrintJson(JSON.parse(transcript.usage))}
@@ -239,7 +243,7 @@ export function RequestLogPayloadBlock({
             <p className="text-xs text-degraded">{messages.requestLogs.unparseableView}</p>
             <p className="text-xs text-muted-foreground">
               {viewModel.unparseableReason === "invalid_utf8_or_binary"
-                ? "该 body 包含无效 UTF-8 或二进制数据，无法提供消息/JSON/文本视图；原始字节可通过下载获取。"
+                ? messages.requestLogPayload.invalidUtf8Body
                 : "—"}
             </p>
           </div>
@@ -282,7 +286,7 @@ export function RequestLogPayloadBlock({
       return (
         <div className="flex min-w-0 flex-col gap-3">
           {viewModel.availability.length > 1 ? (
-            <div className="inline-flex w-fit items-center gap-1 rounded-lg border border-border bg-inset p-1" aria-label={`${title} payload view`}>
+            <div className="inline-flex w-fit items-center gap-1 rounded-lg border border-border bg-inset p-1" role="group" aria-label={messages.requestLogPayload.payloadViewAria(title)}>
               {viewModel.availability.map((view) => (
                 <Button
                   key={view.kind}
@@ -319,12 +323,14 @@ export function RequestLogPayloadBlock({
     <section className="flex min-w-0 flex-col gap-3" aria-labelledby={headingId}>
       <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
-          <h2 id={headingId} className="text-sm font-semibold tracking-tight text-foreground">
+          {/* 载荷子块是所选记录详情卡的下级：它拿 h2 会让四个子块看起来
+              成了页面的直接子节，而真正的区块名反而不在无障碍树里。 */}
+          <h3 id={headingId} className="text-sm font-semibold tracking-tight text-foreground">
             {title}
-          </h2>
+          </h3>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="inline-flex items-center gap-1 rounded-lg border border-border bg-inset p-1" aria-label={`${title} view mode`}>
+          <div className="inline-flex items-center gap-1 rounded-lg border border-border bg-inset p-1" role="group" aria-label={messages.requestLogPayload.viewModeAria(title)}>
             <Button
               aria-pressed={displayMode === "rendered"}
               disabled={!hasContent}
@@ -382,7 +388,7 @@ function LegacyDocumentView({ document }: { document: RequestLogPayloadDocument 
                       {line.label}
                     </Badge>
                   </div>
-                  <p className="whitespace-pre-wrap break-words text-sm leading-6 text-foreground [overflow-wrap:anywhere]">
+                  <p className="whitespace-pre-wrap break-words text-[0.8125rem] leading-5 text-foreground [overflow-wrap:anywhere]">
                     {line.value}
                   </p>
                 </article>
@@ -392,12 +398,12 @@ function LegacyDocumentView({ document }: { document: RequestLogPayloadDocument 
             <dl className="divide-y divide-border/60 rounded-lg border border-border bg-inset">
               {section.lines.map((line, index) => (
                 <div key={`${line.label}-${index}`} className="grid gap-1 p-3 sm:grid-cols-[minmax(8rem,14rem)_minmax(0,1fr)] sm:gap-4">
-                  <dt className="min-w-0 break-words font-mono text-xs font-medium uppercase tracking-wide text-muted-foreground [overflow-wrap:anywhere]">
+                  <dt className="min-w-0 break-words text-xs font-medium text-muted-foreground [overflow-wrap:anywhere]">
                     {line.label}
                   </dt>
                   <dd
                     className={cn(
-                      "min-w-0 whitespace-pre-wrap break-words text-sm leading-6 text-foreground [overflow-wrap:anywhere]",
+                      "min-w-0 whitespace-pre-wrap break-words text-[0.8125rem] leading-5 text-foreground [overflow-wrap:anywhere]",
                       line.mono && "font-mono text-xs leading-5",
                     )}
                   >

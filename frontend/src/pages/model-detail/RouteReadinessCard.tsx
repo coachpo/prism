@@ -1,3 +1,5 @@
+import { Link } from "@tanstack/react-router";
+
 import { ApiFamilyIcon } from "@/components/ApiFamilyIcon";
 import { formatApiFamily } from "@/components/apiFamilyPresentation";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -108,9 +110,14 @@ export function RouteReadinessCard({
         <ReadinessFact label={copy.strategyLabel}>
           {model.loadbalance_strategy ? (
             <span className="flex min-w-0 flex-col">
-              <span className="truncate text-sm font-medium">
+              {/* 配置链上下相邻的两页之间要能一步走到：这里原来只是一段死文本，
+                  要改这条策略得自己回到侧栏再找一次。 */}
+              <Link
+                to="/route/ban-policies"
+                className="truncate text-sm font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              >
                 {model.loadbalance_strategy.name}
-              </span>
+              </Link>
               {strategyDetail ? (
                 <span className="truncate text-xs text-muted-foreground">
                   {strategyDetail}
@@ -195,7 +202,7 @@ function ReadinessFact({
     <OperatorInsetPanel className="gap-1 p-2.5">
       <p className="flex items-center gap-0.5 text-[11px] font-medium tracking-[0.04em] text-muted-foreground">
         {label}
-        {reason ? <OperatorHelpHint label={reason} className="size-5" /> : null}
+        {reason ? <OperatorHelpHint label={reason} /> : null}
       </p>
       {children}
       {caption ? (

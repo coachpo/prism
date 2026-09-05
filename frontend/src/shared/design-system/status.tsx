@@ -90,11 +90,19 @@ export function OperatorTypeBadge(props: OperatorBadgeProps) {
   return <OperatorBadgeBase {...props} />
 }
 
-/** Raw values such as HTTP codes, methods, and percentages. */
+/** CJK 出现在等宽里会撕开：混排时中英文字宽不同源，行内基线一格一跳。 */
+const CJK_PATTERN = /[\u3000-\u303f\u3400-\u4dbf\u4e00-\u9fff\uff00-\uffef]/
+
+/**
+ * Raw values such as HTTP codes, methods, and percentages.
+ * 标签里含中文时不套等宽——契约对此是绝对禁令，而这个徽章也被用来渲染
+ * 「每轮 3 次」这类混排摘要。
+ */
 export function OperatorValueBadge({ className, preserveLabel = true, ...props }: OperatorBadgeProps) {
+  const mono = !CJK_PATTERN.test(props.label)
   return (
     <OperatorBadgeBase
-      className={cn("font-mono tabular-nums", className)}
+      className={cn(mono && "font-mono tabular-nums", className)}
       preserveLabel={preserveLabel}
       {...props}
     />

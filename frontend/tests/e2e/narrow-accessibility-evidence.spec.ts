@@ -14,6 +14,48 @@ import {
 
 const NARROW_VIEWPORT = { width: 390, height: 844 };
 
+/**
+ * 文档级横向溢出在这套 UI 上恒为零：每张表都把溢出吃进自己的滚动容器里。
+ * 所以「整列被裁掉」这类回归必须在容器这一层量，而不是在 documentElement 上。
+ *
+ * 契约（DESIGN.md Tables · Frozen columns）要求：横向滚动的表格冻结身份列
+ * 与操作列，且滚动区本身键盘可达。这条断言把它变成可执行的。
+ */
+async function expectScrollingTablesStayNavigable(
+  page: import("@playwright/test").Page,
+) {
+  const report = await page.evaluate(() => {
+    const offenders: string[] = [];
+    let scrolling = 0;
+    const containers = [
+      ...document.querySelectorAll<HTMLElement>("[data-slot=table-container]"),
+    ];
+    for (const [index, container] of containers.entries()) {
+      if (container.scrollWidth <= container.clientWidth + 1) continue;
+      scrolling += 1;
+      const name =
+        container.querySelector("table")?.getAttribute("aria-label") ??
+        `table#${index}`;
+      if (container.getAttribute("role") !== "region") {
+        offenders.push(`${name}: 溢出容器不是 role=region`);
+      }
+      if (container.getAttribute("tabindex") !== "0") {
+        offenders.push(`${name}: 溢出容器不可聚焦，方向键滚不动`);
+      }
+      const row = container.querySelector("tbody tr");
+      const cells = row ? [...row.querySelectorAll<HTMLElement>("td")] : [];
+      if (cells.length < 2) continue;
+      const first = getComputedStyle(cells[0]).position;
+      const last = getComputedStyle(cells[cells.length - 1]).position;
+      if (first !== "sticky") offenders.push(`${name}: 身份列未冻结`);
+      if (last !== "sticky") offenders.push(`${name}: 操作列未冻结`);
+    }
+    return { offenders, scrolling };
+  });
+  expect(report.offenders).toEqual([]);
+  return report.scrolling;
+}
+
 async function installObserveRoutes(page: import("@playwright/test").Page) {
   await mockPrismRoutes(page, "full");
   const fulfill = async (
@@ -342,9 +384,10 @@ test("narrow 390x844 observe page has no horizontal overflow and all tabs reacha
     return root.scrollWidth <= root.clientWidth + 1;
   });
   expect(noHorizontalOverflow).toBe(true);
+  await expectScrollingTablesStayNavigable(page);
 
   const analysisScopes = page
-    .getByRole("group", { name: "分析单位" })
+    .getByRole("radiogroup", { name: "分析单位" })
     .getByRole("radio");
   await expect(analysisScopes).toHaveCount(3);
   await analysisScopes.nth(0).focus();
@@ -365,14 +408,19 @@ test("narrow 390x844 observe page has no horizontal overflow and all tabs reacha
     await expect(tabs.nth(index)).toBeFocused();
   }
 
+  // The Terminal Target basis is a metrics scope switch, so it is the same
+  // segmented control as every other one — never tabs — and it carries the
+  // visible label the group is named by.
+  await expect(page.getByText("终端目标统计口径")).toBeVisible();
   const terminalScopes = page
-    .getByRole("tablist", { name: "终端目标统计口径" })
-    .getByRole("tab");
+    .getByRole("radiogroup", { name: "终端目标统计口径" })
+    .getByRole("radio");
   await expect(terminalScopes).toHaveCount(2);
   await terminalScopes.nth(0).focus();
   await page.keyboard.press("ArrowRight");
   await expect(terminalScopes.nth(1)).toBeFocused();
-  await expect(terminalScopes.nth(1)).toHaveAttribute("data-state", "active");
+  await page.keyboard.press("Space");
+  await expect(terminalScopes.nth(1)).toBeChecked();
 });
 
 /**
@@ -404,11 +452,14 @@ test("narrow 390x844 observe main chart exposes seven keyboard-operable metrics"
     return root.scrollWidth <= root.clientWidth + 1;
   });
   expect(noHorizontalOverflow).toBe(true);
+  await expectScrollingTablesStayNavigable(page);
 
   // Fixed ingress order: requests, errors, first-token latency, output rate,
-  // tokens, cache read, cost.
-  const metricGroup = chart.getByRole("group", { name: "指标" });
-  const metrics = metricGroup.getByRole("radio");
+  // tokens, cache read, cost. The metrics this scope cannot serve stay in the
+  // strip, disabled and carrying their reason, so they are excluded by
+  // enabled-ness rather than by index.
+  const metricGroup = chart.getByRole("radiogroup", { name: "指标" });
+  const metrics = metricGroup.getByRole("radio", { disabled: false });
   await expect(metrics).toHaveCount(7);
   const labels = await metrics.allInnerTexts();
   expect(labels).toEqual(SEVEN_METRICS);
@@ -425,7 +476,7 @@ test("narrow 390x844 observe main chart exposes seven keyboard-operable metrics"
   await expect(metrics.nth(0)).not.toBeChecked();
 
   // The chart/table switch is its own keyboard-operable group.
-  const viewSwitcher = chart.getByRole("group", { name: "图表或数据表" });
+  const viewSwitcher = chart.getByRole("radiogroup", { name: "图表或数据表" });
   await viewSwitcher.getByRole("radio", { name: "表" }).focus();
   await page.keyboard.press("Enter");
   await expect(chart.getByRole("table")).toBeVisible();
@@ -705,6 +756,7 @@ test("connection dialog visual evidence at 1440x900 and 390x844", async ({
     return root.scrollWidth <= root.clientWidth + 1;
   });
   expect(noHorizontalOverflow).toBe(true);
+  await expectScrollingTablesStayNavigable(page);
   await page.screenshot({
     path: "artifacts/evidence/connection-dialog-390.png",
   });
@@ -865,11 +917,12 @@ test("narrow 390x844 entry-model list keeps scope switch keyboard operable and l
     return root.scrollWidth <= root.clientWidth + 1;
   });
   expect(noHorizontalOverflow).toBe(true);
+  await expectScrollingTablesStayNavigable(page);
 
   // Scope switch: keyboard operable single-select segmented control whose
   // selection round-trips through the scope URL.
   const scopeRadios = page
-    .getByRole("group", { name: "统计口径" })
+    .getByRole("radiogroup", { name: "统计口径" })
     .getByRole("radio");
   await expect(scopeRadios).toHaveCount(3);
   await scopeRadios.nth(0).focus();
@@ -880,7 +933,7 @@ test("narrow 390x844 entry-model list keeps scope switch keyboard operable and l
   await expect(page).toHaveURL(/scope=final_execution/);
 
   const inventoryRadios = page
-    .getByRole("group", { name: "模型视图" })
+    .getByRole("radiogroup", { name: "模型视图" })
     .getByRole("radio");
   await inventoryRadios.nth(0).focus();
   await page.keyboard.press("ArrowRight");
@@ -891,9 +944,11 @@ test("narrow 390x844 entry-model list keeps scope switch keyboard operable and l
 
   // Long upstream identity: the visible cell truncates, the full value stays
   // in the tooltip, and the wrapping detail link is keyboard reachable.
-  const exitLink = page.getByRole("link", {
-    name: "打开模型配置 Entry Model A 的详情",
-  });
+  // 链接的可访问名称就是单元格里那几行出口文本本身，末尾跟一句 sr-only 的去向说明
+  // ——整格 aria-label 会把出口文本从读屏里整段抹掉，所以这里按去向说明定位。
+  const exitLink = page
+    .getByRole("link", { name: /，打开模型配置详情$/ })
+    .first();
   await expect(exitLink).toBeVisible();
   await exitLink.focus();
   await expect(exitLink).toBeFocused();

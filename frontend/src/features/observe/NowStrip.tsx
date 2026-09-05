@@ -56,12 +56,33 @@ export function NowStrip({
     >
       <OperatorMetricTile
         label={copy.currentRpm}
-        value={<Rate value={rolling.rpm} digits={2} />}
+        value={
+          <Rate
+            value={rolling.rpm}
+            digits={2}
+            reason={copy.readMissingField}
+          />
+        }
         detail={`${formatNumber(rolling.window_minutes)} 分钟`}
       />
       <OperatorMetricTile
         label={copy.currentTpm}
-        value={<Rate value={rolling.tpm} digits={0} />}
+        // 同一时间窗、同样零流量，RPM 渲染 0 而 TPM 渲染缺席，是把真实的零
+        // 画成了缺席。窗口内没有任何请求时，每分钟令牌数就是零。
+        value={
+          rolling.tpm === null && rolling.request_count === 0 ? (
+            formatNumber(0, {
+              minimumFractionDigits: 0,
+              maximumFractionDigits: 0,
+            })
+          ) : (
+            <Rate
+              value={rolling.tpm}
+              digits={0}
+              reason={copy.nowTpmNoTokenSample}
+            />
+          )
+        }
         detail={
           rolling.token_coverage_complete
             ? `${formatNumber(rolling.token_sample_count)} ${copy.samples}`
@@ -76,15 +97,24 @@ export function NowStrip({
       <OperatorMetricTile
         label={copy.enabledModels}
         value={formatNumber(fragment.data.enabled_model_count)}
+        detail={copy.enabledModelsBasis}
       />
     </section>
   );
 }
 
-function Rate({ value, digits }: { value: number | null | undefined; digits: number }) {
-  const { formatNumber, messages } = useLocale();
+function Rate({
+  value,
+  digits,
+  reason,
+}: {
+  value: number | null | undefined;
+  digits: number;
+  reason: string;
+}) {
+  const { formatNumber } = useLocale();
   if (value === null || value === undefined || Number.isNaN(value)) {
-    return <OperatorMissingValue reason={messages.honesty.noValue} />;
+    return <OperatorMissingValue reason={reason} />;
   }
   return <>{formatNumber(value, { minimumFractionDigits: digits, maximumFractionDigits: digits })}</>;
 }

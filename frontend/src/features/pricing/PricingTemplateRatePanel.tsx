@@ -8,6 +8,7 @@ import {
   OperatorStatusBadge,
   OperatorValueBadge,
 } from "@/shared/design-system";
+import { cardRoleLabel, templateRateCards } from "./pricingRateCards";
 import { normalizeTemplatePrice } from "./pricingSchemas";
 
 export function RateCell({ symbol, value, specialty }: { symbol?: string; value: string | null | undefined; specialty?: boolean }) {
@@ -18,17 +19,6 @@ export function RateCell({ symbol, value, specialty }: { symbol?: string; value:
     return <span className="inline-flex items-center justify-end gap-1"><OperatorMissingValue className="text-xs" reason={copy.rateUnconfiguredReason} /><OperatorStatusBadge intent="idle" preserveLabel label={copy.rateUnconfigured} /></span>;
   }
   return <span className="font-mono text-xs tabular-nums">{symbol ? <span className={cn("text-muted-foreground", symbol.length > 1 && "mr-1")}>{symbol}</span> : null}{normalized}</span>;
-}
-
-function cardRoleLabel(role: string, copy: ReturnType<typeof useLocale>["messages"]["pricingTemplatesUi"]) {
-  switch (role) {
-    case "standard": return copy.cardStandard;
-    case "tier_base": return copy.cardTierBase;
-    case "tier_above": return copy.cardTierAbove;
-    case "peak": return copy.cardPeak;
-    case "offpeak": return copy.cardOffpeak;
-    default: return role;
-  }
 }
 
 function CardRateGrid({ card, symbol }: { card: PricingCard; symbol: string }) {
@@ -52,13 +42,7 @@ export function PricingTemplateRatePanel({ template }: { template: PricingTempla
   const copy = messages.pricingTemplatesUi;
   const kind = (template as { template_kind?: string }).template_kind;
   const scheduleWindows = Array.isArray(template.schedule?.windows) ? template.schedule.windows : [];
-  const cards: Array<{ role: string; card: PricingCard | null | undefined }> = kind === "standard"
-    ? [{ role: "standard", card: template.card }]
-    : kind === "tiered"
-      ? [{ role: "tier_base", card: template.base_card }, { role: "tier_above", card: template.tier?.card }]
-      : kind === "peak_valley"
-        ? [{ role: "peak", card: template.peak_card }, { role: "offpeak", card: template.offpeak_card }]
-        : [];
+  const cards = templateRateCards(template);
   if (cards.length === 0) return <OperatorErrorState title={messages.pricingTemplatesData.loadFailed} description={messages.pricingTemplatesHistory.unknownKind} />;
   if (kind === "peak_valley" && (!template.schedule || scheduleWindows.length === 0 || !template.schedule.timezone)) {
     return <OperatorErrorState title={messages.pricingTemplatesData.loadFailed} description={messages.pricingTemplatesHistory.scheduleUnavailable} />;

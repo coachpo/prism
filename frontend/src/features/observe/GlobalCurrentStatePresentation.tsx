@@ -37,6 +37,8 @@ import {
   OperatorClippedBadge,
   OperatorEmptyState,
   OperatorErrorState,
+  OperatorHelpHint,
+  OperatorInsetPanel,
   OperatorSectionCard,
   OperatorStalenessBadge,
   OperatorTypeBadge,
@@ -81,9 +83,22 @@ export function GlobalCurrentStatePresentation({
     (item) =>
       item.observation_state === "observed" && item.state === "retry_wait",
   ).length;
-  const unobservedCount = rows.filter(
+  const unobservedRows = rows.filter(
     (item) => item.observation_state !== "observed",
-  ).length;
+  );
+  const unobservedCount = unobservedRows.length;
+  // 尚未观测的行整片都是同一个徽章加四个 —，信息量等于卡头那句摘要，却把真正
+  // 有事实的行推出首屏，还各自占一个 tab 停点。默认折起来，展开与否记在本地。
+  const [unobservedExpanded, setUnobservedExpanded] = useState(
+    readUnobservedExpanded,
+  );
+  const observedRows = rows.filter(
+    (item) => item.observation_state === "observed",
+  );
+  // 只有当还剩下有事实的行时才折叠；操作者专门筛「尚未观测」时不能把表清空。
+  const foldsUnobserved = unobservedCount > 0 && observedRows.length > 0;
+  const visibleRows =
+    foldsUnobserved && !unobservedExpanded ? observedRows : rows;
   const showPendingRows = shouldShowPendingRows(fragment);
   const showCommittedRows = keepsCommittedRows(fragment) && rows.length > 0;
   const showTableShell = showPendingRows || showCommittedRows;
@@ -324,19 +339,35 @@ export function GlobalCurrentStatePresentation({
       ) : null}
 
       {showTableShell ? (
-        <div className="overflow-x-auto" aria-busy={fragment.reading}>
-          <Table aria-label={copy.currentStateTitle}>
+        <div id="runtime-current-state-table" aria-busy={fragment.reading}>
+          {/* sticky 表头只对最近的滚动祖先生效：Table 原语内部那层 overflow-x
+              就是包含块，高度上限必须落在同一个容器上，横竖两轴才同源。 */}
+          <Table
+            aria-label={copy.currentStateTitle}
+            scrollAreaClassName="max-h-[calc(100dvh-22rem)]"
+          >
             <TableHeader>
               <TableRow>
-                <TableHead>{copy.modelColumn}</TableHead>
+                {/* 身份列与操作列冻结：这张表在 390 下要横滚三屏，
+                    不冻结就分不清手里这一行是哪个模型配置，也够不到行尾。 */}
+                <TableHead className="sticky left-0 z-20 bg-inset shadow-[inset_-1px_0_0_0_var(--color-border)]">
+                  {copy.modelColumn}
+                </TableHead>
                 <TableHead>{copy.targetColumn}</TableHead>
                 <TableHead>{copy.stateColumn}</TableHead>
+                {/* 一个列头装了两个基准：斜杠两侧各自从哪儿起算要说出来。 */}
                 <TableHead className="text-right">
-                  {copy.attemptsColumn}
+                  <span className="inline-flex items-center gap-1">
+                    {copy.attemptsColumn}
+                    <OperatorHelpHint
+                      label={copy.attemptsColumnHint}
+                      align="end"
+                    />
+                  </span>
                 </TableHead>
                 <TableHead>{copy.nextRetryColumn}</TableHead>
                 <TableHead>{copy.banUntilColumn}</TableHead>
-                <TableHead className="text-right">
+                <TableHead className="sticky right-0 z-20 bg-inset text-right shadow-[inset_1px_0_0_0_var(--color-border)]">
                   {copy.actionsColumn}
                 </TableHead>
               </TableRow>
@@ -345,7 +376,7 @@ export function GlobalCurrentStatePresentation({
               {showPendingRows ? (
                 <OperationalTableSkeletonRows columns={7} rows={5} />
               ) : (
-                rows.map((item) => (
+                visibleRows.map((item) => (
                   <GlobalCurrentStateRow
                     key={item.terminal_target.id}
                     item={item}
@@ -356,13 +387,40 @@ export function GlobalCurrentStatePresentation({
                     formatTime={formatTime}
                     formatNumber={formatNumber}
                     copy={copy}
-                    missingLabel={messages.honesty.noValue}
                   />
                 ))
               )}
             </TableBody>
           </Table>
         </div>
+      ) : null}
+
+      {showCommittedRows && foldsUnobserved ? (
+        <OperatorInsetPanel
+          data-testid="runtime-unobserved-fold"
+          title={copy.currentStateSummaryUnobserved(
+            formatNumber(unobservedCount),
+          )}
+          description={copy.unobservedFoldDescription}
+          actions={
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              aria-expanded={unobservedExpanded}
+              aria-controls="runtime-current-state-table"
+              onClick={() => {
+                const next = !unobservedExpanded;
+                setUnobservedExpanded(next);
+                writeUnobservedExpanded(next);
+              }}
+            >
+              {unobservedExpanded
+                ? copy.unobservedFoldCollapse
+                : copy.unobservedFoldExpand}
+            </Button>
+          }
+        />
       ) : null}
 
       {cursorStack.length > 0 || fragment.data?.has_more || fragment.reading ? (
@@ -420,6 +478,23 @@ export function GlobalCurrentStatePresentation({
         </AlertDialogContent>
       </AlertDialog>
     </OperatorSectionCard>
+  );
+}
+
+const UNOBSERVED_EXPANDED_STORAGE_KEY = "prism.routingHealth.unobservedExpanded";
+
+function readUnobservedExpanded(): boolean {
+  if (typeof window === "undefined") return false;
+  return (
+    window.localStorage?.getItem(UNOBSERVED_EXPANDED_STORAGE_KEY) === "true"
+  );
+}
+
+function writeUnobservedExpanded(expanded: boolean): void {
+  if (typeof window === "undefined") return;
+  window.localStorage?.setItem(
+    UNOBSERVED_EXPANDED_STORAGE_KEY,
+    expanded ? "true" : "false",
   );
 }
 

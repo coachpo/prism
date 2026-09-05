@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { getStaticMessages } from "@/i18n/staticMessages"
 import { DEFAULT_BAN_POLICY_FIELDS, normalizeFailureStatusCodes } from "@/lib/loadbalanceRoutingPolicy"
 import type { LoadbalanceStrategy, LoadbalanceStrategyCreate, LoadbalanceStrategyUpdate, StrategyPreviewDraft, LegacyLoadbalanceStrategyType, LoadbalanceBanMode } from "@/lib/types"
 
@@ -95,59 +96,63 @@ function parseFailureStatusCodes(value: string): number[] {
   return normalizeFailureStatusCodes(value.split(/[\s,]+/).map((token) => Number(token.trim())).filter(Number.isFinite))
 }
 
+// 这些消息原样进 FieldError，界面是简体中文单一 locale，校验串同样走 messages。
+// 校验时才取：模块加载期就把文案定死会让 schema 依赖 messages 的加载顺序。
+const validation = () => getStaticMessages().routingStrategyDialog
+
 const statusCodeTokenSchema = z.string().superRefine((value, context) => {
   const tokens = value.split(/[\s,]+/).map((token) => token.trim()).filter(Boolean)
   if (tokens.length === 0) {
-    context.addIssue({ code: "custom", message: "Add at least one failure status code" })
+    context.addIssue({ code: "custom", message: validation().statusCodesRequired })
     return
   }
   const seen = new Set<number>()
   for (const token of tokens) {
     if (!/^\d+$/.test(token)) {
-      context.addIssue({ code: "custom", message: "Status code must be a whole number between 100 and 599" })
+      context.addIssue({ code: "custom", message: validation().statusCodeInvalid })
       continue
     }
     const code = Number(token)
     if (code < 100 || code > 599) {
-      context.addIssue({ code: "custom", message: "Status code must be a whole number between 100 and 599" })
+      context.addIssue({ code: "custom", message: validation().statusCodeInvalid })
       continue
     }
     if (seen.has(code)) {
-      context.addIssue({ code: "custom", message: "Failure status codes must be unique" })
+      context.addIssue({ code: "custom", message: validation().statusCodeDuplicate })
     }
     seen.add(code)
   }
 })
 
 export const banPolicyFormSchema = z.object({
-  name: z.string().trim().min(1, "Name is required"),
+  name: z.string().trim().min(1, { error: () => validation().nameRequired }),
   legacy_strategy_type: z.enum(banPolicyRoutingTypes),
   failure_status_codes_input: statusCodeTokenSchema,
   ban_mode: z.enum(banPolicyModes),
-  retry_base_delay_ms: z.coerce.number().int("Retry base delay must be a whole number of milliseconds").min(0, "Retry base delay must be between 0 and 86400000 milliseconds").max(86_400_000, "Retry base delay must be between 0 and 86400000 milliseconds"),
-  retry_backoff_multiplier: z.coerce.number().min(1, "Backoff multiplier must be between 1 and 10").max(10, "Backoff multiplier must be between 1 and 10"),
-  retry_jitter_ratio: z.coerce.number().min(0, "Retry jitter ratio must be between 0 and 1").max(1, "Retry jitter ratio must be between 0 and 1"),
-  retry_max_delay_ms: z.coerce.number().int("Retry max delay must be a whole number of milliseconds").min(1, "Retry max delay must be between 1 and 86400000 milliseconds").max(86_400_000, "Retry max delay must be between 1 and 86400000 milliseconds"),
-  cycle_retry_attempt_limit: z.coerce.number().int("Cycle retry attempt limit must be a whole number").min(1, "Cycle retry attempt limit must be between 1 and 50").max(50, "Cycle retry attempt limit must be between 1 and 50"),
-  ban_cumulative_retry_attempt_threshold: z.coerce.number().int("Ban cumulative retry attempt threshold must be a whole number").min(0),
-  ban_duration_seconds: z.coerce.number().int("Ban duration must be a whole number of seconds").min(0),
+  retry_base_delay_ms: z.coerce.number().int({ error: () => validation().baseDelayInteger }).min(0, { error: () => validation().baseDelayRange }).max(86_400_000, { error: () => validation().baseDelayRange }),
+  retry_backoff_multiplier: z.coerce.number().min(1, { error: () => validation().multiplierRange }).max(10, { error: () => validation().multiplierRange }),
+  retry_jitter_ratio: z.coerce.number().min(0, { error: () => validation().jitterRange }).max(1, { error: () => validation().jitterRange }),
+  retry_max_delay_ms: z.coerce.number().int({ error: () => validation().maxDelayInteger }).min(1, { error: () => validation().maxDelayRange }).max(86_400_000, { error: () => validation().maxDelayRange }),
+  cycle_retry_attempt_limit: z.coerce.number().int({ error: () => validation().cycleLimitInteger }).min(1, { error: () => validation().cycleLimitRange }).max(50, { error: () => validation().cycleLimitRange }),
+  ban_cumulative_retry_attempt_threshold: z.coerce.number().int({ error: () => validation().thresholdInteger }).min(0, { error: () => validation().thresholdMin }),
+  ban_duration_seconds: z.coerce.number().int({ error: () => validation().durationInteger }).min(0, { error: () => validation().durationMin }),
 }).superRefine((value, context) => {
   if (value.ban_mode === "off" && value.ban_cumulative_retry_attempt_threshold !== 0) {
-    context.addIssue({ code: "custom", path: ["ban_cumulative_retry_attempt_threshold"], message: "Ban mode Off requires cumulative threshold 0" })
+    context.addIssue({ code: "custom", path: ["ban_cumulative_retry_attempt_threshold"], message: validation().thresholdOffMustBeZero })
   }
   if (value.ban_mode !== "off") {
     if (value.ban_cumulative_retry_attempt_threshold < 1 || value.ban_cumulative_retry_attempt_threshold > 500) {
-      context.addIssue({ code: "custom", path: ["ban_cumulative_retry_attempt_threshold"], message: "Ban cumulative retry attempt threshold must be between 1 and 500 when banning is enabled" })
+      context.addIssue({ code: "custom", path: ["ban_cumulative_retry_attempt_threshold"], message: validation().thresholdRange })
     }
     if (value.ban_cumulative_retry_attempt_threshold < value.cycle_retry_attempt_limit) {
-      context.addIssue({ code: "custom", path: ["ban_cumulative_retry_attempt_threshold"], message: "Ban cumulative retry attempt threshold must be greater than or equal to the cycle retry attempt limit" })
+      context.addIssue({ code: "custom", path: ["ban_cumulative_retry_attempt_threshold"], message: validation().thresholdBelowCycleLimit })
     }
   }
   if (value.ban_mode === "temporary" && value.ban_duration_seconds < 1) {
-    context.addIssue({ code: "custom", path: ["ban_duration_seconds"], message: "Ban duration must be at least 1 second for temporary bans" })
+    context.addIssue({ code: "custom", path: ["ban_duration_seconds"], message: validation().durationTemporaryMin })
   }
   if (value.ban_mode !== "temporary" && value.ban_duration_seconds !== 0) {
-    context.addIssue({ code: "custom", path: ["ban_duration_seconds"], message: "Ban duration must be 0 seconds for off or until-reset bans" })
+    context.addIssue({ code: "custom", path: ["ban_duration_seconds"], message: validation().durationMustBeZero })
   }
 })
 

@@ -127,7 +127,8 @@ function FormDescription({ className, ...props }: React.ComponentProps<"p">) {
     <p
       data-slot="form-description"
       id={formDescriptionId}
-      className={cn("text-muted-foreground text-sm", className)}
+      // 字段说明是 caption 档（12px），不是正文：14px 会把它读成与标签同级的第二行内容。
+      className={cn("text-muted-foreground text-xs", className)}
       {...props}
     />
   )
@@ -145,7 +146,7 @@ function FormMessage({ className, ...props }: React.ComponentProps<"p">) {
     <p
       data-slot="form-message"
       id={formMessageId}
-      className={cn("text-destructive text-sm", className)}
+      className={cn("text-destructive text-xs", className)}
       {...props}
     >
       {body}

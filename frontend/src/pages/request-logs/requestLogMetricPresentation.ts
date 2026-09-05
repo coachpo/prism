@@ -36,12 +36,24 @@ export function formatTokens(tokens: number | null): string {
   return formatNumber(tokens, getCurrentLocale());
 }
 
-export function formatTtft(ttftMs: number | null | undefined): string {
-  if (ttftMs === null || ttftMs === undefined || !Number.isFinite(ttftMs)) {
+/**
+ * 毫秒时长的唯一写法。同一屏出现「10,329 ms」与「10,329ms」两种写法时，
+ * 读者会怀疑两个数不是一回事，所以单位与数值的间隔只在这里决定一次。
+ */
+export function formatDurationMs(durationMs: number | null | undefined): string {
+  if (
+    durationMs === null ||
+    durationMs === undefined ||
+    !Number.isFinite(durationMs)
+  ) {
     return "—";
   }
 
-  return `${formatNumber(ttftMs, getCurrentLocale())}ms`;
+  return `${formatNumber(durationMs, getCurrentLocale())} ms`;
+}
+
+export function formatTtft(ttftMs: number | null | undefined): string {
+  return formatDurationMs(ttftMs);
 }
 
 /**

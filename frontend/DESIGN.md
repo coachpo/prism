@@ -105,13 +105,13 @@ A third grey is exactly the grey noise this system removes, and it necessarily f
 | Tier | Meaning | Light | Dark | Shape |
 | --- | --- | --- | --- | --- |
 | `healthy` | Serving normally | `#0F7B4F` | `#66D9A0` | ● |
-| `degraded` | Retrying, partial failure, nearing a limit | `#A56200` | `#F5C063` | ◐ |
-| `failing` | Banned, consecutive failures, unreachable | `#C0342B` | `#F4A9A3` | ▲ |
-| `idle` | Idle, not enabled, no data | `#69717F` | `#8A93A1` | ○ |
+| `degraded` | Retrying, partial failure, nearing a limit | `#8C5200` | `#F5C063` | ◐ |
+| `failing` | Banned, consecutive failures, unreachable | `#C0342B` | `#FF8A80` | ▲ |
+| `idle` | Idle, not enabled, no data | `#5B6370` | `#8A93A1` | ○ |
 
 **Status is always color plus shape plus text.** Badge geometry: 8px shape marker, 12px label, 20px tall, 4px radius, 6px horizontal padding; background at 10% of the status color, outline at 25%.
 
-`destructive` shares the `failing` hue but not its meaning: it marks **irreversible operations only** (delete buttons, confirmation dialogs) and never describes runtime state.
+`destructive` shares the `failing` hue but not its meaning: it marks **irreversible operations only** (delete buttons, confirmation dialogs) and never describes runtime state. It is its own token in both themes (`#C0342B` light, `#FF6B61` dark) and carries `on-destructive` (`#FFFFFF` light, `#2B0705` dark) for text on a filled destructive surface — never a hard-coded `text-white`, whose 1.9:1 on the dark ground fails outright.
 
 ### Spectrum — categorical palette
 
@@ -139,9 +139,12 @@ The foreground values below are measured against their theme's `panel` using the
 | `text-muted` | 6.00 | 6.72 |
 | `healthy` | 5.29 | 9.88 |
 | `degraded` | 6.32 | 10.38 |
-| `failing` | 5.57 | 9.10 |
+| `failing` | 5.57 | 7.58 |
 | `idle` | 6.06 | 5.58 |
+| `destructive` | 5.57 | 6.20 |
 | Spectrum 1–6 | 4.83 – 6.63 | > 7 |
+
+`on-destructive` is measured against `destructive`, not `panel`: 5.57 light, 6.63 dark. Dark `idle` is the floor of the whole table — 5.58 on `panel`, 5.10 on `raised` (dialogs, dropdowns, drawers), 5.85 on `inset` — so it is the token to re-measure first whenever a surface changes.
 
 A badge's background is an **opaque mix** (`color-mix(... , var(--color-panel))`), not a translucent overlay: the same badge lands on `panel` and on `inset`, and a translucent ground makes its contrast depend on whichever container it happens to sit in. Against `inset` the measured floor stays above 4.5 — `degraded` 5.64, `idle` 5.41.
 
@@ -202,6 +205,7 @@ Two density modes, `standard` and `compact`, are declared in `foundation.ts` and
 | Control height | 30px | 34px |
 | Table header height | 32px | 38px |
 | Table row height | 34px | 42px |
+| Table cell leading | 16px | 18.4px |
 | Control height (sm) | 28px | 30px |
 | Control height (xs) | 24px | 26px |
 
@@ -310,7 +314,8 @@ Shared specification, applied by every list page:
 - **Identifier columns**: mono 13px, middle-elided when long (`gpt-4o-mini-2024…0718`), full value plus a copy control on hover.
 - **Model-config exit mapping** (models list): the targets cell projects the DIRECT `access_targets` rows in shared `(position, id)` order and shows the first two — Terminal Target rows as `端点 → 实际上游模型 ID`, Model Target rows prefixed `模型目标 →` — with the count and the first row sharing one line and the second row sharing a line with the remainder, capped at two lines. When exactly one row would remain, render it instead of folding: folding the last one saves no height. Otherwise the remainder folds into a `还有 N 项，见详情` pointer to the model-config detail. `入口同名` applies only when the owning model configuration has `direct_request_enabled=true` and its ID exactly matches the upstream ID; every upstream identity on a non-entry configuration is `仅上游`, even when the strings match. These identity states and non-participating (`未参与`) rows carry text, never color alone. A missing endpoint or upstream identity renders a reasoned `—`; the owning model configuration's `model_id` is never substituted for it, and the summary never follows Model Target rows recursively.
 - **Row actions**: faded out by default under a hovering pointer, faded in on row hover or focus, reachable by keyboard; the overflow-menu trigger stays visible (dimmed) so a row never looks actionless, and under `(hover:none)` every row action is visible. More than three actions collapse into an overflow menu.
-- **Frozen columns**: a table that scrolls horizontally freezes its identity column (`left-0`) and its actions column (`right-0`) against the panel ground with a 1px inset separator. Row actions that live past the scroll edge are not reachable.
+- **Frozen columns**: a table that scrolls horizontally freezes its identity column (`left-0`) and its actions column (`right-0`) against the panel ground with a 1px inset separator. Row actions that live past the scroll edge are not reachable. A row that also carries the status stripe must take its `position` back with `sticky!` — the stripe's `[&>td:first-child]:relative` outranks the cell's own class.
+- **Where the height goes**: the vertical limit belongs on the table's own scroll container, through `Table`'s `scrollAreaClassName` (`max-h-[calc(100dvh-18rem)]`). Wrapping `<Table>` in another `max-h` + `overflow-auto` element does **not** work: `overflow-x-auto` already computes `overflow-y` to `auto`, so the inner container is the nearest scrollport and it never scrolls vertically — measured, the header lands 599px above the viewport after a 600px scroll. The scroll container also becomes a keyboard-reachable `role="region"` and grows edge fades on its own once it overflows.
 - **Drag-to-reorder**: every drag ordering must have a keyboard and a menu equivalent — the handle is a 28×28 button handling ArrowUp/ArrowDown/Home/End, the row overflow menu carries 上移/下移/移到首位 (disabled at the boundaries), and each move is announced through `aria-live`. Only the handle arms the drag, so row text stays selectable, and the drop target renders a 2px insertion line.
 - **Pagination**: `共 N 条` on the left, page controls and page size on the right.
 - **Fill the table.** A list that claims eight rows renders eight rows.

@@ -5,6 +5,10 @@ import { cn } from "@/lib/utils";
 import { fragmentErrorFrom, type FragmentState } from "@/features/observe/useObserveFragments";
 import { RetryAfterCallout } from "@/features/observe/RetryAfterCallout";
 import {
+  OperatorErrorState,
+  OperatorRetryButton,
+} from "@/shared/design-system";
+import {
   httpStatusSelection,
   streamErrorKindSelection,
   streamOutcomeSelection,
@@ -32,7 +36,10 @@ export function ObserveErrorPanel({
   selectedKey: string | null;
 }) {
   const { messages } = useLocale();
-  const requestKey = `${queryContext ?? ""}:${groupBy}`;
+  // A failed read is recovered here, next to the failure. The page's freshness
+  // bar can also revive it, but it sits a screen above this block.
+  const [attempt, setAttempt] = useState(0);
+  const requestKey = `${queryContext ?? ""}:${groupBy}:${attempt}`;
   const [snapshot, setSnapshot] = useState<{
     key: string;
     fragment: FragmentState<UsageErrorsResponse>;
@@ -97,13 +104,29 @@ export function ObserveErrorPanel({
     return <section aria-busy="true" className="rounded-lg border border-border bg-inset p-4" />;
   }
   if (fragment.phase === "error" && fragment.data === null) {
+    // 读取失败：标题、下一步、状态码折进「查看详情」，并带自己的重试。
     return (
-      <section role="alert" className="flex flex-col gap-2 rounded-lg border border-destructive bg-destructive/5 p-3 text-sm text-destructive">
-        {fragment.retryAfterMs !== null ? (
-          <RetryAfterCallout retryAfterMs={fragment.retryAfterMs} />
-        ) : null}
-        <p>{fragment.error ?? messages.observe.windowUnavailable}</p>
-      </section>
+      <OperatorErrorState
+        testId="observe-error-panel-error"
+        title={messages.observe.windowUnavailable}
+        description={
+          <>
+            {fragment.retryAfterMs !== null ? (
+              <RetryAfterCallout retryAfterMs={fragment.retryAfterMs} />
+            ) : null}
+            {messages.honesty.readFailedDescription}
+          </>
+        }
+        details={fragment.error}
+        detailsLabel={messages.honesty.viewDetails}
+        action={
+          <OperatorRetryButton
+            onClick={() => setAttempt((current) => current + 1)}
+          >
+            {messages.observe.retry}
+          </OperatorRetryButton>
+        }
+      />
     );
   }
 

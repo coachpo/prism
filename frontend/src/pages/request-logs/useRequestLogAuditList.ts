@@ -61,6 +61,11 @@ export function useRequestLogAuditList({
           items: page.items,
           nextCursor: page.next_cursor,
           hasMore: page.has_more,
+          // The backend states how much of the asked-for window it could
+          // actually serve. Dropping it here is what turns a retention hole
+          // into the page claiming no audit record exists.
+          coverage: page.coverage ?? null,
+          fetchedAt: new Date().toISOString(),
           error: null,
         });
       } catch (error) {
@@ -70,6 +75,8 @@ export function useRequestLogAuditList({
           items: [],
           nextCursor: null,
           hasMore: false,
+          coverage: null,
+          fetchedAt: null,
           error: getRequestLogAuditErrorMessage(
             error,
             messages.requestLogs.auditListLoadFailed,

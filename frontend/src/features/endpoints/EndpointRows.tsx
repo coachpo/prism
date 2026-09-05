@@ -71,22 +71,22 @@ function KeyIdentityCell({
 function BaseURLCell({ endpoint }: { endpoint: Endpoint }) {
       const { messages } = useLocale();
       const [copied, setCopied] = useState(false);
+      // 展示用的 <code> 不取焦点：它没有动作，却会给每一行多出一个
+      // Tab 停点，并把整个单元格的内容当成可访问名念一遍。复制只给按钮。
+      const copyLabel = messages.endpointsUi.copyBaseUrl(endpoint.name);
       return (
             <div className="flex min-w-0 items-center gap-1">
                   <code
-                        tabIndex={0}
                         title={endpoint.base_url}
-                        className="block min-w-0 flex-1 truncate rounded border border-transparent px-1 py-0.5 font-mono text-xs text-foreground/90 focus-visible:outline-2 focus-visible:outline-ring"
-                        aria-label={`${messages.endpoints.baseUrl}: ${endpoint.base_url}`}
+                        className="block min-w-0 flex-1 truncate rounded px-1 py-0.5 font-mono text-xs text-foreground/90"
                   >
                         {endpoint.base_url}
                   </code>
                   <IconActionButton
                         type="button"
-                        size="icon"
-                        className="size-6"
-                        aria-label={`${messages.endpoints.baseUrl}: ${endpoint.base_url} — 复制`}
-                        title="复制"
+                        size="icon-xs"
+                        aria-label={copyLabel}
+                        title={copyLabel}
                         onClick={() => {
                               void copyTextToClipboard(endpoint.base_url);
                               setCopied(true);
@@ -245,7 +245,7 @@ function EndpointRowGroup({
                                     <IconActionButton
                                           type="button"
                                           size="icon"
-                                          aria-label={copy.deleteEndpointDescription(
+                                          aria-label={copy.deleteEndpointAction(
                                                 endpoint.name,
                                           )}
                                           destructive
@@ -353,7 +353,7 @@ function MobileEndpointCard({
                                     <IconActionButton
                                           type="button"
                                           size="icon"
-                                          aria-label={uiCopy.deleteEndpointDescription(
+                                          aria-label={uiCopy.deleteEndpointAction(
                                                 endpoint.name,
                                           )}
                                           destructive

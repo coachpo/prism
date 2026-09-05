@@ -15,6 +15,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { LocaleProvider } from "@/i18n/LocaleProvider";
 import { getStaticMessages } from "@/i18n/staticMessages";
 import { ApiError } from "@/lib/api/request";
@@ -58,6 +59,7 @@ class ResizeObserverStub {
 }
 
 const messages = getStaticMessages().requestLogs;
+const tableMessages = getStaticMessages().operationalTable;
 const honesty = getStaticMessages().honesty;
 
 function coverage(): QueryCoverage {
@@ -311,11 +313,14 @@ function renderRequestLogsPage(search = "?view=attempts") {
     defaultOptions: { queries: { retry: false } },
   });
 
+  // 口径提示与纯图标按钮走共享 Tooltip，应用根部已经提供 Provider。
   return render(
     <QueryClientProvider client={queryClient}>
-      <LocaleProvider>
-        <RouterProvider router={router} />
-      </LocaleProvider>
+      <TooltipProvider>
+        <LocaleProvider>
+          <RouterProvider router={router} />
+        </LocaleProvider>
+      </TooltipProvider>
     </QueryClientProvider>,
   );
 }
@@ -353,6 +358,8 @@ describe("request-log list read failure", () => {
       screen.queryByText(messages.totalRowsSummary("0")),
     ).not.toBeInTheDocument();
     expect(screen.queryByText(messages.zeroResults)).not.toBeInTheDocument();
+    // 计数只在表卡头与分页行各一处；切换器旁边只说口径，不再报一个数。
+    expect(screen.getByText(messages.viewBasisAttempts)).toBeInTheDocument();
   });
 
   it("retries the read from the failure surface", async () => {
@@ -405,9 +412,12 @@ describe("request-log list read failure", () => {
         timeout: 3000,
       }),
     ).toBeInTheDocument();
+    // 真的读到 0 行仍然是空态：分页行报 0，切换器旁只说口径。
+    expect(screen.getByText(messages.zeroResults)).toBeInTheDocument();
+    expect(screen.getByText(messages.viewBasisAttempts)).toBeInTheDocument();
     expect(
-      screen.getByText(messages.totalRowsSummary("0")),
-    ).toBeInTheDocument();
+      screen.queryByText(messages.totalRowsSummary("0")),
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByTestId("request-logs-load-error"),
     ).not.toBeInTheDocument();
@@ -505,7 +515,9 @@ describe("request-log list read failure", () => {
     await screen.findByTestId("chain-summary-ingress-first", undefined, {
       timeout: 3000,
     });
-    await user.click(screen.getByTestId("chain-more"));
+    await user.click(
+      screen.getByRole("button", { name: tableMessages.nextPage }),
+    );
 
     await waitFor(() =>
       expect(
@@ -515,14 +527,18 @@ describe("request-log list read failure", () => {
     expect(
       screen.queryByTestId("chain-summary-ingress-first"),
     ).not.toBeInTheDocument();
-    expect(screen.getByTestId("chain-previous")).toBeEnabled();
-    expect(screen.getByTestId("chain-page-range")).toHaveTextContent("2-2 / 2");
+    const previousPage = screen.getByRole("button", {
+      name: tableMessages.previousPage,
+    });
+    expect(previousPage).toBeEnabled();
+    // 分页行走共享实现：左侧「共 N 条」与本页区间同时在场。
+    expect(screen.getByText(`共 2 条 · 2-2 / 2`)).toBeInTheDocument();
     expect(listChains.mock.calls[1]?.[0]).toMatchObject({
       view: "ingress_chains",
       chain_cursor: "signed-chain-cursor",
     });
 
-    await user.click(screen.getByTestId("chain-previous"));
+    await user.click(previousPage);
     await waitFor(() =>
       expect(
         screen.getByTestId("chain-summary-ingress-first"),

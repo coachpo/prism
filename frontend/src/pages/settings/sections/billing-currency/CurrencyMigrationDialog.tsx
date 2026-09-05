@@ -40,6 +40,7 @@ interface CurrencyMigrationDialogProps {
   onMigrated: () => Promise<void>;
 }
 
+const MIGRATION_FORM_ID = "currency-migration-form";
 const STEP_PREVIEW = "preview" as const;
 const STEP_REPAIR = "repair" as const;
 const STEP_COMMIT = "commit" as const;
@@ -218,11 +219,19 @@ export function CurrencyMigrationDialog({
         </AlertDialogHeader>
 
         {step === STEP_PREVIEW ? (
-          <div className="flex flex-col gap-3">
+          // 真表单：两个代码框里敲回车就走预检，两个必填项也标出来。
+          <form
+            id={MIGRATION_FORM_ID}
+            className="flex flex-col gap-3"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void handlePreview();
+            }}
+          >
             <FieldGroup className="gap-3">
               <div className="flex flex-wrap items-end gap-3">
                 <Field className="w-28">
-                  <FieldLabel htmlFor="migration-currency-code">
+                  <FieldLabel htmlFor="migration-currency-code" required>
                     {copy.code}
                   </FieldLabel>
                   <Input
@@ -230,6 +239,8 @@ export function CurrencyMigrationDialog({
                     name="target_currency_code"
                     autoComplete="off"
                     maxLength={3}
+                    required
+                    aria-required="true"
                     value={code}
                     aria-invalid={codeError ? true : undefined}
                     onChange={(event) =>
@@ -239,7 +250,7 @@ export function CurrencyMigrationDialog({
                   />
                 </Field>
                 <Field className="w-24">
-                  <FieldLabel htmlFor="migration-currency-symbol">
+                  <FieldLabel htmlFor="migration-currency-symbol" required>
                     {copy.symbol}
                   </FieldLabel>
                   <Input
@@ -247,6 +258,8 @@ export function CurrencyMigrationDialog({
                     name="target_currency_symbol"
                     autoComplete="off"
                     maxLength={5}
+                    required
+                    aria-required="true"
                     value={symbol}
                     onChange={(event) => setSymbol(event.target.value)}
                     placeholder="€"
@@ -266,7 +279,7 @@ export function CurrencyMigrationDialog({
                 currentCosting.report_currency_symbol || "-",
               )}
             />
-          </div>
+          </form>
         ) : step === STEP_REPAIR && prepared ? (
           <div className="flex max-h-[min(60vh,34rem)] flex-col gap-3 overflow-y-auto">
             <OperatorCallout
@@ -389,9 +402,10 @@ export function CurrencyMigrationDialog({
             {copy.cancel}
           </AlertDialogCancel>
           {step === STEP_PREVIEW ? (
+            // 页脚在 <form> 外，靠 form 属性把提交按钮接回那张表单。
             <Button
-              type="button"
-              onClick={() => void handlePreview()}
+              type="submit"
+              form={MIGRATION_FORM_ID}
               disabled={
                 loading || Boolean(codeError) || !code.trim() || !symbol.trim()
               }

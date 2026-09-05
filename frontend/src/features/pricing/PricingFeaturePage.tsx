@@ -3,10 +3,13 @@ import { Download, Plus, Upload } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { useTimezone } from "@/hooks/useTimezone";
 import { useLocale } from "@/i18n/useLocale";
 import {
   OperatorCallout,
+  OperatorFreshnessBar,
   OperatorKpiCard,
+  OperatorMissingValue,
   OperatorPageHeader,
   OperatorPageShell,
 } from "@/shared/design-system";
@@ -34,6 +37,7 @@ import {
 
 export function PricingFeaturePage() {
   const { formatNumber, messages } = useLocale();
+  const { format: formatTime } = useTimezone();
   const copy = messages.pricingTemplatesUi;
   const importCopy = messages.pricing;
   const catalogCopy = messages.modelCatalog;
@@ -41,6 +45,13 @@ export function PricingFeaturePage() {
   const facts = usePricingListFacts(0);
   const catalogImport = useCatalogPricingImportEntry(0);
   const [filter, setFilter] = useState<PricingFilter>("all");
+
+  // 页面的两个读：模板集合与列表分页事实。刷新控件必须两个都重跑，
+  // 否则「未被引用」这类计数会停在旧的一次读上。
+  const refreshAll = () => {
+    void data.fetchPricingTemplates(true);
+    facts.refresh();
+  };
 
   const stats = useMemo(() => {
     let incomplete = 0;
@@ -50,7 +61,7 @@ export function PricingFeaturePage() {
       const item = facts.byId.get(template.id);
       if (item?.configuration_status === "incomplete") incomplete += 1;
       if (totalReferences(item) === 0) unreferenced += 1;
-      if (isRecentlyChanged(template.updated_at)) recentlyChanged += 1;
+      if (isRecentlyChanged(template.version_effective_at)) recentlyChanged += 1;
     }
     return {
       total: data.pricingTemplates.length,
@@ -93,6 +104,24 @@ export function PricingFeaturePage() {
             </Button>
           </>
         }
+      />
+
+      <OperatorFreshnessBar
+        updatedAt={
+          data.pricingTemplatesLoadedAt ? (
+            messages.freshness.updatedAt(
+              formatTime(data.pricingTemplatesLoadedAt),
+            )
+          ) : (
+            <OperatorMissingValue reason={messages.freshness.neverLoaded} />
+          )
+        }
+        basis={copy.listBasis}
+        refresh={{
+          label: messages.freshness.refresh,
+          onRefresh: refreshAll,
+          pending: data.pricingTemplatesLoading || facts.loading,
+        }}
       />
 
       <div className="grid gap-[var(--density-card-gap)] sm:grid-cols-2 xl:grid-cols-4">
@@ -151,10 +180,7 @@ export function PricingFeaturePage() {
         onFilterChange={setFilter}
         onLoadHistory={data.handleViewPricingTemplateHistory}
         onLoadUsage={data.handleViewPricingTemplateUsage}
-        onRetry={() => {
-          void data.fetchPricingTemplates(true);
-          facts.refresh();
-        }}
+        onRetry={refreshAll}
         pricingTemplateError={data.pricingTemplatesError}
         pricingTemplatePreparingEditId={data.pricingTemplatePreparingEditId}
         pricingTemplates={data.pricingTemplates}

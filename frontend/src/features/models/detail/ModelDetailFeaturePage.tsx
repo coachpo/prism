@@ -39,6 +39,7 @@ import { RouteReadinessCard } from "@/pages/model-detail/RouteReadinessCard";
 import {
   OperatorClippedBadge,
   OperatorCallout,
+  OperatorEmptyState,
   OperatorErrorState,
   OperatorFreshnessBar,
   OperatorKpiCard,
@@ -55,6 +56,7 @@ import { summarizeRoutingDisposition } from "./routingDisposition";
 import { formatLatencyForDisplay } from "@/pages/model-detail/modelDetailMetricsAndPaths";
 import { isOwnedConnectionTarget } from "@/pages/model-detail/modelAccessTargetProjection";
 import { useModelDetailFeatureData } from "./useModelDetailFeatureData";
+import { readSpendingRetentionClip } from "@/features/models/metricsCoverage";
 import { useModelMetrics24h } from "@/pages/models/useModelMetrics24h";
 import { useReportingCurrencyContext } from "@/context/ReportingCurrencyContext";
 import { formatMoneyMicros } from "@/lib/costing";
@@ -219,16 +221,21 @@ export function ModelDetailFeaturePage({
     },
     [onNavigateTo],
   );
-  const parsedModelConfigId = modelId
-    ? Number.parseInt(modelId, 10)
+  // "abc" 解析成 NaN 而不是 undefined，会被下游的 `?? null` 当成一个真实
+  // 标识符带进 /api/models/NaN/… 。一处收口，三个读取都不会再发出去。
+  const parsedModelConfigIdCandidate = Number.parseInt(modelId ?? "", 10);
+  const parsedModelConfigId = Number.isFinite(parsedModelConfigIdCandidate)
+    ? parsedModelConfigIdCandidate
     : undefined;
+  // 路由带了参数却解析不出标识符，是「链接抄错了」，不是读取失败或不存在。
+  const invalidModelRoute =
+    Boolean(modelId?.trim()) && parsedModelConfigId === undefined;
   const { diagnosticsView, refreshDiagnostics } =
     useRoutingDiagnosticsView(parsedModelConfigId);
   const data = useModelDetailFeatureData({
     modelId,
     searchParams: resolvedSearchParams,
     setSearchParams,
-    navigateTo,
     refreshDiagnostics,
   });
   const [copyTarget, setCopyTarget] = useState<Connection | null>(null);
@@ -259,6 +266,15 @@ export function ModelDetailFeaturePage({
     [data.model],
   );
   const roleMetrics = useModelMetrics24h(modelMetricRows);
+  // 后端说清了成本只覆盖到哪一天；成本卡与列表页必须说同一件事。
+  const spendRetentionClip = readSpendingRetentionClip(roleMetrics.coverage);
+  const spendRetentionFrom = spendRetentionClip?.retentionFrom
+    ? formatTime(spendRetentionClip.retentionFrom, {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      })
+    : null;
   const {
     deleteError,
     deleteTarget,
@@ -269,6 +285,56 @@ export function ModelDetailFeaturePage({
     // 在详情页删掉的就是当前这一页，删完必须离开。
     onDeleted: () => navigateTo("/route/models"),
   });
+
+  // 页头的标题：读不到实体时退化成路由指向的那个 id，页面绝不失去身份。
+  const pageTitle =
+    data.model?.display_name ||
+    data.model?.model_id ||
+    messages.modelDetail.modelFallbackTitle(modelId ?? "");
+  const backToListAction = (
+    <Button
+      type="button"
+      variant="outline"
+      onClick={() => navigateTo("/route/models")}
+    >
+      {messages.modelDetail.backToModels}
+    </Button>
+  );
+
+  // 链接抄错了和网关读取失败是两件事，都不能靠一次静默跳转把人送走。
+  if (invalidModelRoute) {
+    return (
+      <OperatorPageShell className="pb-2">
+        <OperatorPageHeader title={pageTitle} />
+        <OperatorEmptyState
+          title={messages.modelDetailData.invalidModelRouteTitle}
+          description={messages.modelDetailData.invalidModelRouteDescription(
+            modelId ?? "",
+          )}
+          action={backToListAction}
+          testId="model-detail-invalid-route"
+        />
+      </OperatorPageShell>
+    );
+  }
+
+  // 「不存在」不是「读取失败」：用空态而不是 destructive 错误卡，
+  // 并保留 URL，操作者才分得清是这条配置被删了还是网关抖了一下。
+  if (data.notFound) {
+    return (
+      <OperatorPageShell className="pb-2">
+        <OperatorPageHeader title={pageTitle} />
+        <OperatorEmptyState
+          title={messages.modelDetailData.modelConfigNotFoundTitle}
+          description={messages.modelDetailData.modelConfigNotFoundDescription(
+            modelId ?? "",
+          )}
+          action={backToListAction}
+          testId="model-detail-not-found"
+        />
+      </OperatorPageShell>
+    );
+  }
 
   if (data.loading) {
     // 骨架按真实区块分块，形状要预示后面会出现什么，否则页面落定时会整体跳动。
@@ -302,6 +368,8 @@ export function ModelDetailFeaturePage({
   if (data.loadError) {
     return (
       <OperatorPageShell className="pb-2">
+        {/* 页头留在原处：读取失败不该连「你还在哪个模型配置上」一起抹掉。 */}
+        <OperatorPageHeader title={pageTitle} />
         <OperatorErrorState
           title={messages.modelDetailData.fetchModelDetailsFailed}
           description={messages.modelDetailData.modelDetailLoadFailedDescription}
@@ -534,6 +602,7 @@ export function ModelDetailFeaturePage({
         failed={roleMetrics.metricsFailed}
         loading={roleMetrics.metricsLoading}
         metric={selectedRoleMetric}
+        spendRetentionFrom={spendRetentionFrom}
         onRetry={roleMetrics.refresh}
         onScopeChange={(nextScope) => {
           const next = new URLSearchParams(resolvedSearchParams);
@@ -674,6 +743,7 @@ export function ModelDetailFeaturePage({
             (target) => target.target_model_id?.trim() === model.model_id,
           ),
         )}
+        referrersCheckedCount={data.allModels.length}
         onDelete={handleDelete}
         setDeleteTarget={(next) => setDeleteTarget(next as never)}
       />
@@ -704,6 +774,7 @@ function ModelRoleMetrics({
   onRetry,
   onScopeChange,
   scope,
+  spendRetentionFrom,
 }: {
   failed: boolean;
   loading: boolean;
@@ -711,6 +782,8 @@ function ModelRoleMetrics({
   onRetry: () => void;
   onScopeChange: (scope: DetailMetricsScope) => void;
   scope: DetailMetricsScope;
+  /** 成本窗口被保留期裁剪时的实际起点（已格式化）。 */
+  spendRetentionFrom: string | null;
 }) {
   const { currencyState } = useReportingCurrencyContext();
   const { formatNumber, locale, messages } = useLocale();
@@ -874,17 +947,31 @@ function ModelRoleMetrics({
                   </span>
                 )
               }
-              detail={copy.roleMetricsWindow30d}
+              detail={
+                spendRetentionFrom
+                  ? copy.roleMetricsWindow30dClipped(spendRetentionFrom)
+                  : copy.roleMetricsWindow30d
+              }
               badges={
-                costPartial ? (
-                  <OperatorClippedBadge
-                    label={copy.roleMetricsPartial}
-                    reason={copy.roleMetricsCostPartial(
-                      metric?.samples?.cost_sample_count ?? 0,
-                      metric?.samples?.cost_missing_count ?? 0,
-                    )}
-                  />
-                ) : null
+                <>
+                  {spendRetentionFrom ? (
+                    <OperatorClippedBadge
+                      label={messages.honesty.outsideRetention}
+                      reason={copy.roleMetricsCostClippedReason(
+                        spendRetentionFrom,
+                      )}
+                    />
+                  ) : null}
+                  {costPartial ? (
+                    <OperatorClippedBadge
+                      label={copy.roleMetricsPartial}
+                      reason={copy.roleMetricsCostPartial(
+                        metric?.samples?.cost_sample_count ?? 0,
+                        metric?.samples?.cost_missing_count ?? 0,
+                      )}
+                    />
+                  ) : null}
+                </>
               }
             />
           </div>

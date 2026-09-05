@@ -34,6 +34,9 @@ export type RequestLogSortBy = (typeof SORT_BY_OPTIONS)[number];
 
 export const PAGE_SIZE_OPTIONS = [100, 300, 500] as const;
 
+// 入口链是游标分页，后端 chain_limit 的上限是 50（超过即 422）。
+export const CHAIN_PAGE_SIZE_OPTIONS = [20, 30, 50] as const;
+
 export const DEFAULTS = {
   limit: 100,
   offset: 0,
@@ -46,6 +49,7 @@ export const DEFAULTS = {
   unpriced_reason: "",
   pricing_card_role: "",
   pricing_selection_state: "",
+  chain_limit: 20,
   view: "ingress_chains" as RequestLogView,
   sort_by: "created_at" as RequestLogSortBy,
   sort_order: "desc" as "asc" | "desc",
@@ -114,6 +118,7 @@ export interface RequestLogPageState {
   sort_by: RequestLogSortBy;
   sort_order: "asc" | "desc";
   chain_cursor: string;
+  chain_limit: number;
 }
 
 export const TOKEN_BOUND_REQUEST_FILTER_DEFAULTS = {
@@ -219,6 +224,16 @@ function parseIntParam(value: unknown, fallback: number): number {
   return Number.isFinite(n) && n >= 0 ? n : fallback;
 }
 
+function parseChainPageSize(value: unknown): number {
+  const fallback = DEFAULTS.chain_limit;
+  const parsed = parseIntParam(value, fallback);
+  return CHAIN_PAGE_SIZE_OPTIONS.includes(
+    parsed as (typeof CHAIN_PAGE_SIZE_OPTIONS)[number],
+  )
+    ? parsed
+    : fallback;
+}
+
 function parsePageSize(value: unknown): number {
   const fallback = DEFAULTS.limit;
   const parsed = parseIntParam(value, fallback);
@@ -299,6 +314,10 @@ export function parsePageSearch(search: Record<string, unknown>): RequestLogPage
       ? statusAliasToFamily(parseEnum(statusParam, STATUS_ALIAS_OPTIONS, "all"))
       : parseEnum(statusFamilyParam, STATUS_FAMILY_OPTIONS, DEFAULTS.status_family),
     limit: view === "attempts" ? parsePageSize(search.limit) : DEFAULTS.limit,
+    chain_limit:
+      view === "ingress_chains"
+        ? parseChainPageSize(search.chain_limit)
+        : DEFAULTS.chain_limit,
     offset:
       view === "attempts"
         ? explicitOffset !== DEFAULTS.offset
@@ -396,6 +415,8 @@ export function stateToSearch(state: RequestLogPageState): Record<string, string
   if (state.sort_order !== DEFAULTS.sort_order) search.sort_order = state.sort_order;
   if (state.view === "ingress_chains" && state.chain_cursor)
     search.chain_cursor = state.chain_cursor;
+  if (state.view === "ingress_chains" && state.chain_limit !== DEFAULTS.chain_limit)
+    search.chain_limit = state.chain_limit;
   return search;
 }
 

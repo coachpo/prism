@@ -185,12 +185,12 @@ test.describe("dedicated request-log audit page", () => {
     const detail = page.getByTestId("dedicated-audit-detail");
     await expect(detail).toBeVisible({ timeout: 15000 });
     const requestSection = detail.getByRole("region", { name: "请求", exact: true });
-    await expect(requestSection.getByText("Message transcript")).toBeVisible();
+    await expect(requestSection.getByText("消息记录")).toBeVisible();
     await requestSection.getByRole("button", { name: "原始 JSON" }).click();
     await expect(requestSection.getByRole("button", { name: "原始 JSON" })).toHaveAttribute("aria-pressed", "true");
     await expect(requestSection.locator("pre")).toContainText('"model": "gpt-4o-mini"');
     await expect(requestSection.locator("pre")).toContainText('"messages": [');
-    await expect(requestSection.getByText("Message transcript")).toHaveCount(0);
+    await expect(requestSection.getByText("消息记录")).toHaveCount(0);
   });
 
   test("long repeated-token request bodies scroll inside the Request Body content area only", async ({ page }) => {
@@ -382,7 +382,8 @@ test.describe("dedicated request-log audit page", () => {
     const counters = await mockPrismRoutes(page, "full");
 
     await page.goto("/observe/requests?view=attempts");
-    const requestLogRow = page.getByTestId("request-logs-table").getByRole("button").filter({ hasText: "GPT-4o mini" });
+    // 行现在带表格语义（role=row），可访问名就是它的可见内容。
+    const requestLogRow = page.getByTestId("request-logs-table").getByRole("row").filter({ hasText: "GPT-4o mini" });
     await requestLogRow.click();
 
     const drawer = page.getByTestId("request-log-detail-sheet");
@@ -409,7 +410,8 @@ test.describe("dedicated request-log audit page", () => {
     await expect(upstreamColumn).toHaveAttribute("aria-checked", "false");
     await upstreamColumn.click();
     await expect(upstreamColumn).toHaveAttribute("aria-checked", "true");
-    await page.getByRole("button", { name: "关闭列选择" }).click();
+    // 列选择器现在是共享的 Radix 菜单：Esc 关闭并把焦点还给触发器。
+    await page.keyboard.press("Escape");
 
     await page.getByTestId("request-log-row-101").click();
     const drawer = page.getByTestId("request-log-detail-sheet");

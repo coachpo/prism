@@ -7,27 +7,35 @@ import { useRequestLogDetail } from "./request-logs/useRequestLogDetail";
 import { useRequestLogsPageData } from "./request-logs/useRequestLogsPageData";
 import { downloadRequestLogsCsv } from "./request-logs/requestLogsCsv";
 import {
+  DEFAULT_CHAIN_COLUMN_PREFERENCES,
   DEFAULT_COLUMN_PREFERENCES,
+  loadChainColumnPreferences,
   loadColumnPreferences,
+  saveChainColumnPreferences,
   saveColumnPreferences,
 } from "./request-logs/requestLogColumnPreferences";
+import { getChainColumns } from "./request-logs/chainColumns";
+import { getColumns } from "./request-logs/columns";
 import { RequestFocusBanner } from "./request-logs/RequestFocusBanner";
 import { FiltersBar } from "./request-logs/FiltersBar";
 import { RequestLogsTable } from "./request-logs/RequestLogsTable";
 import { ColumnToggleMenu } from "./request-logs/ColumnToggleMenu";
 import { IngressChainsTable } from "./request-logs/IngressChainsTable";
 import { RequestLogDetailSheet } from "./request-logs/RequestLogDetailSheet";
-import { Download, SearchX } from "lucide-react";
+import { Download, ListFilter, SearchX } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   OperatorCallout,
   OperatorEmptyState,
   OperatorErrorState,
+  OperatorFreshnessBar,
+  OperatorMissingValue,
   OperatorPageHeader,
   OperatorPageShell,
   OperatorRetryButton,
   OperatorStalenessBadge,
 } from "@/shared/design-system";
+import { getTimeLabel } from "./request-logs/FiltersBar.constants";
 import { ActiveFilterChips } from "./request-logs/ActiveFilterChips";
 import { RequestLogsViewToolbar } from "./request-logs/RequestLogsViewToolbar";
 import {
@@ -43,13 +51,19 @@ export function RequestLogsPage() {
   const [columnPreferences, setColumnPreferences] = useState(() =>
     loadColumnPreferences(),
   );
+  // 两个视图渲染的是两套列，列选择器必须按当前视图取定义与偏好，
+  // 否则勾掉的项与表头对不上，勾了也毫无视觉变化。
+  const [chainColumnPreferences, setChainColumnPreferences] = useState(() =>
+    loadChainColumnPreferences(),
+  );
+  const isChainView = state.view === "ingress_chains";
 
   const handleToggleColumn = useCallback((key: string) => {
     setColumnPreferences((current) => {
       const nextKeys = current.visibleKeys.includes(key)
         ? current.visibleKeys.filter((visibleKey) => visibleKey !== key)
         : [...current.visibleKeys, key];
-      const next = { version: 5 as const, visibleKeys: nextKeys };
+      const next = { version: 6 as const, visibleKeys: nextKeys };
       saveColumnPreferences(next);
       return next;
     });
@@ -60,6 +74,34 @@ export function RequestLogsPage() {
     saveColumnPreferences(defaults);
     setColumnPreferences(defaults);
   }, []);
+
+  const handleToggleChainColumn = useCallback((key: string) => {
+    setChainColumnPreferences((current) => {
+      const nextKeys = current.visibleKeys.includes(key)
+        ? current.visibleKeys.filter((visibleKey) => visibleKey !== key)
+        : [...current.visibleKeys, key];
+      const next = { version: 1 as const, visibleKeys: nextKeys };
+      saveChainColumnPreferences(next);
+      return next;
+    });
+  }, []);
+
+  const handleResetChainColumns = useCallback(() => {
+    const defaults = DEFAULT_CHAIN_COLUMN_PREFERENCES;
+    saveChainColumnPreferences(defaults);
+    setChainColumnPreferences(defaults);
+  }, []);
+
+  const columnToggleOptions = useMemo(
+    () =>
+      isChainView
+        ? getChainColumns()
+        : getColumns().map((column) => ({
+            key: column.key,
+            label: column.label,
+          })),
+    [isChainView],
+  );
 
   const {
     items,
@@ -163,6 +205,53 @@ export function RequestLogsPage() {
     actions.clearSelectedRequest();
   };
 
+  // 「全部」在后端解析成保留期内的全部，不是全部历史。选择器上写什么，
+  // 这里就必须写出它实际解析成了哪个窗口，以及更早的记录去了哪里。
+  const declaredWindowLabel =
+    state.from_time && state.to_time
+      ? `${format(state.from_time)} — ${format(state.to_time)}`
+      : getTimeLabel(state.time_range);
+  const windowBasis = [
+    messages.requestLogs.windowBasis(declaredWindowLabel),
+    coverage
+      ? messages.requestLogs.windowEffectiveRange(
+          format(coverage.effective_from_time),
+          format(coverage.effective_to_time),
+        )
+      : null,
+    coverage?.retention_from_time
+      ? messages.requestLogs.windowRetentionNote
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  // 空态必须给出下一步，而「没有保留的」这种措辞只有在 coverage 真的说被裁剪
+  // 时才成立——默认落地的 0 行只是不在 24 小时内。
+  const retentionClipped = coverage?.complete === false;
+  const canWidenToAllTime =
+    state.time_range !== "all" && !(state.from_time && state.to_time);
+  const emptyStateAction =
+    canWidenToAllTime || actions.hasActiveFilters ? (
+      <>
+        {canWidenToAllTime ? (
+          <Button
+            variant="outline"
+            size="sm"
+            data-testid="request-logs-empty-all-time"
+            onClick={() => actions.setTimeRange("all")}
+          >
+            {messages.requestLogs.emptySwitchToAllTime}
+          </Button>
+        ) : null}
+        {actions.hasActiveFilters ? (
+          <Button variant="ghost" size="sm" onClick={actions.clearFilters}>
+            {messages.statistics.clearFilters}
+          </Button>
+        ) : null}
+      </>
+    ) : undefined;
+
   return (
     <OperatorPageShell className="pb-8">
       <OperatorPageHeader
@@ -179,6 +268,24 @@ export function RequestLogsPage() {
             {messages.requestLogs.exportCsv}
           </Button>
         }
+      />
+
+      <OperatorFreshnessBar
+        data-testid="request-logs-freshness-bar"
+        updatedAt={
+          lastLoadedAt ? (
+            messages.freshness.updatedAt(
+              format(lastLoadedAt, {
+                hour: "2-digit",
+                minute: "2-digit",
+                second: "2-digit",
+              }),
+            )
+          ) : (
+            <OperatorMissingValue reason={messages.freshness.neverLoaded} />
+          )
+        }
+        basis={windowBasis}
       />
 
       {isExactMode && (
@@ -254,23 +361,26 @@ export function RequestLogsPage() {
             view={state.view}
             onViewChange={actions.setView}
             summary={
-              // No successful read stands behind these counts, so the toolbar
-              // states nothing rather than reporting a fabricated zero.
-              listReadFailed
-                ? undefined
-                : state.view === "ingress_chains"
-                  ? messages.requestLogs.chainCounts(
-                      String(chainPageCounts.ingress),
-                      String(chainPageCounts.attempts),
-                      String(chainPageCounts.rows),
-                    )
-                  : messages.requestLogs.totalRowsSummary(String(total))
+              // 同一个数在多处渲染必然分歧，两个视图的总数口径又不同：这里只说
+              // 口径，计数留给表卡头和分页行各一处。
+              state.view === "ingress_chains"
+                ? messages.requestLogs.viewBasisIngressChains
+                : messages.requestLogs.viewBasisAttempts
             }
           >
             <ColumnToggleMenu
-              visibleColumns={columnPreferences.visibleKeys}
-              onToggleColumn={handleToggleColumn}
-              onResetColumns={handleResetColumns}
+              columns={columnToggleOptions}
+              visibleColumns={
+                isChainView
+                  ? chainColumnPreferences.visibleKeys
+                  : columnPreferences.visibleKeys
+              }
+              onToggleColumn={
+                isChainView ? handleToggleChainColumn : handleToggleColumn
+              }
+              onResetColumns={
+                isChainView ? handleResetChainColumns : handleResetColumns
+              }
             />
           </RequestLogsViewToolbar>
           {stale && lastLoadedAt ? (
@@ -294,6 +404,23 @@ export function RequestLogsPage() {
                 </OperatorRetryButton>
               }
             />
+          ) : isExactMode ? (
+            // 带 request_id 的深链把列表读取整个禁用了。空表格会替这次从未
+            // 发出的读取断言「窗口内没有请求」，而同屏抽屉正显示着这一条。
+            <OperatorEmptyState
+              className="rounded-lg border border-border bg-panel py-16"
+              testId="request-logs-exact-mode-notice"
+              icon={<ListFilter className="h-6 w-6" />}
+              title={messages.requestLogs.exactModeListNotLoaded}
+              description={messages.requestLogs.exactModeListNotLoadedDescription(
+                state.request_id,
+              )}
+              action={
+                <Button variant="outline" onClick={actions.clearRequest}>
+                  {messages.requestLogs.exactModeShowFullList}
+                </Button>
+              }
+            />
           ) : state.view === "ingress_chains" ? (
             <IngressChainsTable
               chains={chains}
@@ -313,6 +440,15 @@ export function RequestLogsPage() {
               onLoadMoreRows={loadMoreChainRows}
               onSelectRow={handleSelectRequest}
               loading={loading}
+              retentionClipped={retentionClipped}
+              emptyAction={emptyStateAction}
+              visibleColumns={chainColumnPreferences.visibleKeys}
+              pageSize={state.chain_limit}
+              onPageSizeChange={actions.setChainLimit}
+              sortOrder={state.sort_order}
+              onSortOrderChange={(order) =>
+                actions.setSort("created_at", order)
+              }
             />
           ) : (
             <RequestLogsTable
@@ -327,6 +463,8 @@ export function RequestLogsPage() {
               activeRequestId={listVisibleRequestId ?? null}
               onSelectRequest={handleSelectRequest}
               onSetLimit={actions.setLimit}
+              retentionClipped={retentionClipped}
+              emptyAction={emptyStateAction}
               visibleColumns={columnPreferences.visibleKeys}
               sortBy={state.sort_by}
               sortOrder={state.sort_order}

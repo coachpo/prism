@@ -12,7 +12,7 @@ test.describe("request-log streaming payload views", () => {
     const responseSection = detail.getByRole("region", { name: "响应（200）" });
 
     // Three-view availability for streaming bodies (payload-view toggle row).
-    const payloadToggles = responseSection.getByLabel("响应（200） payload view");
+    const payloadToggles = responseSection.getByLabel("响应（200）载荷视图");
     await expect(payloadToggles.getByRole("button", { name: "消息" })).toBeVisible();
     await expect(payloadToggles.getByRole("button", { name: "JSON 事件" })).toBeVisible();
     await expect(payloadToggles.getByRole("button", { name: "原始 SSE" })).toBeVisible();
@@ -39,7 +39,7 @@ test.describe("request-log streaming payload views", () => {
     await expect(detail).toBeVisible({ timeout: 15000 });
 
     const responseSection = detail.getByRole("region", { name: "响应（200）" });
-    await responseSection.getByLabel("响应（200） payload view").getByRole("button", { name: "消息" }).click();
+    await responseSection.getByLabel("响应（200）载荷视图").getByRole("button", { name: "消息" }).click();
     const toolCard = responseSection.getByTestId("tool-call-card");
     await expect(toolCard).toBeVisible();
     await expect(toolCard.getByText("get_weather")).toBeVisible();
@@ -54,7 +54,7 @@ test.describe("request-log streaming payload views", () => {
     await expect(detail).toBeVisible({ timeout: 15000 });
 
     const requestSection = detail.getByRole("region", { name: "请求", exact: true });
-    await expect(requestSection.getByText("Message transcript")).toBeVisible();
+    await expect(requestSection.getByText("消息记录")).toBeVisible();
     await expect(requestSection.getByText("Reply with exactly ok.")).toBeVisible();
   });
 });

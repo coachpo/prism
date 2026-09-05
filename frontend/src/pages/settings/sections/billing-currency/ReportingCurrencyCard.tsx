@@ -3,7 +3,7 @@ import { useLocale } from "@/i18n/useLocale";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import type { CostingSettingsUpdate } from "@/lib/types";
-import { OperatorInsetPanel } from "@/shared/design-system";
+import { OperatorHelpHint, OperatorInsetPanel } from "@/shared/design-system";
 
 interface ReportingCurrencyCardProps {
   costingForm: CostingSettingsUpdate;
@@ -18,19 +18,27 @@ export function ReportingCurrencyCard({
 }: ReportingCurrencyCardProps) {
   const { messages } = useLocale();
   const copy = messages.settingsBilling;
+  // 代码框被锁的唯一理由。禁用 input 不可聚焦，理由既要绑到它的
+  // aria-describedby，也要有一个能 Tab 到的 28×28 帮助按钮承载。
+  const codeLocked = costingForm.reporting_currency_epoch !== undefined
+    && String(costingForm.reporting_currency_epoch) !== "0";
   return (
     <OperatorInsetPanel title={copy.reportingCurrency}>
       <FieldGroup className="gap-3">
         <div className="flex flex-wrap items-end gap-3">
           <Field className="w-28">
-            <FieldLabel htmlFor="report-currency-code">{copy.code}</FieldLabel>
+            <FieldLabel htmlFor="report-currency-code">
+              {copy.code}
+              {codeLocked ? <OperatorHelpHint className="-my-1" label={copy.codeLocked} /> : null}
+            </FieldLabel>
             <Input
               id="report-currency-code"
               name="report_currency_code"
               autoComplete="off"
               maxLength={3}
               value={costingForm.report_currency_code}
-              disabled={normalizedCurrentCosting.reporting_currency_epoch === undefined || (costingForm.reporting_currency_epoch !== undefined && String(costingForm.reporting_currency_epoch) !== "0")}
+              aria-describedby={codeLocked ? "report-currency-code-locked" : undefined}
+              disabled={normalizedCurrentCosting.reporting_currency_epoch === undefined || codeLocked}
               onChange={(event) =>
                 setCostingForm((prev) => ({
                   ...prev,
@@ -39,9 +47,6 @@ export function ReportingCurrencyCard({
               }
               placeholder={copy.currencyCodePlaceholder}
             />
-            {costingForm.reporting_currency_epoch !== undefined && String(costingForm.reporting_currency_epoch) !== "0" ? (
-              <p className="text-xs text-muted-foreground">{copy.codeLocked}</p>
-            ) : null}
           </Field>
           <Field className="w-24">
             <FieldLabel htmlFor="report-currency-symbol">{copy.symbol}</FieldLabel>
@@ -68,6 +73,11 @@ export function ReportingCurrencyCard({
             )}
           </p>
         </div>
+        {codeLocked ? (
+          <FieldDescription id="report-currency-code-locked">
+            {copy.codeLocked}
+          </FieldDescription>
+        ) : null}
         <FieldDescription>
           {copy.usedForSpendingReports}
         </FieldDescription>

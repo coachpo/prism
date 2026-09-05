@@ -198,6 +198,11 @@ export function useRequestLogPageState() {
     (v: number) => update({ limit: v, offset: DEFAULTS.offset }),
     [update],
   );
+  // 换页大小要回到第一页：游标是按上一次页大小算出来的，沿用会错位。
+  const setChainLimit = useCallback(
+    (v: number) => update({ chain_limit: v, chain_cursor: "" }, false),
+    [update],
+  );
   const setOffset = useCallback(
     (v: number) => update({ offset: v }, false),
     [update],
@@ -331,6 +336,7 @@ export function useRequestLogPageState() {
     setTimeRange,
     setStatusFamily,
     setLimit,
+    setChainLimit,
     setOffset,
     setRequestId,
     selectRequest,

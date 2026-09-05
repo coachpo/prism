@@ -215,4 +215,47 @@ describe("dedicated request-log audit lookup", () => {
     expect(result.current.list.items).toHaveLength(1);
     expect(mocks.auditDetail).not.toHaveBeenCalled();
   });
+
+  it("keeps the backend's coverage on an empty page instead of dropping it", async () => {
+    const requestLogId = "42";
+    const coverage = {
+      requested_from_time: "2026-08-13T00:00:00Z",
+      requested_to_time: "2026-08-14T00:00:00Z",
+      effective_from_time: "2026-08-13T18:00:00Z",
+      effective_to_time: "2026-08-14T00:00:00Z",
+      complete: false,
+      gaps: [
+        {
+          from_time: "2026-08-13T00:00:00Z",
+          to_time: "2026-08-13T18:00:00Z",
+          reason: "retention_deleted",
+        },
+      ],
+      state: "known" as const,
+      source_revision: "rev-1",
+    };
+    mocks.requestDetail.mockResolvedValue(readyRequest(requestLogId));
+    mocks.auditList.mockResolvedValue({
+      has_more: false,
+      items: [],
+      next_cursor: null,
+      coverage,
+    });
+
+    const { result } = renderHook(() =>
+      useDedicatedRequestLogAudit({
+        requestId: requestLogId,
+        selectedAuditId: null,
+        selectedAuditParamLabel: null,
+        selectedAuditParamPresent: false,
+      }),
+    );
+
+    await waitFor(() => expect(result.current.list.phase).toBe("empty"));
+    // An empty page under an incomplete coverage is "the evidence may have
+    // been deleted", not "no audit record exists".
+    expect(result.current.list.coverage).toEqual(coverage);
+    expect(result.current.list.fetchedAt).not.toBeNull();
+    expect(result.current.lastFetchedAt).not.toBeNull();
+  });
 });

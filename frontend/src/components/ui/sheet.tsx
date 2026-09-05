@@ -46,9 +46,21 @@ function SheetOverlay({
   )
 }
 
+/**
+ * 抽屉宽度档位。DESIGN.md：详情抽屉 560px，承载载荷的详情 720px。
+ * 调用处不应再写 max-w-*。
+ */
+const sheetSizeClasses = {
+  md: "sm:max-w-[560px]",
+  lg: "sm:max-w-[720px]",
+} as const
+
+type SheetSize = keyof typeof sheetSizeClasses
+
 type SheetContentProps = React.ComponentProps<typeof SheetPrimitive.Content> & {
   side?: "top" | "right" | "bottom" | "left"
   showCloseButton?: boolean
+  size?: SheetSize
 }
 
 function SheetContentInner({
@@ -56,6 +68,7 @@ function SheetContentInner({
   children,
   side = "right",
   showCloseButton = true,
+  size = "md",
   onCloseAutoFocus,
   ...props
 }: SheetContentProps) {
@@ -67,11 +80,17 @@ function SheetContentInner({
         onCloseAutoFocus={handleCloseAutoFocus}
         data-slot="sheet-content"
         className={cn(
-          "bg-panel data-[state=open]:animate-in data-[state=closed]:animate-out fixed z-50 flex flex-col gap-4 transition ease-in-out data-[state=closed]:duration-300 data-[state=open]:duration-500",
+          "bg-raised shadow-[var(--shadow-overlay)] data-[state=open]:animate-in data-[state=closed]:animate-out fixed z-50 flex flex-col gap-4 transition ease-in-out data-[state=closed]:duration-300 data-[state=open]:duration-500",
           side === "right" &&
-            "data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right inset-y-0 right-0 h-full w-3/4 border-l border-border sm:max-w-sm",
+            cn(
+              "data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right inset-y-0 right-0 h-full w-full border-l border-border",
+              sheetSizeClasses[size],
+            ),
           side === "left" &&
-            "data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left inset-y-0 left-0 h-full w-3/4 border-r border-border sm:max-w-sm",
+            cn(
+              "data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left inset-y-0 left-0 h-full w-full border-r border-border",
+              sheetSizeClasses[size],
+            ),
           side === "top" &&
             "data-[state=closed]:slide-out-to-top data-[state=open]:slide-in-from-top inset-x-0 top-0 h-auto border-b border-border",
           side === "bottom" &&

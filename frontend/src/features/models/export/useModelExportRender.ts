@@ -6,6 +6,18 @@ import type { KeyDecision } from "./ExportKeyDialog";
 
 const DEFAULT_PROVIDER_ID = "prism";
 
+/**
+ * 主操作为什么不可用。禁用理由必须有名字：页面据此直接说出原因，
+ * 而不是回头去反推一条或链里究竟是哪一项为真。`null` 表示可以生成。
+ */
+export type ModelExportBlockReason =
+  | "source_unavailable"
+  | "source_actions_blocked"
+  | "no_selection"
+  | "destination_invalid"
+  | "unbound_selection"
+  | null;
+
 function defaultGatewayOrigin(): string {
   return getEffectiveBackendOrigin().origin;
 }
@@ -65,23 +77,35 @@ export function useModelExportRender({
   // Render only trusts a persisted binding whose frozen model id and final
   // Pi API still match current Prism truth. Live catalog drift alone does
   // not invalidate those frozen render bytes.
-  const hasUnboundSelection = useMemo(() => {
-    if (!source) return false;
+  // 选中项里哪些真的能渲染。页面要说出还差几个，也要能一键把选择收敛到
+  // 可渲染的那些，两者必须用同一个判据。
+  const renderableSelectedIds = useMemo(() => {
+    const renderable = new Set<number>();
+    if (!source) return renderable;
     for (const id of selectedIds) {
       const model = source.models.find((m) => m.model_config_id === id);
-      if (!model) return true;
-      if (!model.pi_selected || !model.pi_binding_renderable) return true;
+      if (model?.pi_selected && model.pi_binding_renderable) renderable.add(id);
     }
-    return false;
+    return renderable;
   }, [selectedIds, source]);
 
-  const openKeyDialogDisabled =
-    selectedIds.size === 0 ||
-    !source ||
-    sourceActionsBlocked ||
-    gatewayOriginInvalid ||
-    providerIdInvalid ||
-    hasUnboundSelection;
+  const unboundSelectedCount = source
+    ? selectedIds.size - renderableSelectedIds.size
+    : 0;
+
+  const blockReason: ModelExportBlockReason = !source
+    ? "source_unavailable"
+    : sourceActionsBlocked
+      ? "source_actions_blocked"
+      : selectedIds.size === 0
+        ? "no_selection"
+        : gatewayOriginInvalid || providerIdInvalid
+          ? "destination_invalid"
+          : unboundSelectedCount > 0
+            ? "unbound_selection"
+            : null;
+
+  const openKeyDialogDisabled = blockReason !== null;
 
   const buildRenderRequest = useCallback(
     (decision: KeyDecision) => {
@@ -164,21 +188,23 @@ export function useModelExportRender({
   }, []);
 
   return {
+    blockReason,
     clearResult,
     closeKeyDialog,
     gatewayOrigin,
     gatewayOriginInvalid,
     handleGenerate,
-    hasUnboundSelection,
     keyDialogOpen,
     openKeyDialogDisabled,
     openKeyDialog,
     providerId,
     providerIdInvalid,
+    renderableSelectedIds,
     renderError,
     renderResult,
     renderStale,
     setGatewayOrigin,
     setProviderId,
+    unboundSelectedCount,
   };
 }

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "@tanstack/react-router";
 import {
     ChevronDown,
     ChevronUp,
@@ -20,10 +21,11 @@ import { OperationalTableSkeletonRows } from "@/shared/table/operationalTable";
 import { LoadMoreControl } from "@/shared/table/paginationControls";
 import {
     banBadges,
-    failureStatusCodeLabel,
+    failureStatusCodeSummary,
     retryBadges,
 } from "./strategyValueBadges";
 import { useLocale } from "@/i18n/useLocale";
+import { cn } from "@/lib/utils";
 import type { LoadbalanceStrategy } from "@/lib/types";
 import type { SetDefaultState } from "@/features/loadbalance/useBanPolicyMutations";
 import type { StrategyImpactState } from "@/features/loadbalance/useStrategyImpactPager";
@@ -33,6 +35,7 @@ import {
     OperatorCallout,
     OperatorEmptyState,
     OperatorErrorState,
+    OperatorHelpHint,
     OperatorLoadingState,
     OperatorTableShell,
     OperatorTypeBadge,
@@ -289,7 +292,7 @@ export function LoadbalanceStrategiesTable({
                                 <TableRow>
                                     {/* 名称列吃掉剩余宽度，其余列按内容给下限，
                       让 7 列在常规桌面宽度内放得下、不必横向滚动。 */}
-                                    <TableHead className="w-[26%] min-w-52">
+                                    <TableHead className="sticky left-0 z-20 w-[26%] min-w-52 bg-inset shadow-[inset_-1px_0_0_0_var(--color-border)]">
                                         <button
                                             type="button"
                                             className="inline-flex items-center gap-1 text-left"
@@ -341,7 +344,7 @@ export function LoadbalanceStrategiesTable({
                                     <TableHead className="w-40">
                                         {copy.banSummaryColumn}
                                     </TableHead>
-                                    <TableHead className="w-24 text-right">
+                                    <TableHead className="sticky right-0 z-20 w-24 bg-inset text-right shadow-[inset_1px_0_0_0_var(--color-border)]">
                                         {copy.actions}
                                     </TableHead>
                                 </TableRow>
@@ -444,21 +447,45 @@ function StrategyRow(props: StrategyRowProps) {
         strategy.ban_cumulative_retry_attempt_threshold ===
             balancedPreset.ban_cumulative_retry_attempt_threshold &&
         strategy.ban_duration_seconds === balancedPreset.ban_duration_seconds;
+    const statusCodes = failureStatusCodeSummary(strategy);
 
     return (
         <>
             <TableRow
                 data-testid={`strategy-row-${strategy.id}`}
                 data-selected={props.selected || undefined}
-                className={props.selected ? "bg-primary-soft/25" : undefined}
+                className={cn(
+                    "cursor-pointer",
+                    props.selected && "bg-primary-soft/25",
+                )}
                 onClick={() => props.onSelect(strategy)}
             >
-                <TableCell className="align-top">
+                <TableCell
+                    className={cn(
+                        "sticky left-0 z-10 align-top shadow-[inset_-1px_0_0_0_var(--color-border)]",
+                        props.selected ? "bg-primary-soft/25" : "bg-panel",
+                    )}
+                >
                     {/* 单元格默认 whitespace-nowrap，这里的路由方式说明是整句，
               必须允许换行，否则它会把整张表撑出横向滚动。 */}
                     <div className="flex min-w-0 flex-col gap-1">
-                        <span className="font-medium">{strategy.name}</span>
-                        <span className="text-xs whitespace-normal text-foreground/60">
+                        {/* 推演过去只有行 onClick 一个入口：鼠标能点，键盘够不到。
+                名称本身做成按钮后它才有名字、有角色、有 tab 停点。 */}
+                        <button
+                            type="button"
+                            className="text-left font-medium underline-offset-4 hover:underline"
+                            aria-current={props.selected ? "true" : undefined}
+                            aria-label={props.copy.previewRowAction(
+                                strategy.name,
+                            )}
+                            onClick={(event) => {
+                                event.stopPropagation();
+                                props.onSelect(strategy);
+                            }}
+                        >
+                            {strategy.name}
+                        </button>
+                        <span className="text-xs whitespace-normal text-muted-foreground">
                             {summaryByStrategyType}
                         </span>
                     </div>
@@ -512,9 +539,25 @@ function StrategyRow(props: StrategyRowProps) {
 
                 <TableCell className="align-top">
                     <div className="flex flex-col items-start gap-1">
-                        <span className="font-mono text-sm tabular-nums">
-                            {formatNumber(strategy.attached_model_count)}
-                        </span>
+                        {/* 计数是配置链的下一环入口：点进模型配置列表，只看绑在
+                            这条策略上的那一批。零绑定时没有可去之处，保持纯数字。 */}
+                        {strategy.attached_model_count > 0 ? (
+                            <Link
+                                to="/route/models"
+                                search={{ strategy_id: strategy.id }}
+                                onClick={(event) => event.stopPropagation()}
+                                aria-label={props.copy.attachedModelsLink(
+                                    strategy.name,
+                                )}
+                                className="font-mono text-sm tabular-nums text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                            >
+                                {formatNumber(strategy.attached_model_count)}
+                            </Link>
+                        ) : (
+                            <span className="font-mono text-sm tabular-nums">
+                                {formatNumber(strategy.attached_model_count)}
+                            </span>
+                        )}
                         {strategy.attached_model_count > 0 ? (
                             <Button
                                 type="button"
@@ -549,19 +592,28 @@ function StrategyRow(props: StrategyRowProps) {
 
                 <TableCell className="align-top">
                     <div className="flex flex-col gap-1">
-                        <div className="flex flex-wrap gap-1">
+                        {/* 状态码名单收进同一排徽章：单元格默认一行，最多两行。 */}
+                        <div className="flex flex-wrap items-center gap-1">
                             {retryBadges(strategy).map((badge) => (
                                 <OperatorValueBadge
                                     key={badge.key}
                                     label={badge.label}
                                 />
                             ))}
+                            <OperatorValueBadge label={statusCodes.label} />
+                            {statusCodes.detail ? (
+                                // 整行点击会选中策略并把预览滚进视口；读名单不该顺带这么做。
+                                <span
+                                    onClick={(event) => event.stopPropagation()}
+                                >
+                                    <OperatorHelpHint
+                                        label={statusCodes.detail}
+                                    />
+                                </span>
+                            ) : null}
                         </div>
-                        <span className="text-[11px] whitespace-normal text-foreground/60">
-                            {failureStatusCodeLabel(strategy)}
-                        </span>
                         {retryIsBalanced ? (
-                            <span className="text-[11px] text-foreground/60">
+                            <span className="text-xs text-muted-foreground">
                                 {props.copy.retryBalancedDefault}
                             </span>
                         ) : null}
@@ -571,7 +623,7 @@ function StrategyRow(props: StrategyRowProps) {
                 <TableCell className="align-top">
                     <div className="flex flex-col gap-1">
                         {strategy.ban_mode === "off" ? (
-                            <span className="text-xs text-foreground/60">
+                            <span className="text-xs text-muted-foreground">
                                 {props.copy.banOff}
                             </span>
                         ) : (
@@ -585,14 +637,19 @@ function StrategyRow(props: StrategyRowProps) {
                             </div>
                         )}
                         {banIsBalanced ? (
-                            <span className="text-[11px] text-foreground/60">
+                            <span className="text-xs text-muted-foreground">
                                 {props.copy.banBalancedDefault}
                             </span>
                         ) : null}
                     </div>
                 </TableCell>
 
-                <TableCell className="align-top text-right">
+                <TableCell
+                    className={cn(
+                        "sticky right-0 z-10 align-top text-right shadow-[inset_1px_0_0_0_var(--color-border)]",
+                        props.selected ? "bg-primary-soft/25" : "bg-panel",
+                    )}
+                >
                     <div className="flex flex-col items-end gap-1">
                         <Button
                             type="button"
@@ -696,7 +753,7 @@ function StrategyImpactList({
             );
         }
         return (
-            <span className="text-sm text-foreground/60">
+            <span className="text-sm text-muted-foreground">
                 {copy.attachedModelsEmpty}
             </span>
         );
@@ -722,7 +779,7 @@ function StrategyImpactList({
                         <span className="font-medium">
                             {item.display_name || item.model_id}
                         </span>
-                        <span className="font-mono text-xs text-foreground/60">
+                        <span className="font-mono text-xs text-muted-foreground">
                             {item.model_id}
                         </span>
                         <OperatorTypeBadge

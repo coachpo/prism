@@ -24,6 +24,11 @@ export function usePricingTemplateCollection(revision: number) {
   const [pricingTemplatesError, setPricingTemplatesError] = useState<
     string | null
   >(null);
+  // 上一次成功读取的时间，供页面的新鲜度条回答「这份数据是什么时候的」；
+  // 刷新失败时表格保留上次成功的行，这个时间也跟着停在那次成功上。
+  const [pricingTemplatesLoadedAt, setPricingTemplatesLoadedAt] = useState<
+    string | null
+  >(null);
   const requestGeneration = useRef(0);
 
   const commitPricingTemplates = useCallback(
@@ -50,6 +55,7 @@ export function usePricingTemplateCollection(revision: number) {
         if (generation !== requestGeneration.current) return;
         setPricingTemplates(next);
         setPricingTemplatesError(null);
+        setPricingTemplatesLoadedAt(new Date().toISOString());
       } catch (error) {
         if (generation !== requestGeneration.current) return;
         const detail =
@@ -76,6 +82,7 @@ export function usePricingTemplateCollection(revision: number) {
     fetchPricingTemplates,
     pricingTemplates,
     pricingTemplatesError,
+    pricingTemplatesLoadedAt,
     pricingTemplatesLoading,
   };
 }

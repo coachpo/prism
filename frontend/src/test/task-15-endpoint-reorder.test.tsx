@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event"
 import { http, HttpResponse } from "msw"
 import { beforeEach, describe, expect, it } from "vitest"
 import { EndpointsFeaturePage } from "@/features/endpoints/EndpointsFeaturePage"
+import { TooltipProvider } from "@/components/ui/tooltip"
 import { LocaleProvider } from "@/i18n/LocaleProvider"
 import { clearSharedReferenceData } from "@/lib/referenceData"
 import { clearUserTimezonePreference } from "@/lib/timezone"
@@ -34,9 +35,13 @@ function referenceDetail(overrides?: Partial<EndpointReferenceDetail>): Endpoint
 }
 
 function renderEndpointsPage() {
+  // 应用根在 main.tsx 里提供 TooltipProvider；纯图标行操作按钮现在带 tooltip，
+  // harness 必须同样提供，否则 Radix 会在挂载时抛错。
   render(
     <LocaleProvider>
-      <EndpointsFeaturePage />
+      <TooltipProvider>
+        <EndpointsFeaturePage />
+      </TooltipProvider>
     </LocaleProvider>,
   )
 }
@@ -103,7 +108,7 @@ describe("Endpoint direct-reference contract", () => {
     // Delete opens the preflight but cannot confirm: check error keeps the
     // destructive submit hidden.
     const table = screen.getByTestId("endpoints-table-desktop")
-    await userEvent.click(within(table).getByRole("button", { name: /确定要删除/ }))
+    await userEvent.click(within(table).getByRole("button", { name: /删除端点/ }))
     await waitFor(() => {
       expect(screen.queryByTestId("delete-endpoint-confirm")).not.toBeInTheDocument()
     })
@@ -153,7 +158,7 @@ describe("Endpoint direct-reference contract", () => {
 
     await screen.findAllByText("Primary")
     const table = screen.getByTestId("endpoints-table-desktop")
-    await userEvent.click(within(table).getByRole("button", { name: /确定要删除/ }))
+    await userEvent.click(within(table).getByRole("button", { name: /删除端点/ }))
     expect(await screen.findByTestId("delete-blocked-heading")).toBeInTheDocument()
     const blockers = screen.getByTestId("delete-blockers")
     expect(within(blockers).getByText("Primary")).toBeInTheDocument()
@@ -178,7 +183,7 @@ describe("Endpoint direct-reference contract", () => {
 
     await screen.findAllByText("Primary")
     const table = screen.getByTestId("endpoints-table-desktop")
-    await userEvent.click(within(table).getByRole("button", { name: /确定要删除/ }))
+    await userEvent.click(within(table).getByRole("button", { name: /删除端点/ }))
     await waitFor(() => {
       expect(screen.getByTestId("delete-endpoint-confirm")).toBeInTheDocument()
     })

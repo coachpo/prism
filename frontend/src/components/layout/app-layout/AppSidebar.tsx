@@ -107,10 +107,12 @@ export function AppSidebar({ authEnabled, sidebarGroups }: Props) {
                           "data-[active=true]:before:absolute data-[active=true]:before:left-0 data-[active=true]:before:top-1 data-[active=true]:before:bottom-1 data-[active=true]:before:w-0.5 data-[active=true]:before:rounded-full data-[active=true]:before:bg-primary",
                         )}
                       >
+                        {/* 视觉高亮与程序可读状态必须同一个真值源。交给 TanStack
+                            自己判定时，带查询串的条目（设置页）永远 exact 不上，
+                            于是高亮着的那一项没有 aria-current。 */}
                         <Link
                           to={item.to}
-                          activeOptions={{ exact: true, includeSearch: false }}
-                          activeProps={{ "aria-current": "page" }}
+                          aria-current={item.current ? "page" : undefined}
                           onClick={(event) => handleNavigate(event, item.to)}
                         >
                           <ItemIcon aria-hidden="true" />

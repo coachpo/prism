@@ -27,14 +27,16 @@ export function ObserveControlBar({
           type="button"
           onClick={() => onPresetChange(value)}
           aria-pressed={preset === value}
+          // 这排按钮给整页 KPI 与四个视图重新定基，命中区不能低于 28×28；
+          // 标签是中文，等宽只留给数字（混排等宽会撕裂字形）。
           className={cn(
-            "rounded-[4px] px-2.5 py-1 font-mono text-xs font-medium tabular-nums transition-colors",
+            "inline-flex min-h-7 items-center rounded-[4px] px-2.5 text-xs font-medium tabular-nums transition-colors",
             preset === value
               ? "bg-primary-soft text-on-primary-soft"
               : "text-muted-foreground hover:text-foreground",
           )}
         >
-          {value}
+          {messages.observe.presetName(value)}
         </button>
       ))}
     </div>

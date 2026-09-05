@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { getStaticMessages } from "@/i18n/staticMessages";
 import type {
   PricingCard,
   PricingTemplate,
@@ -60,17 +61,21 @@ export const normalizeTemplatePrice = (
   return trimmed.length > 0 ? trimmed : "";
 };
 
+// 这些消息原样进 FormMessage，是操作者填错费率时唯一能读到的提示；
+// 界面是简体中文单一 locale，校验串同样走 messages。校验时才取，
+// 模块加载期就把文案定死会让 schema 依赖 messages 的加载顺序。
+const validation = () => getStaticMessages().pricingTemplateDialog;
+
 const requiredDecimalSchema = z
   .string()
   .trim()
-  .regex(/^\d+(\.\d+)?$/, "must be a non-negative decimal string");
+  .regex(/^\d+(\.\d+)?$/, { error: () => validation().invalidRequiredPrice });
 const optionalDecimalSchema = z
   .string()
   .trim()
-  .refine(
-    (value: string) => value.length === 0 || /^\d+(\.\d+)?$/.test(value),
-    "must be a non-negative decimal string",
-  );
+  .refine((value: string) => value.length === 0 || /^\d+(\.\d+)?$/.test(value), {
+    error: () => validation().invalidOptionalPrice,
+  });
 const cardSchema = z.object({
   input_price: requiredDecimalSchema,
   output_price: requiredDecimalSchema,
@@ -81,7 +86,7 @@ const cardSchema = z.object({
 
 export const pricingTemplateFormSchema = z
   .object({
-    name: z.string().trim().min(1, "Name is required"),
+    name: z.string().trim().min(1, { error: () => validation().nameRequired }),
     description: z.string(),
     template_kind: z.enum(["standard", "tiered", "peak_valley"]),
     input_price: z.string(),
@@ -138,7 +143,7 @@ export const pricingTemplateFormSchema = z
         ctx.addIssue({
           code: "custom",
           path: ["tier", "input_tokens_above"],
-          message: "threshold must be a positive integer",
+          message: validation().invalidTierThreshold,
         });
       checkCard("tier", values.tier);
       for (const field of [
@@ -153,7 +158,7 @@ export const pricingTemplateFormSchema = z
           ctx.addIssue({
             code: "custom",
             path: ["tier", field],
-            message: "card specialty configuration must match",
+            message: validation().specialtyParityMismatch,
           });
       }
     }
@@ -167,31 +172,31 @@ export const pricingTemplateFormSchema = z
         ctx.addIssue({
           code: "custom",
           path: ["schedule_timezone"],
-          message: "an IANA timezone is required",
+          message: validation().timezoneRequired,
         });
       if (values.schedule_windows.length === 0)
         ctx.addIssue({
           code: "custom",
           path: ["schedule_windows"],
-          message: "at least one peak window is required",
+          message: validation().windowRequired,
         });
       if (values.schedule_windows.length > 32)
         ctx.addIssue({
           code: "custom",
           path: ["schedule_windows"],
-          message: "at most 32 peak windows are allowed",
+          message: validation().windowLimit,
         });
       const seenWindows = new Set<string>();
       values.schedule_windows.forEach((window, index) => {
         if (!Number.isInteger(window.weekday_mask) || window.weekday_mask < 1 || window.weekday_mask > 127)
-          ctx.addIssue({ code: "custom", path: ["schedule_windows", index, "weekday_mask"], message: "select at least one weekday" });
+          ctx.addIssue({ code: "custom", path: ["schedule_windows", index, "weekday_mask"], message: validation().windowWeekdayRequired });
         if (!Number.isInteger(window.start_minute) || window.start_minute < 0 || window.start_minute > 1439)
-          ctx.addIssue({ code: "custom", path: ["schedule_windows", index, "start_minute"], message: "choose a valid start time" });
+          ctx.addIssue({ code: "custom", path: ["schedule_windows", index, "start_minute"], message: validation().windowStartInvalid });
         if (!Number.isInteger(window.end_minute) || window.end_minute < 1 || window.end_minute > 2880 || window.end_minute <= window.start_minute || window.end_minute - window.start_minute > 1440)
-          ctx.addIssue({ code: "custom", path: ["schedule_windows", index, "end_minute"], message: "end must be later than start and no more than one day away" });
+          ctx.addIssue({ code: "custom", path: ["schedule_windows", index, "end_minute"], message: validation().windowEndInvalid });
         const key = `${window.weekday_mask}:${window.start_minute}:${window.end_minute}`;
         if (seenWindows.has(key))
-          ctx.addIssue({ code: "custom", path: ["schedule_windows", index], message: "duplicate peak window" });
+          ctx.addIssue({ code: "custom", path: ["schedule_windows", index], message: validation().windowDuplicate });
         seenWindows.add(key);
       });
       for (const field of [
@@ -206,7 +211,7 @@ export const pricingTemplateFormSchema = z
           ctx.addIssue({
             code: "custom",
             path: ["offpeak_card", field],
-            message: "card specialty configuration must match",
+            message: validation().specialtyParityMismatch,
           });
       }
     }

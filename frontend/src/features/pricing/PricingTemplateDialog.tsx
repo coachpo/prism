@@ -133,7 +133,7 @@ export function PricingTemplateDialog({
         else onOpenChange(nextOpen);
       }}
     >
-      <DialogContent className="max-h-[90vh] sm:max-w-3xl">
+      <DialogContent size="lg">
         <DialogHeader>
           <DialogTitle>
             {editingPricingTemplate

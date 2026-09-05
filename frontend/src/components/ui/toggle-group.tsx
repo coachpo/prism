@@ -28,6 +28,9 @@ function ToggleGroup({
       data-variant={variant}
       data-size={size}
       data-spacing={spacing}
+      // 单选模式下 Radix 给每个项渲染 role="radio"，而容器默认是 role="group"：
+      // radio 必须落在 radiogroup 里，否则读屏报不出「第 N 项 / 共 N 项」。
+      role={props.type === "single" ? "radiogroup" : undefined}
       style={{ "--gap": spacing } as React.CSSProperties}
       className={cn(
         "group/toggle-group flex w-fit items-center gap-[--spacing(var(--gap))] rounded-md",

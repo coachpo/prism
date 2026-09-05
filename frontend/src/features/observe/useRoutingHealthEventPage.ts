@@ -20,7 +20,8 @@ import {
 } from "./routingHealthSearch";
 import type { RoutingHealthContextState } from "./useRoutingHealthQueryContext";
 
-const EVENTS_PAGE_SIZE = 25;
+export const EVENTS_PAGE_SIZE_OPTIONS = [25, 50, 100] as const;
+const EVENTS_PAGE_SIZE = EVENTS_PAGE_SIZE_OPTIONS[0];
 
 interface UseRoutingHealthEventPageInput {
   contextState: RoutingHealthContextState;
@@ -56,6 +57,8 @@ export function useRoutingHealthEventPage({
   const eventTargetId =
     (search.event_terminal_target_id as string) || undefined;
   const sortOrder = (search.event_sort_order as "desc" | "asc") || "desc";
+  // 每页条数走 URL：它决定了页脚区间的起点，换掉必须同时作废游标栈。
+  const pageSize = normalizePageSize(search.event_page_size);
   const eventCursor = (search.event_cursor as string) || undefined;
   const urlEventId =
     typeof search.event_id === "string" && search.event_id !== ""
@@ -69,6 +72,7 @@ export function useRoutingHealthEventPage({
     eventEndpointId,
     eventTargetId,
     sortOrder,
+    pageSize,
   });
   const [fragment, setFragment] = useState<
     PagedListState<LoadbalanceEventListResponse>
@@ -102,7 +106,7 @@ export function useRoutingHealthEventPage({
         const params: ListEventsParams = {
           query_context: context.query_context,
           sort_order: sortOrder,
-          limit: EVENTS_PAGE_SIZE,
+          limit: pageSize,
           event_type: eventTypes.length > 0 ? eventTypes : undefined,
           failure_kind:
             failureKinds && failureKinds.length > 0 ? failureKinds : undefined,
@@ -148,6 +152,7 @@ export function useRoutingHealthEventPage({
       failureKinds,
       filtersKey,
       loadFailedMessage,
+      pageSize,
       sortOrder,
     ],
   );
@@ -175,6 +180,17 @@ export function useRoutingHealthEventPage({
       onSearchChange(patch, replace);
     },
     [onSearchChange],
+  );
+
+  const setPageSize = useCallback(
+    (value: number) => {
+      updateSearch({
+        event_page_size: value,
+        event_cursor: undefined,
+        event_id: undefined,
+      });
+    },
+    [updateSearch],
   );
 
   const retryRead = useCallback(() => {
@@ -248,7 +264,9 @@ export function useRoutingHealthEventPage({
     goPreviousPage,
     loadEvents,
     openEventDetail,
+    pageSize,
     refresh,
+    setPageSize,
     retryContext,
     retryQueryContext,
     retryRead,
@@ -256,6 +274,13 @@ export function useRoutingHealthEventPage({
     sortOrder,
     updateSearch,
   };
+}
+
+function normalizePageSize(value: unknown): number {
+  const parsed = Number(value);
+  return (EVENTS_PAGE_SIZE_OPTIONS as readonly number[]).includes(parsed)
+    ? parsed
+    : EVENTS_PAGE_SIZE;
 }
 
 function normalizeSearchArray(value: unknown): string[] {

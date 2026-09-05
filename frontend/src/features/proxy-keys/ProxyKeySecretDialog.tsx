@@ -137,7 +137,7 @@ export function ProxyKeySecretDialog({
     <>
       <Dialog open={open}>
         <DialogContent
-          className="sm:max-w-3xl"
+          size="lg"
           showCloseButton={false}
           onEscapeKeyDown={handleEscapeAttempt}
           onPointerDownOutside={(event: { preventDefault: () => void }) => {
@@ -297,7 +297,7 @@ export function ProxyKeySecretDialog({
 
       {state.kind === "closing_confirm" ? (
         <Dialog open>
-          <DialogContent className="sm:max-w-md" showCloseButton={false}>
+          <DialogContent size="sm" showCloseButton={false}>
             <DialogHeader>
               <DialogTitle>{copy.newSecretCloseTitle}</DialogTitle>
               <DialogDescription>{copy.newSecretCloseDescription}</DialogDescription>

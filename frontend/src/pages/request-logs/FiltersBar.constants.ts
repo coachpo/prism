@@ -16,7 +16,8 @@ export function getTimeLabel(value: string) {
     case "all":
       return copy.requestLogsAllTime;
     default:
-      return value;
+      // 字典没学过的键也不能原样上屏：具名兜底把它说成「未知时间窗」。
+      return getStaticMessages().observe.presetName(value);
   }
 }
 
@@ -68,4 +69,40 @@ export function getUnpricedReasonLabel(value: string) {
     default:
       return value;
   }
+}
+
+/**
+ * 折叠面板里生效的条件数。面板关着时这个数字是唯一的提示：
+ * 深链带进来的条件不能悄悄改变结果集而界面上一句话都不说。
+ */
+export function countHiddenRequestLogFilters(state: {
+  model_id: string;
+  resolved_target_model_id: string;
+  endpoint_id: string;
+  terminal_target_id: string;
+  proxy_api_key_id: string;
+  client_rule_id: string;
+  status_code: string;
+  error_text: string;
+  unpriced_reason: string;
+  pricing_card_role: string;
+  pricing_selection_state: string;
+  status_family: string;
+  pricing_status: string;
+}): number {
+  return [
+    state.model_id,
+    state.resolved_target_model_id,
+    state.endpoint_id,
+    state.terminal_target_id,
+    state.proxy_api_key_id,
+    state.client_rule_id,
+    state.status_code,
+    state.error_text,
+    state.unpriced_reason,
+    state.pricing_card_role,
+    state.pricing_selection_state,
+    state.status_family !== "all" ? state.status_family : "",
+    state.pricing_status !== "all" ? state.pricing_status : "",
+  ].filter(Boolean).length;
 }

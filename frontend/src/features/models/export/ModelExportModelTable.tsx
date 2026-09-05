@@ -1,5 +1,6 @@
 import { useLocale } from "@/i18n/useLocale";
 import { Badge } from "@/components/ui/badge";
+import { formatApiFamily } from "@/components/apiFamilyPresentation";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
     Table,
@@ -49,11 +50,16 @@ export function ModelExportModelTable({
     const copy = messages.modelExportPage;
     return (
         <OperatorTableShell summary={summary}>
-            <Table>
+            <Table scrollAreaClassName="max-h-[calc(100dvh-24rem)]">
                 <TableHeader>
                     <TableRow>
-                        <TableHead>{copy.columnSelect}</TableHead>
-                        <TableHead>{copy.columnModel}</TableHead>
+                        {/* 身份两列冻结：横滚后仍要知道每一行说的是哪个模型配置。 */}
+                        <TableHead className="sticky left-0 z-20 w-10 bg-inset">
+                            {copy.columnSelect}
+                        </TableHead>
+                        <TableHead className="sticky left-10 z-20 bg-inset shadow-[inset_-1px_0_0_0_var(--color-border)]">
+                            {copy.columnModel}
+                        </TableHead>
                         <TableHead>{copy.columnFamily}</TableHead>
                         <TableHead>{copy.columnPiBinding}</TableHead>
                         <TableHead>{copy.columnPrice}</TableHead>
@@ -112,19 +118,19 @@ function ModelExportModelRow({
         ]),
     );
     return (
-        <tr
+        <TableRow
             data-testid={`export-row-${model.model_config_id}`}
-            className="group border-b last:border-b-0"
+            className="group"
         >
-            <td className="py-2 pr-2">
+            <TableCell className="sticky left-0 z-10 w-10 bg-panel">
                 <Checkbox
                     checked={selected}
                     disabled={!model.selectable}
                     onCheckedChange={(c) => onToggle(c === true)}
                     aria-label={model.model_id}
                 />
-            </td>
-            <td className="py-2 pr-2 font-mono">
+            </TableCell>
+            <TableCell className="sticky left-10 z-10 bg-panel font-mono shadow-[inset_-1px_0_0_0_var(--color-border)]">
                 {model.model_id}
                 {!model.selectable && (
                     <Badge variant="outline" className="ml-2">
@@ -132,21 +138,24 @@ function ModelExportModelRow({
                         {model.unselectable_reason ?? ""}
                     </Badge>
                 )}
-            </td>
-            <td className="py-2 pr-2">{model.api_family}</td>
-            <td className="py-2 pr-2">
+            </TableCell>
+            {/* api_family 是枚举键，必须过展示函数再上屏。 */}
+            <TableCell>{formatApiFamily(model.api_family)}</TableCell>
+            {/* 这一格装的是整句说明（无法绑定 / 绑定不可渲染），
+                必须放开 TableCell 默认的 nowrap，否则一行撑穿整张表。 */}
+            <TableCell className="whitespace-normal">
                 <PiBindingCell
                     controller={controller}
                     model={model}
                     sourceState={sourceState}
                 />
-            </td>
-            <td className="py-2 pr-2">
+            </TableCell>
+            <TableCell>
                 {model.price_risk.exportable
                     ? copy.priceExportable
                     : copy.priceOmitted}
-            </td>
-            <td className="py-2">
+            </TableCell>
+            <TableCell>
                 <div className="flex flex-wrap gap-1">
                     {warningCodes.map((code) => (
                         <Badge key={code} variant="outline" title={code}>
@@ -155,7 +164,7 @@ function ModelExportModelRow({
                         </Badge>
                     ))}
                 </div>
-            </td>
-        </tr>
+            </TableCell>
+        </TableRow>
     );
 }

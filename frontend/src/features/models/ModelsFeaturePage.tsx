@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
-import { Plus, SlidersHorizontal } from "lucide-react";
+import { Plus, SlidersHorizontal, X } from "lucide-react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useLocale } from "@/i18n/useLocale";
 import { useTimezone } from "@/hooks/useTimezone";
@@ -69,6 +69,8 @@ export function ModelsFeaturePage() {
     search.api_family ?? DEFAULT_MODELS_LIST_FILTERS.api_family;
   const statusFilter = search.status ?? DEFAULT_MODELS_LIST_FILTERS.status;
   const flagFilter = search.flag ?? "all";
+  // 从路由策略页的「已绑定模型配置」计数点进来时带的定位参数。
+  const strategyFilter = search.strategy_id ?? null;
 
   // Filters, sort and page all live in the URL, so a filtered view is a link
   // an operator can hand to someone else.
@@ -98,6 +100,15 @@ export function ModelsFeaturePage() {
   );
 
   const visibleModels = useMemo(() => filterModelsByInventoryView(data.models, view), [data.models, view]);
+  // 策略名从行数据取，避免为一个筛选标签再发一次读。策略被删或没有匹配行时
+  // 退回编号，不假装知道它叫什么。
+  const strategyFilterLabel =
+    strategyFilter === null
+      ? ""
+      : (visibleModels.find(
+          (model: import("@/lib/api/models").ManagedModelConfigListItem) =>
+            model.loadbalance_strategy_id === strategyFilter,
+        )?.loadbalance_strategy?.name ?? `#${strategyFilter}`);
 
   const filtered = useMemo(() => {
     const query = searchText.trim().toLowerCase();
@@ -113,6 +124,11 @@ export function ModelsFeaturePage() {
         if (statusFilter === "enabled" && !model.is_enabled) return false;
         if (statusFilter === "disabled" && model.is_enabled) return false;
         if (
+          strategyFilter !== null &&
+          model.loadbalance_strategy_id !== strategyFilter
+        )
+          return false;
+        if (
           flagFilter === "needs_target" &&
           model.routing_summary?.total_access_target_count !== 0
         )
@@ -126,7 +142,7 @@ export function ModelsFeaturePage() {
         return true;
       },
     );
-  }, [apiFamilyFilter, flagFilter, searchText, statusFilter, visibleModels]);
+  }, [apiFamilyFilter, flagFilter, searchText, statusFilter, strategyFilter, visibleModels]);
 
   // 窄屏下三个下拉默认折起；折起时按钮上必须显示还有几个筛选在生效。
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -140,6 +156,7 @@ export function ModelsFeaturePage() {
     searchText.trim() !== "" ||
     apiFamilyFilter !== "all" ||
     statusFilter !== "all" ||
+    strategyFilter !== null ||
     flagFilter !== "all";
 
   const stats = useMemo(() => {
@@ -201,7 +218,7 @@ export function ModelsFeaturePage() {
       >
         <Skeleton className="h-8 w-40" />
         <Skeleton className="h-8 w-full rounded-md" />
-        <div className="grid gap-[var(--density-card-gap)] grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
+        <div className="grid min-w-0 gap-[var(--density-card-gap)] grid-cols-2 @2xl/main:grid-cols-3 @4xl/main:grid-cols-5">
           {[0, 1, 2, 3, 4].map((tile) => (
             <Skeleton key={tile} className="h-[72px] rounded-lg" />
           ))}
@@ -222,8 +239,23 @@ export function ModelsFeaturePage() {
   }
 
   if (data.loadError) {
+    // 一次读取失败不该把操作者所在的位置也抹掉：页头留在原处，标题说明
+    // 这里仍是模型配置页，「新建模型配置」这条出路也仍然可用。
     return (
       <OperatorPageShell data-testid="models-feature-error">
+        <OperatorPageHeader title={copy.title}>
+          <Button
+            variant="outline"
+            onClick={() => void navigate({ to: "/route/models/export" })}
+          >
+            {messages.modelExportPage.entryButton}
+          </Button>
+          <Button onClick={() => data.setCreateDialogOpen(true)}>
+            <Plus data-icon="inline-start" />
+            {copy.newModel}
+          </Button>
+        </OperatorPageHeader>
+
         <OperatorErrorState
           title={messages.modelsData.fetchFailed}
           description={messages.honesty.readFailedDescription}
@@ -234,6 +266,19 @@ export function ModelsFeaturePage() {
               {messages.common.retry}
             </OperatorRetryButton>
           }
+        />
+
+        <CreateModelDialog
+          isOpen={data.createDialogOpen}
+          loadbalanceStrategies={data.loadbalanceStrategies}
+          createLoadbalanceStrategyDefaultsPending={
+            data.loadbalanceStrategyDefaultsCreating
+          }
+          onCreateLoadbalanceStrategyDefaults={
+            data.handleCreateLoadbalanceStrategyDefaults
+          }
+          onClose={() => data.setCreateDialogOpen(false)}
+          onCreated={data.handleModelCreated}
         />
       </OperatorPageShell>
     );
@@ -308,7 +353,7 @@ export function ModelsFeaturePage() {
         />
       ) : null}
 
-      <div className="grid gap-[var(--density-card-gap)] grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
+      <div className="grid min-w-0 gap-[var(--density-card-gap)] grid-cols-2 @2xl/main:grid-cols-3 @4xl/main:grid-cols-5">
         <OperatorKpiCard
           compact
           label={view === "model_targets" ? copy.viewModelTargets : view === "all" ? copy.viewAll : copy.kpiTotal}
@@ -321,6 +366,7 @@ export function ModelsFeaturePage() {
               status: undefined,
               flag: undefined,
               api_family: undefined,
+              strategy_id: undefined,
             })
           }
         />
@@ -392,6 +438,21 @@ export function ModelsFeaturePage() {
             <span>{listCountSummary}</span>
             {listAnomalySummary ? <span>·</span> : null}
             {listAnomalySummary ? <span>{listAnomalySummary}</span> : null}
+            {/* URL 里带来的定位筛选必须显形并可一键解除：否则从策略页点进来的人
+                看到的是一份被悄悄裁过的清单，而页面上没有一处说它被裁过。 */}
+            {strategyFilter !== null ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-6 gap-1 px-2 text-xs"
+                onClick={() => patchSearch({ strategy_id: undefined })}
+                aria-label={copy.strategyFilterClear(strategyFilterLabel)}
+              >
+                {copy.strategyFilterChip(strategyFilterLabel)}
+                <X aria-hidden="true" className="size-3" />
+              </Button>
+            ) : null}
           </div>
           <CardAction>
             <ModelInventoryViewSwitch
@@ -535,6 +596,7 @@ export function ModelsFeaturePage() {
                 api_family: undefined,
                 status: undefined,
                 flag: undefined,
+                strategy_id: undefined,
               })
             }
             onCreate={() => data.setCreateDialogOpen(true)}
@@ -604,6 +666,7 @@ export function ModelsFeaturePage() {
               )
             : []
         }
+        referrersCheckedCount={data.models.length}
         onDelete={data.handleDelete}
         setDeleteTarget={(model) =>
           data.setDeleteTarget(model as typeof data.deleteTarget)

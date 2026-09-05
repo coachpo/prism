@@ -49,6 +49,13 @@ export function useProxyKeyLedger() {
   const pageErrorTitle = proxyKeysQuery.error
     ? messages.proxyApiKeysData.loadKeysFailed
     : messages.proxyApiKeysData.loadAuthStatusFailed;
+  // 读失败但手里还有上次成功的台账时，保留它并标注陈旧；只有从来没读成功过
+  // 才整块换成错误卡。丢掉数据等于把「后端挂了」渲染成「这里没有密钥」。
+  const hasLastGoodData = proxyKeyList !== undefined;
+  const lastSuccessfulAt =
+    proxyKeysQuery.dataUpdatedAt > 0
+      ? new Date(proxyKeysQuery.dataUpdatedAt).toISOString()
+      : null;
   const refetchAuthSettings = authSettingsQuery.refetch;
   const refetchProxyKeys = proxyKeysQuery.refetch;
 
@@ -73,6 +80,8 @@ export function useProxyKeyLedger() {
     capacity,
     displayedProxyKeys,
     handleVisibleKeysChange,
+    hasLastGoodData,
+    lastSuccessfulAt,
     pageError,
     pageErrorTitle,
     pageLoading,

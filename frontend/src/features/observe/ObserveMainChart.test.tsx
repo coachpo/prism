@@ -4,6 +4,7 @@
  * the metric's values out of the table while the chart drew them, so the two
  * views could not be cross-checked.
  */
+import { useState } from "react";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
@@ -147,18 +148,40 @@ async function renderTable(
 ) {
   render(
     <LocaleProvider>
-      <ObserveMainChart
-        fragment={fragmentFor(metric, series)}
-        metric={metric}
-        groupBy="none"
-        onMetricChange={() => {}}
-        onGroupByChange={() => {}}
-      />
+      <ChartHarness metric={metric} series={series} scope="ingress" />
     </LocaleProvider>,
   );
   // The switchers are Radix ToggleGroups; single selection exposes each item
   // as a radio inside a labelled group with roving arrow-key navigation.
   await userEvent.click(screen.getByRole("radio", { name: "表" }));
+}
+
+/**
+ * 图/表切换由 URL 承载，组件本身是受控的。harness 用一小段本地状态代替页面里的
+ * `setSearch`，这样点击切换仍然真的换视图，而不是把断言改成不点。
+ */
+function ChartHarness({
+  metric,
+  series,
+  scope,
+}: {
+  metric: ObserveMetric;
+  series?: UsageSeriesResponse["series"];
+  scope: ObserveScope;
+}) {
+  const [view, setView] = useState<"chart" | "table">("chart");
+  return (
+    <ObserveMainChart
+      fragment={fragmentFor(metric, series, scope)}
+      metric={metric}
+      groupBy="none"
+      onMetricChange={() => {}}
+      onGroupByChange={() => {}}
+      onViewChange={setView}
+      scope={scope}
+      view={view}
+    />
+  );
 }
 
 function renderChart(
@@ -168,14 +191,7 @@ function renderChart(
 ) {
   return render(
     <LocaleProvider>
-      <ObserveMainChart
-        fragment={fragmentFor(metric, series, scope)}
-        metric={metric}
-        groupBy="none"
-        onMetricChange={() => {}}
-        onGroupByChange={() => {}}
-        scope={scope}
-      />
+      <ChartHarness metric={metric} series={series} scope={scope} />
     </LocaleProvider>,
   );
 }
@@ -377,15 +393,25 @@ describe("ObserveMainChart honest chart states", () => {
     ["ingress", "requests", ["请求数", "错误", "首字耗时", "输出速率", "令牌", "缓存读取", "花费"]],
     ["final_execution", "requests", ["请求数", "错误", "最终尝试耗时", "令牌", "缓存读取", "花费"]],
     ["route_attempt", "attempts", ["尝试数", "错误", "尝试耗时"]],
-  ] as const)("limits %s metrics to its server matrix", (scope, metric, labels) => {
-    const view = renderChart(metric, SERIES, scope);
-    expect(
-      within(screen.getByRole("group", { name: "指标" }))
-        .getAllByRole("radio")
-        .map((item) => item.textContent),
-    ).toEqual(labels);
-    view.unmount();
-  });
+  ] as const)(
+    "keeps %s metrics selectable and disables the rest with a reason",
+    (scope, metric, labels) => {
+      const view = renderChart(metric, SERIES, scope);
+      const items = within(
+        screen.getByRole("radiogroup", { name: "指标" }),
+      ).getAllByRole("radio") as HTMLButtonElement[];
+      expect(
+        items.filter((item) => !item.disabled).map((item) => item.textContent),
+      ).toEqual(labels);
+      // 不可用的指标禁用而不是删掉，并且每一个都说得出为什么。
+      const unavailable = items.filter((item) => item.disabled);
+      expect(unavailable.length).toBeGreaterThan(0);
+      for (const item of unavailable) {
+        expect(item.getAttribute("title")).toBeTruthy();
+      }
+      view.unmount();
+    },
+  );
 
   it.each([
     ["ingress", ["合计", "按入口模型", "按 API 家族"]],
@@ -402,15 +428,24 @@ describe("ObserveMainChart honest chart states", () => {
         "按终端目标",
       ],
     ],
-  ] as const)("limits %s grouping controls to that analysis unit", (scope, labels) => {
-    const view = renderChart("requests", SERIES, scope);
-    expect(
-      within(screen.getByRole("group", { name: "分组" }))
-        .getAllByRole("radio")
-        .map((item) => item.textContent),
-    ).toEqual(labels);
-    view.unmount();
-  });
+  ] as const)(
+    "keeps %s grouping dimensions selectable and disables the rest with a reason",
+    (scope, labels) => {
+      const view = renderChart("requests", SERIES, scope);
+      const items = within(
+        screen.getByRole("radiogroup", { name: "分组" }),
+      ).getAllByRole("radio") as HTMLButtonElement[];
+      expect(
+        items.filter((item) => !item.disabled).map((item) => item.textContent),
+      ).toEqual(labels);
+      const unavailable = items.filter((item) => item.disabled);
+      expect(unavailable.length).toBeGreaterThan(0);
+      for (const item of unavailable) {
+        expect(item.getAttribute("title")).toBeTruthy();
+      }
+      view.unmount();
+    },
+  );
 
   it("distinguishes output no-sample from both cache missing-basis states", () => {
     const output = renderChart("output_rate", [
@@ -502,6 +537,6 @@ describe("ObserveMainChart honest chart states", () => {
       },
     ]);
     expect(screen.getByText("可比 500 / 请求 1,000")).toBeInTheDocument();
-    expect(screen.getByText(/部分覆盖/)).toBeInTheDocument();
+    expect(screen.getByText(/样本不全/)).toBeInTheDocument();
   });
 });

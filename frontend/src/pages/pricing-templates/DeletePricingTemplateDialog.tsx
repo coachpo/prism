@@ -14,10 +14,16 @@ import type {
   PricingTemplateConnectionUsageItem,
 } from "@/lib/types";
 import { isPricingTemplateDeleteBlocked } from "@/features/pricing/pricingDeletion";
+import { RateCell } from "@/features/pricing/PricingTemplateRatePanel";
+import {
+    cardRoleLabel,
+    templateRateCards,
+} from "@/features/pricing/pricingRateCards";
 import {
     OperatorCallout,
     OperatorDestructiveDialog,
     OperatorInsetPanel,
+    OperatorValueBadge,
 } from "@/shared/design-system";
 
 interface DeletePricingTemplateDialogProps {
@@ -46,12 +52,9 @@ export function DeletePricingTemplateDialog({
     const { formatNumber, messages } = useLocale();
     const copy = messages.pricingTemplatesUi;
     const dialogTemplate = deletePricingTemplateConfirm ?? displayTemplate;
-    const summaryCard =
-        dialogTemplate?.template_kind === "standard"
-            ? dialogTemplate.card
-            : dialogTemplate?.template_kind === "tiered"
-              ? dialogTemplate.base_card
-              : null;
+    // 删除不可逆，用来确认「删的是不是这一条」的正是这些数字：每张价格卡都
+    // 列出来，带货币符号与单位，而不是把峰谷退化成一句「2 张价格卡」。
+    const summaryCards = dialogTemplate ? templateRateCards(dialogTemplate) : [];
     const dependencyRows =
         deletePricingTemplateConflict ?? pricingTemplateUsageRows;
     const hasDependencies = dependencyRows.length > 0;
@@ -75,7 +78,7 @@ export function DeletePricingTemplateDialog({
                 dialogTemplate?.name ?? "",
             )}
             cancelLabel={messages.settingsDialogs.cancel}
-            confirmLabel={messages.settingsDialogs.delete}
+            confirmLabel={copy.deletePricingTemplate}
             confirmingLabel={messages.settingsDialogs.deleting}
             confirming={pricingTemplateDeleting}
             confirmDisabled={deleteDisabled}
@@ -117,29 +120,56 @@ export function DeletePricingTemplateDialog({
                             ) : null}
                         </div>
 
-                        {summaryCard ? (
-                            <div className="grid gap-3 sm:grid-cols-2">
-                                <div className="flex min-w-0 flex-col gap-1">
-                                    <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-                                        {copy.input}
-                                    </p>
-                                    <p className="text-sm text-foreground">
-                                        {summaryCard.input_price}
-                                    </p>
-                                </div>
-                                <div className="flex min-w-0 flex-col gap-1">
-                                    <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-                                        {copy.output}
-                                    </p>
-                                    <p className="text-sm text-foreground">
-                                        {summaryCard.output_price}
-                                    </p>
-                                </div>
+                        {dialogTemplate && summaryCards.length > 0 ? (
+                            <div className="flex flex-col gap-3">
+                                <p className="text-xs text-muted-foreground">
+                                    {copy.rateUnitPerMillion}
+                                </p>
+                                {summaryCards.map(({ role, card }) => (
+                                    <div
+                                        key={role}
+                                        className="flex flex-col gap-1"
+                                    >
+                                        {summaryCards.length > 1 ? (
+                                            <OperatorValueBadge
+                                                label={cardRoleLabel(
+                                                    role,
+                                                    copy,
+                                                )}
+                                                className="w-fit text-xs"
+                                            />
+                                        ) : null}
+                                        <div className="grid gap-3 sm:grid-cols-2">
+                                            <div className="flex min-w-0 flex-col gap-1">
+                                                <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                                                    {copy.input}
+                                                </p>
+                                                <RateCell
+                                                    symbol={
+                                                        dialogTemplate.active_currency_symbol
+                                                    }
+                                                    value={card?.input_price}
+                                                />
+                                            </div>
+                                            <div className="flex min-w-0 flex-col gap-1">
+                                                <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                                                    {copy.output}
+                                                </p>
+                                                <RateCell
+                                                    symbol={
+                                                        dialogTemplate.active_currency_symbol
+                                                    }
+                                                    value={card?.output_price}
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
                         ) : (
                             <OperatorCallout
-                                intent="info"
-                                description={copy.multiCardSummary(2)}
+                                intent="warning"
+                                description={copy.unknownKind}
                             />
                         )}
 

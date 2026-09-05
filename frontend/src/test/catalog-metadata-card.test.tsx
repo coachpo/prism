@@ -343,7 +343,10 @@ describe("ModelsDevCatalogPanel", () => {
     expect(screen.getByText("openai / gpt-test")).toBeInTheDocument();
     // ...with exactly one staleness badge that carries the last success stamp.
     expect(screen.getAllByTestId("catalog-read-stale")).toHaveLength(1);
-    expect(screen.getByText(/UTC:2026-08-25T12:00:00Z/)).toBeInTheDocument();
+    // 陈旧徽章现在把 reason 也播报给读屏（sr-only），所以时间戳会命中两次：
+    // 这里要断言的是那个可见的抓取时间，不是徽章的说明文本。
+    const stamps = screen.getAllByText(/UTC:2026-08-25T12:00:00Z/);
+    expect(stamps.some((node) => !node.classList.contains("sr-only"))).toBe(true);
     expect(screen.getByRole("button", { name: "重新绑定" })).toBeDisabled();
     await user.click(screen.getByRole("button", { name: "重试读取" }));
     expect(refresh).toHaveBeenCalledTimes(1);

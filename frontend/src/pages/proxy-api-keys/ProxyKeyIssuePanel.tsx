@@ -89,7 +89,7 @@ export function ProxyKeyIssuePanel({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-full overflow-y-auto sm:max-w-xl" data-testid="proxy-key-issue-sheet">
+      <SheetContent size="md" className="overflow-y-auto" data-testid="proxy-key-issue-sheet">
         <SheetHeader>
           <SheetTitle>{copy.issueKey}</SheetTitle>
           <SheetDescription>{copy.issueKeyDescription}</SheetDescription>

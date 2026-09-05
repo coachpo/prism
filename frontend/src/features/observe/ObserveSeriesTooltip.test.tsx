@@ -96,7 +96,7 @@ describe("ObserveSeriesTooltip", () => {
     expect(screen.getByText("缓存创建")).toBeInTheDocument();
     expect(screen.getByText("未缓存输入")).toBeInTheDocument();
     expect(screen.getByText("可比 1 / 请求 2")).toBeInTheDocument();
-    expect(screen.getByText(/部分覆盖/)).toBeInTheDocument();
+    expect(screen.getByText(/样本不全/)).toBeInTheDocument();
   });
 
   it("distinguishes no-comparable and zero-denominator cache buckets", () => {

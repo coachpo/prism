@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useState, type ReactNode } from "react"
 import { ExternalLink, RefreshCw } from "lucide-react"
 import { Link } from "@tanstack/react-router"
 import { Button } from "@/components/ui/button"
@@ -7,9 +7,9 @@ import { useLocale } from "@/i18n/useLocale"
 import { useTimezone } from "@/hooks/useTimezone"
 import { api } from "@/lib/api"
 import type { LoadbalanceEventDetail } from "@/lib/types"
-import { OperatorCallout, OperatorLoadingState, OperatorTypeBadge } from "@/shared/design-system"
+import { OperatorCallout, OperatorLoadingState, OperatorMissingValue, OperatorTypeBadge } from "@/shared/design-system"
 import { encodeObserveReturn, type ObserveReturnPayload } from "@/lib/observeReturn"
-import { renderEventSummary } from "./eventSummary"
+import { admissionReasonLabel, eventTypeLabel, failureKindLabel, renderEventSummary } from "./eventSummary"
 
 type DetailState =
   | { phase: "idle" }
@@ -71,15 +71,17 @@ export function LoadbalanceEventDetailSheet({
 
   return (
     <Sheet open={eventId !== null} onOpenChange={(open) => { if (!open) onClose() }}>
-      <SheetContent side="right" className="flex w-full max-w-xl flex-col">
+      <SheetContent side="right" size="md" className="flex flex-col">
         <SheetHeader>
           <SheetTitle>{copy.detailTitle}</SheetTitle>
           <SheetDescription>
             {state.phase === "ready" && state.data ? (
               <span className="flex flex-wrap items-center gap-2">
-                <OperatorTypeBadge label={state.data.event_type} />
-                {state.data.failure_kind ? <OperatorTypeBadge label={state.data.failure_kind} /> : null}
-                {state.data.admission_reason ? <OperatorTypeBadge label={state.data.admission_reason} /> : null}
+                {/* 分诊时打开详情就是为了确认列表里那条到底发生了什么：
+                    两边必须是同一份字典，未知取值落具名兜底而不是枚举键。 */}
+                <OperatorTypeBadge label={eventTypeLabel(state.data.event_type, eventSummaryMessages)} preserveLabel />
+                {state.data.failure_kind ? <OperatorTypeBadge label={failureKindLabel(state.data.failure_kind, eventSummaryMessages)} preserveLabel /> : null}
+                {state.data.admission_reason ? <OperatorTypeBadge label={admissionReasonLabel(state.data.admission_reason, eventSummaryMessages)} preserveLabel /> : null}
               </span>
             ) : state.phase === "error" ? copy.detailFailed : copy.detailLoadingDescription}
           </SheetDescription>
@@ -122,6 +124,7 @@ function EventDetailBody({ detail, summaryLabel, summaryReason, formatTime, copy
   sourceSearch: Record<string, unknown>
 }) {
   const { messages } = useLocale()
+  const banDisabled = detail.ban_mode === "off"
   const handoffAvailable = detail.request_context_filters != null && detail.request_context_unavailable_reason == null
   const requestSearch = detail.request_context_filters
     ? {
@@ -159,11 +162,15 @@ function EventDetailBody({ detail, summaryLabel, summaryReason, formatTime, copy
           <p className="text-sm font-medium">{summaryLabel}</p>
           <p className="text-sm text-foreground/70">{summaryReason}</p>
           <dl className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
-            <DetailField label={copy.timeField} value={formatTime(detail.created_at)} />
-            <DetailField label={copy.cycleAttemptsField} value={String(detail.cycle_retry_attempts)} />
-            <DetailField label={copy.cumulativeAttemptsField} value={String(detail.cumulative_retry_attempts)} />
-            <DetailField label={copy.nextRetryField} value={detail.next_retry_at ? formatTime(detail.next_retry_at) : "—"} />
-            <DetailField label={copy.lastDelayField} value={`${detail.last_retry_delay_ms}ms`} />
+            <DetailField label={copy.timeField} numeric value={formatTime(detail.created_at)} />
+            <DetailField label={copy.cycleAttemptsField} numeric value={String(detail.cycle_retry_attempts)} />
+            <DetailField label={copy.cumulativeAttemptsField} numeric value={String(detail.cumulative_retry_attempts)} />
+            <DetailField
+              label={copy.nextRetryField}
+              numeric
+              value={detail.next_retry_at ? formatTime(detail.next_retry_at) : <OperatorMissingValue reason={copy.nextRetryMissingReason} />}
+            />
+            <DetailField label={copy.lastDelayField} numeric value={`${detail.last_retry_delay_ms} ms`} />
           </dl>
         </section>
 
@@ -199,12 +206,33 @@ function EventDetailBody({ detail, summaryLabel, summaryReason, formatTime, copy
 
         <section className="flex flex-col gap-2 rounded-lg border border-border p-4" aria-labelledby="detail-snapshot">
           <h3 id="detail-snapshot" className="text-sm font-medium">{copy.detailSnapshot}</h3>
+          {/* 「封禁模式 off」和「阈值读不到」不是一回事：模式走标签字典，
+              每个缺失的破折号各自带上它自己的原因。 */}
           <dl className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
-            <DetailField label={copy.banModeField} value={detail.ban_mode ?? "—"} />
-            <DetailField label={copy.banUntilField} value={detail.banned_until_at ? formatTime(detail.banned_until_at) : "—"} />
-            <DetailField label={copy.lastSuccessField} value={detail.last_success_at ? formatTime(detail.last_success_at) : "—"} />
-            <DetailField label={copy.policyCycleLimitField} value={detail.policy_cycle_retry_attempt_limit != null ? String(detail.policy_cycle_retry_attempt_limit) : "—"} />
-            <DetailField label={copy.policyBanThresholdField} value={detail.policy_ban_cumulative_retry_attempt_threshold != null ? String(detail.policy_ban_cumulative_retry_attempt_threshold) : "—"} />
+            <DetailField
+              label={copy.banModeField}
+              value={detail.ban_mode ? banModeLabel(detail.ban_mode, copy) : <OperatorMissingValue reason={copy.banModeMissingReason} />}
+            />
+            <DetailField
+              label={copy.banUntilField}
+              numeric
+              value={detail.banned_until_at ? formatTime(detail.banned_until_at) : <OperatorMissingValue reason={banDisabled ? copy.banUntilOffReason : copy.banUntilNoneReason} />}
+            />
+            <DetailField
+              label={copy.lastSuccessField}
+              numeric
+              value={detail.last_success_at ? formatTime(detail.last_success_at) : <OperatorMissingValue reason={copy.lastSuccessMissingReason} />}
+            />
+            <DetailField
+              label={copy.policyCycleLimitField}
+              numeric
+              value={detail.policy_cycle_retry_attempt_limit != null ? String(detail.policy_cycle_retry_attempt_limit) : <OperatorMissingValue reason={copy.policyCycleLimitMissingReason} />}
+            />
+            <DetailField
+              label={copy.policyBanThresholdField}
+              numeric
+              value={detail.policy_ban_cumulative_retry_attempt_threshold != null ? String(detail.policy_ban_cumulative_retry_attempt_threshold) : <OperatorMissingValue reason={banDisabled ? copy.policyBanThresholdOffReason : copy.policyBanThresholdMissingReason} />}
+            />
           </dl>
         </section>
 
@@ -220,10 +248,10 @@ function EventDetailBody({ detail, summaryLabel, summaryReason, formatTime, copy
                 <ExternalLink data-icon="inline-start" />
                 {copy.investigateRequestsCta}
               </Link>
-              <p className="text-xs text-foreground/60">{copy.investigateRequestsNote}</p>
+              <p className="text-xs text-muted-foreground">{copy.investigateRequestsNote}</p>
             </div>
           ) : (
-            <p className="text-sm text-foreground/60">{copy.investigateRequestsUnavailable}</p>
+            <p className="text-sm text-muted-foreground">{copy.investigateRequestsUnavailable}</p>
           )}
         </section>
       </div>
@@ -234,13 +262,31 @@ function EventDetailBody({ detail, summaryLabel, summaryReason, formatTime, copy
   )
 }
 
-function DetailField({ label, value }: { label: string; value: string }) {
+/**
+ * 抽屉正是拿来和列表逐字比对的地方：时间戳、计数与延迟必须与表格同族同宽
+ * （表格侧是 font-mono tabular-nums 13px），否则两边对不齐也读不出量级。
+ * 中文名称与散文不进等宽——混排会撕裂字形。
+ */
+function DetailField({ label, numeric = false, value }: { label: string; numeric?: boolean; value: ReactNode }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <dt className="text-xs text-foreground/60">{label}</dt>
-      <dd className="font-medium">{value}</dd>
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className={numeric ? "font-mono text-[0.8125rem] font-medium tabular-nums" : "font-medium"}>{value}</dd>
     </div>
   )
+}
+
+function banModeLabel(mode: string, copy: ReturnType<typeof useLocale>["messages"]["routingHealth"]): string {
+  switch (mode) {
+    case "off":
+      return copy.banModeOff
+    case "temporary":
+      return copy.banModeTemporary
+    case "until_reset":
+      return copy.banModeUntilReset
+    default:
+      return copy.banModeUnknown
+  }
 }
 
 function ObjectLink({ enabled, label, to }: { enabled: boolean; label: string; to: string }) {

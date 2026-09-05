@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -16,11 +16,13 @@ import { useTimezone } from "@/hooks/useTimezone";
 import { useLocale } from "@/i18n/useLocale";
 import {
   metricsForScope,
-  OBSERVE_GROUPS,
+  OBSERVE_INTERVAL_OPTIONS,
+  unavailableGroupsForScope,
+  unavailableMetricsForScope,
   type ObserveGroupBy,
   type ObserveMetric,
   type ObserveScope,
-  groupBelongsToScope,
+  groupsForScope,
 } from "@/features/observe/observeSearch";
 import {
   buildObserveChartRows,
@@ -45,6 +47,7 @@ import {
   OperatorClippedBadge,
   OperatorEmptyState,
   OperatorErrorState,
+  OperatorRetryButton,
   OperatorStalenessBadge,
 } from "@/shared/design-system";
 
@@ -101,22 +104,41 @@ export function ObserveMainChart({
   fragment,
   metric,
   groupBy,
+  interval = "auto",
   onMetricChange,
   onGroupByChange,
+  onIntervalChange,
+  onRetry,
+  onViewChange,
   scope = "ingress",
+  view = "chart",
 }: {
   fragment: FragmentState<UsageSeriesResponse>;
   metric: ObserveMetric;
   groupBy: ObserveGroupBy;
+  interval?: string;
   onMetricChange: (metric: ObserveMetric) => void;
   onGroupByChange: (groupBy: ObserveGroupBy) => void;
+  onIntervalChange?: (interval: string) => void;
+  onRetry?: () => void;
+  /** 图/表切换写进 URL，链接才带得走「他看的是哪一屏」。 */
+  onViewChange?: (view: "chart" | "table") => void;
   scope?: ObserveScope;
+  view?: "chart" | "table";
 }) {
   const { formatNumber, messages } = useLocale();
   const { format: formatTime, timezone } = useTimezone();
   const copy = messages.observe;
-  const [mode, setMode] = useState<"chart" | "table">("chart");
+  const mode = view;
   const [hidden, setHidden] = useState<ReadonlySet<string>>(() => new Set());
+  const intervalLabelId = useId();
+  // A deep link may carry a width the strip does not offer; appending it keeps
+  // the active bucket visible and re-selectable instead of clamping the URL.
+  const intervalOptions = (
+    OBSERVE_INTERVAL_OPTIONS as readonly string[]
+  ).includes(interval)
+    ? OBSERVE_INTERVAL_OPTIONS
+    : [...OBSERVE_INTERVAL_OPTIONS, interval];
 
   const series = useMemo(
     () =>
@@ -235,8 +257,22 @@ export function ObserveMainChart({
               {copy.metricName(value)}
             </ToggleGroupItem>
           ))}
+          {/* 本口径不支持的指标禁用并带理由，而不是删掉：删掉之后操作者
+              只会看到曲线换了一根，不会知道自己选的指标去了哪里。 */}
+          {unavailableMetricsForScope(scope).map((value) => (
+            <ToggleGroupItem
+              key={value}
+              value={value}
+              disabled
+              title={copy.metricUnavailableReason(value, scope)}
+            >
+              {copy.metricName(value)}
+            </ToggleGroupItem>
+          ))}
         </ToggleGroup>
-        <div className="flex items-center gap-2">
+        {/* 指标、分组、时间桶在窄卡上必须换行：不换行时最后一个分段控件
+            会被卡片裁掉，操作者看到的是半个按钮。 */}
+        <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
           {fragment.data?.truncated ? (
             <OperatorClippedBadge
               label={copy.seriesTruncatedLabel}
@@ -250,33 +286,77 @@ export function ObserveMainChart({
             spacing={2}
             value={groupBy}
             aria-label={copy.groupLabel}
+            className="max-w-full flex-wrap"
             onValueChange={(value) => {
               if (value) onGroupByChange(value as ObserveGroupBy);
             }}
           >
-            {OBSERVE_GROUPS.filter((value) =>
-              groupBelongsToScope(value, scope),
-            ).map((value) => (
+            {groupsForScope(scope).map((value) => (
               <ToggleGroupItem key={value} value={value}>
                 {copy.groupName(value)}
               </ToggleGroupItem>
             ))}
+            {unavailableGroupsForScope(scope).map((value) => (
+              <ToggleGroupItem
+                key={value}
+                value={value}
+                disabled
+                title={copy.groupUnavailableReason(scope)}
+              >
+                {copy.groupName(value)}
+              </ToggleGroupItem>
+            ))}
           </ToggleGroup>
-          <ToggleGroup
-            type="single"
-            variant="outline"
-            size="sm"
-            spacing={2}
-            value={mode}
-            aria-label={copy.chartTableSwitcherLabel}
-            onValueChange={(value) => {
-              if (value) setMode(value as "chart" | "table");
-            }}
-          >
-            <ToggleGroupItem value="chart">{copy.chartView}</ToggleGroupItem>
-            <ToggleGroupItem value="table">{copy.tableView}</ToggleGroupItem>
-          </ToggleGroup>
+          {/* 桶宽是基准，控件必须挨着它重新定基的那张图；卡副标题写出
+              服务端实际生效的宽度，而不是这里请求的 auto。 */}
+          {onIntervalChange ? (
+            <div className="flex min-w-0 items-center gap-1.5">
+              <span
+                id={intervalLabelId}
+                className="shrink-0 text-xs text-muted-foreground"
+              >
+                {copy.intervalLabel}
+              </span>
+              <ToggleGroup
+                type="single"
+                variant="outline"
+                size="sm"
+                spacing={2}
+                value={interval}
+                aria-labelledby={intervalLabelId}
+                onValueChange={(value) => {
+                  if (value) onIntervalChange(value);
+                }}
+              >
+                {intervalOptions.map((value) => (
+                  <ToggleGroupItem key={value} value={value}>
+                    {copy.intervalName(value)}
+                  </ToggleGroupItem>
+                ))}
+              </ToggleGroup>
+            </div>
+          ) : null}
         </div>
+      </div>
+
+      {/* 指标、分组、时间桶点一下就进 URL，这个开关只换同一份数据的呈现方式、
+          不重新定基也不进 URL。留在同一排里，五枚外观一致的分段按钮就会有
+          两种持久化语义，而界面不给任何线索，所以它单独占一行。 */}
+      <div className="flex justify-end">
+        <ToggleGroup
+          type="single"
+          variant="outline"
+          size="sm"
+          spacing={2}
+          value={mode}
+          aria-label={copy.chartTableSwitcherLabel}
+          onValueChange={(value) => {
+            if (value) onViewChange?.(value as "chart" | "table");
+          }}
+        >
+          <ToggleGroupItem value="chart">{copy.chartView}</ToggleGroupItem>
+          <ToggleGroupItem value="table">{copy.tableView}</ToggleGroupItem>
+        </ToggleGroup>
       </div>
 
       {fragment.stale && fragment.data ? (
@@ -297,6 +377,13 @@ export function ObserveMainChart({
           description={messages.honesty.readFailedDescription}
           details={fragment.error}
           detailsLabel={messages.honesty.viewDetails}
+          action={
+            onRetry ? (
+              <OperatorRetryButton onClick={onRetry}>
+                {copy.retry}
+              </OperatorRetryButton>
+            ) : undefined
+          }
         />
       ) : chartData.length === 0 ? (
         // No data draws no empty axes.
@@ -417,6 +504,9 @@ export function ObserveMainChart({
                     dataKey="bucket"
                     tick={axisTick}
                     tickLine={false}
+                    // 契约里横线只有一种：网格线。recharts 默认基线是写死的
+                    // #666666，两个主题都不跟令牌，亮色下比网格线重 4 倍。
+                    axisLine={false}
                     interval="preserveStartEnd"
                     tickFormatter={formatBucket}
                     label={{
@@ -473,6 +563,9 @@ export function ObserveMainChart({
                     dataKey="bucket"
                     tick={axisTick}
                     tickLine={false}
+                    // 契约里横线只有一种：网格线。recharts 默认基线是写死的
+                    // #666666，两个主题都不跟令牌，亮色下比网格线重 4 倍。
+                    axisLine={false}
                     interval="preserveStartEnd"
                     tickFormatter={formatBucket}
                     label={{

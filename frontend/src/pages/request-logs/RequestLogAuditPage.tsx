@@ -1,14 +1,14 @@
-import type { ReactNode } from "react";
+import { useEffect, useId, useRef, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import {
-  AlertTriangle,
   ArrowLeft,
   RefreshCw,
+  SearchX,
   ShieldOff,
   Terminal,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
   TableBody,
@@ -18,18 +18,28 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Separator } from "@/components/ui/separator";
-import { Skeleton } from "@/components/ui/skeleton";
 import { useTimezone } from "@/hooks/useTimezone";
 import { useLocale } from "@/i18n/useLocale";
-import type { ApiFamily, AuditLogDetail, AuditLogListItem } from "@/lib/types";
+import type {
+  ApiFamily,
+  AuditLogDetail,
+  AuditLogListItem,
+  StreamOutcome,
+} from "@/lib/types";
 import {
+  OperatorClippedBadge,
+  OperatorEmptyState,
   OperatorErrorState,
+  OperatorLoadingState,
   OperatorMissingValue,
   OperatorPageHeader,
+  OperatorStatusBadge,
   OperatorTypeBadge,
   OperatorValueBadge,
   type OperatorStatusTier,
 } from "@/shared/design-system";
+import { formatApiFamily } from "@/components/apiFamilyPresentation";
+import { getStreamOutcomeLabel } from "./streamTelemetry";
 import { operationalRowStripe } from "@/shared/table/operationalTable";
 import { cn } from "@/lib/utils";
 import { AuditCaptureLedger } from "./AuditCaptureLedger";
@@ -46,6 +56,7 @@ import {
   type RequestAuditCaptureMode,
 } from "./requestLogAuditState";
 import { RequestLogPayloadBlock } from "./detail/RequestLogPayloadBlock";
+import { formatDurationMs } from "./requestLogMetricPresentation";
 import { getStatusIntent } from "./detail/requestLogStatus";
 import { useDedicatedRequestLogAudit } from "./useDedicatedRequestLogAudit";
 
@@ -56,6 +67,32 @@ function parsePositiveAuditId(value: string | null | undefined): number | null {
   const parsed = Number(trimmed);
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
 }
+/**
+ * 协议族走标签字典。免翻的是品牌名 OpenAI，不是标识符 `openai`：
+ * 裸枚举键夹在模型名与时间戳之间，读者无从判断这一段是协议族还是供应商。
+ */
+function ApiFamilyValue({ value }: { value: string }) {
+  const { messages } = useLocale();
+  const label = formatApiFamily(value);
+  if (label === "-") {
+    return <OperatorMissingValue reason={messages.honesty.noValue} />;
+  }
+  return <span className="text-foreground">{label}</span>;
+}
+
+/** 流结果同样走标签字典；字典外的取值说成缺证据，不把枚举键直出。 */
+function StreamOutcomeValue({ value }: { value: string }) {
+  const { messages } = useLocale();
+  const label = getStreamOutcomeLabel(
+    value as StreamOutcome,
+    messages.requestLogs,
+  );
+  if (!label) {
+    return <OperatorMissingValue reason={messages.honesty.noValue} />;
+  }
+  return <>{label}</>;
+}
+
 function captureBadgeIntent(mode: RequestAuditCaptureMode | null) {
   // Capture completeness is an honesty signal: metadata_only means the payload
   // was deliberately not retained, which must not read the same as a full capture.
@@ -73,55 +110,18 @@ function getCaptureLabel(
   return messages.requestLogs.auditDisabledAtRequest;
 }
 
-function StatusPanel({
-  action,
-  description,
-  status,
-  title,
-}: {
-  action?: ReactNode;
-  description: string;
-  status: "neutral" | "warning" | "error";
-  title: string;
-}) {
-  const icon =
-    status === "neutral" ? (
-      <ShieldOff className="mt-0.5 size-5 shrink-0 text-muted-foreground" />
-    ) : (
-      <AlertTriangle className="mt-0.5 size-5 shrink-0 text-degraded" />
-    );
-
+/**
+ * `OperatorEmptyState` carries the empty-state spec but no live region, and a
+ * silent body is exactly what a screen-reader user hits when tabbing down this
+ * page. The states that are "nothing is here" rather than "a read failed" get
+ * announced politely from here; failures use `OperatorErrorState`'s own
+ * `role="alert"`.
+ */
+function AuditStateRegion({ children }: { children: ReactNode }) {
   return (
-    <Card
-      className={status === "error" ? "border-destructive/35" : "border-border"}
-    >
-      <CardContent className="flex flex-col gap-4 pt-0 sm:flex-row sm:items-start sm:justify-between">
-        <div className="flex items-start gap-3">
-          {icon}
-          <div className="flex flex-col gap-1">
-            <p className="text-sm font-medium">{title}</p>
-            <p className="max-w-2xl text-sm text-muted-foreground">
-              {description}
-            </p>
-          </div>
-        </div>
-        {action ? <div className="shrink-0">{action}</div> : null}
-      </CardContent>
-    </Card>
-  );
-}
-function LoadingCard() {
-  return (
-    <Card className="border-border">
-      <CardHeader>
-        <Skeleton className="h-5 w-48" />
-        <Skeleton className="h-4 w-72" />
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3">
-        <Skeleton className="h-24 w-full rounded-lg" />
-        <Skeleton className="h-24 w-full rounded-lg" />
-      </CardContent>
-    </Card>
+    <div role="status" aria-live="polite">
+      {children}
+    </div>
   );
 }
 
@@ -151,20 +151,33 @@ function AuditRecordsTable({
   const { formatNumber, messages } = useLocale();
   const { format } = useTimezone();
   const copy = messages.requestLogs;
+  const headingId = useId();
 
   return (
+    // 区块标题必须是真 h2 并且命名这张卡，否则「审计记录」这个区块名
+    // 在无障碍树里根本不存在，读屏只看得到载荷子块的标题。
     <Card
       className="gap-0 overflow-hidden border-border"
+      aria-labelledby={headingId}
       data-testid="dedicated-audit-list"
     >
       <CardHeader className="border-b py-2">
+        <CardTitle asChild className="text-[0.9375rem] font-semibold leading-5">
+          <h2 id={headingId}>{copy.auditRecordList}</h2>
+        </CardTitle>
         <p className="text-xs text-muted-foreground">
           {copy.auditRecordListDescription(formatNumber(auditItems.length))}
         </p>
       </CardHeader>
       <CardContent className="p-0">
-        <div className="overflow-x-auto">
-          <Table aria-label={copy.auditRecordList}>
+        {/* 列表要有高度上限：20 行不封顶就把详情卡推到首屏之外，
+            每切一条记录都要付一个来回的滚动。高度必须落在 Table 原语自己的
+            滚动容器上，加在外层这层不会让 sticky 表头黏住。 */}
+        <div>
+          <Table
+            aria-label={copy.auditRecordList}
+            scrollAreaClassName="max-h-[24rem]"
+          >
             <TableHeader>
               <TableRow>
                 <TableHead>{copy.auditTableColumnAudit}</TableHead>
@@ -244,7 +257,7 @@ function AuditRecordsTable({
                           reason={messages.honesty.noValue}
                         />
                       ) : (
-                        `${formatNumber(durationMs)} ms`
+                        formatDurationMs(durationMs)
                       )}
                     </TableCell>
                     <TableCell>
@@ -370,7 +383,9 @@ function AuditDetailCard({
   operationName: string | null;
   formatTimestamp: (iso: string) => string;
 }) {
-  const { formatNumber, messages } = useLocale();
+  const { messages } = useLocale();
+  const copy = messages.requestLogs;
+  const headingId = useId();
   const statusCode = auditScopedStatusCode(detail);
   const durationMs = auditScopedDurationMs(detail);
   const requestBody = decodeAuditBodyBase64(detail.request_body_base64);
@@ -379,10 +394,17 @@ function AuditDetailCard({
   return (
     <Card
       className="overflow-hidden border-border"
+      aria-labelledby={headingId}
       data-testid="dedicated-audit-detail"
     >
       <div className="flex flex-col gap-3 border-b border-border bg-inset px-4 py-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex min-w-0 flex-col gap-2">
+          <h2
+            id={headingId}
+            className="text-[0.9375rem] font-semibold leading-5 text-foreground"
+          >
+            {copy.auditSelectedRecordDetail}
+          </h2>
           <div className="flex flex-wrap items-center gap-2">
             {statusCode !== null ? (
               <OperatorValueBadge
@@ -410,7 +432,7 @@ function AuditDetailCard({
           </p>
         </div>
         <OperatorValueBadge
-          label={durationMs === null ? "—" : `${formatNumber(durationMs)}ms`}
+          label={formatDurationMs(durationMs)}
           className="gap-1 px-2.5 py-1 text-[11px] font-medium"
         />
       </div>
@@ -502,7 +524,7 @@ export function RequestLogAuditPage({
   const auditCursor = searchParams.get("cursor")?.trim() || null;
   const selectedAuditId = parsePositiveAuditId(auditIdParam);
   const { format } = useTimezone();
-  const { messages } = useLocale();
+  const { formatNumber, messages } = useLocale();
   const requestIdLabel = requestIdParam?.trim() || "";
   const defaultAuditPath =
     requestId === null
@@ -520,6 +542,27 @@ export function RequestLogAuditPage({
   const detailLane = state.detail;
   const auditRequestApiFamily =
     (requestLane.request?.summary.api_family as ApiFamily | null) ?? null;
+  const detailAnchorRef = useRef<HTMLDivElement>(null);
+  const previousDetailIdRef = useRef<number | null>(null);
+  const selectedDetailId = detailLane.selectedAuditId;
+
+  // 选中一条记录后详情卡必然落在首屏之外，页面既不滚动也不提示，第一次点的
+  // 人会以为没反应。只在记录之间切换时滚动——落地时把页头滚掉是另一个问题。
+  useEffect(() => {
+    const previous = previousDetailIdRef.current;
+    previousDetailIdRef.current = selectedDetailId;
+    if (selectedDetailId === null || previous === null) return;
+    if (previous === selectedDetailId) return;
+    const anchor = detailAnchorRef.current;
+    if (!anchor) return;
+    const reduceMotion = window.matchMedia?.(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+    anchor.scrollIntoView({
+      block: "start",
+      behavior: reduceMotion ? "auto" : "smooth",
+    });
+  }, [selectedDetailId]);
 
   const requestFailureCopy = (() => {
     switch (requestLane.phase) {
@@ -539,6 +582,26 @@ export function RequestLogAuditPage({
     }
   })();
 
+  const requestFailureActions = (
+    <>
+      <Button variant="outline" size="sm" onClick={state.retryRequest}>
+        <RefreshCw data-icon="inline-start" />
+        {messages.common.retry}
+      </Button>
+      <Button variant="outline" size="sm" asChild>
+        <Link to="/observe/requests">
+          {messages.requestLogs.returnToRequestList}
+        </Link>
+      </Button>
+    </>
+  );
+
+  // 后端把不确定性作为一等数据发过来了：窗口内没有返回记录，且这次查询
+  // 覆盖不完整时，「未找到审计记录」是在替一段被删掉的证据下结论。
+  const listCoverage = listLane.coverage;
+  const listCoverageIncomplete = listCoverage?.complete === false;
+  const listCoverageGapCount = listCoverage?.gaps.length ?? 0;
+
   return (
     <div
       className="flex flex-col gap-6 pb-8"
@@ -549,13 +612,15 @@ export function RequestLogAuditPage({
         title={messages.requestLogs.auditPageTitle(requestIdLabel || "-")}
         description={messages.requestLogs.auditPageDescription}
       >
+        {/* query 串写进 to 不会被路由解析：request_id 与时间窗必须走 search，
+            否则这条出口把操作者扔进一个空的默认 24h 列表。 */}
         <Button variant="outline" asChild>
           <Link
-            to={
-              requestId === null
-                ? "/observe/requests"
-                : `/observe/requests?request_id=${requestId}`
-            }
+            to="/observe/requests"
+            search={{
+              request_id: requestId ?? undefined,
+              time_range: "all",
+            }}
           >
             <ArrowLeft data-icon="inline-start" />
             {messages.requestLogs.viewRequestInLogs}
@@ -564,19 +629,19 @@ export function RequestLogAuditPage({
       </OperatorPageHeader>
 
       {invalidRequestId(requestId, requestIdParam) ? (
-        <StatusPanel
+        <OperatorErrorState
+          testId="audit-invalid-route"
+          title={messages.requestLogs.invalidRequestAuditRouteTitle}
+          description={messages.requestLogs.invalidRequestAuditRouteDescription(
+            requestIdLabel,
+          )}
           action={
-            <Button variant="outline" asChild>
+            <Button variant="outline" size="sm" asChild>
               <Link to="/observe/requests">
                 {messages.requestLogs.returnToRequestList}
               </Link>
             </Button>
           }
-          description={messages.requestLogs.invalidRequestAuditRouteDescription(
-            requestIdLabel,
-          )}
-          status="neutral"
-          title={messages.requestLogs.invalidRequestAuditRouteTitle}
         />
       ) : null}
 
@@ -585,12 +650,20 @@ export function RequestLogAuditPage({
       {requestLane.request ? (
         <>
           <RequestLogAuditWindowBar
+            coverage={listLane.coverage}
+            lastFetchedAt={state.lastFetchedAt}
+            onRefresh={state.refresh}
+            refreshing={state.refreshing}
             requestCreatedAt={requestLane.request.summary.created_at}
           />
           <Card
             className="sticky top-14 z-10 border-border"
             data-testid="audit-context-panel"
           >
+            {/* 这是「这次请求为何失败」的终点页：首屏必须给出状态码、耗时与
+                流结果，否则操作者要回请求日志再看一遍才知道自己在查什么。
+                下面 StatusPanel 已经在讲「已禁用审计」时，这里不再复述同一句，
+                把位置让给这三个事实。 */}
             <CardContent className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-0 text-xs text-muted-foreground">
               <Terminal className="size-3.5" />
               <span className="font-medium text-foreground">
@@ -603,62 +676,129 @@ export function RequestLogAuditPage({
                 {requestLane.request.summary.model_label}
               </span>
               <Separator orientation="vertical" className="h-3" />
-              <span>{requestLane.request.summary.api_family}</span>
+              <span>
+                {`${messages.common.apiFamily}: `}
+                <ApiFamilyValue value={requestLane.request.summary.api_family} />
+              </span>
               <Separator orientation="vertical" className="h-3" />
               <span className="font-mono tabular-nums">
                 {format(requestLane.request.summary.created_at)}
               </span>
-              <OperatorTypeBadge
-                label={getCaptureLabel(requestLane.captureMode, messages)}
-                intent={captureBadgeIntent(requestLane.captureMode)}
-                preserveLabel
-              />
+              <Separator orientation="vertical" className="h-3" />
+              <span className="inline-flex items-center gap-1">
+                {messages.requestLogs.status}
+                {requestLane.request.summary.upstream_status_code === null ? (
+                  <OperatorMissingValue reason={messages.honesty.noValue} />
+                ) : (
+                  <OperatorStatusBadge
+                    intent={getStatusIntent(
+                      requestLane.request.summary.upstream_status_code,
+                    )}
+                    label={String(
+                      requestLane.request.summary.upstream_status_code,
+                    )}
+                    preserveLabel
+                  />
+                )}
+              </span>
+              <span className="inline-flex items-center gap-1">
+                {messages.requestLogs.attemptDuration}
+                <span className="font-mono tabular-nums text-foreground">
+                  {requestLane.request.summary.attempt_duration_ms === null ? (
+                    <OperatorMissingValue reason={messages.honesty.noValue} />
+                  ) : (
+                    formatDurationMs(
+                      requestLane.request.summary.attempt_duration_ms,
+                    )
+                  )}
+                </span>
+              </span>
+              <span className="inline-flex items-center gap-1">
+                {messages.requestLogs.streamStatus}
+                <span className="text-foreground">
+                  <StreamOutcomeValue
+                    value={requestLane.request.summary.stream_outcome}
+                  />
+                </span>
+              </span>
+              {requestLane.captureMode === "disabled" ? null : (
+                <OperatorTypeBadge
+                  label={getCaptureLabel(requestLane.captureMode, messages)}
+                  intent={captureBadgeIntent(requestLane.captureMode)}
+                  preserveLabel
+                />
+              )}
             </CardContent>
           </Card>
         </>
       ) : null}
 
-      {requestLane.phase === "loading" ? <LoadingCard /> : null}
+      {requestLane.phase === "loading" ? (
+        <OperatorLoadingState title={messages.requestLogs.auditRequestLoading} />
+      ) : null}
 
       {requestFailureCopy ? (
-        <StatusPanel
-          action={
-            <>
-              <Button variant="outline" onClick={state.retryRequest}>
-                <RefreshCw data-icon="inline-start" />
-                {messages.common.retry}
-              </Button>
-              <Button variant="outline" asChild>
-                <Link to="/observe/requests">
-                  {messages.requestLogs.returnToRequestList}
-                </Link>
-              </Button>
-            </>
-          }
-          description={requestFailureCopy.description}
-          status={requestLane.phase === "error" ? "error" : "neutral"}
-          title={requestFailureCopy.title}
-        />
+        requestLane.phase === "error" ? (
+          <OperatorErrorState
+            testId="audit-request-error"
+            title={requestFailureCopy.title}
+            description={requestFailureCopy.description}
+            action={requestFailureActions}
+          />
+        ) : (
+          <AuditStateRegion>
+            <OperatorEmptyState
+              testId="audit-request-missing"
+              icon={<SearchX />}
+              title={requestFailureCopy.title}
+              description={requestFailureCopy.description}
+              action={requestFailureActions}
+            />
+          </AuditStateRegion>
+        )
       ) : null}
 
       {requestLane.phase === "disabled" ? (
-        <StatusPanel
-          description={messages.requestLogs.auditDisabledDescription}
-          status="neutral"
-          title={messages.requestLogs.auditDisabledAtRequest}
-        />
+        <AuditStateRegion>
+          <OperatorEmptyState
+            testId="audit-disabled"
+            icon={<ShieldOff />}
+            title={messages.requestLogs.auditDisabledAtRequest}
+            description={messages.requestLogs.auditDisabledDescription}
+            action={
+              // 解释了原因却不给去处，这一屏就是死胡同：审计开关就在系统设置里。
+              <Button variant="outline" size="sm" asChild>
+                <Link
+                  to="/system/settings"
+                  search={{ scope: "global", section: "audit-privacy" }}
+                >
+                  {messages.requestLogs.auditDisabledSettingsLink}
+                </Link>
+              </Button>
+            }
+          />
+        </AuditStateRegion>
       ) : null}
 
       {requestLane.phase === "invalid_timestamp" ? (
-        <StatusPanel
-          description={messages.requestLogs.invalidAuditTimestampDescription}
-          status="warning"
+        <OperatorErrorState
+          testId="audit-invalid-timestamp"
           title={messages.requestLogs.invalidAuditTimestampTitle}
+          description={messages.requestLogs.invalidAuditTimestampDescription}
+          action={
+            <Button variant="outline" size="sm" asChild>
+              <Link to="/observe/requests">
+                {messages.requestLogs.returnToRequestList}
+              </Link>
+            </Button>
+          }
         />
       ) : null}
 
       {/* Lane 2: the audit record page. */}
-      {listLane.phase === "loading" ? <LoadingCard /> : null}
+      {listLane.phase === "loading" ? (
+        <OperatorLoadingState title={messages.requestLogs.auditListLoading} />
+      ) : null}
 
       {listLane.phase === "error" ? (
         <OperatorErrorState
@@ -683,11 +823,35 @@ export function RequestLogAuditPage({
       ) : null}
 
       {listLane.phase === "empty" ? (
-        <StatusPanel
-          description={messages.requestLogs.noAuditRecordsDescription}
-          status="neutral"
-          title={messages.requestLogs.noAuditRecords}
-        />
+        <AuditStateRegion>
+          <OperatorEmptyState
+            testId="audit-no-records"
+            title={
+              listCoverageIncomplete
+                ? messages.requestLogs.auditCoverageIncompleteTitle
+                : messages.requestLogs.noAuditRecords
+            }
+            description={
+              listCoverageIncomplete ? (
+                <span className="inline-flex flex-col items-center gap-2">
+                  <span>
+                    {listCoverageGapCount > 0
+                      ? messages.requestLogs.auditCoverageIncompleteDescription(
+                          formatNumber(listCoverageGapCount),
+                        )
+                      : messages.requestLogs.auditCoverageIncompleteNoGaps}
+                  </span>
+                  <OperatorClippedBadge
+                    label={messages.honesty.outsideRetention}
+                    reason={messages.honesty.outsideRetentionReason}
+                  />
+                </span>
+              ) : (
+                messages.requestLogs.noAuditRecordsDescription
+              )
+            }
+          />
+        </AuditStateRegion>
       ) : null}
 
       {requestId !== null && listLane.items.length > 0 ? (
@@ -700,46 +864,57 @@ export function RequestLogAuditPage({
             requestId={requestId}
             selectedAuditId={detailLane.selectedAuditId}
           />
-          <div className="flex min-w-0 flex-col gap-4">
+          <div className="flex min-w-0 flex-col gap-4" ref={detailAnchorRef}>
             {/* Lane 3: the selected record's payload. Its states compose below
                 the list; a failure here never removes the list or the context. */}
             {detailLane.phase === "missing_selection" ? (
-              <StatusPanel
-                action={
-                  <Button variant="outline" asChild>
-                    <Link to={defaultAuditPath}>
-                      {messages.requestLogs.showDefaultAuditRecord}
-                    </Link>
-                  </Button>
-                }
-                description={messages.requestLogs.missingAuditRecordDescription(
-                  detailLane.missingAuditLabel ?? "",
-                )}
-                status="warning"
-                title={messages.requestLogs.missingAuditRecordTitle}
+              <AuditStateRegion>
+                <OperatorEmptyState
+                  testId="audit-missing-selection"
+                  icon={<SearchX />}
+                  title={messages.requestLogs.missingAuditRecordTitle}
+                  description={messages.requestLogs.missingAuditRecordDescription(
+                    detailLane.missingAuditLabel ?? "",
+                  )}
+                  action={
+                    <Button variant="outline" size="sm" asChild>
+                      <Link to={defaultAuditPath}>
+                        {messages.requestLogs.showDefaultAuditRecord}
+                      </Link>
+                    </Button>
+                  }
+                />
+              </AuditStateRegion>
+            ) : null}
+            {detailLane.phase === "loading" ? (
+              <OperatorLoadingState
+                title={messages.requestLogs.auditPayloadLoading}
               />
             ) : null}
-            {detailLane.phase === "loading" ? <LoadingCard /> : null}
             {detailLane.phase === "error" ? (
-              <StatusPanel
+              <OperatorErrorState
+                testId="audit-detail-error"
+                title={messages.requestLogs.auditDetailLoadFailedTitle}
+                description={messages.honesty.readFailedDescription}
+                details={detailLane.error}
+                detailsLabel={messages.honesty.viewDetails}
                 action={
                   <>
-                    <Button variant="outline" onClick={state.retryDetail}>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={state.retryDetail}
+                    >
                       <RefreshCw data-icon="inline-start" />
                       {messages.common.retry}
                     </Button>
-                    <Button variant="outline" asChild>
+                    <Button variant="outline" size="sm" asChild>
                       <Link to={defaultAuditPath}>
                         {messages.requestLogs.showDefaultAuditRecord}
                       </Link>
                     </Button>
                   </>
                 }
-                description={
-                  detailLane.error ?? messages.requestLogs.auditDetailLoadFailed
-                }
-                status="error"
-                title={messages.requestLogs.auditDetailLoadFailedTitle}
               />
             ) : null}
             {detailLane.detail && auditRequestApiFamily ? (

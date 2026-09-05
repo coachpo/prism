@@ -1,13 +1,47 @@
+import {
+  Outlet,
+  RouterProvider,
+  createMemoryHistory,
+  createRootRoute,
+  createRoute,
+  createRouter,
+} from "@tanstack/react-router";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { LocaleProvider } from "@/i18n/LocaleProvider";
 import type {
   ChainIngressItem,
   RequestLogChainRow,
 } from "@/lib/types/request-logs";
 import { IngressChainsTable } from "./IngressChainsTable";
+
+/** 行操作里的审计链接是真实的 Link，需要一个路由上下文才能渲染。 */
+function renderWithRouter(element: React.ReactNode) {
+  const rootRoute = createRootRoute({ component: () => <Outlet /> });
+  const listRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/observe/requests",
+    // 标识符旁的复制按钮是纯图标按钮，会自动挂 tooltip（应用根部已有 Provider）。
+    component: () => (
+      <TooltipProvider>
+        <LocaleProvider>{element}</LocaleProvider>
+      </TooltipProvider>
+    ),
+  });
+  const auditRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/observe/requests/$requestId/audit",
+    component: () => null,
+  });
+  const router = createRouter({
+    routeTree: rootRoute.addChildren([listRoute, auditRoute]),
+    history: createMemoryHistory({ initialEntries: ["/observe/requests"] }),
+  });
+  return render(<RouterProvider router={router} />);
+}
 
 vi.mock("@/hooks/useTimezone", () => ({
   useTimezone: () => ({
@@ -170,27 +204,44 @@ const chain: ChainIngressItem = {
 describe("IngressChainsTable route attribution", () => {
   it("separates final model from the actual outlet and explains both attempts", async () => {
     const user = userEvent.setup();
-    render(
-      <LocaleProvider>
-        <IngressChainsTable
-          chains={[chain]}
-          total={1}
-          hasPreviousChains={false}
-          hasMoreChains={false}
-          chainPageStart={0}
-          chainPageCounts={{ ingress: 1, attempts: 2, rows: 2 }}
-          replacing={false}
-          chainRowReads={{}}
-          onLoadPreviousChains={() => {}}
-          onLoadNextChains={() => {}}
-          onLoadMoreRows={() => {}}
-          onSelectRow={() => {}}
-          loading={false}
-        />
-      </LocaleProvider>,
+    renderWithRouter(
+      <IngressChainsTable
+        chains={[chain]}
+        total={1}
+        hasPreviousChains={false}
+        hasMoreChains={false}
+        chainPageStart={0}
+        chainPageCounts={{ ingress: 1, attempts: 2, rows: 2 }}
+        replacing={false}
+        chainRowReads={{}}
+        onLoadPreviousChains={() => {}}
+        onLoadNextChains={() => {}}
+        onLoadMoreRows={() => {}}
+        onSelectRow={() => {}}
+        loading={false}
+        retentionClipped={false}
+        visibleColumns={[
+          "time",
+          "result",
+          "requested_model",
+          "final_target",
+          "endpoint",
+          "attempts",
+          "ttft",
+          "token_rate",
+          "tokens",
+          "cost",
+          "pricing",
+        ]}
+        pageSize={20}
+        onPageSizeChange={() => {}}
+        sortOrder="desc"
+        onSortOrderChange={() => {}}
+      />,
     );
 
-    const summary = screen.getByTestId("chain-summary-ingress-abc");
+    // 路由渲染是异步的，先等这一行落地再断言。
+    const summary = await screen.findByTestId("chain-summary-ingress-abc");
     expect(within(summary).getByText("Model A")).toBeInTheDocument();
     expect(within(summary).getByText("Model C")).toBeInTheDocument();
     expect(within(summary).getByText(/provider\/Model-C/)).toBeInTheDocument();

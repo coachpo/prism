@@ -23,11 +23,17 @@ export function useEndpointList() {
   const [endpoints, setEndpoints] = useState<Endpoint[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [endpointLoadError, setEndpointLoadError] = useState(false);
+  // 「后端在我用着的时候挂了」不等于「这台网关没有端点」：留住上次成功的数据，
+  // 用陈旧徽章说清它读于何时、这次为什么失败。
+  const [endpointsLoadedAt, setEndpointsLoadedAt] = useState<string | null>(null);
   const [endpointLoadAttempt, setEndpointLoadAttempt] = useState(0);
   const [searchQuery, setSearchQuery] = useState("");
   const [reviewFilter, setReviewFilter] = useState<ReviewFilter>("all");
   const [sortKey, setSortKey] = useState<EndpointSortKey>("name");
   const [sortDescending, setSortDescending] = useState(false);
+  const [referenceRollbackNotice, setReferenceRollbackNotice] = useState<
+    string | null
+  >(null);
   const { format: formatTime } = useTimezone();
 
   const revision = 0;
@@ -47,6 +53,7 @@ export function useEndpointList() {
         const loaded = await getSharedEndpoints(revision, true);
         if (cancelled) return;
         setEndpoints(loaded);
+        setEndpointsLoadedAt(new Date().toISOString());
       } catch {
         if (!cancelled) {
           setEndpointLoadError(true);
@@ -79,12 +86,25 @@ export function useEndpointList() {
   // Reference-derived controls stay fail-closed until every visible summary
   // is fresh. Text search remains available, while stale/unknown counts are
   // still rendered by the row as evidence rather than treated as zero.
+  // 复位本身对操作者是无声的（控件当着他的面弹回默认值），所以同时留下一句
+  // 理由，由页面播报出来。
   useEffect(() => {
-    if (!references.hasUnknownOrStale) return;
-    if (reviewFilter !== "all") setReviewFilter("all");
-    if (sortKey === "direct_reference_count") {
+    if (!references.hasUnknownOrStale) {
+      setReferenceRollbackNotice(null);
+      return;
+    }
+    const copy = getStaticMessages().endpointsPage;
+    const filterRolledBack = reviewFilter !== "all";
+    const sortRolledBack = sortKey === "direct_reference_count";
+    if (filterRolledBack) setReviewFilter("all");
+    if (sortRolledBack) {
       setSortKey("name");
       setSortDescending(false);
+    }
+    if (filterRolledBack) {
+      setReferenceRollbackNotice(copy.referenceFilterRolledBack);
+    } else if (sortRolledBack) {
+      setReferenceRollbackNotice(copy.referenceSortRolledBack);
     }
   }, [references.hasUnknownOrStale, reviewFilter, sortKey]);
 
@@ -206,10 +226,12 @@ export function useEndpointList() {
   return {
     commitEndpoints,
     endpointLoadError,
+    endpointsLoadedAt,
     endpoints,
     filteredEndpoints: sortedEndpoints,
     formatTime,
     isLoading,
+    referenceRollbackNotice,
     references,
     retryEndpointLoad,
     reviewFilter,

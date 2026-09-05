@@ -76,9 +76,22 @@ function FactRow({ fact }: { fact: SetupFact }) {
   )
 }
 
+function FactGroup({ facts, label }: { facts: readonly SetupFact[]; label: string }) {
+  return (
+    <section className="mt-2 first:mt-0">
+      <h3 className="text-xs font-medium text-muted-foreground">{label}</h3>
+      <ol className="divide-y-0" aria-label={label}>
+        {facts.map((fact) => <FactRow key={fact.id} fact={fact} />)}
+      </ol>
+    </section>
+  )
+}
+
 export function SetupCard({ state, collapsed, cardRef, onBlurCapture, onRetry, onToggle }: SetupCardProps) {
   const { messages } = useLocale()
   const copy = messages.setup
+  const coreFacts = state.facts.filter((fact) => fact.kind === "required")
+  const otherFacts = state.facts.filter((fact) => fact.kind !== "required")
   const count = state.route_configured_count
   const headline = count === null ? copy.checkingHeadline : copy.routeConfigured(count)
   const description = count === 4 ? copy.readyDescription : copy.description
@@ -116,9 +129,14 @@ export function SetupCard({ state, collapsed, cardRef, onBlurCapture, onRetry, o
             {state.phase === "unknown" ? (
               <OperatorCallout intent="warning" title={copy.unknownTitle} description={copy.unknownDescription} className="mb-3" />
             ) : null}
-            <ol className="divide-y-0" aria-label={copy.factsLabel}>
-              {state.facts.map((fact) => <FactRow key={fact.id} fact={fact} />)}
-            </ol>
+            {/* 页头的 4 / 4 只数 kind==="required" 的四项。清单平铺时能数出 5 个
+                「已完成」，与页头对不上；按同一划分分组，两个数字才出自同一处。 */}
+            <section aria-label={copy.factsLabel}>
+              <FactGroup label={copy.coreGroupLabel} facts={coreFacts} />
+              {otherFacts.length > 0 ? (
+                <FactGroup label={copy.otherGroupLabel} facts={otherFacts} />
+              ) : null}
+            </section>
           </div>
         ) : (
           <p className="text-xs text-muted-foreground" data-testid="setup-card-summary">{copy.collapsedSummary}</p>

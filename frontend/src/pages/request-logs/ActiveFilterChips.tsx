@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { useLocale } from "@/i18n/useLocale";
 import { applyRequestLogStatePatch } from "./queryParams";
 import type { useRequestLogPageState } from "./useRequestLogPageState";
+import { getTimeLabel } from "./FiltersBar.constants";
 
 type Actions = ReturnType<typeof useRequestLogPageState>;
 
@@ -33,6 +34,8 @@ export function ActiveFilterChips({ actions }: { actions: Actions }) {
     chips.push({ key, label, onClear, value });
   };
 
+  // 按请求 ID 定位是 URL 里最强的一个条件，却是唯一不出现在生效筛选条里的。
+  push("request_id", copy.requestId, state.request_id, () => actions.clearRequest());
   push("ingress_request_id", copy.ingressRequestId, state.ingress_request_id, () => actions.setIngressRequestId(""));
   push("ingress_model_id", copy.entryModel, state.model_id, () => actions.setModelId(""));
   push("attempt_target_model_id", copy.attemptTargetModel, state.resolved_target_model_id, () => actions.setResolvedTargetModelId(""));
@@ -69,7 +72,8 @@ export function ActiveFilterChips({ actions }: { actions: Actions }) {
     push("confirmed_failover", copy.confirmedFailoverChip, copy.chipOn, () => actions.setConfirmedFailover(false));
   }
   if (state.time_range !== "24h") {
-    push("time_range", copy.timeRange, state.time_range, () => actions.setTimeRange("24h"));
+    // chip 上显示的是时间窗名字，不是枚举键。
+    push("time_range", copy.timeRange, getTimeLabel(state.time_range), () => actions.setTimeRange("24h"));
   }
 
   if (chips.length === 0) return null;
@@ -101,11 +105,14 @@ export function ActiveFilterChips({ actions }: { actions: Actions }) {
           </button>
         </span>
       ))}
+      {/* 全站只保留这一个「清除筛选条件」；28px 是最小命中区，20px 高的按钮
+          恰恰出现在操作者最需要它的时候。 */}
       <Button
         type="button"
         variant="ghost"
         size="sm"
-        className="h-5 px-1.5 text-xs"
+        className="h-7 px-2 text-xs"
+        data-testid="request-logs-clear-filters"
         onClick={actions.clearFilters}
       >
         {messages.statistics.clearFilters}

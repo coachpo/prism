@@ -27,6 +27,7 @@ const sharedPricingTemplates = createSharedReferenceDataAccessors("pricingTempla
 const sharedLoadbalanceStrategies = createSharedReferenceDataAccessors(
   "loadbalanceStrategies",
 );
+const sharedProxyKeys = createSharedReferenceDataAccessors("proxyKeys");
 
 export function clearSharedReferenceData(kind?: ReferenceDataKind, revision?: number) {
   sharedReferenceDataStore.clear(kind, revision);
@@ -38,6 +39,10 @@ export function getSharedModels(revision: number, forceRefresh = false) {
 
 export function setSharedModels(revision: number, data: ReferenceDataValue<"models">) {
   sharedModels.set(revision, data);
+}
+
+export function getSharedProxyKeys(revision: number, forceRefresh = false) {
+  return sharedProxyKeys.get(revision, forceRefresh);
 }
 
 export function getSharedEndpoints(revision: number, forceRefresh = false) {

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ComponentProps } from "react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import { Eye, EyeOff } from "lucide-react";
+import { ChevronDown, ChevronRight, Eye, EyeOff } from "lucide-react";
 
 import { AuthPageShell } from "@/pages/AuthPageShell";
 import { Button } from "@/components/ui/button";
@@ -8,7 +8,11 @@ import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
-import { OperatorCallout, OperatorMissingValue } from "@/shared/design-system";
+import {
+  OperatorCallout,
+  OperatorInsetPanel,
+  OperatorMissingValue,
+} from "@/shared/design-system";
 import { useAuth } from "@/context/useAuth";
 import { useLocale } from "@/i18n/useLocale";
 import { useTimezone } from "@/hooks/useTimezone";
@@ -49,6 +53,7 @@ export function LoginPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [passwordVisible, setPasswordVisible] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [capsLockOn, setCapsLockOn] = useState(false);
   const [sessionDuration, setSessionDuration] = useState<LoginSessionDuration>("session");
   const [status, setStatus] = useState<LoginStatus>({ kind: "idle" });
@@ -101,6 +106,21 @@ export function LoginPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lockedRemainingSeconds]);
 
+  // 浏览器标签页与历史记录里，这一页此前和控制台内页一样都叫「Prism」，
+  // 存下来的链接分不出是哪一页。这里让标签页跟着卡片标题走。
+  const documentTitle =
+    !loading && !authEnabled
+      ? messages.auth.disabledTitle
+      : status.kind === "locked"
+        ? messages.auth.lockedTitle
+        : messages.auth.signIn;
+  useEffect(() => {
+    document.title = messages.auth.documentTitle(documentTitle);
+    return () => {
+      document.title = messages.auth.productName;
+    };
+  }, [documentTitle, messages.auth]);
+
   const instanceFacts = publicStatusFailed ? (
     <span>{messages.auth.statusUnavailable}</span>
   ) : publicStatus ? (
@@ -130,10 +150,31 @@ export function LoginPage() {
       >
         <div className="flex flex-col items-start gap-4">
           <OperatorCallout intent="warning">{messages.auth.disabledWarning}</OperatorCallout>
-          <details className="rounded-md border border-border bg-inset px-3 py-2 text-sm">
-            <summary className="cursor-pointer font-medium text-foreground">{messages.common.moreDetails}</summary>
-            <p className="pt-2 text-muted-foreground">{messages.auth.disabledWarningDetails}</p>
-          </details>
+          {/* 原生 summary 是 20px 高的 list-item，命中区不到下限，还会带上
+              浏览器默认的 ▶ 标记。这里用设计系统的内嵌面板 + 真按钮。 */}
+          <OperatorInsetPanel className="w-full gap-1 p-3">
+            <button
+              type="button"
+              aria-expanded={detailsOpen}
+              aria-controls="auth-disabled-details"
+              onClick={() => setDetailsOpen((open) => !open)}
+              className="flex min-h-7 w-full items-center gap-1.5 rounded-md text-left text-sm font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            >
+              {detailsOpen ? (
+                <ChevronDown aria-hidden="true" className="size-4 shrink-0" />
+              ) : (
+                <ChevronRight aria-hidden="true" className="size-4 shrink-0" />
+              )}
+              {messages.common.moreDetails}
+            </button>
+            <p
+              id="auth-disabled-details"
+              hidden={!detailsOpen}
+              className="text-sm text-muted-foreground"
+            >
+              {messages.auth.disabledWarningDetails}
+            </p>
+          </OperatorInsetPanel>
           <p className="text-sm text-muted-foreground">{messages.auth.disabledProxyKeyNote}</p>
           <div className="flex flex-wrap gap-3">
             <Button onClick={() => void navigate({ to: "/observe" })}>{messages.auth.enterConsole}</Button>

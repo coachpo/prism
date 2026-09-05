@@ -11,6 +11,7 @@ import { useTimezone } from "@/hooks/useTimezone";
 import { useLocale } from "@/i18n/useLocale";
 import type {
   PricingCard,
+  PricingTemplate,
   PricingTemplateRevision,
   PricingTemplateWindow,
 } from "@/lib/types";
@@ -20,6 +21,7 @@ import {
   OperatorMissingValue,
   OperatorRetryButton,
   OperatorStalenessBadge,
+  OperatorTypeBadge,
   OperatorValueBadge,
 } from "@/shared/design-system";
 import { RateCell } from "./PricingTemplateRatePanel";
@@ -98,7 +100,26 @@ function revisionSourceLabel(
   return history.revisionSourceUnknown(source);
 }
 
-function RevisionEvidence({ revision }: { revision: PricingTemplateRevision }) {
+/**
+ * 每条修订都带自己的 currency_code：历史行必须按修订当时的货币标注，
+ * 不能借模板当前的符号。货币换过的旧修订退回三位代码，而不是无单位裸数字。
+ */
+function revisionCurrencySymbol(
+  revision: PricingTemplateRevision,
+  template: PricingTemplate,
+) {
+  return revision.currency_code === template.pricing_currency_code
+    ? template.active_currency_symbol
+    : revision.currency_code;
+}
+
+function RevisionEvidence({
+  revision,
+  symbol,
+}: {
+  revision: PricingTemplateRevision;
+  symbol: string;
+}) {
   const { messages } = useLocale();
   const copy = messages.pricingTemplatesUi;
   const history = messages.pricingTemplatesHistory;
@@ -122,7 +143,11 @@ function RevisionEvidence({ revision }: { revision: PricingTemplateRevision }) {
               {fields.map(([field, label, specialty]) => (
                 <div key={field}>
                   <p className="text-[10px] text-muted-foreground">{label}</p>
-                  <RateCell value={card[field]} specialty={specialty} />
+                  <RateCell
+                    value={card[field]}
+                    specialty={specialty}
+                    symbol={symbol}
+                  />
                 </div>
               ))}
             </div>
@@ -174,11 +199,13 @@ export function PricingTemplateHistoryPanel({
   loading,
   revisions,
   onRetry,
+  template,
 }: {
   error: string | null;
   loading: boolean;
   revisions: PricingTemplateRevision[];
   onRetry: () => void;
+  template: PricingTemplate;
 }) {
   const { messages } = useLocale();
   const { format: formatTime } = useTimezone();
@@ -213,71 +240,86 @@ export function PricingTemplateHistoryPanel({
           reason={error}
         />
       ) : null}
-      <div className="overflow-x-auto">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{copy.columnVersion}</TableHead>
-              <TableHead>{history.tableKind}</TableHead>
-              <TableHead>{history.tableCards}</TableHead>
-              <TableHead>{history.effectiveAt}</TableHead>
-              <TableHead>{history.createdBy}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {revisions.map((revision, index) => {
-              const previous = revisions[index + 1];
-              const changed = Boolean(
-                previous &&
-                  revisionStructure(revision) !== revisionStructure(previous),
-              );
-              const cardCount = cardEntries(revision).filter(([, card]) =>
-                Boolean(card),
-              ).length;
-              const kind =
-                revision.template_kind === "standard"
-                  ? copy.kindStandard
-                  : revision.template_kind === "tiered"
-                    ? copy.kindTiered
-                    : revision.template_kind === "peak_valley"
-                      ? copy.kindPeakValley
-                      : revision.template_kind;
-              return (
-                <TableRow key={revision.revision_id}>
-                  <TableCell>
+      {/* Table 自带 overflow-x-auto 容器；再套一层只会让两个滚动条谁都滚不动。 */}
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>{copy.columnVersion}</TableHead>
+            <TableHead>{history.tableKind}</TableHead>
+            <TableHead>{history.tableCards}</TableHead>
+            <TableHead>{history.effectiveAt}</TableHead>
+            <TableHead>{history.createdBy}</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {revisions.map((revision, index) => {
+            // 接口按 version 升序返回，上一版在前一行。取 index + 1 会把
+            // 结构变更整体归到更旧的那一版上，等于指认错误的责任版本。
+            const previous = revisions[index - 1];
+            const changed = Boolean(
+              previous &&
+                revisionStructure(revision) !== revisionStructure(previous),
+            );
+            const isCurrent = revision.version === template.version;
+            const cardCount = cardEntries(revision).filter(([, card]) =>
+              Boolean(card),
+            ).length;
+            const kind =
+              revision.template_kind === "standard"
+                ? copy.kindStandard
+                : revision.template_kind === "tiered"
+                  ? copy.kindTiered
+                  : revision.template_kind === "peak_valley"
+                    ? copy.kindPeakValley
+                    : revision.template_kind;
+            return (
+              <TableRow key={revision.revision_id}>
+                <TableCell>
+                  <div className="flex flex-wrap items-center gap-1">
                     <OperatorValueBadge
                       label={`v${revision.version}`}
                       className="text-xs"
                     />
-                  </TableCell>
-                  <TableCell>
-                    <OperatorValueBadge label={kind} className="text-xs" />
-                  </TableCell>
-                  <TableCell className="text-xs">
-                    {copy.multiCardSummary(cardCount)}
-                    {changed ? (
-                      <span className="ml-2 text-failing">
-                        {history.structureChanged}
-                      </span>
+                    {isCurrent ? (
+                      <OperatorTypeBadge
+                        intent="accent"
+                        preserveLabel
+                        label={history.currentVersion}
+                        title={history.currentVersionReason}
+                      />
                     ) : null}
-                    <RevisionEvidence revision={revision} />
-                  </TableCell>
-                  <TableCell className="font-mono text-xs tabular-nums">
-                    {revision.effective_at ? (
-                      formatTime(revision.effective_at)
-                    ) : (
-                      <OperatorMissingValue className="text-xs" />
-                    )}
-                  </TableCell>
-                  <TableCell className="text-xs">
-                    {history.createdByKind(revision.created_by_kind)}
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
-      </div>
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <OperatorValueBadge label={kind} className="text-xs" />
+                </TableCell>
+                <TableCell className="text-xs">
+                  {copy.multiCardSummary(cardCount)}
+                  {changed ? (
+                    <span className="ml-2 text-failing">
+                      {history.structureChanged}
+                    </span>
+                  ) : null}
+                  <RevisionEvidence
+                    revision={revision}
+                    symbol={revisionCurrencySymbol(revision, template)}
+                  />
+                </TableCell>
+                <TableCell className="font-mono text-xs tabular-nums">
+                  {revision.effective_at ? (
+                    formatTime(revision.effective_at)
+                  ) : (
+                    <OperatorMissingValue className="text-xs" />
+                  )}
+                </TableCell>
+                <TableCell className="text-xs">
+                  {history.createdByKind(revision.created_by_kind)}
+                </TableCell>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
     </OperatorInsetPanel>
   );
 }

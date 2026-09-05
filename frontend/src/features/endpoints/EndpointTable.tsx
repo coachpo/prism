@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
 import {
     Table,
     TableBody,
+    TableCell,
     TableHead,
     TableHeader,
     TableRow,
@@ -23,9 +24,13 @@ export type EndpointSortColumn =
     | "updated_at"
     | "direct_reference_count";
 
+const ENDPOINT_COLUMN_COUNT = 6;
+
 type EndpointTableProps = {
     endpoints: Endpoint[];
     details: Record<number, EndpointReferenceDetailState>;
+    /** 筛到零条时的空态，渲染在表体里而不是替换整张表。 */
+    emptyState?: ReactNode;
     formatTime: (
         isoString: string,
         options?: Intl.DateTimeFormatOptions,
@@ -48,6 +53,7 @@ type EndpointTableProps = {
 export function EndpointTable({
     endpoints,
     details,
+    emptyState,
     formatTime,
     hasIntegrityError,
     onAttach,
@@ -100,6 +106,7 @@ export function EndpointTable({
                 className="divide-y divide-border sm:hidden"
                 data-testid="endpoints-mobile-cards"
             >
+                {emptyState}
                 {endpoints.map((endpoint) => (
                     <MobileEndpointCard
                         key={endpoint.id}
@@ -160,6 +167,16 @@ export function EndpointTable({
                         </TableRow>
                     </TableHeader>
                     <TableBody>
+                        {emptyState ? (
+                            <TableRow className="hover:bg-transparent">
+                                <TableCell
+                                    colSpan={ENDPOINT_COLUMN_COUNT}
+                                    className="p-0"
+                                >
+                                    {emptyState}
+                                </TableCell>
+                            </TableRow>
+                        ) : null}
                         {endpoints.map((endpoint) => {
                             const expanded = expandedIds.has(endpoint.id);
                             const detailState = details[endpoint.id];

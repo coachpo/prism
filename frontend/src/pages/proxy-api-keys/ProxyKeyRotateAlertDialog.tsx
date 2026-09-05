@@ -1,8 +1,8 @@
 import { Spinner } from "@/components/ui/spinner";
 import { useLocale } from "@/i18n/useLocale";
 import type { ProxyApiKey } from "@/lib/types";
-import { OperatorDestructiveDialog, OperatorInsetPanel, OperatorStatusBadge } from "@/shared/design-system";
-import { getProxyKeyLifecycleLabel, getProxyKeyLifecycleTier } from "./proxyKeyFormatting";
+import { OperatorDestructiveDialog, OperatorInsetPanel, OperatorStatusBadge, OperatorTypeBadge } from "@/shared/design-system";
+import { getProxyKeyLifecycleIntent, getProxyKeyLifecycleLabel } from "./proxyKeyFormatting";
 
 interface ProxyKeyRotateAlertDialogProps {
   authEnabled: boolean;
@@ -34,6 +34,9 @@ export function ProxyKeyRotateAlertDialog({
   const { messages } = useLocale();
   const copy = messages.proxyApiKeys;
   const target = displayedRotateConfirm ?? rotateConfirm;
+  // 生命周期是配置分类；只有「已过期」是上游当场拒绝的运行结果。
+  const lifecycleIntent = target ? getProxyKeyLifecycleIntent(target, authEnabled) : "muted";
+  const LifecycleBadge = lifecycleIntent === "failing" ? OperatorStatusBadge : OperatorTypeBadge;
 
   return (
     <OperatorDestructiveDialog
@@ -59,8 +62,8 @@ export function ProxyKeyRotateAlertDialog({
         <div className="flex flex-col gap-3">
           <div className="flex flex-wrap items-center gap-2">
             <p className="truncate text-sm font-medium text-foreground">{target.name}</p>
-            <OperatorStatusBadge
-              intent={getProxyKeyLifecycleTier(target, authEnabled)}
+            <LifecycleBadge
+              intent={lifecycleIntent}
               label={getProxyKeyLifecycleLabel(target, authEnabled)}
               preserveLabel
             />

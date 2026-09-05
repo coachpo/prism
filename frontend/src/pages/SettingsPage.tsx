@@ -21,14 +21,60 @@ import { useSettingsPageData } from "./settings/useSettingsPageData";
 import { useSettingsPageSectionState } from "./settings/useSettingsPageSectionState";
 import { SETTINGS_SCOPES } from "./settings/settingsNavigation";
 
+// 分区上方的表格是异步读出来的：清理作业表一落地，先前算好的锚点就整体下移
+// （实测 manual-cleanup / retention-jobs 落到折下 900~1140px）。滚动跟到布局
+// 不再变化为止，其间操作者一动手就立刻让位，超时后也停。
+const SECTION_SCROLL_SETTLE_MS = 120;
+const SECTION_SCROLL_DEADLINE_MS = 2500;
+const SECTION_SCROLL_YIELD_EVENTS = ["wheel", "touchmove", "keydown", "pointerdown"] as const;
+
+function alignSectionIntoView(sectionId: string): () => void {
+  let settleTimer = 0;
+  let deadlineTimer = 0;
+  let observer: ResizeObserver | null = null;
+
+  const stop = () => {
+    window.clearTimeout(settleTimer);
+    window.clearTimeout(deadlineTimer);
+    observer?.disconnect();
+    observer = null;
+    for (const type of SECTION_SCROLL_YIELD_EVENTS) {
+      window.removeEventListener(type, stop);
+    }
+  };
+
+  const align = () => {
+    const target = document.getElementById(sectionId);
+    if (!target) return;
+    target.scrollIntoView({ behavior: "smooth", block: "start" });
+    target.focus({ preventScroll: true });
+  };
+
+  align();
+  if (typeof ResizeObserver !== "undefined") {
+    observer = new ResizeObserver(() => {
+      window.clearTimeout(settleTimer);
+      settleTimer = window.setTimeout(align, SECTION_SCROLL_SETTLE_MS);
+    });
+    observer.observe(document.body);
+  }
+  deadlineTimer = window.setTimeout(stop, SECTION_SCROLL_DEADLINE_MS);
+  for (const type of SECTION_SCROLL_YIELD_EVENTS) {
+    window.addEventListener(type, stop, { passive: true });
+  }
+  return stop;
+}
+
 export function SettingsPage() {
   const { messages } = useLocale();
   const { format: formatTime } = useTimezone();
   const auditConfigurationRef = useRef<HTMLDivElement | null>(null);
+  const sectionScrollStop = useRef<(() => void) | null>(null);
   const {
     scope,
     setScope,
     activeSectionId,
+    explicitSection,
     setActiveSectionId,
     jumpToSection,
   } = useSettingsPageSectionState();
@@ -39,27 +85,28 @@ export function SettingsPage() {
   }, []);
   const isAuditConfigurationFocused = scope === SETTINGS_SCOPES.global && activeSectionId === "audit-privacy";
 
+  // 只有 URL 里显式带了 section 才滚。没带时 activeSectionId 也会回落到默认分区，
+  // 无条件滚动会让页头、h1 与这一族唯一的新鲜度条一落地就在视口之外。
   useEffect(() => {
-    if (!activeSectionId) return;
-    const frame = window.requestAnimationFrame(() => {
-      const target = document.getElementById(activeSectionId);
-      if (!target) return;
-      target.scrollIntoView({ behavior: "smooth", block: "start" });
-      target.focus({ preventScroll: true });
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [activeSectionId, scope]);
+    if (!activeSectionId || !explicitSection) return;
+    sectionScrollStop.current?.();
+    const stop = alignSectionIntoView(activeSectionId);
+    sectionScrollStop.current = stop;
+    return () => {
+      stop();
+      if (sectionScrollStop.current === stop) sectionScrollStop.current = null;
+    };
+  }, [activeSectionId, explicitSection, scope]);
 
   const handleJumpToSection = (sectionId: string) => {
-    const target = document.getElementById(sectionId);
-    if (!target) {
+    if (!document.getElementById(sectionId)) {
       return;
     }
 
     setActiveSectionId(sectionId);
     jumpToSection(sectionId);
-    target.scrollIntoView({ behavior: "smooth", block: "start" });
-    window.setTimeout(() => target.focus({ preventScroll: true }), 0);
+    sectionScrollStop.current?.();
+    sectionScrollStop.current = alignSectionIntoView(sectionId);
   };
 
   // The header owns the page's one save action. Which cards are saveable
@@ -69,12 +116,13 @@ export function SettingsPage() {
         ...(data.costingDirty
           ? [{ label: messages.settingsPage.basisAndDisplay, save: data.handleSaveCostingSettings }]
           : []),
+        // 待保存项用卡片自己的标题，一个分区一个名字。
         ...(data.apiFamilyAuditSettingsDirty
-          ? [{ label: messages.settingsPage.auditAndPrivacy, save: data.handleSaveAPIFamilyAuditSettings }]
+          ? [{ label: messages.settingsAudit.apiFamilyAuditControls, save: data.handleSaveAPIFamilyAuditSettings }]
           : []),
       ]
     : data.retentionSettingsDirty
-      ? [{ label: messages.settingsPage.retentionPolicy, save: data.handleSaveRetentionSettings }]
+      ? [{ label: messages.settingsRetentionDeletion.retentionPolicyTitle, save: data.handleSaveRetentionSettings }]
       : [];
 
   const saving = scope === SETTINGS_SCOPES.global
@@ -144,7 +192,7 @@ export function SettingsPage() {
             <OperatorMissingValue reason={messages.freshness.neverLoaded} />
           )
         }
-        basis={isGlobal ? messages.settingsAudit.storageSummaryBasis : messages.settingsRetentionDeletion.retentionJobsDescription}
+        basis={isGlobal ? messages.settingsAudit.storageSummaryBasis : messages.settingsRetentionDeletion.retentionJobsBasis}
         refresh={{
           label: messages.freshness.refresh,
           onRefresh: () => {

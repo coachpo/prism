@@ -1,5 +1,6 @@
 import { ChevronDown, ChevronRight, ExternalLink, Loader2 } from "lucide-react";
 
+import { formatApiFamily } from "@/components/apiFamilyPresentation";
 import { Button } from "@/components/ui/button";
 import { TableCell, TableRow } from "@/components/ui/table";
 import { formatNumber } from "@/i18n/format";
@@ -123,8 +124,11 @@ function ReferenceCell({
             : String(summaryFor(summaryState)?.direct_reference_count),
         )}
         className={cn(
-          "flex min-w-0 items-center gap-1 text-left disabled:cursor-default",
-          canExpand && "hover:text-foreground",
+          // 可展开就要看得出可点：原来这一格量到的是 cursor:auto、无下划线、
+          // 无链接色，操作者读成一段死文本，于是「这个端点被谁引用」没有入口。
+          "flex min-w-0 items-center gap-1 rounded-sm text-left disabled:cursor-default",
+          canExpand &&
+            "cursor-pointer underline decoration-dotted decoration-from-font underline-offset-4 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
         )}
         onClick={canExpand ? onOpen : undefined}
       >
@@ -189,7 +193,37 @@ function reasonLabel(
     case "configuration_integrity_error":
       return copy.inactiveReasonIntegrityError as string;
     default:
-      return reason;
+      // 后端加一个新枚举时屏幕上出现的必须是中文兜底，不是标识符本身。
+      return copy.inactiveReasonUnknown as string;
+  }
+}
+
+/**
+ * 协议列：API 家族走共享的品牌名映射，文本能力过中文字典并带具名兜底——
+ * chat_completions_only 这类标识符不上屏。
+ */
+function protocolLabel(
+  copy: Record<string, string | ((...args: never[]) => string)>,
+  item: EndpointReferenceItem,
+): string {
+  const family = formatApiFamily(item.api_family);
+  if (!item.openai_text_capability) return family;
+  return `${family} · ${textCapabilityLabel(copy, item.openai_text_capability)}`;
+}
+
+function textCapabilityLabel(
+  copy: Record<string, string | ((...args: never[]) => string)>,
+  capability: string,
+): string {
+  switch (capability) {
+    case "dual_native":
+      return copy.protocolCapabilityDual as string;
+    case "chat_completions_only":
+      return copy.protocolCapabilityChatCompletionsOnly as string;
+    case "responses_only":
+      return copy.protocolCapabilityResponsesOnly as string;
+    default:
+      return copy.protocolCapabilityUnknown as string;
   }
 }
 
@@ -250,12 +284,7 @@ function ReferenceItemBody({
           {item.terminal_target_name ?? `#${item.terminal_target_id}`}
         </dd>
         <dt className="text-muted-foreground">{copy.referenceProtocolLabel}</dt>
-        <dd className="min-w-0 truncate font-mono">
-          {item.api_family}
-          {item.openai_text_capability
-            ? ` · ${item.openai_text_capability}`
-            : ""}
-        </dd>
+        <dd className="min-w-0 truncate">{protocolLabel(copy, item)}</dd>
         <dt className="text-muted-foreground">{copy.referencePricingLabel}</dt>
         <dd className="min-w-0 truncate">
           {item.pricing_template ? (
@@ -526,11 +555,8 @@ function MobileReferenceDisclosure({
                   .join(" · ")}
           </dd>
           <dt className="sr-only">{copy.referenceProtocolLabel}</dt>
-          <dd className="font-mono text-muted-foreground">
-            {item.api_family}
-            {item.openai_text_capability
-              ? ` · ${item.openai_text_capability}`
-              : ""}
+          <dd className="text-muted-foreground">
+            {protocolLabel(copy, item)}
           </dd>
           {item.kind === "orphan_connection" ? (
             <dd>

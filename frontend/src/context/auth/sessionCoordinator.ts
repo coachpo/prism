@@ -40,6 +40,10 @@ export type AuthPhase =
       recovery_kind: AuthRecoveryKind;
       retry_after_seconds?: number;
       incident?: DisabledProbeIncident;
+      /** Automatic retries already spent before the gate closed. */
+      auto_retry_attempts?: number;
+      /** Epoch millis of the last authoritative auth answer, or null when there was none. */
+      last_confirmed_at?: number | null;
     }
   | { kind: "SESSION_EXPIRED"; session_epoch: number; return_to: string };
 
@@ -132,6 +136,37 @@ export type AuthCoordinatorOptions = {
 const DISABLED_PROBE_TIMEOUT_MS = 10_000;
 const MAX_DISABLED_PROBE_WAITERS = 64;
 
+// AUTH_UNAVAILABLE has two very different causes and they must not share one
+// recovery policy. An authorization answer (403, an illegal payload, a protocol
+// inconsistency) is definitive, so fail-closed is right. A 5xx, a dropped
+// connection, a timeout or a rate limit is the backend hiccupping: turning the
+// whole console into a full-screen gate on the first failure — and requiring a
+// human click to leave it — costs far more than the fault does. Transient
+// reasons back off and retry themselves; only an exhausted retry budget closes
+// the gate. `request.ts` replays an idempotent 503 that carried Retry-After;
+// this layer covers the unqualified failures that one deliberately leaves.
+const TRANSIENT_AUTH_UNAVAILABLE_REASONS: ReadonlySet<AuthUnavailableReason> = new Set([
+  "bootstrap_failed",
+  "network",
+  "timeout",
+  "rate_limited",
+  "server",
+]);
+const AUTH_UNAVAILABLE_MAX_AUTO_RETRIES = 3;
+const AUTH_UNAVAILABLE_RETRY_BASE_MS = 1_000;
+/** Ceiling for both the backoff and an honoured Retry-After: somebody is waiting behind the gate. */
+const AUTH_UNAVAILABLE_RETRY_CEILING_MS = 30_000;
+
+// The server's own Retry-After wins when it sent one; otherwise the delay
+// doubles per attempt (1s, 2s, 4s).
+export function authUnavailableRetryDelayMs(attempt: number, retryAfterSeconds?: number): number {
+  const base =
+    retryAfterSeconds !== undefined && retryAfterSeconds >= 0
+      ? retryAfterSeconds * 1000
+      : AUTH_UNAVAILABLE_RETRY_BASE_MS * 2 ** attempt;
+  return Math.min(base, AUTH_UNAVAILABLE_RETRY_CEILING_MS);
+}
+
 // AuthSessionCoordinator is the single process-local auth session store.
 export class AuthSessionCoordinator {
   private state: AuthSessionCoordinatorState;
@@ -144,6 +179,10 @@ export class AuthSessionCoordinator {
   private pendingGenerationExpiry: AuthClientEvent | null = null;
   private options: AuthCoordinatorOptions;
   private readonly coordinatorReady: boolean;
+  private autoRetryAttempts = 0;
+  private autoRetryTimer: ReturnType<typeof setTimeout> | null = null;
+  private lastConfirmedAt: number | null = null;
+  private recoveryRunner: (() => void) | null = null;
 
   constructor(options: AuthCoordinatorOptions) {
     this.options = options;
@@ -199,12 +238,72 @@ export class AuthSessionCoordinator {
     this.epochController?.abort();
     this.epochController = new AbortController();
     this.flight = null;
+    this.cancelAutoRecoveryTimer();
     return this.epoch;
+  }
+
+  // ---- automatic recovery for transient auth failures ----
+
+  // setRecoveryRunner registers the public bootstrap read the coordinator may
+  // re-run on its own. Without one (unit tests, teardown) every
+  // AUTH_UNAVAILABLE stays immediately fail-closed.
+  setRecoveryRunner(run: (() => void) | null): void {
+    this.recoveryRunner = run;
+  }
+
+  /** Returns the retry budget, so the next transient failure heals itself again. */
+  cancelAutoRecovery(): void {
+    this.cancelAutoRecoveryTimer();
+    this.autoRetryAttempts = 0;
+  }
+
+  // An epoch change abandons a scheduled retry but not the budget: once the
+  // gate is up the breaker stays open, and the console must not keep polling
+  // /api/auth/status behind it forever.
+  private cancelAutoRecoveryTimer(): void {
+    if (this.autoRetryTimer !== null) {
+      clearTimeout(this.autoRetryTimer);
+      this.autoRetryTimer = null;
+    }
+  }
+
+  // scheduleAutoRecovery returns true when the failure was absorbed into a
+  // backoff instead of the gate. The phase is deliberately left alone: the
+  // operator keeps seeing the awaiting surface they were already on, not a
+  // blocker that appears and disappears on every retry.
+  private scheduleAutoRecovery(reason: AuthUnavailableReason, retryAfterSeconds?: number): boolean {
+    const run = this.recoveryRunner;
+    if (!run || !TRANSIENT_AUTH_UNAVAILABLE_REASONS.has(reason)) {
+      return false;
+    }
+    if (this.autoRetryTimer !== null) {
+      return true;
+    }
+    if (this.autoRetryAttempts >= AUTH_UNAVAILABLE_MAX_AUTO_RETRIES) {
+      return false;
+    }
+    const delayMs = authUnavailableRetryDelayMs(this.autoRetryAttempts, retryAfterSeconds);
+    this.autoRetryAttempts += 1;
+    this.autoRetryTimer = setTimeout(() => {
+      this.autoRetryTimer = null;
+      run();
+    }, delayMs);
+    return true;
+  }
+
+  private now(): number {
+    return this.options.now?.() ?? Date.now();
   }
 
   // ---- phase commits ----
 
   private commit(next: AuthPhase): void {
+    // An authoritative answer is what the gate later reports as the last
+    // confirmation, and it also returns the retry budget.
+    if (next.kind === "AUTHENTICATED" || next.kind === "ANONYMOUS" || next.kind === "AUTH_DISABLED") {
+      this.lastConfirmedAt = this.now();
+      this.cancelAutoRecovery();
+    }
     this.state = { ...this.state, phase: next };
     for (const listener of this.listeners) {
       listener();
@@ -270,6 +369,11 @@ export class AuthSessionCoordinator {
         break;
       }
       case "AUTH_UNAVAILABLE": {
+        if (this.scheduleAutoRecovery(event.reason, event.retry_after_seconds)) {
+          break;
+        }
+        const spentRetries = this.autoRetryAttempts;
+        const lastConfirmedAt = this.lastConfirmedAt;
         this.advanceEpoch();
         this.commit({
           kind: "AUTH_UNAVAILABLE",
@@ -277,16 +381,21 @@ export class AuthSessionCoordinator {
           reason: event.reason,
           recovery_kind: event.recovery_kind,
           retry_after_seconds: event.retry_after_seconds,
+          auto_retry_attempts: spentRetries,
+          last_confirmed_at: lastConfirmedAt,
         });
         break;
       }
       case "AUTH_INCONSISTENT": {
+        const lastConfirmedAt = this.lastConfirmedAt;
         this.advanceEpoch();
         this.commit({
           kind: "AUTH_UNAVAILABLE",
           session_epoch: this.epoch,
           reason: "disabled_but_unauthorized",
           recovery_kind: "public_auth_status",
+          auto_retry_attempts: 0,
+          last_confirmed_at: lastConfirmedAt,
         });
         break;
       }
@@ -674,6 +783,7 @@ export class AuthSessionCoordinator {
   }
 
   enterDisabledProbeExhausted(generation: string, incidentId: string): void {
+    const lastConfirmedAt = this.lastConfirmedAt;
     this.advanceEpoch();
     this.commit({
       kind: "AUTH_UNAVAILABLE",
@@ -681,6 +791,8 @@ export class AuthSessionCoordinator {
       reason: "disabled_but_unauthorized",
       recovery_kind: "public_auth_status",
       incident: { kind: "disabled_401_probe", state: "exhausted", effective_generation: generation, incident_id: incidentId },
+      auto_retry_attempts: 0,
+      last_confirmed_at: lastConfirmedAt,
     });
   }
 

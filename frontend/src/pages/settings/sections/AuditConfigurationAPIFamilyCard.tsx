@@ -12,7 +12,13 @@ import {
 } from "@/components/ui/table";
 import { useLocale } from "@/i18n/useLocale";
 import type { ApiFamily, AuditAPIFamilySetting, AuditStorageSummary } from "@/lib/types";
-import { OperatorLoadingState, OperatorSectionCard } from "@/shared/design-system";
+import {
+  OperatorHelpHint,
+  OperatorLoadingState,
+  OperatorMissingValue,
+  OperatorSectionCard,
+  OperatorTypeBadge,
+} from "@/shared/design-system";
 
 interface AuditConfigurationAPIFamilyCardProps {
   apiFamilyAuditSettings: AuditAPIFamilySetting[];
@@ -74,6 +80,10 @@ export function AuditConfigurationAPIFamilyCard({
           <TableBody>
             {apiFamilyAuditSettings.map((setting) => {
               const familyLabel = getAPIFamilyLabel(setting.api_family, copy);
+              // 「捕获正文」要先开同行的「启用审计」才可用。禁用而不给理由，
+              // 与「已关闭」在屏幕上完全同色，操作者只会反复点一个不响应的开关。
+              const captureBodiesLocked = !setting.audit_enabled;
+              const captureBodiesReasonId = `audit-${setting.api_family}-capture-bodies-reason`;
               return (
                 <TableRow key={setting.api_family} data-testid={`audit-api-family-row-${setting.api_family}`}>
                   <TableCell>
@@ -93,14 +103,26 @@ export function AuditConfigurationAPIFamilyCard({
                     />
                   </TableCell>
                   <TableCell>
-                    <Switch
-                      aria-label={`${familyLabel} ${copy.captureBodies}`}
-                      checked={setting.audit_capture_bodies}
-                      disabled={!setting.audit_enabled || savingAPIFamilyAuditSettings}
-                      onCheckedChange={(checked) =>
-                        setAPIFamilyAuditCaptureBodies(setting.api_family, checked)
-                      }
-                    />
+                    <div className="flex items-center gap-1">
+                      <Switch
+                        aria-label={`${familyLabel} ${copy.captureBodies}`}
+                        aria-describedby={captureBodiesLocked ? captureBodiesReasonId : undefined}
+                        checked={setting.audit_capture_bodies}
+                        disabled={captureBodiesLocked || savingAPIFamilyAuditSettings}
+                        onCheckedChange={(checked) =>
+                          setAPIFamilyAuditCaptureBodies(setting.api_family, checked)
+                        }
+                      />
+                      {captureBodiesLocked ? (
+                        <>
+                          {/* 禁用的开关聚焦不了，理由必须另有一个可 Tab 的载体。 */}
+                          <span id={captureBodiesReasonId} className="sr-only">
+                            {copy.captureBodiesRequiresAudit}
+                          </span>
+                          <OperatorHelpHint label={copy.captureBodiesRequiresAudit} />
+                        </>
+                      ) : null}
+                    </div>
                   </TableCell>
                 </TableRow>
               );
@@ -110,11 +132,22 @@ export function AuditConfigurationAPIFamilyCard({
         {auditStorageLoading ? (
           <p className="text-sm text-muted-foreground">{copy.loadingStorageSummary}</p>
         ) : auditStorageSummary ? (
-          <div className="grid gap-3 rounded-lg border border-border bg-inset p-4 sm:grid-cols-2 lg:grid-cols-4">
-            <StorageFact label={copy.retainedAuditRows} value={auditStorageSummary.retained_rows ?? copy.storageUnavailable} />
-            <StorageFact label={copy.logicalHeaderBytes} value={formatBytes(auditStorageSummary.logical_header_bytes, copy.storageUnavailable)} />
-            <StorageFact label={copy.logicalBodyBytes} value={formatBytes(auditStorageSummary.logical_body_bytes, copy.storageUnavailable)} />
-            <StorageFact label={copy.storageFreshness} value={auditStorageSummary.freshness === "fresh" ? copy.storageFresh : copy.storagePartial} />
+          /* 摘要状态是这块的元字段，不是第四个数值：它挂在摘要条上，
+             三个数值位只放真正的数字或缺值的破折号。 */
+          <div className="flex flex-col gap-3 rounded-lg border border-border bg-inset p-4">
+            <OperatorTypeBadge
+              className="w-fit font-normal"
+              intent={auditStorageSummary.freshness === "fresh" ? "neutral" : "degraded"}
+              preserveLabel
+              label={copy.storageFreshnessBadge(
+                auditStorageSummary.freshness === "fresh" ? copy.storageFresh : copy.storagePartial,
+              )}
+            />
+            <div className="grid min-w-0 gap-3 @xl/main:grid-cols-2 @4xl/main:grid-cols-3">
+              <StorageFact label={copy.retainedAuditRows} reason={copy.storageSummaryUnavailable} value={auditStorageSummary.retained_rows} />
+              <StorageFact label={copy.logicalHeaderBytes} reason={copy.storageSummaryUnavailable} value={formatBytes(auditStorageSummary.logical_header_bytes)} />
+              <StorageFact label={copy.logicalBodyBytes} reason={copy.storageSummaryUnavailable} value={formatBytes(auditStorageSummary.logical_body_bytes)} />
+            </div>
           </div>
         ) : (
           <p className="text-sm text-muted-foreground">{copy.storageSummaryUnavailable}</p>
@@ -129,17 +162,22 @@ export function AuditConfigurationAPIFamilyCard({
   );
 }
 
-function StorageFact({ label, value }: { label: string; value: string }) {
+/** 缺值走破折号 + text-muted，绝不能和一个真实数字长得一模一样。 */
+function StorageFact({ label, reason, value }: { label: string; reason: string; value: string | null }) {
   return (
     <div className="min-w-0">
       <p className="text-xs font-medium text-muted-foreground">{label}</p>
-      <p className="truncate text-sm font-semibold text-foreground">{value}</p>
+      {value === null ? (
+        <OperatorMissingValue className="text-sm" reason={reason} />
+      ) : (
+        <p className="truncate text-sm font-semibold text-foreground">{value}</p>
+      )}
     </div>
   );
 }
 
-function formatBytes(value: string | null, unavailable: string) {
-  if (value === null) return unavailable;
+function formatBytes(value: string | null) {
+  if (value === null) return null;
   const bytes = Number(value);
   if (!Number.isSafeInteger(bytes)) return value;
   if (bytes < 1024) return `${bytes} B`;

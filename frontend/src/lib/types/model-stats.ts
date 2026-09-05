@@ -342,11 +342,43 @@ export interface ModelMetricsBatchItem {
   route_attempt: ScopeMetricBlock;
 }
 
+/** 一个 coverage 缺口。`to_time` 是后端的字段名。 */
+export interface StatsCoverageGap {
+  from_time: string;
+  to_time: string;
+  reason: string;
+}
+
+/** 单个数据集的 coverage 记录。 */
+export interface StatsDatasetCoverage {
+  requested_preset: string;
+  from_time: string;
+  to_time: string;
+  retention_from_time: string | null;
+  source: string;
+  complete: boolean;
+  gaps: StatsCoverageGap[];
+  retention_epoch?: string;
+  retention_generation?: string;
+  purge_state?: string;
+  source_revision?: string;
+}
+
+/**
+ * coverage 按数据集嵌套：`spending.usage_request_events.complete`。
+ * 父层没有 `complete` —— 在父层读它恒为 undefined，裁剪徽章会永远不渲染。
+ */
+export interface StatsCoverageByDataset {
+  usage_request_events?: StatsDatasetCoverage | null;
+  request_logs?: StatsDatasetCoverage | null;
+  loadbalance_events?: StatsDatasetCoverage | null;
+}
+
 export interface ModelMetricsBatchResponse {
   items: ModelMetricsBatchItem[];
   coverage: {
-    quality: Record<string, unknown>;
-    spending: Record<string, unknown>;
+    quality: StatsCoverageByDataset;
+    spending: StatsCoverageByDataset;
   };
 }
 

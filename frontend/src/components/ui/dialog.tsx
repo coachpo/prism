@@ -73,12 +73,20 @@ function DialogContentInner({
 }: DialogContentProps) {
   const handleCloseAutoFocus = useCloseFocusRestore(onCloseAutoFocus)
 
+  // 宽度只走 size 档位。开发期把绕过档位的调用点喊出来，否则它会一直悄悄增加：
+  // 契约只承认 420 / 560 / 720 三档。
+  if (import.meta.env.DEV && typeof className === "string" && /(^|[\s:])max-w-/.test(className)) {
+    console.warn(
+      `DialogContent: 用 size 属性设置宽度，不要在 className 里写 max-w-*（收到 "${className}"）。`,
+    )
+  }
+
   return (
     <DialogPrimitive.Content
       data-slot="dialog-content"
       onCloseAutoFocus={handleCloseAutoFocus}
       className={cn(
-        "bg-panel data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 relative pointer-events-auto my-auto flex max-h-[calc(100dvh-2rem)] w-full max-w-full flex-col gap-4 overflow-y-auto rounded-xl border border-border p-[var(--density-dialog-pad)] duration-200 outline-none has-[[data-slot=dialog-body]]:overflow-hidden sm:max-h-[calc(100dvh-3rem)]",
+        "bg-raised shadow-[var(--shadow-overlay)] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 relative pointer-events-auto my-auto flex max-h-[calc(100dvh-2rem)] w-full max-w-full flex-col gap-4 overflow-y-auto rounded-xl border border-border p-[var(--density-dialog-pad)] duration-200 outline-none has-[[data-slot=dialog-body]]:overflow-hidden sm:max-h-[calc(100dvh-3rem)]",
         dialogSizeClasses[size],
         className
       )}
@@ -167,7 +175,8 @@ function DialogTitle({
   return (
     <DialogPrimitive.Title
       data-slot="dialog-title"
-      className={cn("text-lg leading-tight font-semibold", className)}
+      // 排版档位表里没有 18px：对话框标题与 Section title 同档（15/20）。
+      className={cn("text-[15px] leading-5 font-semibold", className)}
       {...props}
     />
   )

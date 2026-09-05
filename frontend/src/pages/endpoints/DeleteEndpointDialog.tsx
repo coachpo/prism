@@ -30,7 +30,8 @@ function reasonLabel(copy: Record<string, unknown>, reason: string): string {
     case "configuration_integrity_error":
       return copy.inactiveReasonIntegrityError as string
     default:
-      return reason
+      // 后端加一个新枚举时屏幕上出现的必须是中文兜底，不是标识符本身。
+      return copy.inactiveReasonUnknown as string
   }
 }
 
@@ -52,7 +53,7 @@ function BlockerList({
   return (
     <div className="flex flex-col gap-3" data-testid="delete-blockers">
       <p className="text-sm font-medium text-foreground">{copy.deleteBlockedTotal(String(total))}</p>
-      <p className="text-xs text-muted-foreground">{copy.deleteBlockedDescription(detail.endpoint_id)}</p>
+      <p className="text-xs text-muted-foreground">{copy.deleteBlockedDescription(endpoint.name)}</p>
       <div className="overflow-hidden rounded-lg border border-border">
         <Table>
           <TableHeader>

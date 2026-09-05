@@ -1,5 +1,5 @@
 import type { ReactNode } from "react"
-import { useMemo, useState } from "react"
+import { useId, useMemo, useState } from "react"
 import { Link, useNavigate } from "@tanstack/react-router"
 import { MoreHorizontal, Pencil, Plus, Server, Trash2 } from "lucide-react"
 
@@ -195,10 +195,16 @@ function MetricHead({
   const { messages } = useLocale()
   const copy = messages.modelsPage
   const active = sort.column === sortKey
+  // columnheader 的名字必须只剩「列名 + 窗口」。名字若由内容计算，帮助按钮的
+  // aria-label（口径全文）会被并进列名，排序时每次重播一整句。
+  const nameId = useId()
+  const basisId = useId()
 
   return (
     <TableHead
       aria-sort={active ? (sort.direction === "asc" ? "ascending" : "descending") : "none"}
+      aria-labelledby={nameId}
+      aria-describedby={basisId}
       className="p-0 text-right"
     >
       {/* 窗口与列名同一行：把它挤到第二行会让整个表头高出一档，
@@ -221,7 +227,11 @@ function MetricHead({
             </span>
             <SortGlyph active={active} direction={sort.direction} />
           </Button>
-          <OperatorHelpHint label={basis} className="size-5" align="end" />
+          <OperatorHelpHint label={basis} align="end" />
+        </span>
+        <span id={nameId} className="sr-only">{`${label} ${window}`}</span>
+        <span id={basisId} className="sr-only">
+          {basis}
         </span>
         {clipped}
         {stale ? (
@@ -409,9 +419,11 @@ export function ModelsTable({
       ) : null}
 
       {/* 同一个容器同时管纵横滚动：只有这样 thead 的 sticky 才有滚动祖先。
+          高度上限必须走 scrollAreaClassName 落到表格自己的滚动容器上——
+          加在外面再包一层，表头会跟着内容一起滚走。
           行数少于一屏时 max-h 不生效，页面照常整体滚动。 */}
-      <div className="max-h-[calc(100dvh-18rem)] overflow-auto border-t border-border">
-        <Table>
+      <div className="border-t border-border">
+        <Table scrollAreaClassName="max-h-[calc(100dvh-18rem)]">
           <TableHeader className="z-20">
             {/* 口径控件必须挨着它重算的那四列：它原来在卡头，与被它改名的
                 列头相距一千多像素，切换后首屏看不到任何变化。 */}
@@ -420,17 +432,15 @@ export function ModelsTable({
               <TableHead colSpan={MODEL_METRIC_COLUMN_COUNT} className="border-b-0 py-1">
                 <div className="flex items-center justify-end gap-1">
                   {metricsScopeControl}
-                  <OperatorHelpHint
-                    label={copy.metricsScopeBasis(scope)}
-                    className="size-5"
-                    align="end"
-                  />
+                  <OperatorHelpHint label={copy.metricsScopeBasis(scope)} align="end" />
                 </div>
               </TableHead>
               <TableHead className="border-b-0" />
             </TableRow>
             <TableRow>
-              <TableHead className="w-8">
+              {/* 勾选列也要冻结：它排在身份列之前，不冻结就会在横滚时滑到
+                  身份列底下，看起来像行被吃掉了一格。 */}
+              <TableHead className="sticky left-0 z-20 w-8 bg-inset">
                 <Checkbox
                   aria-label={copy.selectAllAria}
                   checked={allPageSelected}
@@ -449,7 +459,7 @@ export function ModelsTable({
                 label={copy.columnModel}
                 onSort={updateSort}
                 sort={sort}
-                className="sticky left-0 z-20 bg-inset shadow-[inset_-1px_0_0_0_var(--color-border)]"
+                className="sticky left-8 z-20 bg-inset shadow-[inset_-1px_0_0_0_var(--color-border)]"
               />
               <SortHead column="api_family" label={copy.columnApiFamily} onSort={updateSort} sort={sort} />
               <SortHead column="status" label={copy.columnStatus} onSort={updateSort} sort={sort} />
@@ -489,13 +499,17 @@ export function ModelsTable({
                 sort={sort}
                 sortKey="spend"
                 stale={metricsFailed}
+                // 路由尝试口径明说不声明成本，再给它挂一个 30 天时间窗，
+                // 读起来就成了「这一列只是取不到数」。没有量，就没有窗口。
                 window={
-                  spendRetentionFrom
-                    ? copy.spendWindowClipped(spendRetentionFrom)
-                    : copy.window30d
+                  scope === "route_attempt"
+                    ? messages.common.notApplicable
+                    : spendRetentionFrom
+                      ? copy.spendWindowClipped(spendRetentionFrom)
+                      : copy.window30d
                 }
                 clipped={
-                  spendRetentionFrom ? (
+                  scope !== "route_attempt" && spendRetentionFrom ? (
                     <OperatorClippedBadge
                       label={messages.honesty.outsideRetention}
                       reason={copy.spendWindowClippedReason(spendRetentionFrom)}
@@ -525,14 +539,14 @@ export function ModelsTable({
 
               return (
                 <TableRow key={model.id} className="group/row" data-testid={`models-table-row-${model.id}`}>
-                  <TableCell className="align-top">
+                  <TableCell className="sticky left-0 z-10 w-8 bg-panel align-top">
                     <Checkbox
                       aria-label={copy.selectModelAria(title)}
                       checked={selectedIds.has(model.id)}
                       onCheckedChange={() => toggleRow(model.id)}
                     />
                   </TableCell>
-                  <TableCell className="sticky left-0 z-10 bg-panel align-top shadow-[inset_-1px_0_0_0_var(--color-border)]">
+                  <TableCell className="sticky left-8 z-10 bg-panel align-top shadow-[inset_-1px_0_0_0_var(--color-border)]">
                     <ModelIdentityCell model={model} view={view} />
                   </TableCell>
                   <TableCell className="align-top">
@@ -548,7 +562,11 @@ export function ModelsTable({
                                 ? messages.routing.capabilityDual
                                 : model.openai_image_operations
                                   ? messages.routing.capabilityImageOnly
-                                  : <OperatorMissingValue />}
+                                  : (
+                                      <OperatorMissingValue
+                                        reason={messages.routing.capabilityUnknownReason}
+                                      />
+                                    )}
                         </span>
                       ) : null}
                     </div>

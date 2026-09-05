@@ -139,6 +139,7 @@
     --color-failing: var(--failing);
     --color-idle: var(--idle);
     --color-destructive: var(--destructive);
+    --color-on-destructive: var(--on-destructive);
 
     /* Spectrum — categorical data encoding only */
     --color-spectrum-1: var(--spectrum-1);
@@ -218,6 +219,8 @@
 
     /* Irreversible operations only; shares the failing hue, not its meaning */
     --destructive: #c0342b;
+    /* 破坏性按钮上的文字。用它而不是硬写 text-white：暗色一侧底是浅色。 */
+    --on-destructive: #ffffff;
 
     /* Spectrum — the many exits */
     --spectrum-1: #1e4fd8;
@@ -295,10 +298,13 @@
 
     --healthy: #66d9a0;
     --degraded: #f5c063;
-    --failing: #f4a9a3;
+    /* 彩度要跟 healthy/degraded 同档，否则暗色下最该跳出来的 failing 反而最不显眼。 */
+    --failing: #ff8a80;
     --idle: #8a93a1;
 
-    --destructive: #f4a9a3;
+    /* 与 failing 解耦：不可逆操作要比「失败状态」更醒目，而不是同一个值。 */
+    --destructive: #ff6b61;
+    --on-destructive: #2b0705;
 
     --spectrum-1: #9fbeff;
     --spectrum-2: #5fd3e8;
@@ -339,6 +345,8 @@
         --density-table-row-h: 2.625rem;
         --density-table-cell-py: 0.5rem;
         --density-table-cell-px: 0.625rem;
+        /* 行距要跟着密度一起收：只压 padding 的紧凑模式在多行单元格上省不下东西。 */
+        --density-table-cell-lh: 1.15rem;
         --density-empty-pad-y: 2.5rem;
         --density-sheet-pad: 1rem;
         --density-dialog-pad: 1.25rem;
@@ -361,9 +369,17 @@
         --density-table-row-h: 2.125rem;
         --density-table-cell-py: 0.3125rem;
         --density-table-cell-px: 0.5rem;
+        --density-table-cell-lh: 1rem;
         --density-empty-pad-y: 2rem;
         --density-sheet-pad: 0.875rem;
         --density-dialog-pad: 1rem;
+    }
+    /* 手机宽度再收一档页边距：16px 两侧在 390 上要吃掉 8% 的可用宽。 */
+    @media (max-width: 419px) {
+        html,
+        html[data-density="compact"] {
+            --density-page-pad-x: 0.75rem;
+        }
     }
     body {
         @apply bg-background text-foreground antialiased;
@@ -450,6 +466,26 @@
     }
     .operator-page-transition {
         transition: opacity 180ms ease, transform 180ms ease;
+    }
+    /*
+     * 行操作在可 hover 的指针下淡出，但溢出菜单触发器（最后一个子节点）常驻淡显：
+     * 整组一起淡到 0，一整屏的行看起来就完全没有操作入口，操作者不知道行尾还有编辑/删除。
+     */
+    .operator-row-actions > * {
+        opacity: 0;
+        transition: opacity 150ms ease;
+    }
+    .operator-row-actions > *:last-child {
+        opacity: 0.6;
+    }
+    .group\/row:hover .operator-row-actions > *,
+    .operator-row-actions:focus-within > * {
+        opacity: 1;
+    }
+    @media (hover: none) {
+        .operator-row-actions > * {
+            opacity: 1;
+        }
     }
 }
 

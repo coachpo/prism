@@ -88,6 +88,15 @@ export const observeSearchSchema = z.object({
     .enum(["auto", "5m", "15m", "1h", "6h", "1d", "1w", "1mo", "1y"])
     .catch("auto"),
   cost_segment_key: searchStringSchema.catch(""),
+  // 终端目标明细的统计口径。它决定表里每个数字算的是哪一类事件，
+  // 属于「这一屏是什么」的一部分，必须能被链接与刷新带走。
+  tt_scope: z
+    .enum(["final_execution", "route_attempt"])
+    .optional()
+    .catch(undefined),
+  // 主图看的是曲线还是数据表，同样是「这一屏是什么」的一部分：
+  // 分享出去的链接必须带上它。默认值不写进地址栏。
+  view: z.enum(["chart", "table"]).optional().catch(undefined),
   // Shared event window (Events timeline only; never sent to Current State).
   // Absent values resolve to the 24h default at the data layer; the URL stays
   // clean so unrelated tabs do not gain noisy query params.
@@ -263,8 +272,12 @@ export const requestAuditSearchSchema = z.object({
 // canonicalization (old tab=global meant instance, so it is never mapped).
 // Billing-currency section-owned Pricing keys are allowlisted only under an
 // explicit section=billing-currency.
+// Every enumerated key carries `.catch(undefined)`: a stale bookmark or a
+// hand-edited value must degrade to the default view, never throw the whole
+// route into the error boundary (and never print the enum members back out).
+// `SETTINGS_FALLBACK_SEARCH_KEYS` is what the page reports as ignored.
 export const settingsSearchSchema = z.object({
-  scope: z.enum(["global", "instance"]).optional(),
+  scope: z.enum(["global", "instance"]).optional().catch(undefined),
   section: z
     .enum([
       "billing-currency",
@@ -277,12 +290,20 @@ export const settingsSearchSchema = z.object({
       "manual-cleanup",
       "retention-jobs",
     ])
-    .optional(),
+    .optional()
+    .catch(undefined),
   costing_action: z
     .enum(["currency_cutover", "repair_same_currency", "archive_unused_fx"])
-    .optional(),
+    .optional()
+    .catch(undefined),
   pricing_inventory_id: z.string().optional(),
 });
+
+export const SETTINGS_FALLBACK_SEARCH_KEYS = [
+  "scope",
+  "section",
+  "costing_action",
+] as const;
 
 // Models list canonical search: filters, sort and pagination are URL state so
 // a filtered view is a shareable link. `/route/models` previously accepted no
@@ -290,13 +311,20 @@ export const settingsSearchSchema = z.object({
 export const modelsListSearchSchema = z.object({
   // Entry qualification view is URL-backed so operators can deep-link the
   // default client-entry list, Model Target-only list, or the full inventory.
-  view: z.enum(["entries", "model_targets", "all"]).optional(),
+  view: z.enum(["entries", "model_targets", "all"]).optional().catch(undefined),
   scope: z
     .enum(["ingress", "final_execution", "route_attempt"])
-    .optional(),
+    .optional()
+    .catch(undefined),
   search: z.string().optional(),
-  api_family: z.enum(["all", "openai", "anthropic", "gemini"]).optional(),
-  status: z.enum(["all", "enabled", "disabled"]).optional(),
+  api_family: z
+    .enum(["all", "openai", "anthropic", "gemini"])
+    .optional()
+    .catch(undefined),
+  status: z.enum(["all", "enabled", "disabled"]).optional().catch(undefined),
+  // 配置链上一环回链到这里用的定位参数：路由策略页的「已绑定模型配置」计数
+  // 点进来就是这一批。非法值折回全部，不把列表打空。
+  strategy_id: z.coerce.number().int().min(1).optional().catch(undefined),
   // Identity filters: upstream_decoupled matches entry models whose direct
   // Terminal Targets hold a persisted upstream identity differing from the
   // entry model_id (case-sensitive); has_model_target matches entries with at
@@ -309,7 +337,8 @@ export const modelsListSearchSchema = z.object({
       "upstream_decoupled",
       "has_model_target",
     ])
-    .optional(),
+    .optional()
+    .catch(undefined),
   sort_by: z
     .enum([
       "name",
@@ -322,11 +351,27 @@ export const modelsListSearchSchema = z.object({
       "requests",
       "spend",
     ])
-    .optional(),
-  sort_order: z.enum(["asc", "desc"]).optional(),
-  page: z.coerce.number().int().min(1).optional(),
-  page_size: z.coerce.number().int().min(1).max(200).optional(),
+    .optional()
+    .catch(undefined),
+  sort_order: z.enum(["asc", "desc"]).optional().catch(undefined),
+  // Paging is the easiest thing to hand-edit wrong (`?page=0`), so it degrades
+  // to the first page instead of taking the list down.
+  page: z.coerce.number().int().min(1).optional().catch(undefined),
+  page_size: z.coerce.number().int().min(1).max(200).optional().catch(undefined),
 });
+
+export const MODELS_LIST_FALLBACK_SEARCH_KEYS = [
+  "view",
+  "scope",
+  "api_family",
+  "status",
+  "strategy_id",
+  "flag",
+  "sort_by",
+  "sort_order",
+  "page",
+  "page_size",
+] as const;
 
 export const emptySearchSchema = z.object({});
 

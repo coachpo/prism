@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
@@ -17,6 +17,8 @@ import {
   isObserveScope,
   isValidMetricForScope,
   OBSERVE_SCOPES,
+  type ObserveGroupBy,
+  type ObserveMetric,
   type ObservePreset,
   type ObserveScope,
 } from "@/features/observe/observeSearch";
@@ -83,13 +85,41 @@ export function ObservePage() {
   const parsedGroupBy = isObserveGroupBy(search.group_by)
     ? search.group_by
     : "none";
-  const groupBy = groupBelongsToScope(parsedGroupBy, scope)
-    ? parsedGroupBy
-    : "none";
+  // The error view renders no grouped ranking and carries no grouping control,
+  // so a `group_by` in its URL is read-only-not-writable: it re-bases a read
+  // nobody can see or undo. It is dropped instead of left dangling.
+  const groupBy =
+    view === "errors" || !groupBelongsToScope(parsedGroupBy, scope)
+      ? "none"
+      : parsedGroupBy;
   const needsMetricNormalize = rawMetric !== metric;
   const needsGroupNormalize = parsedGroupBy !== groupBy;
+  /**
+   * A scope switch that rewrites the metric or the grouping must say so: the
+   * same URL, shared or reloaded, otherwise renders a different chart under an
+   * unchanged-looking control strip.
+   */
+  const [scopeRewrite, setScopeRewrite] = useState<{
+    fromMetric: ObserveMetric | null;
+    toMetric: ObserveMetric;
+    fromGroup: ObserveGroupBy | null;
+  } | null>(null);
   useEffect(() => {
     if (!needsMetricNormalize && !needsGroupNormalize) return;
+    const fromMetric =
+      isObserveMetric(rawMetric) && !isValidMetricForScope(rawMetric, scope)
+        ? rawMetric
+        : null;
+    const fromGroup =
+      view !== "errors" &&
+      parsedGroupBy !== "none" &&
+      !groupBelongsToScope(parsedGroupBy, scope)
+        ? parsedGroupBy
+        : null;
+    if (fromMetric || fromGroup) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setScopeRewrite({ fromMetric, toMetric: metric, fromGroup });
+    }
     void navigate({
       to: "/observe",
       search: {
@@ -106,8 +136,11 @@ export function ObservePage() {
     metric,
     groupBy,
     navigate,
+    parsedGroupBy,
+    rawMetric,
     search,
     scope,
+    view,
   ]);
 
   const setSearch = useCallback(
@@ -159,7 +192,11 @@ export function ObservePage() {
   const refreshing =
     fragments.now.phase === "loading" ||
     fragments.summary.phase === "loading" ||
-    analysisContext.phase === "loading";
+    analysisContext.phase === "loading" ||
+    setup.loading;
+
+  /** The bucket width the server actually applied, not the requested `auto`. */
+  const effectiveInterval = seriesFragment.data?.interval ?? null;
 
   return (
     <div
@@ -186,12 +223,18 @@ export function ObservePage() {
       />
 
       <ObserveFreshnessBar
-        basis={messages.observe.windowBasis(preset)}
+        basis={messages.observe.windowBasis(
+          messages.observe.presetName(preset),
+        )}
         nowFragment={fragments.now}
         summaryFragment={fragments.summary}
         onRefresh={() => {
+          // Every read that feeds this page, not a third of them: the setup
+          // block shares the page's observation timestamp, so leaving it on the
+          // previous read would repaint stale readiness facts as fresh.
           fragments.refresh();
           analysisContext.refresh();
+          setup.refresh();
         }}
         refreshing={refreshing}
       />
@@ -229,8 +272,10 @@ export function ObservePage() {
         </OperatorCallout>
       ) : null}
 
-      <WindowKpiGrid fragment={fragments.summary} onRetry={fragments.refresh} />
-
+      {/* 视图切换与视图正文排在窗口 KPI 之前：1440×900 上，KPI 网格把
+          tab 条压到 829px、图表卡头压到 937px，「这次请求为何失败」这类
+          最常见的任务永远要先滚一屏，1280×800 连自己在哪个视图都看不见。
+          窗口 KPI 是这一屏的小结，留在视图正文之后。 */}
       <Tabs
         value={view}
         onValueChange={setView}
@@ -267,15 +312,24 @@ export function ObservePage() {
             onValueChange={(value) => {
               if (!value || !isObserveScope(value)) return;
               const nextScope = value as ObserveScope;
-              const nextMetric = isValidMetricForScope(metric, nextScope)
+              const metricKept = isValidMetricForScope(metric, nextScope);
+              const nextMetric = metricKept
                 ? metric
                 : defaultMetricForScope(nextScope);
+              const groupKept = groupBelongsToScope(groupBy, nextScope);
+              setScopeRewrite(
+                metricKept && groupKept
+                  ? null
+                  : {
+                      fromMetric: metricKept ? null : metric,
+                      toMetric: nextMetric,
+                      fromGroup: groupKept || groupBy === "none" ? null : groupBy,
+                    },
+              );
               setSearch({
                 scope: nextScope === "ingress" ? undefined : nextScope,
                 metric: nextMetric,
-                group_by: groupBelongsToScope(groupBy, nextScope)
-                  ? groupBy
-                  : "none",
+                group_by: groupKept ? groupBy : "none",
               });
             }}
           >
@@ -304,20 +358,67 @@ export function ObservePage() {
       {view === "trend" ? (
         <OperatorSectionCard
           title={messages.observe.mainChartTitle}
-          description={messages.observe.windowBasis(preset)}
+          // 这张图用的就是页级时间窗，新鲜度栏已经写过一次口径：只有块级
+          // 口径与页级不同才需要在块上重述。桶宽是这张图独有的基准，留着。
+          description={
+            effectiveInterval
+              ? messages.observe.bucketBasis(
+                  messages.observe.intervalName(effectiveInterval),
+                )
+              : undefined
+          }
         >
+          {scopeRewrite ? (
+            <OperatorCallout
+              intent="muted"
+              className="mb-3"
+              data-testid="observe-scope-rewrite-notice"
+              title={messages.observe.scopeRewriteTitle}
+            >
+              {scopeRewrite.fromMetric ? (
+                <p>
+                  {messages.observe.scopeRewriteMetric(
+                    messages.observe.metricName(scopeRewrite.fromMetric),
+                    messages.observe.metricName(scopeRewrite.toMetric),
+                  )}
+                </p>
+              ) : null}
+              {scopeRewrite.fromGroup ? (
+                <p>
+                  {messages.observe.scopeRewriteGroup(
+                    messages.observe.groupName(scopeRewrite.fromGroup),
+                  )}
+                </p>
+              ) : null}
+            </OperatorCallout>
+          ) : null}
           <ObserveMainChart
             fragment={seriesFragment}
             metric={metric}
             groupBy={groupBy}
-            onMetricChange={(next) => setSearch({ metric: next })}
-            onGroupByChange={(next) => setSearch({ group_by: next })}
+            interval={search.interval ?? "auto"}
+            view={search.view === "table" ? "table" : "chart"}
+            onViewChange={(next) =>
+              setSearch({ view: next === "chart" ? undefined : next })
+            }
+            onMetricChange={(next) => {
+              setScopeRewrite(null);
+              setSearch({ metric: next });
+            }}
+            onGroupByChange={(next) => {
+              setScopeRewrite(null);
+              setSearch({ group_by: next });
+            }}
+            onIntervalChange={(next) => setSearch({ interval: next })}
+            onRetry={seriesFragment.refresh}
             scope={scope}
           />
           <div className="mt-2 flex justify-end">
+            {/* 趋势 → 错误是保持同口径的唯一入口：文字高 16px，命中区靠
+                上下各 6px 的内边距补到 28px，视觉行高不变。 */}
             <button
               type="button"
-              className="text-xs text-primary underline-offset-4 hover:underline"
+              className="-my-1.5 inline-flex min-h-7 items-center py-1.5 text-xs text-primary underline-offset-4 hover:underline"
               onClick={() => setView("errors")}
             >
               {messages.observe.viewLinkedErrors}
@@ -352,6 +453,7 @@ export function ObservePage() {
         >
           <ObserveActivityTable
             preset={preset}
+            onPresetChange={setPreset}
             queryContext={fragments.queryContext.data?.query_context ?? null}
           />
         </OperatorSectionCard>
@@ -360,11 +462,24 @@ export function ObservePage() {
       {view === "terminal_targets" ? (
         <OperatorSectionCard
           title={messages.observe.ttDrillDownTitle}
-          description={messages.observe.terminalTargetWindowNote(preset)}
+          description={messages.observe.terminalTargetWindowNote(
+            messages.observe.presetName(preset),
+          )}
         >
-          <TerminalTargetDrillDown key={preset} preset={preset} />
+          <TerminalTargetDrillDown
+            key={preset}
+            preset={preset}
+            scope={search.tt_scope === "route_attempt" ? "route_attempt" : "final_execution"}
+            onScopeChange={(next) =>
+              setSearch({
+                tt_scope: next === "final_execution" ? undefined : next,
+              })
+            }
+          />
         </OperatorSectionCard>
       ) : null}
+
+      <WindowKpiGrid fragment={fragments.summary} onRetry={fragments.refresh} />
 
       <RoutingHealthEntryCard />
     </div>

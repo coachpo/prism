@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo } from "react"
+import { createContext, useContext, useEffect, useId, useMemo, useRef } from "react"
 import { cva, type VariantProps } from "class-variance-authority"
 
 import { cn } from "@/lib/utils"
@@ -78,19 +78,67 @@ const fieldVariants = cva(
   }
 )
 
+/**
+ * 字段说明与错误的 id 由 Field 统一发放，再由 Field 挂到它包住的那个控件上。
+ *
+ * 不这样做的话，`FieldDescription` 只是一段视觉上挨着控件的文字：读屏用户
+ * 聚焦到输入框时听不到「这个值该怎么填」，也听不到校验为什么失败——契约要求
+ * 说明必须与控件关联，而不是仅仅排版在旁边。
+ */
+const FieldIdsContext = createContext<{
+  descriptionId: string
+  errorId: string
+} | null>(null)
+
+/** 只找 Field 直属的控件，不穿透嵌套的子 Field。 */
+const FIELD_CONTROL_SELECTOR =
+  "input,textarea,select,[role=switch],[role=combobox],[role=radiogroup],[contenteditable=true]"
+
 function Field({
   className,
   orientation = "vertical",
   ...props
 }: React.ComponentProps<"div"> & VariantProps<typeof fieldVariants>) {
+  const generatedId = useId()
+  const descriptionId = `${generatedId}-description`
+  const errorId = `${generatedId}-error`
+  const fieldRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const field = fieldRef.current
+    if (!field) return
+    const control = [...field.querySelectorAll(FIELD_CONTROL_SELECTOR)].find(
+      (node) => node.closest("[data-slot=field]") === field,
+    )
+    if (!control) return
+    // 调用处自己写了关联就以它为准：这里只补上没人管的那一大批。
+    if (control.getAttribute("data-field-described") !== "true" && control.hasAttribute("aria-describedby")) {
+      return
+    }
+    const ids = [
+      field.querySelector(`#${CSS.escape(descriptionId)}`) ? descriptionId : null,
+      field.querySelector(`#${CSS.escape(errorId)}`) ? errorId : null,
+    ].filter((value): value is string => value !== null)
+    if (ids.length === 0) {
+      control.removeAttribute("aria-describedby")
+      control.removeAttribute("data-field-described")
+      return
+    }
+    control.setAttribute("aria-describedby", ids.join(" "))
+    control.setAttribute("data-field-described", "true")
+  })
+
   return (
-    <div
-      role="group"
-      data-slot="field"
-      data-orientation={orientation}
-      className={cn(fieldVariants({ orientation }), className)}
-      {...props}
-    />
+    <FieldIdsContext.Provider value={{ descriptionId, errorId }}>
+      <div
+        ref={fieldRef}
+        role="group"
+        data-slot="field"
+        data-orientation={orientation}
+        className={cn(fieldVariants({ orientation }), className)}
+        {...props}
+      />
+    </FieldIdsContext.Provider>
   )
 }
 
@@ -138,12 +186,15 @@ function FieldTitle({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
-function FieldDescription({ className, ...props }: React.ComponentProps<"p">) {
+function FieldDescription({ className, id, ...props }: React.ComponentProps<"p">) {
+  const ids = useContext(FieldIdsContext)
   return (
     <p
+      id={id ?? ids?.descriptionId}
       data-slot="field-description"
       className={cn(
-        "text-sm leading-normal font-normal text-muted-foreground group-has-[[data-orientation=horizontal]]/field:text-balance",
+        // 字段说明是 caption 档（12px）。14px 会让它读起来与字段标签同级。
+        "text-xs leading-normal font-normal text-muted-foreground group-has-[[data-orientation=horizontal]]/field:text-balance",
         "last:mt-0 nth-last-2:-mt-1 [[data-variant=legend]+&]:-mt-1.5",
         "[&>a]:underline [&>a]:underline-offset-4 [&>a:hover]:text-primary",
         className
@@ -187,10 +238,12 @@ function FieldError({
   className,
   children,
   errors,
+  id,
   ...props
 }: React.ComponentProps<"div"> & {
   errors?: Array<{ message?: string } | undefined>
 }) {
+  const ids = useContext(FieldIdsContext)
   const content = useMemo(() => {
     if (children) {
       return children
@@ -225,8 +278,9 @@ function FieldError({
   return (
     <div
       role="alert"
+      id={id ?? ids?.errorId}
       data-slot="field-error"
-      className={cn("text-sm font-normal text-destructive", className)}
+      className={cn("text-xs font-normal text-destructive", className)}
       {...props}
     >
       {content}

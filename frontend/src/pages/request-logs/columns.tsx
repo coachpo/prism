@@ -188,6 +188,19 @@ export function getColumns(): ColumnDef[] {
       ),
     },
     {
+      // 审计页是 /observe/requests/:requestId/audit：列表上没有请求 ID，
+      // 一行就没法和一条深链对上，也没法粘到别处去查。
+      key: "request_id",
+      label: messages.requestId,
+      width: 132,
+      grow: 0,
+      render: (row) => (
+        <span className="block truncate font-mono text-xs">
+          {row.request_log_id}
+        </span>
+      ),
+    },
+    {
       key: "status_code",
       label: messages.status,
       width: 84,
@@ -336,6 +349,7 @@ export function getColumns(): ColumnDef[] {
             <UpstreamModelIdValue
               value={row.upstream_model_id}
               missingReason={reason}
+              elide
               className="block truncate text-xs"
             />
           </div>
@@ -344,17 +358,22 @@ export function getColumns(): ColumnDef[] {
     },
     {
       key: "terminal_target",
-      label: messages.terminalTarget ?? "Terminal Target",
+      label: messages.terminalTarget,
       width: 180,
       grow: 2,
-      render: (row) => (
-        <span className="block truncate text-xs font-medium">
-          {row.terminal_target_label ??
-            (row.terminal_target_id === null
-              ? "—"
-              : messages.terminalTargetId(row.terminal_target_id))}
-        </span>
-      ),
+      render: (row) => {
+        const label =
+          row.terminal_target_label ??
+          (row.terminal_target_id === null
+            ? null
+            : messages.terminalTargetId(row.terminal_target_id));
+        // 悬停要读得出全值：尾部省略砍掉的正是标识符的区分位。
+        return (
+          <span className="block truncate text-xs font-medium" title={label ?? undefined}>
+            {label ?? "—"}
+          </span>
+        );
+      },
     },
     {
       key: "client",

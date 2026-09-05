@@ -42,9 +42,20 @@ export function ModelInventoryViewSwitch({
         value={view}
         variant="outline"
       >
-        <ToggleGroupItem value="entries">{copy.viewEntries}</ToggleGroupItem>
-        <ToggleGroupItem value="model_targets">{copy.viewModelTargets}</ToggleGroupItem>
-        <ToggleGroupItem value="all">{copy.viewAll}</ToggleGroupItem>
+        {/* URL 驱动的分段控件里，方向键要「选中」而不只是「预览」：
+            同一页的 Tabs 按方向键就直接改 URL，两套语义会互相矛盾。 */}
+        <ToggleGroupItem value="entries" onFocus={() => onViewChange("entries")}>
+          {copy.viewEntries}
+        </ToggleGroupItem>
+        <ToggleGroupItem
+          value="model_targets"
+          onFocus={() => onViewChange("model_targets")}
+        >
+          {copy.viewModelTargets}
+        </ToggleGroupItem>
+        <ToggleGroupItem value="all" onFocus={() => onViewChange("all")}>
+          {copy.viewAll}
+        </ToggleGroupItem>
       </ToggleGroup>
     </div>
   )

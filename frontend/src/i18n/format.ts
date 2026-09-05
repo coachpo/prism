@@ -48,7 +48,8 @@ export function formatTimestampForLocale(
   options?: Intl.DateTimeFormatOptions,
 ): string {
   if (!isoString) {
-    return "-";
+    // 缺值一律是 em dash：ASCII 连字符与「负数」「区间」在数字列里分不开。
+    return "—";
   }
 
   try {
@@ -56,17 +57,34 @@ export function formatTimestampForLocale(
     return new Intl.DateTimeFormat(locale, {
       timeZone: timezone,
       year: "numeric",
-      month: "numeric",
-      day: "numeric",
-      hour: "numeric",
-      minute: "numeric",
-      second: "numeric",
+      // 定宽的月/日让同一列的时间戳纵向对齐。
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
       hour12: false,
       ...options,
     }).format(date);
   } catch {
     return isoString;
   }
+}
+
+/**
+ * 带时区后缀的时间戳。同一屏上同时出现本地时间与后端的 UTC 串时，
+ * 不标偏移量就分不出两个数字差的是三小时还是三小时的数据延迟。
+ */
+export function formatTimestampWithZoneForLocale(
+  locale: Locale,
+  timezone: string,
+  isoString: string,
+  options?: Intl.DateTimeFormatOptions,
+): string {
+  return formatTimestampForLocale(locale, timezone, isoString, {
+    timeZoneName: "shortOffset",
+    ...options,
+  });
 }
 
 export function formatDateForLocale(

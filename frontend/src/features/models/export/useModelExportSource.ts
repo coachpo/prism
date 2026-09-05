@@ -169,6 +169,17 @@ export function useModelExportSource() {
     });
   }, [updateSelectedIds, visibleModels]);
 
+  // 把当前选择收敛到给定集合。主操作被某个选中项挡住时，页面用它给出
+  // 一键出路，而不是让操作者逐行去猜该取消哪些。
+  const retainSelection = useCallback(
+    (keep: ReadonlySet<number>) => {
+      updateSelectedIds(
+        (current) => new Set([...current].filter((id: number) => keep.has(id))),
+      );
+    },
+    [updateSelectedIds],
+  );
+
   const refetchSource = sourceQuery.refetch;
   const reconcileSource = useCallback(async () => {
     try {
@@ -209,6 +220,7 @@ export function useModelExportSource() {
     models,
     piViewFor,
     priceCompleteOnly,
+    retainSelection,
     selectedCount: selectedIds.size,
     selectedIds,
     selectedModels,

@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { ArrowDown, ArrowUp, Loader2, RefreshCw, SearchX } from "lucide-react";
+import { Loader2, RefreshCw, SearchX } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,10 +25,14 @@ import {
   OperatorClippedBadge,
   OperatorEmptyState,
   OperatorErrorState,
+  OperatorHelpHint,
   OperatorSectionCard,
   OperatorStalenessBadge,
 } from "@/shared/design-system";
-import { OperationalTableSkeletonRows } from "@/shared/table/operationalTable";
+import {
+  OperationalTableSkeletonRows,
+  SortableTableHead,
+} from "@/shared/table/operationalTable";
 import { PaginationLiveStatus } from "@/shared/table/paginationControls";
 import {
   keepsCommittedRows,
@@ -38,7 +42,10 @@ import { LoadbalanceEventDetailSheet } from "./LoadbalanceEventDetailSheet";
 import { LoadbalanceEventRow } from "./LoadbalanceEventRow";
 import type { RoutingHealthSearch } from "./routingHealthSearch";
 import type { RoutingHealthContextState } from "./useRoutingHealthQueryContext";
-import type { useRoutingHealthEventPage } from "./useRoutingHealthEventPage";
+import {
+  EVENTS_PAGE_SIZE_OPTIONS,
+  type useRoutingHealthEventPage,
+} from "./useRoutingHealthEventPage";
 
 type EventPageState = ReturnType<typeof useRoutingHealthEventPage>;
 
@@ -53,7 +60,7 @@ export function LoadbalanceEventsPresentation({
   preset: string;
   search: RoutingHealthSearch;
 }) {
-  const { messages } = useLocale();
+  const { formatNumber, messages } = useLocale();
   const { format: formatTime } = useTimezone();
   const copy = messages.routingHealth;
   const tableCopy = messages.operationalTable;
@@ -69,9 +76,11 @@ export function LoadbalanceEventsPresentation({
     goNextPage,
     goPreviousPage,
     openEventDetail,
+    pageSize,
     refresh,
     retryRead,
     selectedEventId,
+    setPageSize,
     sortOrder,
     updateSearch,
     retryQueryContext,
@@ -94,6 +103,18 @@ export function LoadbalanceEventsPresentation({
     fragment.error !== null &&
     fragment.data !== null &&
     !fragment.stale;
+  // 游标分页拿不到总数，页脚只报本页区间和还有没有下一页。深链直接落在某个
+  // 游标上时连偏移量都不知道，那就只说本页几条，不去推算一个假的起始序号。
+  const pageRangeStart = eventCursorStack.length * pageSize + 1;
+  const pageRangeLabel =
+    items.length === 0
+      ? null
+      : deepLinkedPage
+        ? copy.pageRangeUnknown(formatNumber(items.length))
+        : copy.pageRange(
+            formatNumber(pageRangeStart),
+            formatNumber(pageRangeStart + items.length - 1),
+          );
 
   return (
     <OperatorSectionCard
@@ -284,26 +305,6 @@ export function LoadbalanceEventsPresentation({
               }
             }}
           />
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() =>
-              updateSearch({
-                event_sort_order: sortOrder === "desc" ? "asc" : "desc",
-                event_cursor: undefined,
-                event_id: undefined,
-              })
-            }
-            aria-label={copy.sortToggleLabel}
-          >
-            {sortOrder === "desc" ? (
-              <ArrowDown data-icon="inline-start" />
-            ) : (
-              <ArrowUp data-icon="inline-start" />
-            )}
-            {sortOrder === "desc" ? copy.sortNewestFirst : copy.sortOldestFirst}
-          </Button>
         </div>
       </div>
 
@@ -407,16 +408,41 @@ export function LoadbalanceEventsPresentation({
       ) : null}
 
       {showTableShell ? (
-        <div className="overflow-x-auto" aria-busy={fragment.reading}>
-          <Table aria-label={copy.eventsTitle}>
+        <div aria-busy={fragment.reading}>
+          {/* sticky 表头只对最近的滚动祖先生效：高度上限必须落在表格自己的
+              滚动容器上，横竖两轴同源，否则滚过十行就没有列义了。 */}
+          <Table
+            aria-label={copy.eventsTitle}
+            scrollAreaClassName="max-h-[calc(100dvh-22rem)]"
+          >
             <TableHeader>
               <TableRow>
-                <TableHead>{copy.timeColumn}</TableHead>
+                {/* 排序开关原来在筛选行最右，离它重新排序的那一列约 800px，
+                    列头上既没有 aria-sort 也没有方向字形。 */}
+                <SortableTableHead
+                  className="sticky left-0 z-20 bg-inset shadow-[inset_-1px_0_0_0_var(--color-border)]"
+                  sortKey="created_at"
+                  sort={{ column: "created_at", direction: sortOrder }}
+                  onSort={() =>
+                    updateSearch({
+                      event_sort_order: sortOrder === "desc" ? "asc" : "desc",
+                      event_cursor: undefined,
+                      event_id: undefined,
+                    })
+                  }
+                >
+                  {copy.timeColumn}
+                </SortableTableHead>
                 <TableHead>{copy.eventColumn}</TableHead>
                 <TableHead>{copy.modelColumn}</TableHead>
                 <TableHead>{copy.targetColumn}</TableHead>
-                <TableHead>{copy.windowColumn}</TableHead>
-                <TableHead className="text-right">
+                <TableHead>
+                  <span className="inline-flex items-center gap-1">
+                    {copy.windowColumn}
+                    <OperatorHelpHint label={copy.windowColumnHint} />
+                  </span>
+                </TableHead>
+                <TableHead className="sticky right-0 z-20 bg-inset text-right shadow-[inset_1px_0_0_0_var(--color-border)]">
                   {copy.actionsColumn}
                 </TableHead>
               </TableRow>
@@ -441,32 +467,63 @@ export function LoadbalanceEventsPresentation({
         </div>
       ) : null}
 
-      {eventCursorStack.length > 0 ||
+      {/* 只有一页时也要出页脚：那一句区间就是这张表的「共 N 条」，
+          否则「25 条是全部还是第一页」只能靠点下一页去试。 */}
+      {showCommittedRows ||
+      eventCursorStack.length > 0 ||
       fragment.data?.has_more ||
       fragment.reading ? (
-        <div className="flex items-center justify-end gap-1">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={fragment.reading || eventCursorStack.length === 0}
-            onClick={goPreviousPage}
-          >
-            {copy.previousPage}
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={
-              fragment.reading ||
-              !fragment.data?.has_more ||
-              !fragment.data?.next_cursor
-            }
-            onClick={goNextPage}
-          >
-            {copy.nextPage}
-          </Button>
+        <div className="flex flex-col gap-2 border-t border-border pt-2 sm:flex-row sm:items-center sm:justify-between">
+          <span className="text-xs text-muted-foreground">
+            {pageRangeLabel
+              ? `${pageRangeLabel} · ${fragment.data?.has_more ? copy.pageHasMore : copy.pageAtEnd}`
+              : null}
+          </span>
+          <div className="flex items-center gap-2">
+            <Select
+              value={String(pageSize)}
+              onValueChange={(value) => setPageSize(Number(value))}
+            >
+              <SelectTrigger
+                size="sm"
+                aria-label={tableCopy.pageSize}
+                className="w-20 text-xs"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {EVENTS_PAGE_SIZE_OPTIONS.map((option) => (
+                    <SelectItem key={option} value={String(option)}>
+                      {formatNumber(option)}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={fragment.reading || eventCursorStack.length === 0}
+              onClick={goPreviousPage}
+            >
+              {copy.previousPage}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={
+                fragment.reading ||
+                !fragment.data?.has_more ||
+                !fragment.data?.next_cursor
+              }
+              onClick={goNextPage}
+            >
+              {copy.nextPage}
+            </Button>
+          </div>
         </div>
       ) : null}
 

@@ -2,7 +2,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import type { ModelConfigListItem } from "@/lib/types";
-import type { ObservabilityScope } from "@/lib/types/model-stats";
+import type {
+  ObservabilityScope,
+  StatsCoverageByDataset,
+} from "@/lib/types/model-stats";
 import type {
   ModelDerivedMetric,
   ModelMetricsByScope,
@@ -36,7 +39,7 @@ export function useModelMetrics24h(
     Record<number, ModelMetricsByScope>
   >({});
   const [coverage, setCoverage] = useState<
-    { quality: Record<string, unknown>; spending: Record<string, unknown> } | null
+    { quality: StatsCoverageByDataset; spending: StatsCoverageByDataset } | null
   >(null);
   const [metricsLoading, setMetricsLoading] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);

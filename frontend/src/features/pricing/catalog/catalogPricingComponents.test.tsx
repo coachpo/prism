@@ -521,7 +521,7 @@ describe("catalog pricing preview display", () => {
       }),
     );
     expect(
-      await screen.findByText(/输入超过 272000 tokens/),
+      await screen.findByText(/输入超过 272000 令牌/),
     ).toBeInTheDocument();
   });
 

@@ -29,7 +29,7 @@ describe("ModelsMetricsScopeSwitch", () => {
     renderSwitch({ scope: "final_execution" });
     // Radix single ToggleGroup exposes a radio group: items carry role=radio
     // and aria-checked.
-    const group = screen.getByRole("group", { name: "统计口径" });
+    const group = screen.getByRole("radiogroup", { name: "统计口径" });
     expect(group).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "入口请求" })).toHaveAttribute(
       "aria-checked",
@@ -62,7 +62,7 @@ describe("ModelsMetricsScopeSwitch", () => {
     const { onScopeChange } = renderSwitch({ scope: "ingress" });
     // Only the three catalog values are rendered; there is no path that could
     // forward an off-catalog value, so the callback stays silent.
-    expect(screen.getByRole("group", { name: "统计口径" })).toBeInTheDocument();
+    expect(screen.getByRole("radiogroup", { name: "统计口径" })).toBeInTheDocument();
     expect(onScopeChange).not.toHaveBeenCalled();
   });
 

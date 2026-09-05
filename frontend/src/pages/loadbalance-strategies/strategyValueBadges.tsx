@@ -52,8 +52,19 @@ export function banBadges(strategy: LoadbalanceStrategy): StrategyValueBadge[] {
   return badges
 }
 
-export function failureStatusCodeLabel(strategy: LoadbalanceStrategy): string {
+/**
+ * 十个状态码逐字排进单元格要占三行，把行高撑到标准档的两倍多。列里只留个数，
+ * 完整名单交给调用点的 OperatorHelpHint —— 详情仍然键盘与读屏可达。
+ */
+export function failureStatusCodeSummary(strategy: LoadbalanceStrategy): { label: string; detail: string | null } {
   const copy = getStaticMessages().routingStrategyTable
-  if (strategy.failure_status_codes.length === 0) return copy.failureStatusCodesNone
-  return copy.failureStatusCodes(strategy.failure_status_codes.join(", "))
+  if (strategy.failure_status_codes.length === 0) {
+    return { label: copy.failureStatusCodesNone, detail: null }
+  }
+  return {
+    label: copy.failureStatusCodesCount(strategy.failure_status_codes.length),
+    // 展示用列表在中文正文里用顿号；半角逗号只属于可编辑输入框的值格式
+    // （见 BanPolicyDialog 的 failure_status_codes_input）。
+    detail: copy.failureStatusCodes(strategy.failure_status_codes.join("、")),
+  }
 }

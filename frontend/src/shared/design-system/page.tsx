@@ -6,6 +6,10 @@ export type OperatorPageShellProps = ComponentProps<"div"> & {
   width?: "default" | "wide" | "full"
 }
 
+/**
+ * 默认封顶 1536px。不封顶时超宽屏上一行的 label 会离它的控件一千多像素，
+ * 那不是一行任何人会读的键值对；需要整幅铺满的页面显式传 `full`。
+ */
 const pageWidthClasses = {
   default: "max-w-7xl",
   wide: "max-w-[96rem]",
@@ -15,7 +19,7 @@ const pageWidthClasses = {
 export function OperatorPageShell({
   children,
   className,
-  width = "full",
+  width = "wide",
   ...props
 }: OperatorPageShellProps) {
   return (

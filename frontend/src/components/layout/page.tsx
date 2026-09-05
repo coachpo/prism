@@ -1,4 +1,5 @@
 import type { CSSProperties, ReactNode } from "react";
+import { useEffect } from "react";
 import { useLocale } from "@/i18n/useLocale";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "./app-layout/AppSidebar";
@@ -16,6 +17,13 @@ function Shell({ children }: { children?: ReactNode }) {
   const state = useAppLayoutState();
   const { messages } = useLocale();
 
+  // 浏览器标签是身份线索的最外层：全站都叫「Prism」时，多开几个标签就分不清哪个是哪个。
+  // 取面包屑叶子，与页内的 group › page › entity 同源。
+  const documentTitle = state.breadcrumbs.at(-1)?.label ?? null;
+  useEffect(() => {
+    document.title = documentTitle ? `${documentTitle} · Prism` : "Prism";
+  }, [documentTitle]);
+
   return (
     <SidebarProvider
       open={!state.desktopSidebarCollapsed}
@@ -30,7 +38,11 @@ function Shell({ children }: { children?: ReactNode }) {
       </a>
       <AppSidebar authEnabled={state.authEnabled} sidebarGroups={state.sidebarGroups} />
 
-      <SidebarInset className="min-h-svh overflow-hidden bg-canvas">
+      {/* 不要在这里加 overflow-hidden：它会让 <main> 成为 scrollport，
+          而它随内容增高、从不滚动，于是所有以页面为参照的 sticky（审计页上下文条、
+          设置页三处侧栏、每张表的表头）全部静默失效。横向溢出用子节点的
+          min-w-0 压住，不要用 overflow 压。 */}
+      <SidebarInset className="min-h-svh bg-canvas">
         <SiteHeader
           authEnabled={state.authEnabled}
           breadcrumbs={state.breadcrumbs}
@@ -43,7 +55,9 @@ function Shell({ children }: { children?: ReactNode }) {
         <div
           id="prism-main-content"
           tabIndex={-1}
-          className="flex flex-1 flex-col gap-[var(--density-page-gap)] p-[var(--density-page-pad-y)] px-[var(--density-page-pad-x)]"
+          // 页面布局的断点要按「内容区实际有多宽」算，不是按视口。侧栏展开会吃掉
+          // 240px：同一个视口下把侧栏展开，按视口写的 lg: 仍然成立，表格却已经开始溢出。
+          className="@container/main flex min-w-0 flex-1 flex-col gap-[var(--density-page-gap)] p-[var(--density-page-pad-y)] px-[var(--density-page-pad-x)]"
         >
           {children}
         </div>

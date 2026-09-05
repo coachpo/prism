@@ -1,3 +1,8 @@
+import type {
+  StatsCoverageByDataset,
+  StatsDatasetCoverage,
+} from "@/lib/types/model-stats";
+
 /**
  * 成本列写着「近 30 天」，但保留期可能只覆盖其中几天。后端在 coverage 里
  * 说明了这件事，页面必须消费它：把 30 天的裁剪结果当成 30 天的花费，
@@ -8,10 +13,15 @@ export interface SpendingCoverageClip {
   retentionFrom: string | null;
 }
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return typeof value === "object" && value !== null
-    ? (value as Record<string, unknown>)
-    : null;
+/** coverage 按数据集嵌套，父层没有 complete —— 必须逐个数据集看。 */
+function datasetsOf(
+  coverage: StatsCoverageByDataset | null | undefined,
+): StatsDatasetCoverage[] {
+  if (typeof coverage !== "object" || coverage === null) return [];
+  return Object.values(coverage).filter(
+    (dataset): dataset is StatsDatasetCoverage =>
+      typeof dataset === "object" && dataset !== null,
+  );
 }
 
 /**
@@ -19,28 +29,36 @@ function asRecord(value: unknown): Record<string, unknown> | null {
  * 由各自的徽章表达，不在这里混为一谈。
  */
 export function readSpendingRetentionClip(
-  coverage: { spending: Record<string, unknown> } | null | undefined,
+  coverage: { spending?: StatsCoverageByDataset | null } | null | undefined,
 ): SpendingCoverageClip | null {
-  const spending = asRecord(coverage?.spending);
-  if (!spending || spending.complete !== false) return null;
+  const clipped = datasetsOf(coverage?.spending).filter(
+    (dataset) =>
+      dataset.complete === false &&
+      Array.isArray(dataset.gaps) &&
+      dataset.gaps.some((gap) => gap?.reason === "retention_deleted"),
+  );
+  if (clipped.length === 0) return null;
 
-  const gaps = Array.isArray(spending.gaps) ? spending.gaps : [];
-  const retentionGaps = gaps
-    .map(asRecord)
-    .filter(
-      (gap): gap is Record<string, unknown> =>
-        gap !== null && gap.reason === "retention_deleted",
+  // 多个数据集都被裁剪时取最晚的那个起点：那才是所有列都拿得到数据的时刻。
+  const candidates = clipped.map((dataset) => {
+    if (typeof dataset.retention_from_time === "string") {
+      return dataset.retention_from_time;
+    }
+    return (
+      dataset.gaps
+        .filter((gap) => gap?.reason === "retention_deleted")
+        .map((gap) => (typeof gap.to_time === "string" ? gap.to_time : null))
+        .filter((value): value is string => value !== null)
+        .sort()
+        .at(-1) ?? null
     );
-  if (retentionGaps.length === 0) return null;
+  });
 
   const retentionFrom =
-    typeof spending.retention_from_time === "string"
-      ? spending.retention_from_time
-      : retentionGaps
-          .map((gap) => (typeof gap.to === "string" ? gap.to : null))
-          .filter((value): value is string => value !== null)
-          .sort()
-          .at(-1) ?? null;
+    candidates
+      .filter((value): value is string => value !== null)
+      .sort()
+      .at(-1) ?? null;
 
   return { retentionFrom };
 }

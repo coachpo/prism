@@ -1,10 +1,12 @@
 import type { EventSummaryV1 } from "@/lib/types"
 import { useLocale } from "@/i18n/useLocale"
 
+type EventSummaryCopy = ReturnType<typeof useLocale>["messages"]["routingHealth"]["eventSummary"]
+
 // Exhaustive event summary renderer: the six event enums map one-to-one to
 // zh-CN catalog keys (SPEC §12). Unknown codes fall back to a localized
 // generic line plus the raw code for diagnostics — never backend prose.
-export function renderEventSummary(summary: EventSummaryV1, eventSummaryMessages: ReturnType<typeof useLocale>["messages"]["routingHealth"]["eventSummary"]): { label: string; reason: string } {
+export function renderEventSummary(summary: EventSummaryV1, eventSummaryMessages: EventSummaryCopy): { label: string; reason: string } {
   const copy = eventSummaryMessages
   const params = summary.params ?? {}
   const evidence = params.evidence_state === "legacy_incomplete" ? copy.legacyIncompleteSuffix : ""
@@ -58,7 +60,28 @@ function formatRetryCounter(value: number | null | undefined): number | string {
   return value == null ? "—" : value
 }
 
-function failureKindLabel(kind: string, copy: ReturnType<typeof useLocale>["messages"]["routingHealth"]["eventSummary"]): string {
+// 事件列表与事件详情抽屉共用这三份字典：同一个事实在两个界面里必须是同一个
+// 名字，未知取值落到具名兜底，原始枚举键一律不上屏。
+export function eventTypeLabel(value: string, copy: EventSummaryCopy): string {
+  switch (value) {
+    case "retry_scheduled":
+      return copy.retryScheduled
+    case "retry_exhausted":
+      return copy.retryExhausted
+    case "banned":
+      return copy.banned
+    case "unbanned":
+      return copy.unbanned
+    case "recovered":
+      return copy.recovered
+    case "admission_rejected":
+      return copy.admissionRejected
+    default:
+      return copy.unknownEvent
+  }
+}
+
+export function failureKindLabel(kind: string, copy: EventSummaryCopy): string {
   switch (kind) {
     case "transient_http":
       return copy.failureTransientHttp
@@ -67,11 +90,11 @@ function failureKindLabel(kind: string, copy: ReturnType<typeof useLocale>["mess
     case "timeout":
       return copy.failureTimeout
     default:
-      return kind
+      return copy.unknownFailureKind
   }
 }
 
-function admissionReasonLabel(reason: string, copy: ReturnType<typeof useLocale>["messages"]["routingHealth"]["eventSummary"]): string {
+export function admissionReasonLabel(reason: string, copy: EventSummaryCopy): string {
   switch (reason) {
     case "qps_limit":
       return copy.admissionQpsLimit
@@ -80,6 +103,6 @@ function admissionReasonLabel(reason: string, copy: ReturnType<typeof useLocale>
     case "max_in_flight_non_stream":
       return copy.admissionMaxInFlightNonStream
     default:
-      return reason
+      return copy.unknownAdmissionReason
   }
 }

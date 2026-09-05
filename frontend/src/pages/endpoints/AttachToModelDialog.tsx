@@ -43,7 +43,7 @@ export function AttachToModelDialog({ endpoint, onOpenChange, onNavigate }: Atta
 
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen) onOpenChange(false) }}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent size="sm">
         <DialogHeader>
           <DialogTitle>{copy.attachToModel}</DialogTitle>
           <DialogDescription>

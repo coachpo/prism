@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef } from "react";
 import type { Dispatch, SetStateAction } from "react";
-import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { ApiError } from "@/lib/api/request";
 import { getStaticMessages } from "@/i18n/staticMessages";
@@ -23,7 +22,6 @@ import { getOwnedModelConnections } from "./modelAccessTargetProjection";
 interface UseModelDetailBootstrapInput {
   id: string | undefined;
   revision: number;
-  navigate: (to: string) => void;
   setModel: Dispatch<SetStateAction<ModelConfig | null>>;
   setConnections: Dispatch<SetStateAction<Connection[]>>;
   setAllConnections: Dispatch<SetStateAction<Connection[]>>;
@@ -32,8 +30,10 @@ interface UseModelDetailBootstrapInput {
   setAllModels: Dispatch<SetStateAction<ModelConfigListItem[]>>;
   setPricingTemplates: Dispatch<SetStateAction<PricingTemplate[]>>;
   setLoading: Dispatch<SetStateAction<boolean>>;
-  /** 模型本体读取失败的原因；非 404 时页面留在原地展示错误面。 */
+  /** 模型本体读取失败的原因；页面留在原地展示错误面。 */
   setLoadError: Dispatch<SetStateAction<string | null>>;
+  /** 这个模型配置不存在（404）。与「读取失败」是两件事，页面分开渲染。 */
+  setNotFound: Dispatch<SetStateAction<boolean>>;
   setDegradedParts: Dispatch<SetStateAction<ModelDetailDegradedParts>>;
 }
 
@@ -78,7 +78,6 @@ export const NO_DEGRADED_PARTS: ModelDetailDegradedParts = {
 export function useModelDetailBootstrap({
   id,
   revision,
-  navigate,
   setModel,
   setConnections,
   setAllConnections,
@@ -88,6 +87,7 @@ export function useModelDetailBootstrap({
   setPricingTemplates,
   setLoading,
   setLoadError,
+  setNotFound,
   setDegradedParts,
 }: UseModelDetailBootstrapInput) {
   const modelRequestIdRef = useRef(0);
@@ -96,12 +96,15 @@ export function useModelDetailBootstrap({
 
     const modelConfigId = Number.parseInt(id, 10);
     if (!Number.isFinite(modelConfigId)) {
-      navigate("/route/models");
+      // 路由参数不是合法标识符：保留 URL，由页面就地说明是链接抄错了，
+      // 而不是零提示地把人弹回列表、让他以为是数据少了一行。
+      setLoading(false);
       return;
     }
 
     const requestId = ++modelRequestIdRef.current;
     setLoadError(null);
+    setNotFound(false);
 
     try {
       const [data, connectionsList] = await Promise.all([
@@ -164,11 +167,10 @@ export function useModelDetailBootstrap({
         return;
       }
       console.error(error);
-      // 只有「这个模型配置不存在」才该把人送回列表：其它读取失败保留 URL
-      // 与页面上下文，让操作者原地重试，而不是丢掉他找到这一行的过程。
+      // 「这个模型配置不存在」和「这次没读到」必须长得不一样，也都保留 URL
+      // 与页面上下文：一 toast 就跳走会让操作者分不清链接失效还是网关抖动。
       if (error instanceof ApiError && error.status === 404) {
-        toast.error(getStaticMessages().modelDetailData.modelConfigNotFound);
-        navigate("/route/models");
+        setNotFound(true);
         return;
       }
       setLoadError(
@@ -183,7 +185,6 @@ export function useModelDetailBootstrap({
     }
   }, [
     id,
-    navigate,
     revision,
     setAllModels,
     setConnections,
@@ -194,6 +195,7 @@ export function useModelDetailBootstrap({
     setModel,
     setPricingTemplates,
     setLoadError,
+    setNotFound,
     setDegradedParts,
     ]);
 

@@ -47,7 +47,7 @@ export function UserAgentClientRuleDialog({
 
   return (
     <Dialog open={ruleDialogOpen} onOpenChange={setRuleDialogOpen}>
-      <DialogContent aria-describedby={undefined} className="sm:max-w-lg">
+      <DialogContent aria-describedby={undefined} size="md">
         <DialogHeader>
           <DialogTitle>
             {editingRule

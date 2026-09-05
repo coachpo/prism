@@ -5,11 +5,13 @@ import { useQuery } from "@tanstack/react-query"
 import { Plus, ShieldCheck } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useLocale } from "@/i18n/useLocale"
+import { useTimezone } from "@/hooks/useTimezone"
 import {
   OperatorErrorState,
   OperatorPageHeader,
   OperatorPageShell,
   OperatorRetryButton,
+  OperatorStalenessBadge,
 } from "@/shared/design-system"
 import { api } from "@/lib/api"
 import { ProxyKeyDeleteAlertDialog } from "@/pages/proxy-api-keys/ProxyKeyDeleteAlertDialog"
@@ -27,6 +29,7 @@ import { isAuthSettingsEnabled } from "@/pages/proxy-api-keys/proxyKeyFormatting
 export default function ProxyKeysFeaturePage() {
   const { messages } = useLocale()
   const data = useProxyKeysFeatureData()
+  const { format: formatTime } = useTimezone()
   const [verifyAccessOpen, setVerifyAccessOpen] = useState(false)
   const copy = messages.proxyApiKeys
   const authEnabled = isAuthSettingsEnabled(data.authSettings)
@@ -75,7 +78,7 @@ export default function ProxyKeysFeaturePage() {
         </Button>
       </OperatorPageHeader>
 
-      {data.pageError ? (
+      {data.pageError && !data.hasLastGoodData ? (
         <OperatorErrorState
           title={data.pageErrorTitle}
           description={data.pageError}
@@ -83,6 +86,25 @@ export default function ProxyKeysFeaturePage() {
         />
       ) : (
         <>
+          {/* 刷新失败不丢弃上次成功的台账：保留它，并说清它读于何时、这次为什么失败。 */}
+          {data.pageError ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <OperatorStalenessBadge
+                label={
+                  data.lastSuccessfulAt
+                    ? messages.honesty.lastSuccessful(
+                        formatTime(data.lastSuccessfulAt),
+                      )
+                    : messages.honesty.readFailed
+                }
+                reason={data.pageError}
+              />
+              <OperatorRetryButton onClick={data.retryPage}>
+                {copy.retry}
+              </OperatorRetryButton>
+            </div>
+          ) : null}
+
           <ProxyKeyEnforcementPanel authSettings={data.authSettings} loading={data.pageLoading} />
 
           <ProxyKeyLedgerCard

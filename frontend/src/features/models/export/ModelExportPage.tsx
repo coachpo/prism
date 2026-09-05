@@ -15,6 +15,9 @@ import { usePiBindingController } from "@/features/models/catalog/pi/usePiBindin
 import { useModelExportRender } from "./useModelExportRender";
 import { useModelExportSource } from "./useModelExportSource";
 
+// 禁用的主按钮不可聚焦，说明必须自己站在页头下方，并被按钮 describedby 指向。
+const BLOCKED_NOTICE_ID = "model-export-blocked-notice";
+
 export function ModelExportPage() {
   const { messages } = useLocale();
   const copy = messages.modelExportPage;
@@ -38,6 +41,23 @@ export function ModelExportPage() {
     : render.renderStale
       ? copy.sourceDrifted
       : render.renderError;
+  // 主操作被禁用时必须当场说清原因：一个灰掉的主按钮既不可点也不可聚焦，
+  // 等同于不在场。源还没读到（首读中/读取失败）已有各自的状态面负责，
+  // 刷新在途是瞬时的，这两种情况不在页头重复一遍。
+  const blockedDescription =
+    render.blockReason === "unbound_selection"
+      ? copy.blockedUnboundSelection.replace(
+          "{count}",
+          String(render.unboundSelectedCount),
+        )
+      : render.blockReason === "no_selection"
+        ? copy.blockedNoSelection
+        : render.blockReason === "destination_invalid"
+          ? copy.blockedDestinationInvalid
+          : render.blockReason === "source_actions_blocked" &&
+              source.sourceQuery.isError
+            ? copy.sourceActionsBlocked
+            : null;
 
   return (
     <OperatorPageShell>
@@ -45,6 +65,7 @@ export function ModelExportPage() {
         <Button
           onClick={render.openKeyDialog}
           disabled={render.openKeyDialogDisabled}
+          aria-describedby={blockedDescription ? BLOCKED_NOTICE_ID : undefined}
         >
           {copy.generateButton}
           {source.selectedCount > 0 ? ` (${source.selectedCount})` : ""}
@@ -52,6 +73,32 @@ export function ModelExportPage() {
       </OperatorPageHeader>
 
       <div className="flex flex-col gap-4">
+        {blockedDescription ? (
+          <OperatorCallout
+            id={BLOCKED_NOTICE_ID}
+            intent="warning"
+            title={copy.blockedTitle}
+            description={blockedDescription}
+            action={
+              render.blockReason === "unbound_selection" &&
+              render.renderableSelectedIds.size > 0 ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    source.retainSelection(render.renderableSelectedIds)
+                  }
+                >
+                  {copy.blockedKeepRenderable.replace(
+                    "{count}",
+                    String(render.renderableSelectedIds.size),
+                  )}
+                </Button>
+              ) : null
+            }
+          />
+        ) : null}
+
         <ModelExportDestinationPanel
           gatewayOrigin={render.gatewayOrigin}
           gatewayOriginInvalid={render.gatewayOriginInvalid}
@@ -77,6 +124,7 @@ export function ModelExportPage() {
         <ExportKeyDialog
           open={render.keyDialogOpen}
           selectedCount={source.selectedCount}
+          riskSummary={source.selectedRiskSummary}
           error={dialogError}
           confirmDisabled={source.sourceActionsBlocked}
           onClose={render.closeKeyDialog}
