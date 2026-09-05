@@ -78,7 +78,17 @@ export function projectExitMapping(
       identity: identityOf(target),
     }))
   return {
-    visible: ordered.slice(0, EXIT_MAPPING_VISIBLE_ITEMS),
-    remainingCount: Math.max(0, ordered.length - EXIT_MAPPING_VISIBLE_ITEMS),
+    // 余量恰为 1 时折叠一点高度也省不下来（尾行自己就占一行），却恰好
+    // 把那一条藏起来；只有余量 ≥2 才值得折叠。
+    visible: ordered.slice(
+      0,
+      ordered.length === EXIT_MAPPING_VISIBLE_ITEMS + 1
+        ? ordered.length
+        : EXIT_MAPPING_VISIBLE_ITEMS,
+    ),
+    remainingCount:
+      ordered.length <= EXIT_MAPPING_VISIBLE_ITEMS + 1
+        ? 0
+        : ordered.length - EXIT_MAPPING_VISIBLE_ITEMS,
   }
 }

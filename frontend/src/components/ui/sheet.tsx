@@ -6,6 +6,7 @@ import { Dialog as SheetPrimitive } from "radix-ui"
 
 import { getStaticMessages } from "@/i18n/staticMessages"
 import { cn } from "@/lib/utils"
+import { useCloseFocusRestore } from "@/components/ui/use-close-focus-restore"
 
 function Sheet({ ...props }: React.ComponentProps<typeof SheetPrimitive.Root>) {
   return <SheetPrimitive.Root data-slot="sheet" {...props} />
@@ -45,20 +46,25 @@ function SheetOverlay({
   )
 }
 
-function SheetContent({
+type SheetContentProps = React.ComponentProps<typeof SheetPrimitive.Content> & {
+  side?: "top" | "right" | "bottom" | "left"
+  showCloseButton?: boolean
+}
+
+function SheetContentInner({
   className,
   children,
   side = "right",
   showCloseButton = true,
+  onCloseAutoFocus,
   ...props
-}: React.ComponentProps<typeof SheetPrimitive.Content> & {
-  side?: "top" | "right" | "bottom" | "left"
-  showCloseButton?: boolean
-}) {
+}: SheetContentProps) {
+  const handleCloseAutoFocus = useCloseFocusRestore(onCloseAutoFocus)
+
   return (
-    <SheetPortal>
-      <SheetOverlay />
+    <>
       <SheetPrimitive.Content
+        onCloseAutoFocus={handleCloseAutoFocus}
         data-slot="sheet-content"
         className={cn(
           "bg-panel data-[state=open]:animate-in data-[state=closed]:animate-out fixed z-50 flex flex-col gap-4 transition ease-in-out data-[state=closed]:duration-300 data-[state=open]:duration-500",
@@ -82,6 +88,15 @@ function SheetContent({
           </SheetPrimitive.Close>
         )}
       </SheetPrimitive.Content>
+    </>
+  )
+}
+
+function SheetContent(props: SheetContentProps) {
+  return (
+    <SheetPortal>
+      <SheetOverlay />
+      <SheetContentInner {...props} />
     </SheetPortal>
   )
 }

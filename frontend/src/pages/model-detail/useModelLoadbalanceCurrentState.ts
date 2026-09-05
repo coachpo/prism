@@ -13,6 +13,8 @@ interface UseModelLoadbalanceCurrentStateInput {
   modelId: string | undefined;
   revision: number;
   enabled?: boolean;
+  /** 轮询间隔；null 表示只在可见性/焦点变化时重读，不定时轮询。 */
+  pollIntervalMs?: number | null;
 }
 
 /**
@@ -107,6 +109,7 @@ export function useModelLoadbalanceCurrentState({
   modelId,
   revision,
   enabled = true,
+  pollIntervalMs = 30_000,
 }: UseModelLoadbalanceCurrentStateInput) {
   const [currentStateByConnectionId, setCurrentStateByConnectionId] = useState<
     Map<number, LoadbalanceCurrentStateItem>
@@ -124,6 +127,11 @@ export function useModelLoadbalanceCurrentState({
   // than unread. Until one lands, an empty map means "not read yet".
   const loadedOnceRef = useRef(false);
   const requestIdRef = useRef(0);
+  // 观测时间取服务端生成快照的时刻，而不是任何配置的修改时间。
+  const [generatedAt, setGeneratedAt] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  // 30 秒轮询一直失败时不能每轮弹一次 toast：只在「成功→失败」这条边上报一次。
+  const failureReportedRef = useRef(false);
   const resetKey = `${enabled ? modelId ?? "none" : "disabled"}:${revision}`;
   const resetKeyRef = useRef(resetKey);
 
@@ -135,12 +143,14 @@ export function useModelLoadbalanceCurrentState({
       setCurrentStateGapByConnectionId(new Map());
       setCurrentStateCompleteness(null);
       setCurrentStateFailure(null);
+      setGeneratedAt(null);
       return;
     }
 
     const resolvedModelId = modelId.trim();
 
     const requestId = ++requestIdRef.current;
+    setLoading(true);
 
     try {
       const data = await api.loadbalance.listCurrentState({
@@ -157,6 +167,8 @@ export function useModelLoadbalanceCurrentState({
       setCurrentStateGapByConnectionId(gaps);
       setCurrentStateCompleteness({ ...data.completeness, hasMore: data.has_more });
       setCurrentStateFailure(null);
+      setGeneratedAt(data.generated_at);
+      failureReportedRef.current = false;
     } catch (error) {
       if (requestId !== requestIdRef.current) {
         return;
@@ -168,8 +180,15 @@ export function useModelLoadbalanceCurrentState({
       // on screen stay and are marked stale; with nothing on screen yet the
       // surface renders the failure instead of an empty state.
       setCurrentStateFailure({ message, staleData: loadedOnceRef.current });
-      toast.error(message);
+      if (!failureReportedRef.current) {
+        failureReportedRef.current = true;
+        toast.error(message, { id: "model-detail-current-state-failure" });
+      }
       console.error("Failed to load model loadbalance current state", error);
+    } finally {
+      if (requestId === requestIdRef.current) {
+        setLoading(false);
+      }
     }
   }, [enabled, modelId]);
 
@@ -226,11 +245,14 @@ export function useModelLoadbalanceCurrentState({
     if (!enabled || !modelId || modelId.trim() === "") {
       return;
     }
-    const intervalId = window.setInterval(() => {
-      if (document.visibilityState === "visible") {
-        void fetchCurrentState();
-      }
-    }, 30_000);
+    const intervalId =
+      pollIntervalMs === null
+        ? null
+        : window.setInterval(() => {
+            if (document.visibilityState === "visible") {
+              void fetchCurrentState();
+            }
+          }, pollIntervalMs);
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible") {
         void fetchCurrentState();
@@ -242,11 +264,11 @@ export function useModelLoadbalanceCurrentState({
     document.addEventListener("visibilitychange", onVisibilityChange);
     window.addEventListener("focus", onFocus);
     return () => {
-      window.clearInterval(intervalId);
+      if (intervalId !== null) window.clearInterval(intervalId);
       document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("focus", onFocus);
     };
-  }, [enabled, fetchCurrentState, modelId]);
+  }, [enabled, fetchCurrentState, modelId, pollIntervalMs]);
 
   useEffect(() => {
     if (resetKeyRef.current !== resetKey) {
@@ -268,6 +290,8 @@ export function useModelLoadbalanceCurrentState({
     currentStateGapByConnectionId,
     currentStateFailure,
     currentStateCompleteness,
+    currentStateGeneratedAt: generatedAt,
+    currentStateLoading: loading,
     resettingConnectionIds,
     refreshCurrentState: fetchCurrentState,
     resetCooldown,

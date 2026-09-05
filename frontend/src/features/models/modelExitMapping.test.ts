@@ -116,11 +116,25 @@ describe("projectExitMapping", () => {
       modelTarget(7, 0),
       terminalTarget(31, 2),
     ]))
+    // 三条目标：折叠最后一条一点高度也省不下来（尾行自己就占一行），
+    // 所以余量恰为 1 时直接显示。
     expect(projection.visible.map((item) => [item.accessTargetId, item.position])).toEqual([
       [7, 0],
       [23, 1],
+      [31, 2],
     ])
-    expect(projection.remainingCount).toBe(1)
+    expect(projection.remainingCount).toBe(0)
+  })
+
+  it("folds the remainder once it is worth folding", () => {
+    const projection = projectExitMapping(entryModel([
+      modelTarget(7, 0),
+      terminalTarget(23, 1),
+      terminalTarget(31, 2),
+      terminalTarget(37, 3),
+    ]))
+    expect(projection.visible.map((item) => item.accessTargetId)).toEqual([7, 23])
+    expect(projection.remainingCount).toBe(2)
   })
 
   it("breaks position ties by row id", () => {

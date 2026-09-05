@@ -76,9 +76,12 @@ export function operationalRowStripe(tier: OperatorStatusTier | null | undefined
   )
 }
 
-/** Row actions stay hidden until the row is hovered or something inside is focused. */
+/**
+ * 行操作在可 hover 的指针下淡出，其它情况常显。
+ * 触屏没有 hover：点一下行不会让操作出现，操作者会以为这一行根本没有操作。
+ */
 export const operationalRowActionsClassName =
-  "flex items-center justify-end gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover/row:opacity-100"
+  "flex items-center justify-end gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover/row:opacity-100 [@media(hover:none)]:opacity-100"
 
 type OperationalTableSkeletonRowsProps = {
   columns: number

@@ -3,6 +3,7 @@ import { render, screen, within } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 
 import { LocaleProvider } from "@/i18n/LocaleProvider"
+import { TooltipProvider } from "@/components/ui/tooltip"
 import type { ManagedModelConfigListItem } from "@/lib/api/models"
 import { entryModelListItem } from "./modelExitMapping.test-fixtures"
 import { ModelsTable } from "./ModelsTable"
@@ -35,7 +36,9 @@ function renderModels(
   }
   render(
     <LocaleProvider>
-      <ModelsTable {...props} />
+      <TooltipProvider>
+        <ModelsTable {...props} />
+      </TooltipProvider>
     </LocaleProvider>,
   )
 }

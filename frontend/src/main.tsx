@@ -24,7 +24,9 @@ createRoot(document.getElementById("root")!).render(
       >
         <TooltipProvider>
           <App />
-          <Toaster position="top-right" />
+          {/* 右上角会压住全局搜索、密度与主题按钮，还会盖到页头主动作的上缘；
+              故障期间恰恰是这些控件最需要能点。 */}
+          <Toaster position="bottom-right" />
         </TooltipProvider>
       </ThemeProvider>
     </LocaleProvider>

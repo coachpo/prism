@@ -203,7 +203,7 @@ export function PiBindingSourceDialog({
         if (!open && !controller.bindPending) onClose();
       }}
     >
-      <DialogContent className="sm:max-w-[560px]">
+      <DialogContent size="md">
         <DialogHeader>
           <DialogTitle>{copy.sourceDialogTitle}</DialogTitle>
           <DialogDescription>{copy.sourceDialogDescription}</DialogDescription>

@@ -1,11 +1,15 @@
 import { TargetRoutingScheduleBadge } from "./TargetRoutingScheduleBadge";
 import { useEffect, useMemo, useState } from "react";
 import {
+  ArrowDown,
+  ArrowUp,
   Cable,
+  ChevronsUp,
   CircleDollarSign,
   Copy,
   GitBranch,
   GripVertical,
+  RefreshCw,
   Loader2,
   MoreHorizontal,
   Pencil,
@@ -13,6 +17,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { CopyButton } from "@/components/CopyButton";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -27,6 +32,7 @@ import {
   SelectContent,
   SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -69,6 +75,7 @@ import { useLocale } from "@/i18n/useLocale";
 import {
   OperatorCallout,
   OperatorClippedBadge,
+  OperatorDestructiveDialog,
   OperatorEmptyState,
   OperatorMissingValue,
   OperatorSectionCard,
@@ -81,6 +88,13 @@ import { sortAccessTargetsByPositionThenId } from "./accessTargetFormState";
 
 const TARGET_COLUMN_COUNT = 8;
 
+/** 只接受本表自己发起的拖拽，避免外部拖放生成一份意料之外的顺序草稿。 */
+const ACCESS_TARGET_DRAG_TYPE = "application/x-prism-access-target";
+
+function hasAccessTargetDragType(dataTransfer: DataTransfer | null) {
+  return Boolean(dataTransfer?.types.includes(ACCESS_TARGET_DRAG_TYPE));
+}
+
 interface AccessTargetsEditorProps {
   accessTargets: ModelAccessTarget[];
   apiFamilyLabel: string;
@@ -90,6 +104,16 @@ interface AccessTargetsEditorProps {
   disabled?: boolean;
   isConnectionTargetMutable?: (connectionId: number) => boolean;
   strategyType?: LegacyLoadbalanceStrategyType | null;
+  /** 模型本身是否已启用；空态文案要说清「已启用但没有出口」这个更急的情况。 */
+  modelEnabled?: boolean;
+  /** 本模型配置自己的 model_id，用于在候选里预检两级循环。 */
+  ownerModelId?: string | null;
+  /**
+   * 从路由健康事件深链跳来时要定位到的终端目标 id，以及登记行元素的
+   * 回调 —— 没有这两样，`?focus_connection_id=` 只会把人丢在页顶。
+   */
+  focusedConnectionId?: number | null;
+  connectionRowRefs?: Map<number, HTMLElement>;
   currentStateByConnectionId?: Map<number, LoadbalanceCurrentStateItem>;
   /** Rows the cohort returned without a complete snapshot, and why. */
   currentStateGapByConnectionId?: Map<number, CurrentStateRowGap>;
@@ -128,12 +152,6 @@ function getConnectionName(
     connection.endpoint?.name?.trim() ||
     connectionFallback(String(connection.id))
   );
-}
-
-function getModelLabel(model: ModelConfigListItem) {
-  return model.display_name
-    ? `${model.display_name} (${model.model_id})`
-    : model.model_id;
 }
 
 function resolveModelTargetLabel(
@@ -208,6 +226,10 @@ export function AccessTargetsEditor({
   disabled = false,
   isConnectionTargetMutable,
   strategyType = null,
+  modelEnabled = false,
+  ownerModelId = null,
+  focusedConnectionId = null,
+  connectionRowRefs,
   currentStateByConnectionId = new Map(),
   currentStateGapByConnectionId = new Map(),
   currentStateFailure = null,
@@ -233,6 +255,12 @@ export function AccessTargetsEditor({
   const [pendingValue, setPendingValue] = useState("");
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [dragTargetId, setDragTargetId] = useState<number | null>(null);
+  // 只有从把手按下才允许整行进入拖拽，否则 draggable 会吞掉行内文本选择。
+  const [dragArmedId, setDragArmedId] = useState<number | null>(null);
+  const [dragOverId, setDragOverId] = useState<number | null>(null);
+  const [orderAnnouncement, setOrderAnnouncement] = useState("");
+  const [deleteCandidate, setDeleteCandidate] =
+    useState<ModelAccessTarget | null>(null);
   const [savingOrder, setSavingOrder] = useState(false);
   // Only the row currently being written is locked; the rest of the table
   // stays usable while a multi-row reorder commits.
@@ -288,6 +316,37 @@ export function AccessTargetsEditor({
   const remainingModels = modelOptions.filter(
     (model) => !selectedModelKeys.has(model.model_id),
   );
+  /**
+   * 把本模型配置作为目标的候选选进来会形成两级循环；后端是否拒绝未知，
+   * 但在选之前就说清楚比事后报错好。
+   */
+  const createsLoop = (candidate: ModelConfigListItem) =>
+    ownerModelId != null &&
+    (candidate.access_targets?.some(
+      (target) => target.target_model_id?.trim() === ownerModelId,
+    ) ??
+      false);
+
+  const candidateGroups = useMemo(() => {
+    const sorted = [...remainingModels].sort((left, right) =>
+      (left.display_name?.trim() || left.model_id).localeCompare(
+        right.display_name?.trim() || right.model_id,
+      ),
+    );
+    const entries = sorted.filter((model) => model.direct_request_enabled);
+    const modelTargetsOnly = sorted.filter(
+      (model) => !model.direct_request_enabled,
+    );
+    return [
+      { key: "entries", label: copy.targetGroupEntries, models: entries },
+      {
+        key: "model_targets",
+        label: copy.targetGroupModelTargetsOnly,
+        models: modelTargetsOnly,
+      },
+    ].filter((group) => group.models.length > 0);
+  }, [copy.targetGroupEntries, copy.targetGroupModelTargetsOnly, remainingModels]);
+
   const effectivePendingValue = remainingModels.some(
     (model) => model.model_id === pendingValue,
   )
@@ -332,17 +391,83 @@ export function AccessTargetsEditor({
     setPendingValue("");
   };
 
-  const handleDrop = (targetId: number) => {
-    if (dragTargetId === null || dragTargetId === targetId) return;
+  /** 行的可读名称：终端目标用连接名，模型目标用目标模型标签。 */
+  const resolveTargetDisplayName = (target: ModelAccessTarget) => {
+    if (!isTerminalTargetAccessTargetType(target.target_type)) {
+      return resolveModelTargetLabel(
+        target.target_model_id?.trim() || "",
+        modelOptions,
+      );
+    }
+    const connectionId = getTerminalTargetId(target);
+    const connection =
+      connectionOptions.find((candidate) => candidate.id === connectionId) ??
+      null;
+    return connection
+      ? getConnectionName(connection, connectionFallback)
+      : connectionFallback(String(connectionId));
+  };
+
+  const resolveTargetName = (targetId: number) => {
+    const target = orderedTargets.find((candidate) => candidate.id === targetId);
+    return target ? resolveTargetDisplayName(target) : String(targetId);
+  };
+
+  const clearDragState = () => {
+    setDragTargetId(null);
+    setDragOverId(null);
+    setDragArmedId(null);
+  };
+
+  /** 把 targetId 挪到 toIndex，键盘、行菜单与拖放共用同一条路径。 */
+  const moveTargetTo = (targetId: number, toIndex: number) => {
     const currentIds = orderedTargets.map((target) => target.id);
-    const from = currentIds.indexOf(dragTargetId);
-    const to = currentIds.indexOf(targetId);
-    if (from < 0 || to < 0) return;
+    const from = currentIds.indexOf(targetId);
+    if (from < 0) return;
+    const to = Math.max(0, Math.min(currentIds.length - 1, toIndex));
+    if (to === from) return;
     const next = [...currentIds];
     next.splice(from, 1);
-    next.splice(to, 0, dragTargetId);
+    next.splice(to, 0, targetId);
     setDraftOrder(next);
-    setDragTargetId(null);
+    setOrderAnnouncement(
+      copy.targetOrderAnnouncement(
+        resolveTargetName(targetId),
+        formatNumber(to + 1),
+        formatNumber(next.length),
+      ),
+    );
+  };
+
+  const indexOfTarget = (targetId: number) =>
+    orderedTargets.findIndex((target) => target.id === targetId);
+
+  const handleDrop = (targetId: number) => {
+    if (dragTargetId === null || dragTargetId === targetId) return;
+    moveTargetTo(dragTargetId, indexOfTarget(targetId));
+    clearDragState();
+  };
+
+  const handleDragHandleKeyDown = (
+    event: React.KeyboardEvent<HTMLButtonElement>,
+    targetId: number,
+  ) => {
+    const from = indexOfTarget(targetId);
+    if (from < 0) return;
+    const lastIndex = orderedTargets.length - 1;
+    const to =
+      event.key === "ArrowUp"
+        ? from - 1
+        : event.key === "ArrowDown"
+          ? from + 1
+          : event.key === "Home"
+            ? 0
+            : event.key === "End"
+              ? lastIndex
+              : null;
+    if (to === null) return;
+    event.preventDefault();
+    moveTargetTo(targetId, to);
   };
 
   const commitOrder = async () => {
@@ -355,6 +480,10 @@ export function AccessTargetsEditor({
         await onMoveTarget(target.id, index);
       }
       setDraftOrder(null);
+    } catch {
+      // 中途失败会留下半应用的顺序：丢掉草稿，让表格回到服务端的真实顺序。
+      // 具体原因由发起写入的 hook 用 toast 报出，这里不重复。
+      setDraftOrder(null);
     } finally {
       setCommittingTargetId(null);
       setSavingOrder(false);
@@ -365,25 +494,24 @@ export function AccessTargetsEditor({
     <OperatorSectionCard
       data-testid="access-targets-editor"
       title={copy.accessTargets}
-      description={copy.accessTargetsDescription}
+      description={copy.accessTargetsSummary(
+        formatNumber(persistedTargets.length),
+        formatNumber(enabledTargetCount),
+        formatApiFamily(apiFamilyLabel),
+      )}
       actions={
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground">
-            {copy.currentApiFamily(formatApiFamily(apiFamilyLabel))}
-          </span>
-          {onCreateConnection ? (
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={onCreateConnection}
-              disabled={disabled || hasBusyAction}
-            >
-              <Plus data-icon="inline-start" />
-              {copy.newConnection}
-            </Button>
-          ) : null}
-        </div>
+        onRefreshRuntimeState ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            onClick={onRefreshRuntimeState}
+            disabled={disabled}
+          >
+            <RefreshCw data-icon="inline-start" />
+            {copy.targetRefreshRuntime}
+          </Button>
+        ) : null
       }
       contentClassName="flex flex-col gap-3"
     >
@@ -408,8 +536,21 @@ export function AccessTargetsEditor({
 
       {persistedTargets.length === 0 ? (
         <OperatorEmptyState
-          title={copy.noAccessTargetsSelected}
+          title={copy.accessTargetsEmptyTitle}
+          description={
+            modelEnabled
+              ? copy.accessTargetsEmptyEnabledDescription
+              : copy.accessTargetsEmptyDisabledDescription
+          }
           className="py-6"
+          action={
+            onCreateConnection ? (
+              <Button type="button" onClick={onCreateConnection} disabled={disabled}>
+                <Plus data-icon="inline-start" />
+                {copy.newConnection}
+              </Button>
+            ) : undefined
+          }
         />
       ) : (
         <>
@@ -451,7 +592,17 @@ export function AccessTargetsEditor({
                   </TableHead>
                   <TableHead>{copy.targetColumnLimits}</TableHead>
                   <TableHead>{copy.targetColumnRuntime}</TableHead>
-                  <TableHead>{copy.targetColumnEnabled}</TableHead>
+                  <TableHead>
+                    <span className="inline-flex items-center gap-1">
+                      {copy.targetColumnEnabled}
+                      <span className="font-mono text-[11px] font-normal text-muted-foreground tabular-nums">
+                        {copy.targetsParticipatingCount(
+                          formatNumber(enabledTargetCount),
+                          formatNumber(persistedTargets.length),
+                        )}
+                      </span>
+                    </span>
+                  </TableHead>
                   <TableHead className="text-right">
                     {copy.targetColumnActions}
                   </TableHead>
@@ -486,14 +637,7 @@ export function AccessTargetsEditor({
                   const canEditConnection =
                     !readOnlyConnection &&
                     Boolean(connection && onEditConnection);
-                  const name = isTerminalTarget
-                    ? connection
-                      ? getConnectionName(connection, connectionFallback)
-                      : connectionFallback(String(connectionId))
-                    : resolveModelTargetLabel(
-                        target.target_model_id?.trim() || "",
-                        modelOptions,
-                      );
+                  const name = resolveTargetDisplayName(target);
                   const runtime =
                     connectionId != null
                       ? currentStateByConnectionId.get(connectionId)
@@ -505,27 +649,73 @@ export function AccessTargetsEditor({
                   return (
                     <TableRow
                       key={target.id}
+                      tabIndex={-1}
+                      ref={(element) => {
+                        if (!connectionRowRefs || connectionId == null) return;
+                        if (element) connectionRowRefs.set(connectionId, element);
+                        else connectionRowRefs.delete(connectionId);
+                      }}
                       className={cn(
-                        "group/row",
+                        "group/row scroll-mt-24 outline-none",
+                        connectionId != null &&
+                          focusedConnectionId === connectionId &&
+                          "bg-primary-soft outline-2 -outline-offset-2 outline-primary",
                         dragTargetId === target.id && "opacity-60",
+                        dragOverId === target.id &&
+                          dragTargetId !== target.id &&
+                          "shadow-[inset_0_2px_0_0_var(--color-primary)]",
+                        target.is_enabled === false &&
+                          "[&_[data-slot=target-name]]:text-muted-foreground",
                       )}
                       data-testid={`access-target-${target.id}`}
-                      draggable={Boolean(onMoveTarget) && !disabled}
-                      onDragStart={() => setDragTargetId(target.id)}
-                      onDragOver={(event) => event.preventDefault()}
-                      onDrop={() => handleDrop(target.id)}
+                      draggable={
+                        Boolean(onMoveTarget) &&
+                        !disabled &&
+                        dragArmedId === target.id
+                      }
+                      onDragStart={(event) => {
+                        event.dataTransfer.effectAllowed = "move";
+                        event.dataTransfer.setData(
+                          ACCESS_TARGET_DRAG_TYPE,
+                          String(target.id),
+                        );
+                        setDragTargetId(target.id);
+                      }}
+                      onDragEnd={clearDragState}
+                      onDragOver={(event) => {
+                        if (!hasAccessTargetDragType(event.dataTransfer)) return;
+                        event.preventDefault();
+                        setDragOverId(target.id);
+                      }}
+                      onDragLeave={() =>
+                        setDragOverId((current) =>
+                          current === target.id ? null : current,
+                        )
+                      }
+                      onDrop={(event) => {
+                        if (!hasAccessTargetDragType(event.dataTransfer)) return;
+                        event.preventDefault();
+                        handleDrop(target.id);
+                      }}
                     >
                       <TableCell className="align-top">
                         <div className="flex items-center gap-1">
                           {onMoveTarget ? (
-                            <span
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon-sm"
                               aria-label={copy.targetDragHandle(name)}
                               className="cursor-grab text-muted-foreground"
-                              role="button"
-                              tabIndex={0}
+                              disabled={disabled}
+                              onPointerDown={() => setDragArmedId(target.id)}
+                              onPointerUp={() => setDragArmedId(null)}
+                              onKeyDown={(event) =>
+                                handleDragHandleKeyDown(event, target.id)
+                              }
                             >
                               <GripVertical className="size-4" />
-                            </span>
+                            </Button>
                           ) : null}
                           <span className="font-mono text-xs tabular-nums">
                             {positionLabel}
@@ -549,26 +739,57 @@ export function AccessTargetsEditor({
                       <TableCell className="align-top">
                         <div className="flex min-w-48 flex-col gap-0.5">
                           <span
+                            data-slot="target-name"
                             className="truncate text-sm font-medium"
                             title={name}
                           >
                             {name}
                           </span>
+                          {/* 排障时最常要复制的就是这两个值；整行 draggable
+                              曾经把它们连选中都做不到。 */}
                           {connection?.endpoint?.base_url ? (
-                            <span
-                              className="truncate font-mono text-xs text-muted-foreground"
-                              title={connection.endpoint.base_url}
-                            >
-                              {connection.endpoint.base_url}
+                            <span className="flex min-w-0 items-center gap-1">
+                              <span
+                                className="truncate font-mono text-xs text-muted-foreground"
+                                title={connection.endpoint.base_url}
+                              >
+                                {connection.endpoint.base_url}
+                              </span>
+                              <CopyButton
+                                label=""
+                                size="icon-xs"
+                                variant="ghost"
+                                className={cn(
+                                  operationalRowActionsClassName,
+                                  "shrink-0 text-muted-foreground hover:text-foreground",
+                                )}
+                                value={connection.endpoint.base_url}
+                                aria-label={copy.targetCopyBaseUrl}
+                                targetLabel={copy.targetCopyBaseUrl}
+                              />
                             </span>
                           ) : null}
                           {isTerminalTarget && connection?.upstream_model_id ? (
-                            <span
-                              className="truncate font-mono text-xs text-muted-foreground"
-                              title={`${copy.terminalUpstreamModelId}: ${connection.upstream_model_id}`}
-                            >
-                              {copy.terminalUpstreamModelIdShort}{" "}
-                              {connection.upstream_model_id}
+                            <span className="flex min-w-0 items-center gap-1">
+                              <span
+                                className="truncate font-mono text-xs text-muted-foreground"
+                                title={`${copy.terminalUpstreamModelId}: ${connection.upstream_model_id}`}
+                              >
+                                {copy.terminalUpstreamModelIdShort}{" "}
+                                {connection.upstream_model_id}
+                              </span>
+                              <CopyButton
+                                label=""
+                                size="icon-xs"
+                                variant="ghost"
+                                className={cn(
+                                  operationalRowActionsClassName,
+                                  "shrink-0 text-muted-foreground hover:text-foreground",
+                                )}
+                                value={connection.upstream_model_id}
+                                aria-label={copy.terminalUpstreamModelId}
+                                targetLabel={copy.terminalUpstreamModelId}
+                              />
                             </span>
                           ) : null}
                           {connection?.is_active === false ? (
@@ -646,17 +867,28 @@ export function AccessTargetsEditor({
 
                       <TableCell className="align-top">
                         {!readOnlyConnection ? (
-                          <Switch
-                            checked={target.is_enabled !== false}
-                            disabled={disabled || rowBusy}
-                            onCheckedChange={(checked) => {
-                              if (!onToggleTarget) return;
-                              void runAction(`toggle:${target.id}`, () =>
-                                onToggleTarget(target.id, checked),
-                              );
-                            }}
-                            aria-label={copy.enableAccessTarget(positionLabel)}
-                          />
+                          <span className="flex items-center gap-1.5">
+                            <Switch
+                              checked={target.is_enabled !== false}
+                              disabled={disabled || rowBusy}
+                              onCheckedChange={(checked) => {
+                                if (!onToggleTarget) return;
+                                void runAction(`toggle:${target.id}`, () =>
+                                  onToggleTarget(target.id, checked),
+                                );
+                              }}
+                              aria-label={copy.enableAccessTarget(name)}
+                            />
+                            {/* 全部停用时，行与启用行原本毫无区别：唯一线索是
+                                一个 32×18 的灰开关。状态必须能扫描到。 */}
+                            {target.is_enabled === false ? (
+                              <OperatorStatusBadge
+                                intent="idle"
+                                preserveLabel
+                                label={copy.targetNotParticipating}
+                              />
+                            ) : null}
+                          </span>
                         ) : (
                           <OperatorStatusBadge
                             intent={
@@ -749,25 +981,50 @@ export function AccessTargetsEditor({
                                     )}
                                   </DropdownMenuItem>
                                 ) : null}
-                                {onRefreshRuntimeState ? (
-                                  <DropdownMenuItem
-                                    onSelect={() => onRefreshRuntimeState()}
-                                  >
-                                    {messages.routing.refresh}
-                                  </DropdownMenuItem>
+                                {onMoveTarget && orderedTargets.length > 1 ? (
+                                  <>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuGroup>
+                                      <DropdownMenuItem
+                                        disabled={targetIndex === 0}
+                                        onSelect={() =>
+                                          moveTargetTo(target.id, targetIndex - 1)
+                                        }
+                                      >
+                                        <ArrowUp />
+                                        {copy.targetMoveUp(name)}
+                                      </DropdownMenuItem>
+                                      <DropdownMenuItem
+                                        disabled={
+                                          targetIndex ===
+                                          orderedTargets.length - 1
+                                        }
+                                        onSelect={() =>
+                                          moveTargetTo(target.id, targetIndex + 1)
+                                        }
+                                      >
+                                        <ArrowDown />
+                                        {copy.targetMoveDown(name)}
+                                      </DropdownMenuItem>
+                                      <DropdownMenuItem
+                                        disabled={targetIndex === 0}
+                                        onSelect={() =>
+                                          moveTargetTo(target.id, 0)
+                                        }
+                                      >
+                                        <ChevronsUp />
+                                        {copy.targetMoveToTop(name)}
+                                      </DropdownMenuItem>
+                                    </DropdownMenuGroup>
+                                  </>
                                 ) : null}
                                 <DropdownMenuSeparator />
                                 <DropdownMenuItem
                                   variant="destructive"
-                                  onSelect={() => {
-                                    if (!onDeleteTarget) return;
-                                    void runAction(`delete:${target.id}`, () =>
-                                      onDeleteTarget(target.id),
-                                    );
-                                  }}
+                                  onSelect={() => setDeleteCandidate(target)}
                                 >
                                   <Trash2 />
-                                  {copy.targetRemove(positionLabel)}
+                                  {copy.targetRemove(name)}
                                 </DropdownMenuItem>
                               </DropdownMenuContent>
                             </DropdownMenu>
@@ -824,18 +1081,39 @@ export function AccessTargetsEditor({
             <SelectTrigger id="access-target-select" className="min-w-0">
               <SelectValue placeholder={copy.selectSameFamilyModel} />
             </SelectTrigger>
-            <SelectContent className="min-w-[var(--radix-select-trigger-width)] max-w-[var(--radix-select-trigger-width)]">
-              <SelectGroup>
-                {remainingModels.map((model) => (
-                  <SelectItem key={model.id} value={model.model_id}>
-                    <span className="block truncate">
-                      {getModelLabel(model)}
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectGroup>
+            {/* 14 个平铺候选没有任何相关性提示：按角色分组，每项带上
+                model_id 与「会形成循环」这类硬约束，选之前就能判断。 */}
+            <SelectContent className="max-h-72 min-w-[var(--radix-select-trigger-width)] max-w-[var(--radix-select-trigger-width)]">
+              {candidateGroups.map((group) => (
+                <SelectGroup key={group.key}>
+                  <SelectLabel>{group.label}</SelectLabel>
+                  {group.models.map((model) => {
+                    const wouldLoop = createsLoop(model);
+                    return (
+                      <SelectItem
+                        key={model.id}
+                        value={model.model_id}
+                        disabled={wouldLoop}
+                      >
+                        <span className="flex min-w-0 flex-col gap-0.5">
+                          <span className="block truncate">
+                            {model.display_name?.trim() || model.model_id}
+                          </span>
+                          <span className="block truncate font-mono text-xs text-muted-foreground">
+                            {model.model_id}
+                            {wouldLoop ? ` · ${copy.targetWouldLoop}` : ""}
+                          </span>
+                        </span>
+                      </SelectItem>
+                    );
+                  })}
+                </SelectGroup>
+              ))}
             </SelectContent>
           </Select>
+          <p className="text-xs text-muted-foreground">
+            {copy.selectSameFamilyModelHint(formatApiFamily(apiFamilyLabel))}
+          </p>
         </div>
 
         <Button
@@ -860,7 +1138,136 @@ export function AccessTargetsEditor({
           {copy.noSameFamilyModelsAvailable}
         </p>
       ) : null}
+
+      {/* 键盘与行菜单的重排没有视觉动画可依，播报是唯一的即时反馈。 */}
+      <div aria-live="polite" className="sr-only">
+        {orderAnnouncement}
+      </div>
+
+      {deleteCandidate ? (
+        <DeleteAccessTargetDialog
+          target={deleteCandidate}
+          name={resolveTargetDisplayName(deleteCandidate)}
+          position={formatNumber(indexOfTarget(deleteCandidate.id) + 1)}
+          connection={
+            isTerminalTargetAccessTargetType(deleteCandidate.target_type)
+              ? (connectionOptions.find(
+                  (candidate) =>
+                    candidate.id === getTerminalTargetId(deleteCandidate),
+                ) ?? null)
+              : null
+          }
+          isLastEnabledTarget={
+            deleteCandidate.is_enabled !== false && enabledTargetCount === 1
+          }
+          confirming={busyKey === `delete:${deleteCandidate.id}`}
+          onCancel={() => setDeleteCandidate(null)}
+          onConfirm={async () => {
+            if (!onDeleteTarget) return;
+            const targetRowId = deleteCandidate.id;
+            await runAction(`delete:${targetRowId}`, () =>
+              onDeleteTarget(targetRowId),
+            );
+            setDeleteCandidate(null);
+          }}
+        />
+      ) : null}
     </OperatorSectionCard>
+  );
+}
+
+/**
+ * 移除访问目标会连带删除连接行及其级联配置，且不可撤销。菜单项本身不是确认，
+ * 这个对话框先把要删的对象和影响面摆出来。
+ */
+function DeleteAccessTargetDialog({
+  target,
+  name,
+  position,
+  connection,
+  isLastEnabledTarget,
+  confirming,
+  onCancel,
+  onConfirm,
+}: {
+  target: ModelAccessTarget;
+  name: string;
+  position: string;
+  connection: Connection | null;
+  isLastEnabledTarget: boolean;
+  confirming: boolean;
+  onCancel: () => void;
+  onConfirm: () => Promise<void>;
+}) {
+  const { messages } = useLocale();
+  const copy = messages.modelsUi;
+  const isTerminalTarget = isTerminalTargetAccessTargetType(target.target_type);
+  const rows: Array<[string, string]> = [
+    [copy.targetRemoveFieldPosition, position],
+    [
+      copy.targetRemoveFieldRouting,
+      target.is_enabled === false
+        ? copy.targetRemoveRoutingOff
+        : copy.targetRemoveRoutingOn,
+    ],
+  ];
+  if (isTerminalTarget) {
+    if (connection?.endpoint?.name) {
+      rows.push([copy.targetRemoveFieldEndpoint, connection.endpoint.name]);
+    }
+    if (connection?.upstream_model_id) {
+      rows.push([
+        copy.targetRemoveFieldUpstream,
+        connection.upstream_model_id,
+      ]);
+    }
+    if (connection?.pricing_template?.name) {
+      rows.push([
+        copy.targetRemoveFieldPricing,
+        connection.pricing_template.name,
+      ]);
+    }
+  }
+
+  return (
+    <OperatorDestructiveDialog
+      open
+      onOpenChange={(open) => {
+        if (!open && !confirming) onCancel();
+      }}
+      size="sm"
+      title={copy.targetRemoveConfirmTitle(name)}
+      description={
+        isTerminalTarget
+          ? copy.targetRemoveTerminalDescription
+          : copy.targetRemoveModelDescription
+      }
+      cancelLabel={messages.settingsDialogs.cancel}
+      confirmLabel={copy.targetRemoveConfirmAction(name)}
+      confirmingLabel={messages.common.saving}
+      confirming={confirming}
+      cancelDisabled={confirming}
+      confirmTestId="delete-access-target-confirm"
+      onCancel={onCancel}
+      onConfirm={onConfirm}
+    >
+      {isLastEnabledTarget ? (
+        <OperatorCallout
+          intent="danger"
+          description={copy.targetRemoveLastEnabledWarning}
+        />
+      ) : null}
+      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs">
+        {rows.map(([label, value]) => (
+          <div key={label} className="contents">
+            <dt className="text-muted-foreground">{label}</dt>
+            <dd className="truncate font-mono" title={value}>
+              {value}
+            </dd>
+          </div>
+        ))}
+      </dl>
+    </OperatorDestructiveDialog>
   );
 }
 

@@ -106,9 +106,9 @@ export const operatorColorTokens: readonly OperatorColorToken[] = [
 
   // Runtime status — four tiers
   { name: "healthy", light: "#0f7b4f", dark: "#66d9a0", against: "panel", minContrast: 4.5, role: "status" },
-  { name: "degraded", light: "#a56200", dark: "#f5c063", against: "panel", minContrast: 4.5, role: "status" },
+  { name: "degraded", light: "#8c5200", dark: "#f5c063", against: "panel", minContrast: 4.5, role: "status" },
   { name: "failing", light: "#c0342b", dark: "#f4a9a3", against: "panel", minContrast: 4.5, role: "status" },
-  { name: "idle", light: "#69717f", dark: "#8a93a1", against: "panel", minContrast: 4.5, role: "status" },
+  { name: "idle", light: "#5b6370", dark: "#8a93a1", against: "panel", minContrast: 4.5, role: "status" },
   { name: "destructive", light: "#c0342b", dark: "#f4a9a3", against: "panel", minContrast: 4.5, role: "status" },
 
   // Spectrum — categorical data encoding, graphics threshold

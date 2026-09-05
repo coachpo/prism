@@ -86,7 +86,7 @@ export function CatalogRefreshDialog({
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && !busy && onClose()}>
-      <DialogContent className="max-w-lg">
+      <DialogContent size="md">
         <DialogHeader>
           <DialogTitle>{copy.refreshDialogTitle}</DialogTitle>
           <DialogDescription>{copy.refreshDialogDescription}</DialogDescription>

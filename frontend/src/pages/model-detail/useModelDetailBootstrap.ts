@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
+import { ApiError } from "@/lib/api/request";
 import { getStaticMessages } from "@/i18n/staticMessages";
 import {
   getSharedEndpoints,
@@ -16,7 +17,6 @@ import type {
   ModelConfig,
   ModelConfigListItem,
   PricingTemplate,
-  SpendingSummary,
 } from "@/lib/types";
 import { getOwnedModelConnections } from "./modelAccessTargetProjection";
 
@@ -32,27 +32,48 @@ interface UseModelDetailBootstrapInput {
   setAllModels: Dispatch<SetStateAction<ModelConfigListItem[]>>;
   setPricingTemplates: Dispatch<SetStateAction<PricingTemplate[]>>;
   setLoading: Dispatch<SetStateAction<boolean>>;
-  setSpending: Dispatch<SetStateAction<SpendingSummary | null>>;
-  setSpendingLoading: Dispatch<SetStateAction<boolean>>;
-  setSpendingFailed: Dispatch<SetStateAction<boolean>>;
-  setSpendingCurrencySymbol: Dispatch<SetStateAction<string>>;
-  setSpendingCurrencyCode: Dispatch<SetStateAction<string>>;
-  /** Cost window the operator selected; drives the spending preset. */
-  spendingPreset: "today" | "last_7_days" | "all";
+  /** 模型本体读取失败的原因；非 404 时页面留在原地展示错误面。 */
+  setLoadError: Dispatch<SetStateAction<string | null>>;
+  setDegradedParts: Dispatch<SetStateAction<ModelDetailDegradedParts>>;
 }
 
+/**
+ * 次要数据读取失败时页面主体仍要渲染，但绝不能把失败装扮成空集合：
+ * 失败原因随值一起带出去，由消费方决定在哪里说出来。
+ */
 function resolveOptionalBootstrapValue<T>(
   result: PromiseSettledResult<T>,
   fallback: T,
   label: string,
-): T {
+): { value: T; error: string | null } {
   if (result.status === "fulfilled") {
-    return result.value;
+    return { value: result.value, error: null };
   }
 
   console.error(`Failed to load ${label}`, result.reason);
-  return fallback;
+  return {
+    value: fallback,
+    error:
+      result.reason instanceof Error
+        ? result.reason.message
+        : getStaticMessages().common.requestFailed,
+  };
 }
+
+/** 哪些次要数据源这次没读到；null 表示读到了。 */
+export interface ModelDetailDegradedParts {
+  endpoints: string | null;
+  loadbalanceStrategies: string | null;
+  models: string | null;
+  pricingTemplates: string | null;
+}
+
+export const NO_DEGRADED_PARTS: ModelDetailDegradedParts = {
+  endpoints: null,
+  loadbalanceStrategies: null,
+  models: null,
+  pricingTemplates: null,
+};
 
 export function useModelDetailBootstrap({
   id,
@@ -66,51 +87,10 @@ export function useModelDetailBootstrap({
   setAllModels,
   setPricingTemplates,
   setLoading,
-  setSpending,
-  setSpendingLoading,
-  setSpendingFailed,
-  setSpendingCurrencySymbol,
-  setSpendingCurrencyCode,
-  spendingPreset,
+  setLoadError,
+  setDegradedParts,
 }: UseModelDetailBootstrapInput) {
   const modelRequestIdRef = useRef(0);
-  const spendingRequestIdRef = useRef(0);
-  const modelIdRef = useRef<string | null>(null);
-
-  const fetchSpending = useCallback(
-    async (modelId: string) => {
-      const requestId = ++spendingRequestIdRef.current;
-      setSpendingLoading(true);
-      try {
-        const data = await api.stats.spending({
-          ingress_model_id: modelId,
-          preset: spendingPreset,
-          scope: "ingress",
-        });
-        if (requestId !== spendingRequestIdRef.current) {
-          return;
-        }
-        setSpending(data.summary);
-        setSpendingCurrencySymbol(data.report_currency_symbol);
-        setSpendingCurrencyCode(data.report_currency_code);
-        setSpendingFailed(false);
-      } catch (error) {
-        if (requestId !== spendingRequestIdRef.current) {
-          return;
-        }
-        // A failed cost read renders as a failure, not as an absent or zero
-        // amount. The caller keeps whatever last succeeded on screen.
-        setSpendingFailed(true);
-        console.error("Failed to fetch spending", error);
-      } finally {
-        if (requestId === spendingRequestIdRef.current) {
-          setSpendingLoading(false);
-        }
-      }
-    },
-    [setSpending, setSpendingCurrencyCode, setSpendingCurrencySymbol, setSpendingFailed, setSpendingLoading, spendingPreset]
-  );
-
   const fetchModel = useCallback(async () => {
     if (!id) return;
 
@@ -121,8 +101,7 @@ export function useModelDetailBootstrap({
     }
 
     const requestId = ++modelRequestIdRef.current;
-    spendingRequestIdRef.current += 1;
-    setSpending(null);
+    setLoadError(null);
 
     try {
       const [data, connectionsList] = await Promise.all([
@@ -145,30 +124,64 @@ export function useModelDetailBootstrap({
         return;
       }
 
+      const endpoints = resolveOptionalBootstrapValue(
+        endpointsResult,
+        [],
+        "model-detail endpoints",
+      );
+      const loadbalanceStrategies = resolveOptionalBootstrapValue(
+        loadbalanceStrategiesResult,
+        [],
+        "model-detail loadbalance strategies",
+      );
+      const models = resolveOptionalBootstrapValue(
+        modelsResult,
+        [],
+        "model-detail models",
+      );
+      const pricingTemplates = resolveOptionalBootstrapValue(
+        pricingTemplatesResult,
+        [],
+        "model-detail pricing templates",
+      );
+
       setModel(data);
       setConnections(getOwnedModelConnections(data, modelConfigId));
       setAllConnections(connectionsList.filter((connection) => connection.model_config_id == null || connection.model_config_id === modelConfigId));
-      setGlobalEndpoints(resolveOptionalBootstrapValue(endpointsResult, [], "model-detail endpoints"));
-      setLoadbalanceStrategies(resolveOptionalBootstrapValue(loadbalanceStrategiesResult, [], "model-detail loadbalance strategies"));
-      setAllModels(resolveOptionalBootstrapValue(modelsResult, [], "model-detail models"));
-      setPricingTemplates(resolveOptionalBootstrapValue(pricingTemplatesResult, [], "model-detail pricing templates"));
+      setGlobalEndpoints(endpoints.value);
+      setLoadbalanceStrategies(loadbalanceStrategies.value);
+      setAllModels(models.value);
+      setPricingTemplates(pricingTemplates.value);
+      setDegradedParts({
+        endpoints: endpoints.error,
+        loadbalanceStrategies: loadbalanceStrategies.error,
+        models: models.error,
+        pricingTemplates: pricingTemplates.error,
+      });
 
-      modelIdRef.current = data.model_id;
-      void fetchSpending(data.model_id);
     } catch (error) {
       if (requestId !== modelRequestIdRef.current) {
         return;
       }
-      toast.error(getStaticMessages().modelDetailData.fetchModelDetailsFailed);
       console.error(error);
-      navigate("/route/models");
+      // 只有「这个模型配置不存在」才该把人送回列表：其它读取失败保留 URL
+      // 与页面上下文，让操作者原地重试，而不是丢掉他找到这一行的过程。
+      if (error instanceof ApiError && error.status === 404) {
+        toast.error(getStaticMessages().modelDetailData.modelConfigNotFound);
+        navigate("/route/models");
+        return;
+      }
+      setLoadError(
+        error instanceof Error
+          ? error.message
+          : getStaticMessages().common.requestFailed,
+      );
     } finally {
       if (requestId === modelRequestIdRef.current) {
         setLoading(false);
       }
     }
   }, [
-    fetchSpending,
     id,
     navigate,
     revision,
@@ -179,21 +192,14 @@ export function useModelDetailBootstrap({
     setLoadbalanceStrategies,
     setLoading,
     setModel,
-    setSpending,
     setPricingTemplates,
+    setLoadError,
+    setDegradedParts,
     ]);
 
   useEffect(() => {
     void fetchModel();
   }, [fetchModel]);
 
-  // Switching the cost window re-reads spending only; the model itself has
-  // not changed, so nothing else on the page is thrown away.
-  const refetchSpending = useCallback(() => {
-    if (modelIdRef.current) {
-      void fetchSpending(modelIdRef.current);
-    }
-  }, [fetchSpending]);
-
-  return { fetchModel, refetchSpending };
+  return { fetchModel };
 }

@@ -1,14 +1,13 @@
 import { useLocale } from "@/i18n/useLocale";
 import type { RoutingDiagnosticsResponse, RoutingDiagnosticRoute } from "@/lib/api/observability";
+import { routeDisposition, type ObserveCopy } from "./routingDisposition";
 import {
   OperatorCallout,
   OperatorInsetPanel,
   OperatorStatusBadge,
   OperatorTypeBadge,
-  type OperatorBadgeIntent,
 } from "@/shared/design-system";
 
-type ObserveCopy = ReturnType<typeof useLocale>["messages"]["observe"];
 
 /**
  * Static routing summary (MC-A2/A3/A4): authoritative backend analyzer output
@@ -103,25 +102,6 @@ function buildOperationGroups(routes: RoutingDiagnosticRoute[]): OperationGroup[
     groups.push(group);
   }
   return groups;
-}
-
-interface RouteDisposition {
-  key: string;
-  intent: OperatorBadgeIntent;
-  label: string;
-}
-
-function routeDisposition(route: RoutingDiagnosticRoute, copy: ObserveCopy): RouteDisposition {
-  if (!route.accepted) {
-    return { key: "not_accepted", intent: "idle", label: copy.routingNotAccepted };
-  }
-  if (route.statically_routable) {
-    return { key: "routable", intent: "healthy", label: copy.routingRoutable };
-  }
-  if (route.configured_leaf_exists) {
-    return { key: "configured_but_ineligible", intent: "degraded", label: copy.routingConfiguredButIneligible };
-  }
-  return { key: "uncovered", intent: "failing", label: copy.routingUncovered };
 }
 
 function OperationGroupRow({ group, copy }: { group: OperationGroup; copy: ObserveCopy }) {

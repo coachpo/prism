@@ -1,6 +1,11 @@
 import type { FormEvent, ReactNode } from "react";
-import { Plus, X } from "lucide-react";
+import { ChevronRight, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import {
   Dialog,
   DialogBody,
@@ -39,6 +44,8 @@ import {
   type CustomRequestParametersParseError,
 } from "./customRequestParameters";
 import {
+  OperatorCallout,
+  OperatorRetryButton,
   OperatorStatusBadge,
   OperatorSwitchField,
   OperatorTypeBadge,
@@ -74,6 +81,10 @@ interface ConnectionDialogProps {
   selectedEndpointId: string;
   setSelectedEndpointId: (id: string) => void;
   globalEndpoints: Endpoint[];
+  /** 端点/价格模板读取失败的原因；读失败绝不能渲染成「没有可用端点」。 */
+  endpointsError?: string | null;
+  pricingTemplatesError?: string | null;
+  onRetryReferenceData?: () => void;
   headerRows: HeaderRow[];
   setHeaderRows: (rows: HeaderRow[]) => void;
   customRequestParametersDraft: string;
@@ -100,33 +111,65 @@ interface ConnectionDialogSectionProps {
   dataTestId?: string;
   description?: string;
   title: string;
+  /** 折叠区：常见任务不需要展开，摘要行说明折起来的是什么。 */
+  collapsible?: boolean;
+  defaultOpen?: boolean;
+  summary?: string;
 }
 
 function ConnectionDialogSection({
   children,
   className,
+  collapsible = false,
   dataTestId,
+  defaultOpen = true,
   description,
+  summary,
   title,
 }: ConnectionDialogSectionProps) {
+  const sectionClassName = cn(
+    "flex min-w-0 flex-col gap-3 border-b pb-4 last:border-b-0 last:pb-0",
+    className,
+  );
+
+  if (!collapsible) {
+    return (
+      <section className={sectionClassName} data-testid={dataTestId}>
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <h2 className="text-sm font-semibold tracking-tight text-foreground">
+            {title}
+          </h2>
+          {description ? (
+            <p className="text-sm text-muted-foreground">{description}</p>
+          ) : null}
+        </div>
+        {children}
+      </section>
+    );
+  }
+
   return (
-    <section
-      className={cn(
-        "flex flex-col gap-3 border-b pb-4 last:border-b-0 last:pb-0",
-        className,
-      )}
-      data-testid={dataTestId}
-    >
-      <div className="flex flex-col gap-0.5">
-        <h2 className="text-sm font-semibold tracking-tight text-foreground">
-          {title}
-        </h2>
-        {description ? (
-          <p className="text-sm text-muted-foreground">{description}</p>
-        ) : null}
-      </div>
-      {children}
-    </section>
+    <Collapsible defaultOpen={defaultOpen} asChild>
+      <section className={sectionClassName} data-testid={dataTestId}>
+        <CollapsibleTrigger className="group/section flex min-w-0 items-start gap-2 rounded-md text-left focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2">
+          <ChevronRight className="mt-0.5 size-4 shrink-0 text-muted-foreground transition-transform group-data-[state=open]/section:rotate-90" />
+          <span className="flex min-w-0 flex-col gap-0.5">
+            <span className="text-sm font-semibold tracking-tight text-foreground">
+              {title}
+            </span>
+            {summary ? (
+              <span className="text-xs text-muted-foreground">{summary}</span>
+            ) : null}
+          </span>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="flex min-w-0 flex-col gap-3">
+          {description ? (
+            <p className="text-sm text-muted-foreground">{description}</p>
+          ) : null}
+          {children}
+        </CollapsibleContent>
+      </section>
+    </Collapsible>
   );
 }
 
@@ -182,6 +225,9 @@ export function ConnectionDialog({
   selectedEndpointId,
   setSelectedEndpointId,
   globalEndpoints,
+  endpointsError = null,
+  pricingTemplatesError = null,
+  onRetryReferenceData,
   headerRows,
   setHeaderRows,
   customRequestParametersDraft,
@@ -199,7 +245,7 @@ export function ConnectionDialog({
   prefillConnections = [],
   onPrefill,
 }: ConnectionDialogProps) {
-  const { messages } = useLocale();
+  const { formatNumber, messages } = useLocale();
   const routingCopy = messages.routing;
   const copy = messages.modelDetail;
   const isOpenAI = apiFamily === "openai";
@@ -338,6 +384,26 @@ export function ConnectionDialog({
     });
   };
 
+  // 折叠区的摘要必须说清折起来的是什么，否则折叠就成了隐藏。
+  const limiterCount = [
+    connectionForm.qps_limit,
+    connectionForm.max_in_flight_non_stream,
+    connectionForm.max_in_flight_stream,
+  ].filter((value) => value != null).length;
+  const headerCount = headerRows.filter((row) => row.key.trim() !== "").length;
+  const hasCustomParameters = customRequestParametersDraft.trim() !== "";
+  const hasAdvancedSettings =
+    limiterCount > 0 || headerCount > 0 || hasCustomParameters;
+  const advancedSettingsSummary = [
+    limiterCount > 0
+      ? copy.advancedSummaryLimiters(formatNumber(limiterCount))
+      : copy.advancedSummaryNoLimiter,
+    copy.advancedSummaryHeaders(formatNumber(headerCount)),
+    hasCustomParameters
+      ? copy.advancedSummaryCustomParameters
+      : copy.advancedSummaryNoCustomParameters,
+  ].join(" · ");
+
   const handleTextCapabilityChange = (value: string) => {
     if (ownerAcceptsText && value !== ownerOpenAIAcceptedFormat) return;
     updateConnectionForm({
@@ -348,7 +414,21 @@ export function ConnectionDialog({
 
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
-      <DialogContent className="flex h-[min(92vh,64rem)] max-h-[92vh] max-w-6xl flex-col overflow-hidden p-0 sm:max-w-6xl">
+      <DialogContent
+        size="lg"
+        className="overflow-hidden p-0"
+        onOpenAutoFocus={(event) => {
+          // Radix 默认聚焦第一个可聚焦元素，那是值恒为空的「从已有终端目标
+          // 填充」。真正的第一个决策是选端点。
+          const target = event.currentTarget as HTMLElement;
+          const preferred = target.querySelector<HTMLElement>(
+            "[data-autofocus]",
+          );
+          if (!preferred) return;
+          event.preventDefault();
+          preferred.focus();
+        }}
+      >
         <DialogHeader className="shrink-0 border-b bg-background px-5 py-3.5 sm:px-6">
           <DialogTitle>
             {editingConnection ? copy.editConnection : copy.addConnection}
@@ -386,16 +466,18 @@ export function ConnectionDialog({
 
           <DialogBody className="min-h-0 flex-1 p-0">
             <ScrollArea className="min-h-0 flex-1">
+              {/* 窄屏上任何一层缺 min-w-0，内容就会比对话框宽出几十像素
+                  且不可横滚 —— 状态徽章与说明会被直接裁掉。 */}
               <div
-                className="px-5 py-4 sm:px-6"
+                className="min-w-0 px-5 py-4 sm:px-6"
                 data-testid="connection-dialog-scroll-body"
               >
                 <div
-                  className="flex min-h-0 flex-col gap-4"
+                  className="flex min-h-0 min-w-0 flex-col gap-4"
                   data-testid="connection-dialog-main-grid"
                 >
                   <div
-                    className="flex min-h-0 flex-col gap-4"
+                    className="flex min-h-0 min-w-0 flex-col gap-4"
                     data-testid="connection-dialog-left-column"
                   >
                     <ConnectionDialogSection
@@ -488,8 +570,9 @@ export function ConnectionDialog({
                           }}
                           className="gap-3"
                         >
-                          <TabsList className="grid w-full grid-cols-2 md:max-w-md">
+                          <TabsList className="grid w-full min-w-0 grid-cols-2 md:max-w-md">
                             <TabsTrigger
+                              data-autofocus
                               value="select"
                               disabled={
                                 isEndpointLocked && createMode !== "select"
@@ -515,14 +598,20 @@ export function ConnectionDialog({
                             >
                               <Select
                                 value={selectedEndpointId}
-                                disabled={isEndpointLocked}
+                                disabled={
+                                  isEndpointLocked ||
+                                  globalEndpoints.length === 0
+                                }
                                 onValueChange={(value) => {
                                   setSelectedEndpointId(value);
                                 }}
                               >
                                 <SelectTrigger
                                   id="conn-selected-endpoint"
-                                  disabled={isEndpointLocked}
+                                  disabled={
+                                    isEndpointLocked ||
+                                    globalEndpoints.length === 0
+                                  }
                                 >
                                   <SelectValue
                                     placeholder={copy.selectEndpointPlaceholder}
@@ -543,7 +632,23 @@ export function ConnectionDialog({
                               </Select>
                             </ConnectionDialogField>
 
-                            {globalEndpoints.length === 0 ? (
+                            {endpointsError ? (
+                              <OperatorCallout
+                                intent="danger"
+                                description={copy.endpointsReadFailed(
+                                  endpointsError,
+                                )}
+                                action={
+                                  onRetryReferenceData ? (
+                                    <OperatorRetryButton
+                                      onClick={onRetryReferenceData}
+                                    >
+                                      {messages.common.retry}
+                                    </OperatorRetryButton>
+                                  ) : undefined
+                                }
+                              />
+                            ) : globalEndpoints.length === 0 ? (
                               <p className="text-xs text-muted-foreground">
                                 {copy.noEndpointsFound}
                               </p>
@@ -761,6 +866,23 @@ export function ConnectionDialog({
                               </SelectGroup>
                             </SelectContent>
                           </Select>
+                          {pricingTemplatesError ? (
+                            <OperatorCallout
+                              intent="warning"
+                              description={copy.pricingTemplatesReadFailed(
+                                pricingTemplatesError,
+                              )}
+                              action={
+                                onRetryReferenceData ? (
+                                  <OperatorRetryButton
+                                    onClick={onRetryReferenceData}
+                                  >
+                                    {messages.common.retry}
+                                  </OperatorRetryButton>
+                                ) : undefined
+                              }
+                            />
+                          ) : null}
                         </ConnectionDialogField>
                       </div>
 
@@ -779,6 +901,13 @@ export function ConnectionDialog({
                           <ConnectionDialogField
                             id="conn-openai-text-capability"
                             label={copy.openaiTextCapabilitySelector}
+                            description={
+                              ownerAcceptsText
+                                ? copy.openaiTextCapabilityFollowsOwner(
+                                    ownerModelId ?? "",
+                                  )
+                                : undefined
+                            }
                           >
                             <Select
                               value={resolvedTextCapability ?? undefined}
@@ -855,6 +984,9 @@ export function ConnectionDialog({
                     ) : null}
 
                     <ConnectionDialogSection
+                      collapsible
+                      defaultOpen={hasAdvancedSettings}
+                      summary={advancedSettingsSummary}
                       title={copy.advancedRequestSettings}
                       description={copy.advancedRequestSettingsDescription}
                       dataTestId="connection-dialog-advanced-section"

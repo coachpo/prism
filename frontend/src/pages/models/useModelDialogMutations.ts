@@ -191,18 +191,19 @@ export function useModelDialogMutations({
       setFormError(null);
       const validationError = validateModelFormData(formData);
 
+      // 对话框开着的时候只在框内说话：toast 在框外，操作者要在三个地方
+      // 找同一条原因（DESIGN.md Status And Feedback）。
       if (validationError === "api_family_required") {
-        toast.error(messages.modelsData.selectApiFamily);
+        setFormError(messages.modelsData.selectApiFamily);
         return;
       }
 
       if (validationError === "loadbalance_strategy_required") {
-        const message =
+        setFormError(
           loadbalanceStrategies.length === 0
             ? messages.modelDetail.noLoadbalanceStrategiesAvailable
-            : messages.modelsData.selectLoadbalanceStrategy;
-        setFormError(message);
-        toast.error(message);
+            : messages.modelsData.selectLoadbalanceStrategy,
+        );
         return;
       }
 
@@ -231,12 +232,9 @@ export function useModelDialogMutations({
         }
         handleSetIsDialogOpen(false);
       } catch (error) {
-        const message = getModelSaveErrorMessage(
-          error,
-          messages.modelsData.saveFailed,
+        setFormError(
+          getModelSaveErrorMessage(error, messages.modelsData.saveFailed),
         );
-        setFormError(message);
-        toast.error(message);
       }
     },
     [

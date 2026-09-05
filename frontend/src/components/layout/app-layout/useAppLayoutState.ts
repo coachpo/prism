@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { useAuth } from "@/context/useAuth";
@@ -18,16 +18,19 @@ export function useAppLayoutState() {
     readSidebarCollapsed()
   );
 
-  useEffect(() => {
-    writeSidebarCollapsed(desktopSidebarCollapsed);
-  }, [desktopSidebarCollapsed]);
+  // 只有操作者亲手改过才写入：否则首次渲染就会把「按视口推断的默认值」
+  // 固化下来，换个屏幕再也推断不出。
+  const commitSidebarCollapsed = (collapsed: boolean) => {
+    writeSidebarCollapsed(collapsed);
+    setDesktopSidebarCollapsed(collapsed);
+  };
 
   const setDesktopSidebarOpen = (open: boolean) => {
-    setDesktopSidebarCollapsed(!open);
+    commitSidebarCollapsed(!open);
   };
 
   const toggleDesktopSidebar = () => {
-    setDesktopSidebarCollapsed((current) => !current);
+    commitSidebarCollapsed(!desktopSidebarCollapsed);
   };
 
   const handleLogout = async () => {

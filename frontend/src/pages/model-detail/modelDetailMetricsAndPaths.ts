@@ -6,16 +6,19 @@ type ModelDetailPathTarget = Pick<ModelConfig, "id"> | Pick<ModelConfigListItem,
 
 export const getModelDetailPath = (model: ModelDetailPathTarget): string => `/route/models/${model.id}`;
 
+/**
+ * 延迟只有这一个写法：两页对照同一个数时不该出现 `196.2s` 与 `196,261 ms`
+ * 两种面貌。单位与数值之间留空格（DESIGN.md: values carry units）。
+ */
 export const formatLatencyForDisplay = (value: number | null): string => {
-  if (value === null || !Number.isFinite(value)) return "-";
+  if (value === null || !Number.isFinite(value)) return "—";
   if (value >= 1000) {
-    const fractionDigits = value >= 10000 ? 1 : 2;
     return `${formatNumber(value / 1000, getCurrentLocale(), {
-      minimumFractionDigits: fractionDigits,
-      maximumFractionDigits: fractionDigits,
-    })}s`;
+      minimumFractionDigits: 1,
+      maximumFractionDigits: 1,
+    })} s`;
   }
-  return `${Math.round(value)}ms`;
+  return `${Math.round(value)} ms`;
 };
 
 export const getConnectionName = (

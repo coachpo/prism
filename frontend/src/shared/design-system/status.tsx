@@ -12,17 +12,25 @@ import {
 /**
  * Background at 10% of the tone, outline at 25%. The four runtime tiers are the
  * only tones that also render a shape marker.
+ *
+ * 底色用不透明混色而不是半透明叠加：徽章会同时落在 panel 与 inset 上，
+ * 半透明底会随父容器变化，把 idle/degraded 的对比度拉到 4.3:1 以下。
  */
 const OPERATOR_BADGE_TONES: Record<OperatorBadgeIntent, string> = {
   default: "",
   neutral: "border-border bg-panel text-foreground",
   muted: "border-border bg-inset text-muted-foreground",
-  accent: "border-primary/25 bg-primary/10 text-primary",
-  danger: "border-destructive/25 bg-destructive/10 text-destructive",
-  healthy: "border-healthy/25 bg-healthy/10 text-healthy",
-  degraded: "border-degraded/25 bg-degraded/10 text-degraded",
-  failing: "border-failing/25 bg-failing/10 text-failing",
-  idle: "border-idle/25 bg-idle/10 text-idle",
+  accent:
+    "border-primary/25 bg-[color-mix(in_srgb,var(--color-primary)_10%,var(--color-panel))] text-primary",
+  danger:
+    "border-destructive/25 bg-[color-mix(in_srgb,var(--color-destructive)_10%,var(--color-panel))] text-destructive",
+  healthy:
+    "border-healthy/25 bg-[color-mix(in_srgb,var(--color-healthy)_10%,var(--color-panel))] text-healthy",
+  degraded:
+    "border-degraded/25 bg-[color-mix(in_srgb,var(--color-degraded)_10%,var(--color-panel))] text-degraded",
+  failing:
+    "border-failing/25 bg-[color-mix(in_srgb,var(--color-failing)_10%,var(--color-panel))] text-failing",
+  idle: "border-idle/25 bg-[color-mix(in_srgb,var(--color-idle)_10%,var(--color-panel))] text-idle",
 }
 
 const STATUS_TIERS = new Set<string>(operatorStatusTiers)

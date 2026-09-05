@@ -26,7 +26,10 @@ const buttonVariants = cva(
         sm: "h-[var(--density-control-h-sm)] rounded-md gap-1.5 px-3 has-[>svg]:px-2.5",
         lg: "h-10 rounded-md px-6 has-[>svg]:px-4",
         icon: "size-[var(--density-control-h)]",
-        "icon-xs": "size-[var(--density-control-h-xs)] rounded-md [&_svg:not([class*='size-'])]:size-3",
+        // 24px 的可见图形配 28px 命中区：xs 只用于嵌在行内的次级图标按钮，
+        // 但它同样要满足最小触摸目标。
+        "icon-xs":
+          "relative size-[var(--density-control-h-xs)] rounded-md before:absolute before:-inset-0.5 before:content-[''] [&_svg:not([class*='size-'])]:size-3",
         "icon-sm": "size-[var(--density-control-h-sm)]",
         "icon-lg": "size-10",
       },

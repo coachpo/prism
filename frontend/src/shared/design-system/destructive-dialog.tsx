@@ -28,6 +28,7 @@ export interface OperatorDestructiveDialogProps {
   cancelDisabled?: boolean
   showConfirmButton?: boolean
   showCloseButton?: boolean
+  size?: "sm" | "md" | "lg"
   contentClassName?: string
   bodyClassName?: string
   footerClassName?: string
@@ -50,6 +51,7 @@ export function OperatorDestructiveDialog({
   cancelDisabled = false,
   showConfirmButton = true,
   showCloseButton = false,
+  size = "sm",
   contentClassName,
   bodyClassName,
   footerClassName,
@@ -57,7 +59,7 @@ export function OperatorDestructiveDialog({
 }: OperatorDestructiveDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={cn("sm:max-w-md", contentClassName)} showCloseButton={showCloseButton}>
+      <DialogContent size={size} className={contentClassName} showCloseButton={showCloseButton}>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           {description ? <DialogDescription>{description}</DialogDescription> : null}

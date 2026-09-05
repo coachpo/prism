@@ -1,5 +1,7 @@
 import { Fragment } from "react";
 import { Link } from "@tanstack/react-router";
+
+import { cn } from "@/lib/utils";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -53,6 +55,9 @@ export function SiteHeader({
       >
         <BreadcrumbList className="min-w-0 flex-nowrap gap-1 overflow-hidden text-xs sm:gap-1">
           {breadcrumbs.map((breadcrumb, index) => {
+            // 窄屏只渲染最后两级：全都塞进去会把每一级都压到 2px，
+            // 既读不出在哪一页，返回链接也点不中。
+            const hiddenOnNarrow = index < breadcrumbs.length - 2;
             const item = breadcrumb.current ? (
               <BreadcrumbPage
                 data-testid="shell-breadcrumb-current"
@@ -70,8 +75,19 @@ export function SiteHeader({
 
             return (
               <Fragment key={`${breadcrumb.id}-${index}`}>
-                <BreadcrumbItem className="min-w-0 max-w-full truncate">{item}</BreadcrumbItem>
-                {index < breadcrumbs.length - 1 ? <BreadcrumbSeparator className="shrink-0" /> : null}
+                <BreadcrumbItem
+                  className={cn(
+                    "min-w-0 max-w-full truncate",
+                    hiddenOnNarrow && "max-sm:hidden",
+                  )}
+                >
+                  {item}
+                </BreadcrumbItem>
+                {index < breadcrumbs.length - 1 ? (
+                  <BreadcrumbSeparator
+                    className={cn("shrink-0", hiddenOnNarrow && "max-sm:hidden")}
+                  />
+                ) : null}
               </Fragment>
             );
           })}

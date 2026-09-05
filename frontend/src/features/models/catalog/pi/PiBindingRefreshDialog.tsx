@@ -112,7 +112,7 @@ export function PiBindingRefreshDialog({
         if (!open && !controller.mutationPending) onClose();
       }}
     >
-      <DialogContent className="sm:max-w-[560px]">
+      <DialogContent size="md">
         <DialogHeader>
           <DialogTitle>{copy.refreshDialogTitle}</DialogTitle>
           <DialogDescription>{copy.refreshDialogDescription}</DialogDescription>
@@ -147,10 +147,14 @@ export function PiBindingRefreshDialog({
               description={commitError}
             />
           ) : null}
+          {/* 没有变化不禁用提交（应用一次会刷新抓取时间），但要先说清楚
+              这一点，否则点下去像什么都没发生。 */}
           {preview && !preview.changed ? (
-            <p className="text-sm text-muted-foreground">
-              {copy.refreshNoChanges}
-            </p>
+            <OperatorCallout
+              intent="muted"
+              title={copy.refreshNoChanges}
+              description={copy.refreshNoDiffNote}
+            />
           ) : null}
           {preview && preview.changed ? (
             <div className="flex flex-col gap-2">

@@ -22,7 +22,9 @@ function TableHeader({ className, ...props }: React.ComponentProps<"thead">) {
     <thead
       data-slot="table-header"
       className={cn(
-        // Sticky so the column basis stays visible while scanning a long list.
+        // sticky 只在表格最近的滚动祖先里生效。包一层 overflow-x-auto 的表格，
+        // 那个 div 就成了包含块，而它不纵向滚动 —— 这条声明会静默失效。
+        // 需要黏住表头的表格必须让同一个容器同时纵向滚动（见 ModelsTable）。
         "sticky top-0 z-10 bg-inset [&_tr]:border-b",
         className
       )}

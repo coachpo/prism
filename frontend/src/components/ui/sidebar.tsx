@@ -29,7 +29,9 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 
-const MOBILE_MEDIA_QUERY = "(max-width: 1023px)"
+// 抽屉只留给真正的手机宽度。768–1023 这一档仍然有足够宽度放一条 56px 图标轨，
+// 把它整段换成 off-canvas 抽屉，导航就从「一直在」变成了「要先点开」。
+const MOBILE_MEDIA_QUERY = "(max-width: 767px)"
 const SIDEBAR_WIDTH = "20rem"
 const SIDEBAR_WIDTH_MOBILE = "min(88vw, 20rem)"
 const SIDEBAR_WIDTH_ICON = "4.5rem"

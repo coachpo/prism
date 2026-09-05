@@ -156,7 +156,7 @@ export function PiBindingOverrideDialog({
           if (!open && !busy) onClose();
         }}
       >
-        <DialogContent className="sm:max-w-[720px]">
+        <DialogContent size="lg">
           <DialogHeader>
             <DialogTitle>{copy.overrideDialogTitle}</DialogTitle>
             <DialogDescription>

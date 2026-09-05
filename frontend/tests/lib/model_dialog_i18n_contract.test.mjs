@@ -15,7 +15,8 @@ const { zhCNMessages } = load(path.join(frontendDir, "src/i18n/messages/zh-CN.ts
 test("model detail access target copy avoids fallback wording", () => {
   assert.equal(zhCNMessages.modelsUi.modelFallbackTargets, "模型目标");
   assert.equal(zhCNMessages.modelsUi.modelTarget, "模型目标");
-  assert.equal(zhCNMessages.modelsUi.selectSameFamilyModel, "选择目标模型");
+  // 「加目标」曾经有三个名字（新增/新建/选择目标模型）：统一为动宾短语「添加」。
+  assert.equal(zhCNMessages.modelsUi.selectSameFamilyModel, "添加模型目标");
   assert.equal(
     zhCNMessages.modelsUi.noSameFamilyModelsAvailable,
     "没有其他可用的同家族模型配置。现在可以先以禁用状态保存，稍后在启用前再添加模型目标。",
@@ -30,7 +31,7 @@ test("model detail access target copy avoids fallback wording", () => {
     zhCNMessages.modelsUi.selectSameFamilyModel,
     zhCNMessages.modelsUi.noTerminalTargetsSelected,
   ].join("\n");
-  assert.match(chineseModelTargetCopy, /模型目标|选择目标模型/);
+  assert.match(chineseModelTargetCopy, /模型目标/);
 });
 
 test("single-instance copy uses neutral labels", () => {

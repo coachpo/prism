@@ -8,7 +8,6 @@ import type {
   ModelConfig,
   ModelConfigListItem,
   PricingTemplate,
-  SpendingSummary,
 } from "@/lib/types"
 import {
   type AccessTargetSummary,
@@ -19,7 +18,11 @@ import {
 } from "@/pages/model-detail/modelAccessTargetProjection"
 import { useConnectionFocus } from "@/pages/model-detail/useConnectionFocus"
 import { useModelDetailAccessTargetMutations } from "@/pages/model-detail/useModelDetailAccessTargetMutations"
-import { useModelDetailBootstrap } from "@/pages/model-detail/useModelDetailBootstrap"
+import {
+  NO_DEGRADED_PARTS,
+  useModelDetailBootstrap,
+  type ModelDetailDegradedParts,
+} from "@/pages/model-detail/useModelDetailBootstrap"
 import { useModelDetailConnectionMutations } from "@/pages/model-detail/useModelDetailConnectionMutations"
 import { useModelDetailDialogState } from "@/pages/model-detail/useModelDetailDialogState"
 import { useModelDetailModelForm } from "@/pages/model-detail/useModelDetailModelForm"
@@ -68,18 +71,12 @@ export function useModelDetailFeatureData({
   const [allModels, setAllModels] = useState<ModelConfigListItem[]>([])
   const [loadbalanceStrategies, setLoadbalanceStrategies] = useState<LoadbalanceStrategy[]>([])
   const [pricingTemplates, setPricingTemplates] = useState<PricingTemplate[]>([])
-  const [spending, setSpending] = useState<SpendingSummary | null>(null)
-  const [spendingLoading, setSpendingLoading] = useState(false)
-  const [spendingFailed, setSpendingFailed] = useState(false)
-  const [spendingWindow, setSpendingWindow] = useState<"today" | "last_7_days" | "all">("all")
-  const [spendingCurrencySymbol, setSpendingCurrencySymbol] = useState("$")
-  const [spendingCurrencyCode, setSpendingCurrencyCode] = useState("USD")
-
   const [connections, setConnections] = useState<Connection[]>([])
   const [allConnections, setAllConnections] = useState<Connection[]>([])
   const [connectionSearch, setConnectionSearch] = useState("")
   const [focusedConnectionId, setFocusedConnectionId] = useState<number | null>(null)
-  const [connectionCardRefs] = useState<Map<number, HTMLDivElement>>(new Map())
+  // 深链定位的落点是访问目标表里的那一行。
+  const [connectionCardRefs] = useState<Map<number, HTMLElement>>(new Map())
   const [globalEndpoints, setGlobalEndpoints] = useState<Endpoint[]>([])
 
   const refreshModels = useCallback(async () => {
@@ -147,7 +144,23 @@ export function useModelDetailFeatureData({
     ownerModelID: model?.model_id ?? null,
   })
 
-  const { refetchSpending } = useModelDetailBootstrap({
+  // 页面每 30 秒自己重读运行态：这件事必须对操作者可见且可关，
+  // 否则新鲜度条上的自动刷新只是装饰。
+  const [autoRefreshValue, setAutoRefreshValue] = useState<"off" | "30s" | "60s">(
+    "30s",
+  )
+  const autoRefreshIntervalMs =
+    autoRefreshValue === "off"
+      ? null
+      : autoRefreshValue === "30s"
+        ? 30_000
+        : 60_000
+
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [degradedParts, setDegradedParts] =
+    useState<ModelDetailDegradedParts>(NO_DEGRADED_PARTS)
+
+  const { fetchModel } = useModelDetailBootstrap({
     id: modelId,
     revision,
     navigate: navigateTo,
@@ -159,12 +172,8 @@ export function useModelDetailFeatureData({
     setAllModels,
     setPricingTemplates,
     setLoading,
-    setSpending,
-    setSpendingLoading,
-    setSpendingFailed,
-    setSpendingCurrencySymbol,
-    setSpendingCurrencyCode,
-    spendingPreset: spendingWindow,
+    setLoadError,
+    setDegradedParts,
   })
 
   // The global current-state read model filters on the public model id string,
@@ -175,6 +184,8 @@ export function useModelDetailFeatureData({
     currentStateGapByConnectionId,
     currentStateFailure,
     currentStateCompleteness,
+    currentStateGeneratedAt,
+    currentStateLoading,
     resettingConnectionIds,
     refreshCurrentState,
     resetCooldown,
@@ -182,6 +193,7 @@ export function useModelDetailFeatureData({
     modelId: model?.model_id,
     revision,
     enabled: Boolean(model),
+    pollIntervalMs: autoRefreshIntervalMs,
   })
 
   const { applyTargets } = useModelDetailTargetReconciliation({
@@ -240,6 +252,8 @@ export function useModelDetailFeatureData({
     formData,
     targetEditorError,
     setTargetEditorError,
+    modelFormError,
+    setModelFormError,
     setFormData,
     setIsEditModelDialogOpen,
     setLoadbalanceStrategyId,
@@ -303,6 +317,11 @@ export function useModelDetailFeatureData({
   return {
     model,
     loading,
+    loadError,
+    degradedParts,
+    retryLoad: fetchModel,
+    autoRefreshValue,
+    setAutoRefreshValue,
     loadbalanceStrategies,
     isEditModelDialogOpen,
     setIsEditModelDialogOpen,
@@ -310,17 +329,12 @@ export function useModelDetailFeatureData({
     setFormData,
     setLoadbalanceStrategyId,
     targetConnectionsForApiFamily,
+    allModels,
     targetModelsForApiFamily,
     targetEditorError,
     setTargetEditorError,
-    spending,
-    spendingLoading,
-    spendingFailed,
-    spendingWindow,
-    setSpendingWindow,
-    refetchSpending,
-    spendingCurrencySymbol,
-    spendingCurrencyCode,
+    modelFormError,
+    setModelFormError,
     connections,
     refreshCurrentState,
     refreshModels,
@@ -334,6 +348,8 @@ export function useModelDetailFeatureData({
     currentStateGapByConnectionId,
     currentStateFailure,
     currentStateCompleteness,
+    currentStateGeneratedAt,
+    currentStateLoading,
     resettingConnectionIds,
     focusedConnectionId,
     connectionCardRefs,

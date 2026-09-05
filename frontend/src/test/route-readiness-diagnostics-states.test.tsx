@@ -7,6 +7,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { LocaleProvider } from "@/i18n/LocaleProvider";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import type { ModelConfig } from "@/lib/types";
 import { RouteReadinessCard } from "@/pages/model-detail/RouteReadinessCard";
 
@@ -22,12 +23,14 @@ const model = {
 function renderCard(props: Partial<React.ComponentProps<typeof RouteReadinessCard>>) {
   return render(
     <LocaleProvider>
-      <RouteReadinessCard
-        model={model}
-        diagnosticsView={{ kind: "idle" }}
-        onRetryDiagnostics={() => {}}
-        {...props}
-      />
+      <TooltipProvider>
+        <RouteReadinessCard
+          model={model}
+          diagnosticsView={{ kind: "idle" }}
+          onRetryDiagnostics={() => {}}
+          {...props}
+        />
+      </TooltipProvider>
     </LocaleProvider>,
   );
 }

@@ -7,6 +7,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { LocaleProvider } from "@/i18n/LocaleProvider";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import type { PiModelReadResponse } from "@/lib/types";
 import { ExternalCatalogSourcesSection } from "./ExternalCatalogSourcesSection";
 import type { ModelCatalogView } from "@/pages/model-detail/useModelCatalog";
@@ -160,10 +161,15 @@ function renderSection(props: Parameters<typeof SectionHarness>[0]) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
+  // 区块默认折叠（只读证据不该把主配置面推到第三屏）；面板内容的断言
+  // 先展开再进行。
+  localStorage.setItem("prism.modelDetail.catalogExpanded", "1");
   return render(
     <QueryClientProvider client={client}>
       <LocaleProvider>
-        <SectionHarness {...props} />
+        <TooltipProvider>
+          <SectionHarness {...props} />
+        </TooltipProvider>
       </LocaleProvider>
     </QueryClientProvider>,
   );
@@ -203,7 +209,7 @@ describe("ExternalCatalogSourcesSection", () => {
     expect(screen.queryByText("尚未绑定目录条目")).not.toBeInTheDocument();
     // The pi.dev panel still renders its identity evidence set.
     expect(screen.getByText("codex/gpt-x")).toBeInTheDocument();
-    expect(screen.getByText("Prism model_id")).toBeInTheDocument();
+    expect(screen.getByText("模型配置 ID（Prism）")).toBeInTheDocument();
     expect(screen.getByText("最终 Pi API")).toBeInTheDocument();
     expect(screen.getByText("openai-responses")).toBeInTheDocument();
   });
@@ -281,7 +287,10 @@ describe("ExternalCatalogSourcesSection", () => {
     // coordinate row also carries the cross-directory marker.
     expect(screen.getByText(/openai\/gpt-x/)).toBeInTheDocument();
     expect(screen.getByText(/headers/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /解绑/ })).toBeInTheDocument();
+    // 解绑收进了溢出菜单：一个常驻的红色按钮挨着「刷新」是误点的温床。
+    expect(
+      screen.getByRole("button", { name: "pi.dev 绑定的更多操作" }),
+    ).toBeInTheDocument();
   });
 
   it("keeps last-good Pi truth visible with its own management-read retry", async () => {
@@ -297,7 +306,7 @@ describe("ExternalCatalogSourcesSection", () => {
       onPiRetry,
     });
     expect(screen.getByTestId("pi-detail-read-stale")).toBeInTheDocument();
-    expect(screen.getByText("Prism model_id")).toBeInTheDocument();
+    expect(screen.getByText("模型配置 ID（Prism）")).toBeInTheDocument();
     expect(screen.getAllByText("未绑定").length).toBeGreaterThanOrEqual(2);
     await user.click(screen.getByRole("button", { name: "重试" }));
     expect(onPiRetry).toHaveBeenCalledTimes(1);

@@ -1,4 +1,5 @@
 import type { ReactNode } from "react"
+import { FilterIcon } from "lucide-react"
 
 import { Card, CardContent } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
@@ -31,6 +32,18 @@ export type OperatorKpiCardProps = {
   label: ReactNode
   onClick?: () => void
   /**
+   * 这张卡是不是当前生效的筛选。作为筛选器的 KPI 必须能看出「点过了」，
+   * 否则点击后唯一的反馈在几百像素之外的表格里。
+   */
+  pressed?: boolean
+  /** 值的语气：异常非零时不能和正常卡长得一模一样。 */
+  intent?: "default" | "degraded" | "failing"
+  /**
+   * 紧凑变体：KPI 行是通往表格的必经之路，不该自己吃掉三分之一首屏。
+   * 说明仍然渲染（帮助文本必须可见），只是压到一行。
+   */
+  compact?: boolean
+  /**
    * The number itself. Pass `OperatorMissingValue` when it is absent and an
    * error surface when the read failed — never a zero standing in for either.
    */
@@ -40,10 +53,13 @@ export type OperatorKpiCardProps = {
 export function OperatorKpiCard({
   badges,
   className,
+  compact = false,
   delta,
   detail,
+  intent = "default",
   label,
   onClick,
+  pressed,
   value,
 }: OperatorKpiCardProps) {
   const interactive = Boolean(onClick)
@@ -52,8 +68,10 @@ export function OperatorKpiCard({
     <Card
       data-slot="kpi-card"
       className={cn(
-        "operator-section-surface min-w-0 gap-0 rounded-lg py-0 transition-colors",
+        "operator-section-surface relative min-w-0 gap-0 rounded-lg py-0 transition-colors",
         interactive && "cursor-pointer hover:border-primary/40 hover:bg-primary-soft/25",
+        pressed &&
+          "border-primary before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:rounded-l-lg before:bg-primary",
         className,
       )}
       onClick={onClick}
@@ -61,6 +79,7 @@ export function OperatorKpiCard({
         ? {
             role: "button" as const,
             tabIndex: 0,
+            "aria-pressed": pressed ?? false,
             onKeyDown: (event: React.KeyboardEvent) => {
               if (event.key === "Enter" || event.key === " ") {
                 event.preventDefault()
@@ -70,17 +89,35 @@ export function OperatorKpiCard({
           }
         : {})}
     >
-      <CardContent className="flex min-w-0 flex-col gap-1 p-[var(--density-metric-pad)]">
+      <CardContent
+        className={cn(
+          "flex min-w-0 flex-col p-[var(--density-metric-pad)]",
+          compact ? "gap-0.5 py-2" : "gap-1",
+        )}
+      >
         <div
           data-slot="metric-label"
           className="flex min-w-0 items-center gap-1.5 text-[11px] font-medium tracking-[0.04em] text-muted-foreground"
         >
-          {label}
+          <span className="min-w-0 truncate">{label}</span>
+          {interactive ? (
+            <FilterIcon
+              aria-hidden="true"
+              className="ml-auto size-3 shrink-0 text-muted-foreground"
+            />
+          ) : null}
         </div>
         <div className="flex min-w-0 flex-wrap items-baseline gap-2">
           <span
             data-slot="metric-value"
-            className="min-w-0 font-mono text-[1.625rem] font-semibold leading-[1.875rem] tabular-nums"
+            className={cn(
+              "min-w-0 font-mono font-semibold tabular-nums",
+              compact
+                ? "text-[1.25rem] leading-6"
+                : "text-[1.625rem] leading-[1.875rem]",
+              intent === "failing" && "text-failing",
+              intent === "degraded" && "text-degraded",
+            )}
           >
             {value}
           </span>
@@ -95,7 +132,14 @@ export function OperatorKpiCard({
           ) : null}
         </div>
         {detail ? (
-          <div data-slot="metric-detail" className="text-xs text-muted-foreground">
+          <div
+            data-slot="metric-detail"
+            className={cn(
+              "text-xs text-muted-foreground",
+              compact && "truncate",
+            )}
+            title={compact && typeof detail === "string" ? detail : undefined}
+          >
             {detail}
           </div>
         ) : null}

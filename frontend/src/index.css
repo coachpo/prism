@@ -212,9 +212,9 @@
 
     /* Runtime status */
     --healthy: #0f7b4f;
-    --degraded: #a56200;
+    --degraded: #8c5200;
     --failing: #c0342b;
-    --idle: #69717f;
+    --idle: #5b6370;
 
     /* Irreversible operations only; shares the failing hue, not its meaning */
     --destructive: #c0342b;
@@ -354,7 +354,8 @@
         --density-card-pad-x: 0.75rem;
         --density-metric-pad: 0.75rem;
         --density-control-h: 1.875rem;
-        --density-control-h-sm: 1.625rem;
+        /* 紧凑模式换来的是更多信息，不是更难点：命中区不低于 28px。 */
+        --density-control-h-sm: 1.75rem;
         --density-control-h-xs: 1.5rem;
         --density-table-head-h: 2rem;
         --density-table-row-h: 2.125rem;

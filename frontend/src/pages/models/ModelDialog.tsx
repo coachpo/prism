@@ -43,9 +43,7 @@ type Props = {
   isDialogOpen: boolean;
   loadbalanceStrategies: LoadbalanceStrategy[];
   dialogDescription?: string;
-  dialogTitle?: string;
   showModelIdInEditMode?: boolean;
-  submitLabel?: string;
   createLoadbalanceStrategyDefaultsPending?: boolean;
   setFormData: (value: ModelFormData | ((prev: ModelFormData) => ModelFormData)) => void;
   setIsDialogOpen: (open: boolean) => void;
@@ -63,9 +61,7 @@ export function ModelDialog({
   isDialogOpen,
   loadbalanceStrategies,
   dialogDescription: dialogDescriptionOverride,
-  dialogTitle,
   showModelIdInEditMode = false,
-  submitLabel,
   createLoadbalanceStrategyDefaultsPending = false,
   setFormData,
   setIsDialogOpen,
@@ -84,8 +80,12 @@ export function ModelDialog({
   const getStrategyOptionText = (strategy: LoadbalanceStrategy) => `${strategy.name} (${getStrategyTypeLabel(strategy)})`;
   const defaultDialogDescription = editingModel ? detailCopy.modelSettingsDescription : copy.newModelDescription;
   const dialogDescription = dialogDescriptionOverride ?? defaultDialogDescription;
-  const resolvedDialogTitle = dialogTitle ?? (editingModel ? copy.editModel : messages.modelsPage.newModel);
-  const resolvedSubmitLabel = submitLabel ?? copy.save;
+  // 同一个对话框在列表页与详情页必须自称同一个东西，否则操作者会怀疑
+  // 自己保存的不是同一份配置。标题与提交动词因此不接受调用方覆盖。
+  const resolvedDialogTitle = editingModel ? copy.editModel : messages.modelsPage.newModel;
+  const resolvedSubmitLabel = editingModel ? detailCopy.saveChanges : copy.save;
+  // model_id 是路由地址的一部分，改它只在详情页进行；列表页只读显示。
+  const modelIdEditable = !editingModel || showModelIdInEditMode;
   const loadbalanceStrategyValue = String(formData.loadbalance_strategy_id ?? "");
   const selectedLoadbalanceStrategy = [...loadbalanceStrategies]
     .reverse()
@@ -107,7 +107,7 @@ export function ModelDialog({
 
   return (
     <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-      <DialogContent className="max-h-[90vh] overflow-hidden sm:max-w-4xl">
+      <DialogContent size="lg">
         <DialogHeader>
           <DialogTitle>{resolvedDialogTitle}</DialogTitle>
           <DialogDescription>{dialogDescription}</DialogDescription>
@@ -123,8 +123,9 @@ export function ModelDialog({
             <OperatorInsetPanel>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="min-w-0 flex flex-col gap-2">
-                  <Label>{fieldCopy.apiFamily}</Label>
+                  <Label htmlFor="model-api-family">{fieldCopy.apiFamily}</Label>
                   <ApiFamilySelect
+                    id="model-api-family"
                     value={formData.api_family ?? ""}
                     onValueChange={(value) => setFormData((prev) => setApiFamilyOnForm(prev, value as typeof prev.api_family))}
                     showAll={false}
@@ -192,20 +193,28 @@ export function ModelDialog({
                 ) : null}
               </div>
 
-              {!editingModel || showModelIdInEditMode ? (
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="model-id">{copy.modelId}</Label>
-                  <Input
-                    id="model-id"
-                    name="model_id"
-                    autoComplete="off"
-                    value={formData.model_id}
-                    onChange={(e) => setFormData((prev) => setModelIdOnForm(prev, e.target.value))}
-                    placeholder={copy.modelIdPlaceholder}
-                    required
-                  />
-                </div>
-              ) : null}
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="model-id" required={modelIdEditable}>
+                  {copy.modelId}
+                </Label>
+                <Input
+                  id="model-id"
+                  name="model_id"
+                  autoComplete="off"
+                  value={formData.model_id}
+                  onChange={(e) => setFormData((prev) => setModelIdOnForm(prev, e.target.value))}
+                  placeholder={copy.modelIdPlaceholder}
+                  required={modelIdEditable}
+                  readOnly={!modelIdEditable}
+                  aria-readonly={!modelIdEditable || undefined}
+                  className={modelIdEditable ? undefined : "bg-inset font-mono"}
+                />
+                {modelIdEditable ? null : (
+                  <p className="text-xs text-muted-foreground">
+                    {copy.modelIdReadOnlyHere}
+                  </p>
+                )}
+              </div>
 
               <div className="flex flex-col gap-2">
                 <Label htmlFor="model-display-name">{copy.displayNameOptional}</Label>
@@ -220,8 +229,8 @@ export function ModelDialog({
               </div>
             </OperatorInsetPanel>
 
-            <OperatorInsetPanel className="bg-panel">
-              <OperatorInsetPanel>
+            <OperatorInsetPanel>
+              <div className="flex flex-col gap-3">
                 <div className="flex flex-col gap-1">
                   <p className="text-sm font-medium text-foreground">{detailCopy.loadbalanceStrategy}</p>
                   <p className="text-sm text-muted-foreground">{copy.routingTypeDescription}</p>
@@ -258,7 +267,7 @@ export function ModelDialog({
                     </SelectContent>
                   </Select>
                 )}
-              </OperatorInsetPanel>
+              </div>
 
               {singleTruncationWarningVisible ? (
                 <OperatorCallout intent="warning" title={strategyCopy.singleTruncationWarning(enabledTargetCount - 1)}>
@@ -283,7 +292,7 @@ export function ModelDialog({
             </OperatorInsetPanel>
           </DialogBody>
 
-          <DialogFooter className="sm:justify-between">
+          <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>{messages.settingsDialogs.cancel}</Button>
             <Button type="submit" disabled={saveDisabled}>{resolvedSubmitLabel}</Button>
           </DialogFooter>

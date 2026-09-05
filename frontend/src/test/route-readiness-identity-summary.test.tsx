@@ -6,6 +6,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { LocaleProvider } from "@/i18n/LocaleProvider";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import type { Connection, ModelConfig } from "@/lib/types";
 import { RouteReadinessCard } from "@/pages/model-detail/RouteReadinessCard";
 
@@ -79,25 +80,30 @@ function makeModel(targets: ModelConfig["access_targets"]): ModelConfig {
 function renderCard(model: ModelConfig) {
   render(
     <LocaleProvider>
-      <RouteReadinessCard
-        diagnosticsView={{ kind: "idle" }}
-        model={model}
-        onRetryDiagnostics={vi.fn()}
-      />
+      <TooltipProvider>
+        <RouteReadinessCard
+          diagnosticsView={{ kind: "idle" }}
+          model={model}
+          onRetryDiagnostics={vi.fn()}
+        />
+      </TooltipProvider>
     </LocaleProvider>,
   );
 }
 
-function factValue(label: string): string {
-  const panels = screen.getAllByText(label);
-  const panel = panels.at(-1)!.closest("[data-slot=inset-panel]") ?? panels.at(-1)!.parentElement!;
-  return panel.textContent ?? "";
+/**
+ * 三个上游计数合并成了「终端目标」瓦片下的一行摘要：多数配置下它们恒为
+ * 1/0/0，独占一整行瓦片不值得。计数逻辑本身没有变，断言随呈现位置移动。
+ */
+function upstreamSummary(): string {
+  return screen.getByText(/上游标识 .* 种/).textContent ?? "";
 }
 
 describe("RouteReadinessCard direct identity summary", () => {
-  it("names the entry model ID at the top of the card", () => {
+  it("leaves the entry model ID to the page header instead of repeating it", () => {
     renderCard(makeModel([]));
-    expect(screen.getAllByText(ENTRY_MODEL_ID).length).toBeGreaterThan(0);
+    // 页头在 ~200px 之外已经渲染了同一个 ID；卡片里再放一遍只是重复。
+    expect(screen.queryByText(ENTRY_MODEL_ID)).toBeNull();
   });
 
   it("counts distinct upstream identities, excluding unknown evidence", () => {
@@ -107,7 +113,7 @@ describe("RouteReadinessCard direct identity summary", () => {
       makeTarget(3, "connection", makeConnection(13, "provider/Y")),
       makeTarget(4, "connection", makeConnection(14, null)),
     ]));
-    expect(factValue("不同上游标识")).toBe("不同上游标识 ?2");
+    expect(upstreamSummary()).toBe("上游标识 2 种 · 解耦 3 · 未知 1");
   });
 
   it("compares decoupling against the entry ID case-sensitively", () => {
@@ -115,7 +121,7 @@ describe("RouteReadinessCard direct identity summary", () => {
       makeTarget(1, "connection", makeConnection(11, "entry-a")),
       makeTarget(2, "connection", makeConnection(12, "provider/Y")),
     ]));
-    expect(factValue("上游解耦")).toBe("上游解耦 ?2");
+    expect(upstreamSummary()).toBe("上游标识 2 种 · 解耦 2 · 未知 0");
   });
 
   it("never counts unknown identities as decoupled and reports them separately", () => {
@@ -124,9 +130,7 @@ describe("RouteReadinessCard direct identity summary", () => {
       makeTarget(2, "connection", makeConnection(12, "  ")),
       makeTarget(3, "connection", makeConnection(13, ENTRY_MODEL_ID)),
     ]));
-    expect(factValue("不同上游标识")).toBe("不同上游标识 ?1");
-    expect(factValue("上游解耦")).toBe("上游解耦 ?0");
-    expect(factValue("未知上游标识")).toBe("未知上游标识 ?2");
+    expect(upstreamSummary()).toBe("上游标识 1 种 · 解耦 0 · 未知 2");
   });
 
   it("ignores Model Target rows: they are logical edges without upstream identity", () => {
@@ -153,9 +157,7 @@ describe("RouteReadinessCard direct identity summary", () => {
       makeTarget(2, "connection", makeConnection(12, "provider/Y")),
       makeTarget(3, "connection", makeConnection(13, "provider/Z")),
     ]));
-    expect(factValue("不同上游标识")).toBe("不同上游标识 ?2");
-    expect(factValue("上游解耦")).toBe("上游解耦 ?2");
-    expect(factValue("未知上游标识")).toBe("未知上游标识 ?0");
+    expect(upstreamSummary()).toBe("上游标识 2 种 · 解耦 2 · 未知 0");
   });
 
   it("counts zero unknown identities when every direct terminal target carries a readable id", () => {
@@ -163,6 +165,6 @@ describe("RouteReadinessCard direct identity summary", () => {
       makeTarget(1, "connection", makeConnection(11, ENTRY_MODEL_ID)),
       makeTarget(2, "connection", makeConnection(12, "provider/Y")),
     ]));
-    expect(factValue("未知上游标识")).toBe("未知上游标识 ?0");
+    expect(upstreamSummary()).toBe("上游标识 2 种 · 解耦 1 · 未知 0");
   });
 });

@@ -1,4 +1,9 @@
+import { useState } from "react";
+import { ChevronRight } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
 import { useLocale } from "@/i18n/useLocale";
+import { cn } from "@/lib/utils";
 import {
   OperatorInsetPanel,
   OperatorSectionCard,
@@ -59,13 +64,34 @@ export function ExternalCatalogSourcesSection({
 }) {
   const { messages } = useLocale();
   const copy = messages.externalCatalog;
+  // 目录证据是只读参考，却占了整页 40% 并把主配置面推到第三屏。
+  // 默认折叠，展开状态按浏览器记住。
+  const [expanded, setExpanded] = useState(readCatalogSectionExpanded);
+  const toggle = () => {
+    setExpanded((current) => {
+      writeCatalogSectionExpanded(!current);
+      return !current;
+    });
+  };
 
   return (
     <OperatorSectionCard
       title={copy.sectionTitle}
       description={copy.sectionDescription}
+      actions={
+        <Button type="button" size="sm" variant="ghost" onClick={toggle}>
+          <ChevronRight
+            data-icon="inline-start"
+            className={cn("transition-transform", expanded && "rotate-90")}
+          />
+          {expanded ? copy.sectionCollapse : copy.sectionExpand}
+        </Button>
+      }
     >
-      <div className="flex flex-col gap-[var(--density-inline-gap)]">
+      <div
+        className="flex flex-col gap-[var(--density-inline-gap)]"
+        hidden={!expanded}
+      >
         <ModelsDevCatalogPanel
           modelConfigId={modelConfigId}
           prismModelId={prismModelId}
@@ -94,4 +120,22 @@ export function ExternalCatalogSourcesSection({
       </div>
     </OperatorSectionCard>
   );
+}
+
+const CATALOG_SECTION_STORAGE_KEY = "prism.modelDetail.catalogExpanded";
+
+function readCatalogSectionExpanded(): boolean {
+  try {
+    return localStorage.getItem(CATALOG_SECTION_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeCatalogSectionExpanded(expanded: boolean): void {
+  try {
+    localStorage.setItem(CATALOG_SECTION_STORAGE_KEY, expanded ? "1" : "0");
+  } catch {
+    // 存不下就算了：折叠状态只是便利，不影响页面正确性。
+  }
 }

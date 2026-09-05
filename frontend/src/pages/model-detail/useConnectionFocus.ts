@@ -1,4 +1,7 @@
 import { useEffect, useRef } from "react";
+import { toast } from "sonner";
+
+import { getStaticMessages } from "@/i18n/staticMessages";
 import type { Dispatch, SetStateAction } from "react";
 import type { ModelConfig } from "@/lib/types";
 
@@ -8,7 +11,7 @@ interface UseConnectionFocusInput {
   model: ModelConfig | null;
   searchParams: URLSearchParams;
   setSearchParams: SetURLSearchParams;
-  connectionCardRefs: Map<number, HTMLDivElement>;
+  connectionCardRefs: Map<number, HTMLElement>;
   setFocusedConnectionId: Dispatch<SetStateAction<number | null>>;
 }
 
@@ -32,13 +35,15 @@ export function useConnectionFocus({
 
     setFocusedConnectionId(connectionId);
 
-    const nextSearchParams = new URLSearchParams(searchParams);
-    nextSearchParams.delete("focus_connection_id");
-    setSearchParams(nextSearchParams, { replace: true });
-
     let cancelled = false;
     let animationFrameId: number | null = null;
     let attempts = 0;
+
+    const clearFocusParam = () => {
+      const nextSearchParams = new URLSearchParams(searchParams);
+      nextSearchParams.delete("focus_connection_id");
+      setSearchParams(nextSearchParams, { replace: true });
+    };
 
     const focusConnectionCard = () => {
       if (cancelled) return;
@@ -47,7 +52,14 @@ export function useConnectionFocus({
       if (!element) {
         attempts += 1;
         if (attempts >= 30) {
+          // 找不到就说出来：默默吞掉参数会让人以为「跳过来什么也没发生」。
           setFocusedConnectionId(null);
+          toast.error(
+            getStaticMessages().modelDetail.focusTargetNotFound(
+              String(connectionId),
+            ),
+          );
+          clearFocusParam();
           return;
         }
 
@@ -55,6 +67,8 @@ export function useConnectionFocus({
         return;
       }
 
+      // 参数只在定位成功后才移除，否则刷新页面就再也回不到这一行。
+      clearFocusParam();
       element.scrollIntoView({ behavior: "smooth", block: "center" });
       element.focus({ preventScroll: true });
 

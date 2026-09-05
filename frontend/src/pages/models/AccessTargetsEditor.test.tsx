@@ -19,6 +19,39 @@ import type {
 } from "@/lib/types";
 import { AccessTargetsEditor } from "./AccessTargetsEditor";
 
+const ACCESS_TARGET_DRAG_TYPE = "application/x-prism-access-target";
+
+/** jsdom 不提供 DataTransfer；表格按 MIME 过滤拖放，所以事件必须带上它。 */
+function createDragDataTransfer() {
+  const store = new Map<string, string>([[ACCESS_TARGET_DRAG_TYPE, ""]]);
+  return {
+    dropEffect: "none",
+    effectAllowed: "all",
+    get types() {
+      return [...store.keys()];
+    },
+    setData: (type: string, value: string) => {
+      store.set(type, value);
+    },
+    getData: (type: string) => store.get(type) ?? "",
+    clearData: () => store.clear(),
+    setDragImage: () => {},
+  };
+}
+
+/** 从把手按下 → 拖起 → 放到目标行，与真实交互路径一致。 */
+function dragRowOnto(fromTestId: string, toTestId: string) {
+  const fromRow = screen.getByTestId(fromTestId);
+  const dataTransfer = createDragDataTransfer();
+  fireEvent.pointerDown(
+    within(fromRow).getByRole("button", { name: /拖动以调整目标/ }),
+  );
+  fireEvent.dragStart(fromRow, { dataTransfer });
+  const toRow = screen.getByTestId(toTestId);
+  fireEvent.dragOver(toRow, { dataTransfer });
+  fireEvent.drop(toRow, { dataTransfer });
+}
+
 // ID domains must stay distinct: target row IDs (50x), connection IDs (90x)
 // and target model IDs (string model ids) never overlap.
 const targetModelId = "child-model";
@@ -206,9 +239,7 @@ describe("AccessTargetsEditor mixed ordering", () => {
     const { handlers } = renderEditor();
 
     // Drag the model row (global position 3) onto the second row.
-    fireEvent.dragStart(screen.getByTestId("access-target-501"));
-    fireEvent.dragOver(screen.getByTestId("access-target-503"));
-    fireEvent.drop(screen.getByTestId("access-target-503"));
+    dragRowOnto("access-target-501", "access-target-503");
 
     // Nothing is written until the operator commits: dragging must not fire a
     // request per hop.
@@ -228,8 +259,7 @@ describe("AccessTargetsEditor mixed ordering", () => {
   it("reverts a drafted reorder without writing anything", () => {
     const { handlers } = renderEditor();
 
-    fireEvent.dragStart(screen.getByTestId("access-target-501"));
-    fireEvent.drop(screen.getByTestId("access-target-502"));
+    dragRowOnto("access-target-501", "access-target-502");
     fireEvent.click(screen.getByRole("button", { name: "撤销改动" }));
 
     expect(handlers.onMoveTarget).not.toHaveBeenCalled();
@@ -254,7 +284,12 @@ describe("AccessTargetsEditor mixed ordering", () => {
       }),
     );
     await user.click(
-      await screen.findByRole("menuitem", { name: /移除目标 2/ }),
+      await screen.findByRole("menuitem", { name: /移除目标 Terminal B/ }),
+    );
+    // 菜单项本身不是确认：物理删除只能来自确认对话框。
+    expect(handlers.onDeleteTarget).not.toHaveBeenCalled();
+    await user.click(
+      await screen.findByTestId("delete-access-target-confirm"),
     );
     expect(handlers.onDeleteTarget).toHaveBeenCalledExactlyOnceWith(503);
 
@@ -618,7 +653,7 @@ describe("AccessTargetsEditor model target detail entry", () => {
     ).toBeNull();
     // The row keeps its ordinary actions; nothing navigates.
     expect(
-      within(menu).getByRole("menuitem", { name: /移除目标 3/ }),
+      within(menu).getByRole("menuitem", { name: /移除目标/ }),
     ).toBeTruthy();
     expect(onViewViewModelTargetDetail).not.toHaveBeenCalled();
   });

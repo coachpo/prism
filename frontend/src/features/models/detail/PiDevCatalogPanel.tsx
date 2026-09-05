@@ -1,7 +1,16 @@
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { RefreshCw } from "lucide-react";
+import { CopyButton } from "@/components/CopyButton";
+import { MoreHorizontal, RefreshCw, Trash2 } from "lucide-react";
+
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useLocale } from "@/i18n/useLocale";
 import { useTimezone } from "@/hooks/useTimezone";
 import {
@@ -17,6 +26,7 @@ import {
   OperatorValueBadge,
 } from "@/shared/design-system";
 import type { PiModelReadResponse } from "@/lib/types";
+import { truncateIdentifier } from "@/lib/utils";
 import { PiBindingOverrideDialog } from "@/features/models/catalog/pi/PiBindingOverrideDialog";
 import { PiBindingRefreshDialog } from "@/features/models/catalog/pi/PiBindingRefreshDialog";
 import { PiBindingSourceDialog } from "@/features/models/catalog/pi/PiBindingSourceDialog";
@@ -236,7 +246,7 @@ export function PiDevCatalogPanel({
         )}
         {catalog.revision ? (
           <OperatorValueBadge
-            label={`${piCopy.catalogRevisionLabel}: ${catalog.revision.slice(0, 18)}`}
+            label={`${piCopy.catalogRevisionLabel}: ${truncateIdentifier(catalog.revision)}`}
             title={catalog.revision}
           />
         ) : (
@@ -271,8 +281,35 @@ export function PiDevCatalogPanel({
             <dt className="text-muted-foreground">
               {piCopy.bindingRevisionLabel}
             </dt>
-            <dd className="break-all font-mono">
-              {read.binding.catalog_revision ?? "—"}
+            <dd className="flex min-w-0 items-center gap-1 font-mono">
+              {read.binding.catalog_revision ? (
+                <>
+                  {/* 64 位哈希完整铺开占三行还不可读：中间省略 + 可复制。 */}
+                  <span
+                    className="truncate"
+                    title={read.binding.catalog_revision}
+                  >
+                    {truncateIdentifier(read.binding.catalog_revision)}
+                  </span>
+                  <CopyButton
+                    label=""
+                    size="icon-xs"
+                    variant="ghost"
+                    className="text-muted-foreground hover:text-foreground"
+                    targetLabel={piCopy.bindingRevisionLabel}
+                    value={read.binding.catalog_revision}
+                    aria-label={piCopy.bindingRevisionLabel}
+                    errorMessage={messages.common.copyFailed(
+                      piCopy.bindingRevisionLabel,
+                    )}
+                    successMessage={messages.common.copiedToClipboard(
+                      piCopy.bindingRevisionLabel,
+                    )}
+                  />
+                </>
+              ) : (
+                "—"
+              )}
             </dd>
             <dt className="text-muted-foreground">{piCopy.fetchedAtLabel}</dt>
             <dd className="font-mono">
@@ -352,40 +389,49 @@ export function PiDevCatalogPanel({
             {read.binding.bound ? copy.changeSourceAction : copy.bindSourceAction}
           </Button>
         ) : null}
+        {/* 与 models.dev 面板同一个骨架：主动作在外，其余收进溢出菜单。
+            四个 4px 间距的按钮里塞一个常驻红色「解绑」是误点的温床。 */}
         {read.binding.bound ? (
-          <>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={actionsBlocked || !read.binding_renderable}
-              onClick={() => setRefreshOpen(true)}
-            >
-              <RefreshCw data-icon="inline-start" />
-              {copy.refreshAction}
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={actionsBlocked || !read.binding_renderable}
-              onClick={() => setOverrideOpen(true)}
-            >
-              {copy.overrideAction}
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="destructive"
-              disabled={actionsBlocked}
-              onClick={() => {
-                setUnbindError(null);
-                setUnbindOpen(true);
-              }}
-            >
-              {copy.unbindAction}
-            </Button>
-          </>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                size="icon-sm"
+                variant="outline"
+                aria-label={copy.piActionsMenuLabel}
+                disabled={actionsBlocked}
+              >
+                <MoreHorizontal />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                disabled={actionsBlocked || !read.binding_renderable}
+                onSelect={() => setRefreshOpen(true)}
+              >
+                <RefreshCw />
+                {copy.refreshAction}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={actionsBlocked || !read.binding_renderable}
+                onSelect={() => setOverrideOpen(true)}
+              >
+                {copy.overrideAction}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                variant="destructive"
+                disabled={actionsBlocked}
+                onSelect={() => {
+                  setUnbindError(null);
+                  setUnbindOpen(true);
+                }}
+              >
+                <Trash2 />
+                {copy.unbindAction}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         ) : null}
       </div>
 
@@ -444,6 +490,16 @@ export function PiDevCatalogPanel({
           onCancel={() => setUnbindOpen(false)}
           onConfirm={handleUnbind}
         >
+          {/* 破坏性确认必须说清解的是哪一条绑定，而不只是「一条绑定」。 */}
+          <div className="flex flex-col gap-0.5 rounded-md border border-border bg-inset p-2 text-xs">
+            <span className="text-muted-foreground">
+              {copy.unbindTargetLabel}
+            </span>
+            <span className="truncate font-mono" title={view.modelId}>
+              {view.modelId}
+              {view.piApi ? ` · ${view.piApi}` : ""}
+            </span>
+          </div>
           {view.bindingOverride ? (
             <OperatorCallout
               intent="warning"

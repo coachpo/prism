@@ -30,13 +30,24 @@ function getLocalStorage(): StorageLike | null {
   return window.localStorage;
 }
 
+/**
+ * 1024–1279（含 14 寸笔记本 125% 缩放）这一档最吃亏：240px 侧栏占掉近四分之一
+ * 宽度，而内容区正好放不下驾驶舱表格。这一档默认收成图标轨，操作者手动展开过
+ * 就按他的选择来。
+ */
+const TABLET_MEDIA_QUERY = "(max-width: 1279px)";
+
 export function readSidebarCollapsed(): boolean {
   const storage = getLocalStorage();
-  if (!storage) {
-    return false;
+  const stored = storage?.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY);
+  if (stored !== null && stored !== undefined) {
+    return stored === "true";
   }
 
-  return storage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === "true";
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+    return false;
+  }
+  return window.matchMedia(TABLET_MEDIA_QUERY).matches;
 }
 
 export function writeSidebarCollapsed(collapsed: boolean): void {

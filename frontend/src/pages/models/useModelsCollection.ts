@@ -9,7 +9,6 @@ import {
 } from "@/lib/referenceData";
 import type { ManagedModelConfigListItem } from "@/lib/api/models";
 import type { LoadbalanceStrategy } from "@/lib/types";
-import { toast } from "sonner";
 
 function sortStrategies(strategies: LoadbalanceStrategy[]) {
   return [...strategies].sort((left, right) => {
@@ -68,8 +67,9 @@ export function useModelsCollection(revision: number) {
             error instanceof Error
               ? error.message
               : messages.modelsData.fetchFailed;
+          // 页面已经渲染 OperatorErrorState 并带重试；再弹一条 toast
+          // 只是把同一件事说两遍。
           setLoadError(message);
-          toast.error(messages.modelsData.fetchFailed);
           console.error(error);
         }
       } finally {

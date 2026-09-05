@@ -10,14 +10,10 @@ import {
   getTerminalTargetId,
   isTerminalTargetAccessTargetType,
 } from "@/lib/types/target-compatibility";
+import { getStaticMessages } from "@/i18n/staticMessages";
 import { getOwnedConnectionTarget } from "./modelAccessTargetProjection";
 
-const TERMINAL_TARGET_OWNER_MISMATCH =
-  "Terminal Target owner does not match the current model";
-const TERMINAL_TARGETS_MANAGED_FROM_MODEL_DETAIL =
-  "Manage Terminal Targets from the Model Detail Terminal Targets list.";
-const ACCESS_TARGET_ROW_NOT_FOUND =
-  "Access target row is no longer present in this model; reload the page and retry.";
+const dataCopy = () => getStaticMessages().modelDetailData;
 
 function findAccessTargetByRowId(
   model: ModelConfig | null,
@@ -43,7 +39,7 @@ export function useModelDetailAccessTargetMutations({
     async (target: ModelAccessTargetMutation) => {
       if (!Number.isFinite(modelConfigId)) return;
       if (target.target_type !== "model") {
-        toast.error(TERMINAL_TARGETS_MANAGED_FROM_MODEL_DETAIL);
+        toast.error(dataCopy().terminalTargetsManagedFromDetail);
         return;
       }
       try {
@@ -53,7 +49,7 @@ export function useModelDetailAccessTargetMutations({
         toast.error(
           error instanceof Error
             ? error.message
-            : "Failed to add access target",
+            : dataCopy().accessTargetAddFailed,
         );
         throw error;
       }
@@ -66,7 +62,7 @@ export function useModelDetailAccessTargetMutations({
       if (!Number.isFinite(modelConfigId)) return;
       const target = findAccessTargetByRowId(model, targetRowId);
       if (!target) {
-        toast.error(ACCESS_TARGET_ROW_NOT_FOUND);
+        toast.error(dataCopy().accessTargetRowNotFound);
         return;
       }
       if (
@@ -77,7 +73,7 @@ export function useModelDetailAccessTargetMutations({
           getTerminalTargetId(target) ?? -1,
         )
       ) {
-        toast.error(TERMINAL_TARGET_OWNER_MISMATCH);
+        toast.error(dataCopy().terminalTargetOwnerMismatch);
         return;
       }
       try {
@@ -91,7 +87,7 @@ export function useModelDetailAccessTargetMutations({
         toast.error(
           error instanceof Error
             ? error.message
-            : "Failed to reorder access target",
+            : dataCopy().accessTargetReorderFailed,
         );
         throw error;
       }
@@ -104,7 +100,7 @@ export function useModelDetailAccessTargetMutations({
       if (!Number.isFinite(modelConfigId)) return;
       const target = findAccessTargetByRowId(model, targetRowId);
       if (!target) {
-        toast.error(ACCESS_TARGET_ROW_NOT_FOUND);
+        toast.error(dataCopy().accessTargetRowNotFound);
         return;
       }
       if (
@@ -115,7 +111,7 @@ export function useModelDetailAccessTargetMutations({
           getTerminalTargetId(target) ?? -1,
         )
       ) {
-        toast.error(TERMINAL_TARGET_OWNER_MISMATCH);
+        toast.error(dataCopy().terminalTargetOwnerMismatch);
         return;
       }
       try {
@@ -129,7 +125,7 @@ export function useModelDetailAccessTargetMutations({
         toast.error(
           error instanceof Error
             ? error.message
-            : "Failed to update access target",
+            : dataCopy().accessTargetUpdateFailed,
         );
         throw error;
       }
@@ -142,7 +138,7 @@ export function useModelDetailAccessTargetMutations({
       if (!Number.isFinite(modelConfigId)) return;
       const target = findAccessTargetByRowId(model, targetRowId);
       if (!target) {
-        toast.error(ACCESS_TARGET_ROW_NOT_FOUND);
+        toast.error(dataCopy().accessTargetRowNotFound);
         return;
       }
       if (
@@ -153,7 +149,7 @@ export function useModelDetailAccessTargetMutations({
           getTerminalTargetId(target) ?? -1,
         )
       ) {
-        toast.error(TERMINAL_TARGET_OWNER_MISMATCH);
+        toast.error(dataCopy().terminalTargetOwnerMismatch);
         return;
       }
       try {
@@ -166,7 +162,7 @@ export function useModelDetailAccessTargetMutations({
         toast.error(
           error instanceof Error
             ? error.message
-            : "Failed to remove access target",
+            : dataCopy().accessTargetRemoveFailed,
         );
         throw error;
       }

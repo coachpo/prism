@@ -122,7 +122,7 @@ export function CatalogBindDialog({
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && !busy && onClose()}>
-      <DialogContent className="max-w-xl">
+      <DialogContent size="md">
         <DialogHeader>
           <DialogTitle>{copy.bindDialogTitle}</DialogTitle>
           <DialogDescription>{copy.bindDialogDescription}</DialogDescription>

@@ -39,25 +39,42 @@ export function ModelExitMappingCell({ model }: { model: ManagedModelConfigListI
 
   const { visible, remainingCount } = projectExitMapping(model)
 
+  const [firstItem, ...restItems] = visible
+
+  // 计数与第一条映射同行、其余与「还有 N 项」同行：这个单元格原本能长到
+  // 四行 95px，把整张表的行高拉到契约值的两倍多。
   return (
-    <span className="flex min-w-56 flex-col gap-0.5">
-      <span className="font-mono text-xs tabular-nums">
-        {copy.targetsCount(
-          formatNumber(enabledTargets ?? 0),
-          formatNumber(totalTargets),
-        )}
+    <span className="flex min-w-48 flex-col gap-0.5">
+      <span className="flex min-w-0 flex-wrap items-baseline gap-x-1.5">
+        <span className="font-mono text-xs tabular-nums">
+          {copy.targetsCount(
+            formatNumber(enabledTargets ?? 0),
+            formatNumber(totalTargets),
+          )}
+        </span>
+        {firstItem ? (
+          <ExitMappingItemLine
+            directRequestEnabled={model.direct_request_enabled}
+            item={firstItem}
+            ownerModelId={model.model_id}
+          />
+        ) : null}
       </span>
-      {visible.map((item) => (
-        <ExitMappingItemLine
-          directRequestEnabled={model.direct_request_enabled}
-          item={item}
-          key={item.accessTargetId}
-          ownerModelId={model.model_id}
-        />
-      ))}
-      {remainingCount > 0 ? (
-        <span className="text-xs text-muted-foreground">
-          {copy.exitRemainder(formatNumber(remainingCount))}
+      {restItems.length > 0 || remainingCount > 0 ? (
+        <span className="flex min-w-0 flex-wrap items-baseline gap-x-1.5">
+          {restItems.map((item) => (
+            <ExitMappingItemLine
+              directRequestEnabled={model.direct_request_enabled}
+              item={item}
+              key={item.accessTargetId}
+              ownerModelId={model.model_id}
+            />
+          ))}
+          {remainingCount > 0 ? (
+            <span className="text-xs text-muted-foreground">
+              {copy.exitRemainder(formatNumber(remainingCount))}
+            </span>
+          ) : null}
         </span>
       ) : null}
     </span>
@@ -80,8 +97,8 @@ function ExitMappingItemLine({
     const logicalModelId = item.identity.logicalModelId
     return (
       <span className="flex min-w-0 items-center gap-1 text-xs">
-        <span aria-hidden="true" className="shrink-0 text-muted-foreground">
-          →
+        <span className="shrink-0 text-muted-foreground">
+          {copy.exitModelTargetPrefix}
         </span>
         {logicalModelId ? (
           <span
@@ -139,18 +156,25 @@ function ExitMappingItemLine({
         />
       )}
       {upstreamModelId ? (
-        <OperatorTypeBadge
-          intent={entrySame ? "neutral" : "accent"}
-          label={entrySame ? copy.exitEntrySame : copy.exitUpstreamOnly}
-          preserveLabel
-          title={
-            entrySame
-              ? copy.exitEntrySameReason(ownerModelId)
-              : directRequestEnabled
+        entrySame ? (
+          <span
+            className="shrink-0 text-xs text-muted-foreground"
+            title={copy.exitEntrySameReason(ownerModelId)}
+          >
+            {copy.exitEntrySame}
+          </span>
+        ) : (
+          <OperatorTypeBadge
+            intent="accent"
+            label={copy.exitUpstreamOnly}
+            preserveLabel
+            title={
+              directRequestEnabled
                 ? copy.exitUpstreamOnlyReason(ownerModelId, upstreamModelId)
                 : copy.exitUpstreamOnlyNonEntryReason(ownerModelId, upstreamModelId)
-          }
-        />
+            }
+          />
+        )
       ) : null}
       {!item.isEnabled ? (
         <span

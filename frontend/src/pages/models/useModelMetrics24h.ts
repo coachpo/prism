@@ -44,6 +44,8 @@ export function useModelMetrics24h(
   // broken telemetry call look identical to a model that genuinely has no
   // traffic, which the honesty contract treats as a defect.
   const [metricsFailed, setMetricsFailed] = useState(false);
+  // 「这些数字是几点的」必须能回答；从未成功过时保持 null，绝不写「刚刚」。
+  const [lastSuccessAt, setLastSuccessAt] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -94,6 +96,7 @@ export function useModelMetrics24h(
         setModelMetricsByScope(nextMetrics);
         setCoverage(response.coverage ?? null);
         setMetricsFailed(false);
+        setLastSuccessAt(new Date().toISOString());
       } catch {
         if (cancelled) {
           return;
@@ -120,6 +123,7 @@ export function useModelMetrics24h(
 
   return {
     coverage,
+    lastSuccessAt,
     metricsFailed,
     metricsLoading,
     modelMetricsByScope,

@@ -178,7 +178,9 @@ export function InitialTerminalTargetFields({
           <FieldError>{upstreamModelIdError}</FieldError>
         ) : (
           <FieldDescription>
-            {copy.initialTargetUpstreamModelIdHint(modelId.trim() || "…")}
+            {modelId.trim()
+              ? copy.initialTargetUpstreamModelIdHint(modelId.trim())
+              : copy.initialTargetUpstreamModelIdHintEmpty}
           </FieldDescription>
         )}
       </Field>

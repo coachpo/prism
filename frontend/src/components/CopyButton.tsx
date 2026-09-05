@@ -3,6 +3,11 @@ import { Copy } from "lucide-react";
 import { toast } from "sonner";
 import { getStaticMessages } from "@/i18n/staticMessages";
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { copyTextToClipboard } from "@/lib/clipboard";
 
 type ButtonProps = ComponentProps<typeof Button>;
@@ -42,7 +47,7 @@ export function CopyButton({
     toast.success(successMessage ?? messages.common.copiedToClipboard(resolvedTargetLabel));
   };
 
-  return (
+  const button = (
     <Button
       type={type}
       variant={variant}
@@ -62,5 +67,18 @@ export function CopyButton({
         </>
       )}
     </Button>
+  );
+
+  // 只有图标的按钮必须带 tooltip：新运维否则只能靠点一下才知道它做什么。
+  const tooltipLabel = props["aria-label"];
+  if (resolvedLabel || children || !tooltipLabel) {
+    return button;
+  }
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{button}</TooltipTrigger>
+      <TooltipContent>{tooltipLabel}</TooltipContent>
+    </Tooltip>
   );
 }

@@ -5,6 +5,7 @@ import { Dialog as DialogPrimitive } from "radix-ui"
 import { getStaticMessages } from "@/i18n/staticMessages"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import { useCloseFocusRestore } from "@/components/ui/use-close-focus-restore"
 
 function Dialog({
   ...props
@@ -46,41 +47,67 @@ function DialogOverlay({
   )
 }
 
-function DialogContent({
+/**
+ * 对话框宽度档位。DESIGN.md Dialogs 只允许这三档，调用处不应再写 max-w-*。
+ */
+const dialogSizeClasses = {
+  sm: "sm:max-w-[420px]",
+  md: "sm:max-w-[560px]",
+  lg: "sm:max-w-[720px]",
+} as const
+
+type DialogSize = keyof typeof dialogSizeClasses
+
+type DialogContentProps = React.ComponentProps<typeof DialogPrimitive.Content> & {
+  showCloseButton?: boolean
+  size?: DialogSize
+}
+
+function DialogContentInner({
   className,
   children,
   showCloseButton = true,
+  size = "md",
+  onCloseAutoFocus,
   ...props
-}: React.ComponentProps<typeof DialogPrimitive.Content> & {
-  showCloseButton?: boolean
-}) {
+}: DialogContentProps) {
+  const handleCloseAutoFocus = useCloseFocusRestore(onCloseAutoFocus)
+
+  return (
+    <DialogPrimitive.Content
+      data-slot="dialog-content"
+      onCloseAutoFocus={handleCloseAutoFocus}
+      className={cn(
+        "bg-panel data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 relative pointer-events-auto my-auto flex max-h-[calc(100dvh-2rem)] w-full max-w-full flex-col gap-4 overflow-y-auto rounded-xl border border-border p-[var(--density-dialog-pad)] duration-200 outline-none has-[[data-slot=dialog-body]]:overflow-hidden sm:max-h-[calc(100dvh-3rem)]",
+        dialogSizeClasses[size],
+        className
+      )}
+      {...props}
+    >
+      {children}
+      {showCloseButton && (
+        <DialogPrimitive.Close data-slot="dialog-close" asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            className="absolute top-3 right-3 rounded-md text-muted-foreground"
+          >
+            <XIcon />
+            <span className="sr-only">{getStaticMessages().common.close}</span>
+          </Button>
+        </DialogPrimitive.Close>
+      )}
+    </DialogPrimitive.Content>
+  )
+}
+
+function DialogContent(props: DialogContentProps) {
   return (
     <DialogPortal data-slot="dialog-portal">
       <DialogOverlay />
-      <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto p-4 pointer-events-none sm:p-6">
-        <DialogPrimitive.Content
-          data-slot="dialog-content"
-          className={cn(
-            "bg-panel data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 relative pointer-events-auto flex w-full max-w-full flex-col gap-4 rounded-xl border border-border p-[var(--density-dialog-pad)] duration-200 outline-none sm:max-w-lg",
-            className
-          )}
-          {...props}
-        >
-          {children}
-          {showCloseButton && (
-            <DialogPrimitive.Close data-slot="dialog-close" asChild>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                className="absolute top-3 right-3 rounded-md text-muted-foreground"
-              >
-                <XIcon />
-                <span className="sr-only">{getStaticMessages().common.close}</span>
-              </Button>
-            </DialogPrimitive.Close>
-          )}
-        </DialogPrimitive.Content>
+      <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4 pointer-events-none sm:p-6">
+        <DialogContentInner {...props} />
       </div>
     </DialogPortal>
   )
@@ -90,7 +117,7 @@ function DialogBody({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="dialog-body"
-      className={cn("flex min-w-0 flex-col gap-4", className)}
+      className={cn("flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-y-auto", className)}
       {...props}
     />
   )

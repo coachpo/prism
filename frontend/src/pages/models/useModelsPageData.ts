@@ -48,6 +48,7 @@ export function useModelsPageData(
 
   return {
     deleteTarget: deletion.deleteTarget,
+    deleteError: deletion.deleteError,
     editingModel: dialog.editingModel,
     formData: dialog.formData,
     formError: dialog.formError,
@@ -67,7 +68,10 @@ export function useModelsPageData(
     loadError: collection.loadError,
     metricsCoverage: metrics.coverage,
     metricsFailed: metrics.metricsFailed,
+    metricsLastSuccessAt: metrics.lastSuccessAt,
     metricsLoading: metrics.metricsLoading,
+    refreshMetrics: metrics.refresh,
+    refreshModels: collection.refreshModels,
     modelMetrics24h,
     modelMetricsByScope: metrics.modelMetricsByScope,
     modelSpend30dMicros,

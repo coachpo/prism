@@ -1,5 +1,6 @@
 export * from "./controls"
 export * from "./destructive-dialog"
+export * from "./help-hint"
 export * from "./foundation"
 export * from "./freshness"
 export * from "./honesty"

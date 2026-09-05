@@ -2,7 +2,7 @@ import type { ComponentProps, ReactNode } from "react"
 
 import { cn } from "@/lib/utils"
 
-export type OperatorPageShellProps = ComponentProps<"main"> & {
+export type OperatorPageShellProps = ComponentProps<"div"> & {
   width?: "default" | "wide" | "full"
 }
 
@@ -19,7 +19,8 @@ export function OperatorPageShell({
   ...props
 }: OperatorPageShellProps) {
   return (
-    <main
+    // 壳层的 SidebarInset 已经是页面唯一的 main landmark，这里只做布局容器。
+    <div
       className={cn(
         "operator-page-transition flex w-full min-w-0 flex-col gap-[var(--density-page-gap)]",
         pageWidthClasses[width],
@@ -28,7 +29,7 @@ export function OperatorPageShell({
       {...props}
     >
       {children}
-    </main>
+    </div>
   )
 }
 

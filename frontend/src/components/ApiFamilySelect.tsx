@@ -18,6 +18,10 @@ interface ApiFamilySelectProps {
   allLabel?: string;
   className?: string;
   placeholder?: string;
+  /** 让调用方的 <Label htmlFor> 能关联到触发器，否则读屏只会听到一个无名下拉。 */
+  id?: string;
+  "aria-label"?: string;
+  "aria-labelledby"?: string;
 }
 
 const DEFAULT_API_FAMILIES: ApiFamily[] = ["openai", "anthropic", "gemini"];
@@ -30,13 +34,21 @@ export function ApiFamilySelect({
   allLabel,
   className,
   placeholder,
+  id,
+  "aria-label": ariaLabel,
+  "aria-labelledby": ariaLabelledBy,
 }: ApiFamilySelectProps) {
   const messages = getStaticMessages();
   const resolvedAllLabel = allLabel ?? `${messages.statistics.all} ${messages.common.apiFamily}`;
   const resolvedPlaceholder = placeholder ?? messages.common.apiFamily;
   return (
     <Select value={value} onValueChange={onValueChange}>
-      <SelectTrigger className={className}>
+      <SelectTrigger
+        id={id}
+        aria-label={ariaLabel}
+        aria-labelledby={ariaLabelledBy}
+        className={className}
+      >
         <SelectValue placeholder={resolvedPlaceholder} />
       </SelectTrigger>
       <SelectContent>

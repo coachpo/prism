@@ -5,6 +5,7 @@ import { useLocale } from "@/i18n/useLocale";
 import type { ModelConfig } from "@/lib/types";
 import { getLoadbalanceStrategyDetailLabel } from "@/lib/loadbalanceRoutingPolicy";
 import {
+  OperatorHelpHint,
   OperatorInsetPanel,
   OperatorMissingValue,
   OperatorSectionCard,
@@ -12,6 +13,7 @@ import {
   OperatorRetryButton,
   OperatorStatusBadge,
 } from "@/shared/design-system";
+import { useTimezone } from "@/hooks/useTimezone";
 import { OperationRoutingSummary } from "@/features/models/detail/OperationRoutingSummary";
 import type { DiagnosticsView } from "@/features/models/detail/ModelDetailFeaturePage";
 import {
@@ -44,6 +46,7 @@ export function RouteReadinessCard({
   model,
 }: RouteReadinessCardProps) {
   const { formatNumber, messages } = useLocale();
+  const { format: formatDateTime } = useTimezone();
   const copy = messages.modelDetail;
   const modelsUiCopy = messages.modelsUi;
   const apiFamily = model.api_family ?? "openai";
@@ -62,19 +65,37 @@ export function RouteReadinessCard({
       contentClassName="flex flex-col gap-3"
       data-testid="route-readiness-card"
     >
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <ReadinessFact
-          label={copy.modelIdLabel}
-          reason={copy.entryModelIdBasis}
+      {/*
+        结论先于依据：能不能路由是这张卡要回答的问题，八个瓦片是它的依据。
+        四种诊断状态都渲染点什么 —— 读取失败与「没什么可报」必须能区分。
+      */}
+      {diagnosticsView.kind === "loaded" ? (
+        <OperationRoutingSummary diagnostics={diagnosticsView.value} />
+      ) : null}
+      {diagnosticsView.kind === "loading" || diagnosticsView.kind === "idle" ? (
+        <OperatorInsetPanel
+          className="gap-1 p-2.5"
+          data-testid="route-readiness-diagnostics-loading"
         >
-          <span
-            className="block truncate font-mono text-sm tabular-nums"
-            title={model.model_id}
-          >
-            {model.model_id}
-          </span>
-        </ReadinessFact>
+          <Skeleton className="h-4 w-40" />
+        </OperatorInsetPanel>
+      ) : null}
+      {diagnosticsView.kind === "error" ? (
+        <OperatorErrorState
+          testId="route-readiness-diagnostics-error"
+          title={copy.diagnosticsErrorTitle}
+          description={copy.diagnosticsErrorDescription}
+          details={diagnosticsView.message}
+          detailsLabel={copy.diagnosticsErrorDetailsLabel}
+          action={
+            <OperatorRetryButton onClick={onRetryDiagnostics}>
+              {copy.diagnosticsRetry}
+            </OperatorRetryButton>
+          }
+        />
+      ) : null}
 
+      <div className="grid gap-3 grid-cols-2 xl:grid-cols-4">
         <ReadinessFact label={messages.common.apiFamily}>
           <span className="flex items-center gap-1.5">
             <ApiFamilyIcon apiFamily={apiFamily} size={14} />
@@ -101,7 +122,19 @@ export function RouteReadinessCard({
           )}
         </ReadinessFact>
 
-        <ReadinessFact label={modelsUiCopy.terminalTargets}>
+        <ReadinessFact
+          label={modelsUiCopy.terminalTargets}
+          reason={copy.upstreamIdentityDistinctReason}
+          caption={
+            upstreamIdentity.hasDirectTerminalTargets
+              ? copy.upstreamIdentitySummary(
+                  formatNumber(upstreamIdentity.distinctUpstreamModelIdCount),
+                  formatNumber(upstreamIdentity.decoupledUpstreamModelIdCount),
+                  formatNumber(upstreamIdentity.unknownUpstreamModelIdCount),
+                )
+              : copy.noDirectTerminalTargetsReason
+          }
+        >
           {accessTargetSummary ? (
             <span className="font-mono text-sm tabular-nums">
               {copy.targetsCount(
@@ -129,44 +162,6 @@ export function RouteReadinessCard({
           )}
         </ReadinessFact>
 
-        <ReadinessFact
-          label={copy.upstreamIdentityDistinctLabel}
-          reason={copy.upstreamIdentityDistinctReason}
-        >
-          {upstreamIdentity.hasDirectTerminalTargets ? (
-            <span className="font-mono text-sm tabular-nums">
-              {formatNumber(upstreamIdentity.distinctUpstreamModelIdCount)}
-            </span>
-          ) : (
-            <OperatorMissingValue reason={copy.noDirectTerminalTargetsReason} />
-          )}
-        </ReadinessFact>
-
-        <ReadinessFact
-          label={copy.upstreamDecoupledLabel}
-          reason={copy.upstreamDecoupledReason}
-        >
-          {upstreamIdentity.hasDirectTerminalTargets ? (
-            <span className="font-mono text-sm tabular-nums">
-              {formatNumber(upstreamIdentity.decoupledUpstreamModelIdCount)}
-            </span>
-          ) : (
-            <OperatorMissingValue reason={copy.noDirectTerminalTargetsReason} />
-          )}
-        </ReadinessFact>
-
-        <ReadinessFact
-          label={copy.upstreamUnknownLabel}
-          reason={copy.upstreamUnknownReason}
-        >
-          {upstreamIdentity.hasDirectTerminalTargets ? (
-            <span className="font-mono text-sm tabular-nums">
-              {formatNumber(upstreamIdentity.unknownUpstreamModelIdCount)}
-            </span>
-          ) : (
-            <OperatorMissingValue reason={copy.noDirectTerminalTargetsReason} />
-          )}
-        </ReadinessFact>
       </div>
 
       {!upstreamIdentity.hasDirectTerminalTargets ? (
@@ -178,63 +173,34 @@ export function RouteReadinessCard({
         />
       ) : null}
 
-      {/*
-        All four states render something. Returning null for a read failure
-        made a broken fetch look identical to a model with nothing to report.
-      */}
-      {diagnosticsView.kind === "loaded" ? (
-        <OperationRoutingSummary diagnostics={diagnosticsView.value} />
-      ) : null}
-      {diagnosticsView.kind === "loading" || diagnosticsView.kind === "idle" ? (
-        <OperatorInsetPanel
-          className="gap-1 p-2.5"
-          data-testid="route-readiness-diagnostics-loading"
-        >
-          <Skeleton className="h-4 w-40" />
-        </OperatorInsetPanel>
-      ) : null}
-      {diagnosticsView.kind === "error" ? (
-        <OperatorErrorState
-          testId="route-readiness-diagnostics-error"
-          title={copy.diagnosticsErrorTitle}
-          description={copy.diagnosticsErrorDescription}
-          details={diagnosticsView.message}
-          detailsLabel={copy.diagnosticsErrorDetailsLabel}
-          action={
-            <OperatorRetryButton onClick={onRetryDiagnostics}>
-              {copy.diagnosticsRetry}
-            </OperatorRetryButton>
-          }
-        />
-      ) : null}
+      <p className="text-xs text-muted-foreground">
+        {copy.configurationUpdatedAt(formatDateTime(model.updated_at))}
+      </p>
     </OperatorSectionCard>
   );
 }
 
 function ReadinessFact({
+  caption,
   children,
   label,
   reason,
 }: {
+  caption?: React.ReactNode;
   children: React.ReactNode;
   label: string;
   reason?: string;
 }) {
   return (
     <OperatorInsetPanel className="gap-1 p-2.5">
-      <p
-        className="text-[11px] font-medium tracking-[0.04em] text-muted-foreground"
-        title={reason}
-      >
+      <p className="flex items-center gap-0.5 text-[11px] font-medium tracking-[0.04em] text-muted-foreground">
         {label}
-        {reason ? (
-          <span aria-hidden="true" className="cursor-help text-text-disabled">
-            {" "}
-            ?
-          </span>
-        ) : null}
+        {reason ? <OperatorHelpHint label={reason} className="size-5" /> : null}
       </p>
       {children}
+      {caption ? (
+        <p className="text-xs text-muted-foreground">{caption}</p>
+      ) : null}
     </OperatorInsetPanel>
   );
 }

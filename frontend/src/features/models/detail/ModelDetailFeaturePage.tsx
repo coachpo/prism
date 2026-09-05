@@ -6,12 +6,23 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { buildModelDetailPath } from "@/app/router/rewriteRoutes";
 import { useLocale } from "@/i18n/useLocale";
+import { MetricsScopeSwitch } from "@/features/models/MetricsScopeSwitch";
 import { useTimezone } from "@/hooks/useTimezone";
 import {
   modelRoutingDiagnostics,
   type RoutingDiagnosticsResponse,
 } from "@/lib/api/observability";
+import { MoreHorizontal, Trash2 } from "lucide-react";
+
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { AccessTargetsEditor } from "@/pages/models/AccessTargetsEditor";
+import { DeleteModelDialog } from "@/pages/models/DeleteModelDialog";
+import { useModelDeletion } from "@/pages/models/useModelDeletion";
 import { ModelDialog } from "@/pages/models/ModelDialog";
 import { ConnectionDialog } from "@/pages/model-detail/ConnectionDialog";
 import { CopyTerminalTargetDialog } from "@/pages/model-detail/CopyTerminalTargetDialog";
@@ -27,6 +38,7 @@ import { toast } from "sonner";
 import { RouteReadinessCard } from "@/pages/model-detail/RouteReadinessCard";
 import {
   OperatorClippedBadge,
+  OperatorCallout,
   OperatorErrorState,
   OperatorFreshnessBar,
   OperatorKpiCard,
@@ -39,9 +51,10 @@ import {
   OperatorStatusBadge,
   OperatorTypeBadge,
 } from "@/shared/design-system";
+import { summarizeRoutingDisposition } from "./routingDisposition";
+import { formatLatencyForDisplay } from "@/pages/model-detail/modelDetailMetricsAndPaths";
 import { isOwnedConnectionTarget } from "@/pages/model-detail/modelAccessTargetProjection";
 import { useModelDetailFeatureData } from "./useModelDetailFeatureData";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useModelMetrics24h } from "@/pages/models/useModelMetrics24h";
 import { useReportingCurrencyContext } from "@/context/ReportingCurrencyContext";
 import { formatMoneyMicros } from "@/lib/costing";
@@ -246,35 +259,88 @@ export function ModelDetailFeaturePage({
     [data.model],
   );
   const roleMetrics = useModelMetrics24h(modelMetricRows);
+  const {
+    deleteError,
+    deleteTarget,
+    handleDelete,
+    setDeleteTarget,
+  } = useModelDeletion({
+    commitModels: () => {},
+    // 在详情页删掉的就是当前这一页，删完必须离开。
+    onDeleted: () => navigateTo("/route/models"),
+  });
 
   if (data.loading) {
+    // 骨架按真实区块分块，形状要预示后面会出现什么，否则页面落定时会整体跳动。
     return (
-      <div
-        className="flex flex-col gap-[var(--density-page-gap)]"
+      <OperatorPageShell
+        role="status"
+        aria-busy
+        aria-label={messages.common.loadingApplication}
         data-testid="model-detail-feature-loading"
       >
         <div className="flex items-center gap-3">
           <Skeleton className="size-[var(--density-control-h-sm)] rounded" />
           <Skeleton className="h-7 w-48" />
         </div>
-        <Skeleton className="h-[120px] rounded-lg" />
-        <Skeleton className="h-[400px] rounded-lg" />
-      </div>
+        <Skeleton className="h-8 w-full rounded-md" />
+        <OperatorSectionCard title={messages.modelDetail.routeReadinessTitle}>
+          <div className="grid gap-3 grid-cols-2 xl:grid-cols-4">
+            {[0, 1, 2, 3].map((tile) => (
+              <Skeleton key={tile} className="h-16 rounded-md" />
+            ))}
+          </div>
+        </OperatorSectionCard>
+        <OperatorSectionCard title={messages.modelsUi.accessTargets}>
+          <Skeleton className="h-48 rounded-md" />
+        </OperatorSectionCard>
+      </OperatorPageShell>
+    );
+  }
+
+  // 读取失败不是「没有这个模型」：保留 URL 与页面上下文，就地重试。
+  if (data.loadError) {
+    return (
+      <OperatorPageShell className="pb-2">
+        <OperatorErrorState
+          title={messages.modelDetailData.fetchModelDetailsFailed}
+          description={messages.modelDetailData.modelDetailLoadFailedDescription}
+          details={data.loadError}
+          detailsLabel={messages.honesty.viewDetails}
+          action={
+            <OperatorRetryButton onClick={() => void data.retryLoad()}>
+              {messages.common.retry}
+            </OperatorRetryButton>
+          }
+          testId="model-detail-load-error"
+        />
+      </OperatorPageShell>
     );
   }
 
   if (!data.model) return null;
 
   const model = data.model;
+  // 次要数据源读失败会让某些操作静默失效（端点选不出来、模板退化成未定价），
+  // 必须在页面上点名说出来，而不是让下拉看起来「本来就是空的」。
+  const degradedNotices = [
+    data.degradedParts.endpoints
+      ? messages.modelDetailData.degradedEndpoints
+      : null,
+    data.degradedParts.pricingTemplates
+      ? messages.modelDetailData.degradedPricingTemplates
+      : null,
+    data.degradedParts.loadbalanceStrategies
+      ? messages.modelDetailData.degradedLoadbalanceStrategies
+      : null,
+    data.degradedParts.models ? messages.modelDetailData.degradedModels : null,
+  ].filter((notice): notice is string => notice !== null);
+  const routingConclusion =
+    diagnosticsView.kind === "loaded"
+      ? summarizeRoutingDisposition(diagnosticsView.value, messages.observe)
+      : null;
   const selectedRoleMetric =
     roleMetrics.modelMetricsByScope[model.id]?.[metricsScope] ?? null;
-  // The runtime snapshot is per-connection; the freshest observation on the
-  // page is what the bar reports.
-  const runtimeUpdatedAt =
-    [...data.currentStateByConnectionId.values()]
-      .map((item) => item.updated_at)
-      .sort()
-      .at(-1) ?? model.updated_at;
   const isConnectionTargetMutable = (connectionId: number) =>
     isOwnedConnectionTarget(model, parsedModelConfigId, connectionId);
   const ownerOpenAIAcceptedFormat = model.openai_accepted_format ?? null;
@@ -292,7 +358,7 @@ export function ModelDetailFeaturePage({
               value={model.model_id}
               label=""
               targetLabel={messages.modelDetail.modelIdLabel}
-              aria-label={messages.modelDetail.copyModelIdAria(model.model_id)}
+              aria-label={messages.modelDetail.copyModelIdAria()}
               variant="ghost"
               size="icon-xs"
               className="size-6 shrink-0 rounded-md text-muted-foreground hover:text-foreground"
@@ -300,8 +366,19 @@ export function ModelDetailFeaturePage({
           </span>
         }
       >
-        <OperatorStatusBadge
-          intent={model.is_enabled ? "healthy" : "idle"}
+        {/* 「路由是否就绪」的结论放在身份徽章之前：从列表点着「无法路由」
+            进来，第一眼不该是一个绿色的「已启用」。 */}
+        {routingConclusion ? (
+          <OperatorStatusBadge
+            intent={routingConclusion.intent}
+            preserveLabel
+            label={routingConclusion.label}
+            
+          />
+        ) : null}
+        {/* is_enabled 是配置布尔，不是运行观测：用类型徽章，不占运行态色阶。 */}
+        <OperatorTypeBadge
+          intent={model.is_enabled ? "accent" : "muted"}
           preserveLabel
           label={
             model.is_enabled
@@ -325,20 +402,95 @@ export function ModelDetailFeaturePage({
           <Plus data-icon="inline-start" />
           {messages.modelDetail.addConnection}
         </Button>
+        {/* 删除的唯一入口原本藏在列表行的 hover 菜单里：站在详情页确认了
+            要删的就是这一个，却必须回列表凭记忆再找一遍。 */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              aria-label={messages.modelsPage.modelMoreActions(
+                model.display_name || model.model_id,
+              )}
+            >
+              <MoreHorizontal />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem
+              variant="destructive"
+              onSelect={() => setDeleteTarget(model as never)}
+            >
+              <Trash2 />
+              {messages.modelsUi.deleteModel}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </OperatorPageHeader>
 
       <OperatorFreshnessBar
-        updatedAt={messages.freshness.updatedAt(formatTime(runtimeUpdatedAt))}
+        updatedAt={
+          data.currentStateGeneratedAt ? (
+            messages.freshness.updatedAt(
+              formatTime(data.currentStateGeneratedAt),
+            )
+          ) : (
+            <OperatorMissingValue reason={messages.freshness.neverLoaded} />
+          )
+        }
         basis={messages.modelDetail.runtimeBasis}
+        autoRefresh={{
+          ariaLabel: messages.freshness.autoRefreshAria,
+          value: data.autoRefreshValue,
+          onChange: (value) =>
+            data.setAutoRefreshValue(value as "off" | "30s" | "60s"),
+          options: [
+            { value: "30s", label: messages.freshness.autoRefreshSeconds("30") },
+            { value: "60s", label: messages.freshness.autoRefreshSeconds("60") },
+            { value: "off", label: messages.freshness.autoRefreshOff },
+          ],
+        }}
+        badges={
+          data.currentStateFailure ? (
+            <OperatorStalenessBadge
+              label={
+                data.currentStateFailure.staleData
+                  ? messages.routing.stateStale
+                  : messages.routing.runtimeReadFailed
+              }
+              reason={messages.routing.runtimeReadFailedReason(
+                data.currentStateFailure.message,
+              )}
+            />
+          ) : null
+        }
         refresh={{
           label: messages.freshness.refresh,
+          pending:
+            data.currentStateLoading ||
+            roleMetrics.metricsLoading ||
+            diagnosticsView.kind === "loading",
+          // 「刷新」必须真的刷新这一页读到的东西，而不是其中三分之一。
           onRefresh: () => {
             data.refreshCurrentState();
-            data.refetchSpending();
             roleMetrics.refresh();
+            refreshDiagnostics();
+            data.refreshCatalogPricingReads();
+            void data.retryLoad();
           },
         }}
       />
+
+      {degradedNotices.length > 0 ? (
+        <OperatorCallout intent="warning" title={messages.honesty.readFailed}>
+          <ul className="flex list-disc flex-col gap-0.5 pl-4">
+            {degradedNotices.map((notice) => (
+              <li key={notice}>{notice}</li>
+            ))}
+          </ul>
+        </OperatorCallout>
+      ) : null}
 
       <RouteReadinessCard
         accessTargetSummary={data.accessTargetSummary}
@@ -347,6 +499,37 @@ export function ModelDetailFeaturePage({
         model={model}
       />
 
+      <AccessTargetsEditor
+        onGeneratePricing={setPricingTarget}
+        apiFamilyLabel={model.api_family}
+        modelEnabled={model.is_enabled}
+        ownerModelId={model.model_id}
+        focusedConnectionId={data.focusedConnectionId}
+        connectionRowRefs={data.connectionCardRefs}
+        accessTargets={model.access_targets}
+        modelOptions={data.targetModelsForApiFamily}
+        connectionOptions={data.targetConnectionsForApiFamily}
+        error={data.targetEditorError}
+        isConnectionTargetMutable={isConnectionTargetMutable}
+        strategyType={model.loadbalance_strategy?.legacy_strategy_type}
+        currentStateByConnectionId={data.currentStateByConnectionId}
+        currentStateGapByConnectionId={data.currentStateGapByConnectionId}
+        currentStateFailure={data.currentStateFailure}
+        currentStateCompleteness={data.currentStateCompleteness}
+        resettingConnectionIds={data.resettingConnectionIds}
+        onResetCooldown={data.handleResetCooldown}
+        onRefreshRuntimeState={data.refreshCurrentState}
+        onAddTarget={data.handleAddAccessTarget}
+        onCreateConnection={() => data.openConnectionDialog()}
+        onDeleteTarget={data.handleDeleteAccessTarget}
+        onEditConnection={data.openConnectionDialog}
+        onMoveTarget={data.handleMoveAccessTarget}
+        onToggleTarget={data.handleToggleAccessTarget}
+        onCopyTarget={setCopyTarget}
+        onViewModelTargetDetail={(targetModelConfigId) =>
+          navigateTo(buildModelDetailPath(targetModelConfigId))
+        }
+      />
       <ModelRoleMetrics
         failed={roleMetrics.metricsFailed}
         loading={roleMetrics.metricsLoading}
@@ -384,33 +567,6 @@ export function ModelDetailFeaturePage({
         onCatalogChanged={modelCatalogView.refresh}
       />
 
-      <AccessTargetsEditor
-        onGeneratePricing={setPricingTarget}
-        apiFamilyLabel={model.api_family}
-        accessTargets={model.access_targets}
-        modelOptions={data.targetModelsForApiFamily}
-        connectionOptions={data.targetConnectionsForApiFamily}
-        error={data.targetEditorError}
-        isConnectionTargetMutable={isConnectionTargetMutable}
-        strategyType={model.loadbalance_strategy?.legacy_strategy_type}
-        currentStateByConnectionId={data.currentStateByConnectionId}
-        currentStateGapByConnectionId={data.currentStateGapByConnectionId}
-        currentStateFailure={data.currentStateFailure}
-        currentStateCompleteness={data.currentStateCompleteness}
-        resettingConnectionIds={data.resettingConnectionIds}
-        onResetCooldown={data.handleResetCooldown}
-        onRefreshRuntimeState={data.refreshCurrentState}
-        onAddTarget={data.handleAddAccessTarget}
-        onCreateConnection={() => data.openConnectionDialog()}
-        onDeleteTarget={data.handleDeleteAccessTarget}
-        onEditConnection={data.openConnectionDialog}
-        onMoveTarget={data.handleMoveAccessTarget}
-        onToggleTarget={data.handleToggleAccessTarget}
-        onCopyTarget={setCopyTarget}
-        onViewModelTargetDetail={(targetModelConfigId) =>
-          navigateTo(buildModelDetailPath(targetModelConfigId))
-        }
-      />
 
       <CopyTerminalTargetDialog
         isOpen={copyTarget !== null}
@@ -475,6 +631,9 @@ export function ModelDetailFeaturePage({
         />
       )}
       <ConnectionDialog
+        endpointsError={data.degradedParts.endpoints}
+        pricingTemplatesError={data.degradedParts.pricingTemplates}
+        onRetryReferenceData={() => void data.retryLoad()}
         isOpen={data.isConnectionDialogOpen}
         onOpenChange={data.setIsConnectionDialogOpen}
         apiFamily={model.api_family}
@@ -507,16 +666,26 @@ export function ModelDetailFeaturePage({
         prefillConnections={data.targetConnectionsForApiFamily}
       />
 
+      <DeleteModelDialog
+        deleteTarget={deleteTarget}
+        error={deleteError}
+        referrers={data.allModels.filter((candidate) =>
+          candidate.access_targets?.some(
+            (target) => target.target_model_id?.trim() === model.model_id,
+          ),
+        )}
+        onDelete={handleDelete}
+        setDeleteTarget={(next) => setDeleteTarget(next as never)}
+      />
+
       <ModelDialog
         editingModel={model}
         formData={data.formData}
-        formError={data.targetEditorError}
+        formError={data.modelFormError}
         isDialogOpen={data.isEditModelDialogOpen}
         loadbalanceStrategies={data.loadbalanceStrategies}
-        dialogTitle={messages.modelDetail.modelSettingsTitle}
         dialogDescription={messages.modelDetail.modelSettingsDescription}
         showModelIdInEditMode={true}
-        submitLabel={messages.modelDetail.saveChanges}
         setFormData={data.setFormData}
         setIsDialogOpen={data.setIsEditModelDialogOpen}
         setLoadbalanceStrategyId={data.setLoadbalanceStrategyId}
@@ -546,6 +715,9 @@ function ModelRoleMetrics({
   const { currencyState } = useReportingCurrencyContext();
   const { formatNumber, locale, messages } = useLocale();
   const copy = messages.modelDetail;
+  // 加载中不是「没有值」：四张卡必须同时进入等待态，
+  // 否则慢后端下会读到「窗口内没有延迟样本」这种假结论。
+  const metricsPending = loading && metric === null;
   const latencyPartial = (metric?.samples?.latency_missing_count ?? 0) > 0;
   const costPartial = (metric?.samples?.cost_missing_count ?? 0) > 0;
 
@@ -558,17 +730,29 @@ function ModelRoleMetrics({
           : copy.roleMetricsFinalDescription
       }
       actions={
-        <Tabs
+        <MetricsScopeSwitch<DetailMetricsScope>
+          label={copy.roleMetricsScopeLabel}
           value={scope}
-          onValueChange={(value) => onScopeChange(value as DetailMetricsScope)}
-        >
-          <TabsList aria-label={copy.roleMetricsScopeLabel}>
-            <TabsTrigger value="ingress">{copy.roleMetricsIngress}</TabsTrigger>
-            <TabsTrigger value="final_execution">
-              {copy.roleMetricsFinal}
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
+          onChange={onScopeChange}
+          options={[
+            {
+              value: "ingress" as const,
+              label: copy.roleMetricsIngress,
+              basis: messages.modelsPage.metricsScopeBasis("ingress"),
+            },
+            {
+              value: "final_execution" as const,
+              label: copy.roleMetricsFinal,
+              basis: messages.modelsPage.metricsScopeBasis("final_execution"),
+            },
+            {
+              value: "route_attempt",
+              label: messages.modelsPage.scopeRouteAttempt,
+              basis: messages.modelsPage.metricsScopeBasis("route_attempt"),
+              disabledReason: copy.roleMetricsRouteAttemptDisabled,
+            },
+          ]}
+        />
       }
     >
       {failed && metric === null ? (
@@ -590,7 +774,12 @@ function ModelRoleMetrics({
               reason={copy.roleMetricsUnavailableReason}
             />
           ) : null}
-          <div className="grid gap-[var(--density-card-gap)] sm:grid-cols-2 xl:grid-cols-4 [&>[data-slot=kpi-card]]:bg-inset">
+          <div
+            role="status"
+            aria-live="polite"
+            aria-busy={metricsPending}
+            className="grid gap-[var(--density-card-gap)] sm:grid-cols-2 xl:grid-cols-4 [&>[data-slot=kpi-card]]:bg-inset"
+          >
             <OperatorKpiCard
               label={
                 scope === "ingress"
@@ -598,8 +787,8 @@ function ModelRoleMetrics({
                   : copy.roleMetricsFinalRequests
               }
               value={
-                loading && metric === null ? (
-                  <OperatorMissingValue reason={copy.roleMetricsLoading} />
+                metricsPending ? (
+                  <Skeleton className="h-7 w-24" />
                 ) : metric?.request_count_24h == null ? (
                   <OperatorMissingValue reason={messages.honesty.noValue} />
                 ) : (
@@ -611,7 +800,9 @@ function ModelRoleMetrics({
             <OperatorKpiCard
               label={copy.roleMetricsCompletionRate}
               value={
-                metric?.success_rate == null ? (
+                metricsPending ? (
+                  <Skeleton className="h-7 w-20" />
+                ) : metric?.success_rate == null ? (
                   <OperatorMissingValue
                     reason={copy.roleMetricsNoDenominator}
                   />
@@ -628,12 +819,14 @@ function ModelRoleMetrics({
                   : copy.roleMetricsFinalAttemptP95
               }
               value={
-                metric?.p95_latency_ms == null ? (
+                metricsPending ? (
+                  <Skeleton className="h-7 w-24" />
+                ) : metric?.p95_latency_ms == null ? (
                   <OperatorMissingValue
                     reason={copy.roleMetricsNoLatencySample}
                   />
                 ) : (
-                  `${formatNumber(metric.p95_latency_ms)} ms`
+                  formatLatencyForDisplay(metric.p95_latency_ms)
                 )
               }
               detail={copy.roleMetricsWindow24h}
@@ -652,19 +845,33 @@ function ModelRoleMetrics({
             <OperatorKpiCard
               label={copy.roleMetricsKnownCost}
               value={
-                metric?.known_cost_micros == null ? (
+                metricsPending ? (
+                  <Skeleton className="h-7 w-28" />
+                ) : metric?.known_cost_micros == null ? (
                   <OperatorMissingValue
                     reason={copy.roleMetricsNoTrustedCost}
                   />
                 ) : (
-                  formatMoneyMicros(
-                    metric.known_cost_micros,
-                    currencyState.currency.symbol,
-                    currencyState.currency.code,
-                    2,
-                    6,
-                    locale,
-                  )
+                  // 币种写在卡组口径里说一次；可变小数位会让同列的数字小数点错位。
+                  <span
+                    title={formatMoneyMicros(
+                      metric.known_cost_micros,
+                      currencyState.currency.symbol,
+                      currencyState.currency.code,
+                      2,
+                      6,
+                      locale,
+                    )}
+                  >
+                    {formatMoneyMicros(
+                      metric.known_cost_micros,
+                      currencyState.currency.symbol,
+                      undefined,
+                      2,
+                      2,
+                      locale,
+                    )}
+                  </span>
                 )
               }
               detail={copy.roleMetricsWindow30d}

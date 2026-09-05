@@ -78,11 +78,22 @@ export function CreateModelDialog({
     setConfigureLater(false);
     setEndpointId(null);
     setInlineEndpoint(false);
+    setApiFamily("openai");
+    setModelId("");
+    setDisplayName("");
+    setAcceptedFormat(DEFAULT_OPENAI_ACCEPTED_FORMAT);
+    setImageOperations(OPENAI_CAPABILITY_UNSET);
+    setInlineName("");
+    setInlineBaseUrl("");
+    setInlineApiKey("");
+    setTargetName("");
     if (loadbalanceStrategies.length > 0 && strategyId === null) {
       setStrategyId(loadbalanceStrategies[0].id);
     }
     void endpointsApi.list().then(setEndpoints).catch(() => setEndpoints([]));
-  }, [isOpen, loadbalanceStrategies, strategyId]);
+    // 草稿只在一次新的打开会话开始时重置；期间到达的策略列表不得清空操作者的输入。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
 
   // The dialog can receive the asynchronously-created default strategy while
   // it is open. Reset the entry switch only for a new open session; changing
@@ -100,6 +111,7 @@ export function CreateModelDialog({
   }, [loadbalanceStrategies]);
 
   const handleSubmit = async () => {
+    if (submitting) return;
     setFormError(null);
     initialUpstreamModelId.clearError();
     if (!modelId.trim()) {
@@ -161,7 +173,17 @@ export function CreateModelDialog({
           <DialogTitle>{copy.createModelTitle}</DialogTitle>
           <DialogDescription>{copy.createModelDescription}</DialogDescription>
         </DialogHeader>
+        <form
+          className="flex min-h-0 flex-1 flex-col gap-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void handleSubmit();
+          }}
+        >
         <DialogBody className="flex flex-col gap-4">
+          {formError ? (
+            <OperatorCallout intent="danger">{formError}</OperatorCallout>
+          ) : null}
           <OperatorInsetPanel>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="flex flex-col gap-1.5">
@@ -169,9 +191,12 @@ export function CreateModelDialog({
                 <ApiFamilySelect value={apiFamily} onValueChange={(value) => setApiFamily(value as "openai" | "anthropic" | "gemini")} />
               </div>
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="create-model-id">{copy.modelIdLabel}</Label>
+                <Label htmlFor="create-model-id" required>
+                  {copy.modelIdLabel}
+                </Label>
                 <Input
                   id="create-model-id"
+                  aria-required="true"
                   value={modelId}
                   onChange={(event) => {
                     const nextModelId = event.target.value;
@@ -219,7 +244,9 @@ export function CreateModelDialog({
                 </div>
               ) : null}
               <div className="flex flex-col gap-1.5 sm:col-span-2">
-                <Label htmlFor="create-model-strategy">{copy.loadbalanceStrategyLabel}</Label>
+                <Label htmlFor="create-model-strategy" required>
+                  {copy.loadbalanceStrategyLabel}
+                </Label>
                 {loadbalanceStrategies.length === 0 ? (
                   <div className="flex flex-col items-start gap-2">
                     <p className="text-sm text-muted-foreground">{messages.modelDetail.noLoadbalanceStrategiesAvailable}</p>
@@ -289,19 +316,20 @@ export function CreateModelDialog({
             />
           ) : null}
 
-          {formError ? (
-            <OperatorCallout intent="danger">{formError}</OperatorCallout>
-          ) : null}
-
         </DialogBody>
         <DialogFooter>
-          <Button variant="outline" onClick={handleClose} disabled={submitting}>
+          <Button type="button" variant="outline" onClick={handleClose} disabled={submitting}>
             {messages.settingsDialogs.cancel}
           </Button>
-          <Button onClick={() => void handleSubmit()} disabled={submitting || strategyById.size === 0}>
-            {submitting ? "保存中…" : configureLater ? copy.createDisabledModel : copy.createAndEnable}
+          <Button type="submit" disabled={submitting || strategyById.size === 0}>
+            {submitting
+              ? messages.common.saving
+              : configureLater
+                ? copy.createDisabledModel
+                : copy.createAndEnable}
           </Button>
         </DialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   );

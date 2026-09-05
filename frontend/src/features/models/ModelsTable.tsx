@@ -1,4 +1,5 @@
-import { useMemo } from "react"
+import type { ReactNode } from "react"
+import { useMemo, useState } from "react"
 import { Link, useNavigate } from "@tanstack/react-router"
 import { MoreHorizontal, Pencil, Plus, Server, Trash2 } from "lucide-react"
 
@@ -29,8 +30,10 @@ import { formatMoneyMicros } from "@/lib/costing"
 import { formatApiFamily } from "@/components/apiFamilyPresentation"
 import { cn } from "@/lib/utils"
 import {
+  OperatorDestructiveDialog,
   OperatorEmptyState,
   OperatorClippedBadge,
+  OperatorHelpHint,
   OperatorMissingValue,
   OperatorStalenessBadge,
   OperatorStatusBadge,
@@ -56,6 +59,10 @@ import type { ModelInventoryView } from "./modelView"
 
 const MODEL_PAGE_SIZES = [25, 50, 100] as const
 const MODEL_COLUMN_COUNT = 10
+/** 勾选列 + 身份/家族/状态/出口映射/策略：口径列组之前的那几列。 */
+const MODEL_COLUMNS_BEFORE_METRICS = 6
+/** 四个指标列之后只剩「操作」。 */
+const MODEL_METRIC_COLUMN_COUNT = 4
 
 export type ModelSortColumn =
   | "name"
@@ -70,6 +77,10 @@ export type ModelSortColumn =
 
 type Props = {
   scope: ObservabilityScope
+  /** 口径分段控件，渲染在它重算的四列正上方。 */
+  metricsScopeControl?: ReactNode
+  /** 成本口径被保留期裁剪时的实际起点（已本地化的日期）。 */
+  spendRetentionFrom?: string | null
   filtered: ManagedModelConfigListItem[]
   hasActiveFilters: boolean
   metricsFailed: boolean
@@ -99,22 +110,42 @@ function modelTitle(model: ManagedModelConfigListItem) {
   return model.display_name || model.model_id
 }
 
-function ModelIdentityCell({ model }: { model: ManagedModelConfigListItem }) {
+function ModelIdentityCell({
+  model,
+  view,
+}: {
+  model: ManagedModelConfigListItem
+  view: ModelInventoryView
+}) {
   const { formatNumber, messages } = useLocale()
   const title = modelTitle(model)
   const showModelId = title !== model.model_id
+  // 只在混合视图里，这枚徽章才在区分两类行；单一视图下 11 行全一样，
+  // 它只是把名称列撑宽、把扫描打断。
+  const showRoleBadge = view === "all"
 
   return (
-    <div className="flex min-w-56 flex-col gap-0.5">
+    <div className="flex min-w-48 flex-col gap-0.5">
       <div className="flex min-w-0 items-center gap-1">
-        <span className="truncate font-medium" title={title}>{title}</span>
-        <OperatorTypeBadge
-          intent={model.direct_request_enabled === true ? "accent" : "neutral"}
-          label={model.direct_request_enabled === true ? messages.modelsPage.viewEntries : messages.modelsPage.viewModelTargets}
-          preserveLabel
-        />
+        {/* 模型名就是进详情的入口：原本它只是一段带 title 的文本，
+            唯一常显的链接是整格出口映射。 */}
+        <Link
+          to="/route/models/$modelId"
+          params={{ modelId: String(model.id) }}
+          className="truncate font-medium underline-offset-2 hover:underline"
+          title={title}
+        >
+          {title}
+        </Link>
+        {showRoleBadge ? (
+          <OperatorTypeBadge
+            intent={model.direct_request_enabled === true ? "accent" : "neutral"}
+            label={model.direct_request_enabled === true ? messages.modelsPage.viewEntries : messages.modelsPage.viewModelTargets}
+            preserveLabel
+          />
+        ) : null}
         <CopyButton
-          aria-label={messages.modelDetail.copyModelIdAria(model.model_id)}
+          aria-label={messages.modelDetail.copyModelIdAria()}
           className="size-6 rounded-md text-muted-foreground hover:text-foreground"
           errorMessage={messages.auth.loginFailed}
           label=""
@@ -144,6 +175,7 @@ function ModelIdentityCell({ model }: { model: ManagedModelConfigListItem }) {
 /** A metric column head that names its own window and basis. */
 function MetricHead({
   basis,
+  clipped,
   label,
   onSort,
   sort,
@@ -158,6 +190,7 @@ function MetricHead({
   sortKey: ModelSortColumn
   stale: boolean
   window: string
+  clipped?: ReactNode
 }) {
   const { messages } = useLocale()
   const copy = messages.modelsPage
@@ -166,29 +199,31 @@ function MetricHead({
   return (
     <TableHead
       aria-sort={active ? (sort.direction === "asc" ? "ascending" : "descending") : "none"}
-      className="text-right"
-      title={basis}
+      className="p-0 text-right"
     >
-      <div className="flex flex-col items-end gap-0.5">
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className={cn("h-6 gap-1 px-1 text-xs font-medium text-muted-foreground hover:text-foreground", active && "text-foreground")}
-          onClick={() => onSort(sortKey)}
-        >
-          {label}
-          <span aria-hidden="true" className="text-text-disabled">
-            {active ? (sort.direction === "asc" ? "↑" : "↓") : "↕"}
-          </span>
-        </Button>
-        <span className="inline-flex items-center gap-1 font-mono text-[10px] text-muted-foreground">
-          {window}
-          <span aria-hidden="true" className="cursor-help text-text-disabled">
-            ?
-          </span>
+      {/* 窗口与列名同一行：把它挤到第二行会让整个表头高出一档，
+          而表头是首屏预算里最贵的部分之一。 */}
+      <div className="flex flex-col items-end">
+        <span className="flex w-full min-w-0 items-center justify-end gap-1 pr-[var(--density-table-cell-px)]">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className={cn(
+              "h-[var(--density-table-head-h)] min-w-0 justify-end gap-1 rounded-none px-1 text-xs font-medium text-muted-foreground hover:text-foreground",
+              active && "text-foreground",
+            )}
+            onClick={() => onSort(sortKey)}
+          >
+            <span className="truncate">{label}</span>
+            <span className="shrink-0 text-[11px] font-normal text-muted-foreground">
+              {window}
+            </span>
+            <SortGlyph active={active} direction={sort.direction} />
+          </Button>
+          <OperatorHelpHint label={basis} className="size-5" align="end" />
         </span>
-        <span className="sr-only">{basis}</span>
+        {clipped}
         {stale ? (
           <OperatorStalenessBadge label={copy.metricsUnavailable} reason={copy.metricsUnavailableReason} />
         ) : null}
@@ -200,12 +235,15 @@ function MetricHead({
 function MetricValue({
   failed,
   loading,
+  missingReason,
   partialReason,
   render,
   value,
 }: {
   failed: boolean
   loading: boolean
+  /** 这一格为什么没有数：无流量、无样本、无可信成本，三者必须能分辨。 */
+  missingReason?: string
   partialReason?: string
   render: (value: number) => string
   value: number | null | undefined
@@ -215,13 +253,20 @@ function MetricValue({
 
   if (loading && value == null) return <Skeleton className="ml-auto h-4 w-12" />
   if (failed && value == null) {
+    // 整表 44 个红字会淹没真正的异常：这里只留一个紧凑标记，
+    // 恢复动作与完整说明在表格上方的页面级通知里。
     return (
-      <span className="font-mono text-xs font-medium text-failing" title={copy.metricsUnavailableReason}>
-        {copy.metricsUnavailable}
+      <span
+        className="font-mono text-xs text-failing"
+        title={copy.metricsUnavailableReason}
+      >
+        <span aria-hidden="true">— ⚠</span>
+        <span className="sr-only">{copy.metricsUnavailable}</span>
       </span>
     )
   }
-  if (value == null) return <OperatorMissingValue className="text-xs" />
+  if (value == null)
+    return <OperatorMissingValue className="text-xs" reason={missingReason} />
   return (
     <span className="inline-flex flex-col items-end gap-0.5">
       <span className="font-mono text-xs tabular-nums">{render(value)}</span>
@@ -237,6 +282,8 @@ function MetricValue({
 
 export function ModelsTable({
   scope,
+  metricsScopeControl,
+  spendRetentionFrom,
   filtered,
   hasActiveFilters,
   metricsFailed,
@@ -266,6 +313,9 @@ export function ModelsTable({
   const copy = messages.modelsPage
   const tableCopy = messages.operationalTable
   const navigate = useNavigate()
+  const [bulkDisableTarget, setBulkDisableTarget] = useState<
+    ManagedModelConfigListItem[] | null
+  >(null)
   const sort: OperationalSortState<ModelSortColumn> = useMemo(
     () => ({ column: sortBy, direction: sortOrder }),
     [sortBy, sortOrder],
@@ -305,9 +355,11 @@ export function ModelsTable({
     onSelectionChange(next)
   }
 
-  if (filtered.length === 0) {
-    const modelTargetViewEmpty = view === "model_targets" && !hasActiveFilters
-    return (
+  const modelTargetViewEmpty = view === "model_targets" && !hasActiveFilters
+  // 空态渲染在 tbody 里：连表头一起换掉会丢失列结构这个定位锚点，
+  // 筛选到零条时操作者最需要的恰恰是「还有哪些列可以放宽」。
+  const emptyState =
+    filtered.length === 0 ? (
       <OperatorEmptyState
         icon={<Server />}
         title={
@@ -337,8 +389,7 @@ export function ModelsTable({
           )
         }
       />
-    )
-  }
+    ) : null
 
   return (
     <div data-testid="models-table" data-table-density="compact">
@@ -348,7 +399,7 @@ export function ModelsTable({
           <Button type="button" variant="outline" size="sm" onClick={() => void onSetManyEnabled(selectedModels, true)}>
             {copy.bulkEnable}
           </Button>
-          <Button type="button" variant="outline" size="sm" onClick={() => void onSetManyEnabled(selectedModels, false)}>
+          <Button type="button" variant="outline" size="sm" onClick={() => setBulkDisableTarget(selectedModels)}>
             {copy.bulkDisable}
           </Button>
           <Button type="button" variant="ghost" size="sm" onClick={() => onSelectionChange(new Set())}>
@@ -357,9 +408,27 @@ export function ModelsTable({
         </div>
       ) : null}
 
-      <div className="overflow-x-auto border-t border-border">
+      {/* 同一个容器同时管纵横滚动：只有这样 thead 的 sticky 才有滚动祖先。
+          行数少于一屏时 max-h 不生效，页面照常整体滚动。 */}
+      <div className="max-h-[calc(100dvh-18rem)] overflow-auto border-t border-border">
         <Table>
-          <TableHeader>
+          <TableHeader className="z-20">
+            {/* 口径控件必须挨着它重算的那四列：它原来在卡头，与被它改名的
+                列头相距一千多像素，切换后首屏看不到任何变化。 */}
+            <TableRow className="hover:bg-transparent">
+              <TableHead colSpan={MODEL_COLUMNS_BEFORE_METRICS} className="border-b-0" />
+              <TableHead colSpan={MODEL_METRIC_COLUMN_COUNT} className="border-b-0 py-1">
+                <div className="flex items-center justify-end gap-1">
+                  {metricsScopeControl}
+                  <OperatorHelpHint
+                    label={copy.metricsScopeBasis(scope)}
+                    className="size-5"
+                    align="end"
+                  />
+                </div>
+              </TableHead>
+              <TableHead className="border-b-0" />
+            </TableRow>
             <TableRow>
               <TableHead className="w-8">
                 <Checkbox
@@ -375,7 +444,13 @@ export function ModelsTable({
                   }}
                 />
               </TableHead>
-              <SortHead column="name" label={copy.columnModel} onSort={updateSort} sort={sort} />
+              <SortHead
+                column="name"
+                label={copy.columnModel}
+                onSort={updateSort}
+                sort={sort}
+                className="sticky left-0 z-20 bg-inset shadow-[inset_-1px_0_0_0_var(--color-border)]"
+              />
               <SortHead column="api_family" label={copy.columnApiFamily} onSort={updateSort} sort={sort} />
               <SortHead column="status" label={copy.columnStatus} onSort={updateSort} sort={sort} />
               <SortHead column="targets" label={copy.columnTargets} onSort={updateSort} sort={sort} />
@@ -409,17 +484,38 @@ export function ModelsTable({
               />
               <MetricHead
                 basis={copy.scopeSpendBasis(scope)}
-                label={copy.scopeSpendColumn(scope)}
+                label={copy.scopeSpendColumn()}
                 onSort={updateSort}
                 sort={sort}
                 sortKey="spend"
                 stale={metricsFailed}
-                window={copy.window30d}
+                window={
+                  spendRetentionFrom
+                    ? copy.spendWindowClipped(spendRetentionFrom)
+                    : copy.window30d
+                }
+                clipped={
+                  spendRetentionFrom ? (
+                    <OperatorClippedBadge
+                      label={messages.honesty.outsideRetention}
+                      reason={copy.spendWindowClippedReason(spendRetentionFrom)}
+                    />
+                  ) : null
+                }
               />
-              <TableHead className="text-right">{messages.pricingTemplatesUi.actions}</TableHead>
+              <TableHead className="sticky right-0 z-20 bg-inset text-right shadow-[inset_1px_0_0_0_var(--color-border)]">
+                {messages.pricingTemplatesUi.actions}
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
+            {emptyState ? (
+              <TableRow className="hover:bg-transparent">
+                <TableCell colSpan={MODEL_COLUMN_COUNT + 1} className="p-0">
+                  {emptyState}
+                </TableCell>
+              </TableRow>
+            ) : null}
             {pageState.pageRows.map((model) => {
               const title = modelTitle(model)
               const metrics = modelMetrics24h[model.id]
@@ -436,9 +532,11 @@ export function ModelsTable({
                       onCheckedChange={() => toggleRow(model.id)}
                     />
                   </TableCell>
-                  <TableCell className="align-top"><ModelIdentityCell model={model} /></TableCell>
+                  <TableCell className="sticky left-0 z-10 bg-panel align-top shadow-[inset_-1px_0_0_0_var(--color-border)]">
+                    <ModelIdentityCell model={model} view={view} />
+                  </TableCell>
                   <TableCell className="align-top">
-                    <div className="flex flex-col items-start gap-0.5">
+                    <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
                       <OperatorTypeBadge label={formatApiFamily(model.api_family ?? "")} intent="accent" preserveLabel />
                       {model.api_family === "openai" ? (
                         <span className="text-xs text-muted-foreground">
@@ -458,24 +556,35 @@ export function ModelsTable({
                   <TableCell className="align-top">
                     {/* The switch is the state: a badge beside it restated the
                         same bit in a second vocabulary. */}
-                    <Switch
-                      aria-label={copy.toggleModelAria(title)}
-                      checked={model.is_enabled}
-                      disabled={togglingModelIds.has(model.id)}
-                      onCheckedChange={(checked) => void onSetEnabled(model, checked)}
-                    />
+                    <span className="flex items-center gap-1.5">
+                      <Switch
+                        aria-label={copy.toggleModelAria(title)}
+                        checked={model.is_enabled}
+                        disabled={togglingModelIds.has(model.id)}
+                        onCheckedChange={(checked) => void onSetEnabled(model, checked)}
+                      />
+                      {/* 关闭态只靠滑块位置太弱：状态必须能扫描到。 */}
+                      {model.is_enabled ? null : (
+                        <span className="text-xs text-muted-foreground">
+                          {copy.disabledRowLabel}
+                        </span>
+                      )}
+                    </span>
                   </TableCell>
                   <TableCell className="align-top">
                     {/* The whole cell links to detail: counts name the scale,
                         the first two (position,id) rows name the actual exits,
                         and the remainder is a pointer, not a summary. */}
+                    {/* 链接名称必须是单元格里那几行出口文本本身：一个整格
+                        aria-label 会把它们从读屏里整段抹掉。 */}
                     <Link
                       to="/route/models/$modelId"
                       params={{ modelId: String(model.id) }}
-                      aria-label={copy.targetsLinkAria(title)}
+                      title={copy.targetsLinkAria(title)}
                       className="flex min-w-40 flex-col gap-0.5 underline-offset-2 hover:underline"
                     >
                       <ModelExitMappingCell model={model} />
+                      <span className="sr-only">{copy.targetsLinkAriaSuffix}</span>
                     </Link>
                   </TableCell>
                   <TableCell className="align-top">
@@ -485,28 +594,32 @@ export function ModelsTable({
                       ) : (
                         <OperatorMissingValue className="text-xs" reason={copy.strategyMissingReason} />
                       )}
+                      {/* 覆盖度是配置事实而不是运行观测：满屏绿点会让人以为
+                          这些模型正在正常服务。只有「无法路由」保留运行态语气。 */}
                       {model.routing_summary ? (
-                        <OperatorStatusBadge
-                          intent={
-                            model.routing_summary.coverage === "full"
-                              ? "healthy"
-                              : model.routing_summary.coverage === "partial"
-                                ? "degraded"
-                                : model.routing_summary.coverage === "none"
-                                  ? "failing"
-                                  : "idle"
-                          }
-                          preserveLabel
-                          label={
-                            model.routing_summary.coverage === "full"
-                              ? messages.routing.coverageFull
-                              : model.routing_summary.coverage === "partial"
-                                ? messages.routing.coveragePartial
-                                : model.routing_summary.coverage === "none"
-                                  ? messages.routing.coverageNone
+                        model.routing_summary.coverage === "none" ? (
+                          <OperatorStatusBadge
+                            intent="failing"
+                            preserveLabel
+                            label={messages.routing.coverageNone}
+                          />
+                        ) : (
+                          <OperatorTypeBadge
+                            intent={
+                              model.routing_summary.coverage === "partial"
+                                ? "muted"
+                                : "neutral"
+                            }
+                            preserveLabel
+                            label={
+                              model.routing_summary.coverage === "full"
+                                ? messages.routing.coverageFull
+                                : model.routing_summary.coverage === "partial"
+                                  ? messages.routing.coveragePartial
                                   : messages.common.notApplicable
-                          }
-                        />
+                            }
+                          />
+                        )
                       ) : null}
                       {truncated ? (
                         <OperatorStatusBadge
@@ -524,6 +637,7 @@ export function ModelsTable({
                       loading={metricsLoading}
                       render={(value) => `${formatNumber(value, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`}
                       value={metrics?.success_rate}
+                      missingReason={messages.modelDetail.roleMetricsNoDenominator}
                     />
                   </TableCell>
                   <TableCell className="align-top text-right">
@@ -532,6 +646,7 @@ export function ModelsTable({
                       loading={metricsLoading}
                       render={(value) => formatLatencyForDisplay(value)}
                       value={metrics?.p95_latency_ms}
+                      missingReason={messages.modelDetail.roleMetricsNoLatencySample}
                       partialReason={
                         (metrics?.samples?.latency_missing_count ?? 0) > 0
                           ? copy.metricPartialSamples(
@@ -560,8 +675,9 @@ export function ModelsTable({
                       <MetricValue
                         failed={metricsFailed}
                         loading={metricsLoading}
-                        render={(value) => formatMoneyMicros(value, currencyState.currency.symbol, undefined, 2, 6, locale)}
+                        render={(value) => formatMoneyMicros(value, currencyState.currency.symbol, undefined, 2, 2, locale)}
                         value={spend}
+                        missingReason={messages.modelDetail.roleMetricsNoTrustedCost}
                         partialReason={
                           (metrics?.samples?.cost_missing_count ?? 0) > 0
                             ? copy.metricPartialCost(
@@ -573,14 +689,15 @@ export function ModelsTable({
                       />
                     )}
                   </TableCell>
-                  <TableCell className="align-top text-right">
-                    <div className={cn(operationalRowActionsClassName, "gap-1")}>
+                  <TableCell className="sticky right-0 z-10 bg-panel align-top text-right shadow-[inset_1px_0_0_0_var(--color-border)]">
+                    <div className="flex items-center justify-end gap-1">
                       {/* The accessible name names the row, not just the
                           verb: several edit buttons share one page. */}
                       <Button
                         type="button"
                         variant="outline"
                         size="sm"
+                        className={cn(operationalRowActionsClassName, "gap-1")}
                         aria-label={`${messages.modelsUi.editModel}: ${title}`}
                         onClick={() => void onEdit(model)}
                       >
@@ -589,11 +706,14 @@ export function ModelsTable({
                       </Button>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
+                          {/* 溢出菜单的触发器常显（淡一点）：它藏起来时，
+                              这一行看起来就是没有任何操作。 */}
                           <Button
                             type="button"
                             variant="outline"
                             size="icon-sm"
-                            aria-label={messages.modelsUi.viewModelDetails(title)}
+                            className="opacity-60 transition-opacity group-hover/row:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
+                            aria-label={copy.modelMoreActions(title)}
                           >
                             <MoreHorizontal />
                           </Button>
@@ -621,6 +741,7 @@ export function ModelsTable({
           </TableBody>
         </Table>
       </div>
+      {sortedModels.length > MODEL_PAGE_SIZES[0] ? (
       <OperationalTablePagination
         currentPageIndex={pageState.currentPageIndex}
         endIndex={pageState.endIndex}
@@ -646,16 +767,51 @@ export function ModelsTable({
         totalRows={sortedModels.length}
         zeroLabel={tableCopy.zeroResults}
       />
+      ) : null}
+
+      {bulkDisableTarget ? (
+        <OperatorDestructiveDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setBulkDisableTarget(null)
+          }}
+          size="sm"
+          title={copy.bulkDisableConfirmTitle(
+            formatNumber(bulkDisableTarget.length),
+          )}
+          description={copy.bulkDisableConfirmDescription}
+          cancelLabel={messages.settingsDialogs.cancel}
+          confirmLabel={copy.bulkDisableConfirmAction(
+            formatNumber(bulkDisableTarget.length),
+          )}
+          confirmTestId="bulk-disable-confirm"
+          onConfirm={() => {
+            const targets = bulkDisableTarget
+            setBulkDisableTarget(null)
+            void onSetManyEnabled(targets, false)
+          }}
+        >
+          <ul className="flex max-h-48 flex-col gap-0.5 overflow-y-auto text-xs">
+            {bulkDisableTarget.map((model) => (
+              <li key={model.id} className="truncate font-mono">
+                {modelTitle(model)}
+              </li>
+            ))}
+          </ul>
+        </OperatorDestructiveDialog>
+      ) : null}
     </div>
   )
 }
 
 function SortHead({
+  className,
   column,
   label,
   onSort,
   sort,
 }: {
+  className?: string
   column: ModelSortColumn
   label: string
   onSort: (column: ModelSortColumn) => void
@@ -663,23 +819,46 @@ function SortHead({
 }) {
   const active = sort.column === column
   return (
-    <TableHead aria-sort={active ? (sort.direction === "asc" ? "ascending" : "descending") : "none"}>
+    <TableHead
+      aria-sort={active ? (sort.direction === "asc" ? "ascending" : "descending") : "none"}
+      className={cn("p-0", className)}
+    >
       <Button
         type="button"
         variant="ghost"
         size="sm"
         className={cn(
-          "h-6 gap-1 px-1 text-xs font-medium text-muted-foreground hover:text-foreground",
+          "h-[var(--density-table-head-h)] w-full justify-start gap-1 rounded-none px-[var(--density-table-cell-px)] text-xs font-medium text-muted-foreground hover:text-foreground",
           active && "text-foreground",
         )}
         onClick={() => onSort(column)}
       >
         {label}
-        <span aria-hidden="true" className="text-text-disabled">
-          {active ? (sort.direction === "asc" ? "↑" : "↓") : "↕"}
-        </span>
+        <SortGlyph active={active} direction={sort.direction} />
       </Button>
     </TableHead>
+  )
+}
+
+/**
+ * 排序方向的字形承载着「当前按哪一列、哪个方向排」这个信息，
+ * 所以它不能用 text-disabled（契约：禁用色永不承载信息），
+ * 生效列还必须能一眼从其它列里挑出来。
+ */
+function SortGlyph({
+  active,
+  direction,
+}: {
+  active: boolean
+  direction: "asc" | "desc"
+}) {
+  return (
+    <span
+      aria-hidden="true"
+      className={active ? "text-primary" : "text-muted-foreground"}
+    >
+      {active ? (direction === "asc" ? "↑" : "↓") : "↕"}
+    </span>
   )
 }
 

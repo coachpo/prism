@@ -144,7 +144,7 @@ export function CatalogOverrideDialog({
 
   return (
     <Dialog open onOpenChange={(open) => !open && !busy && onClose()}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent size="lg">
         <DialogHeader>
           <DialogTitle>{copy.overrideDialogTitle}</DialogTitle>
           <DialogDescription>{copy.overrideDialogDescription}</DialogDescription>

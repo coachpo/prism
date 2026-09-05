@@ -269,7 +269,7 @@ describe("ModelExportPage Pi-only", () => {
     expect(screen.getAllByText("a".repeat(64)).length).toBeGreaterThan(0);
     expect(screen.getByText("openai/gpt-x (openai-responses)")).toBeVisible();
     expect(screen.getByText(/compat\.openRouterRouting/)).toBeVisible();
-    expect(screen.getByText(/绑定时 Prism model_id/)).toBeVisible();
+    expect(screen.getByText(/绑定时的模型配置 ID/)).toBeVisible();
     expect(
       screen.getByText(/pi\.dev 来源包含不安全或不受支持的字段/),
     ).toBeVisible();
@@ -280,7 +280,7 @@ describe("ModelExportPage Pi-only", () => {
       within(screen.getByRole("dialog")).getByText(
         (_, element) =>
           element?.tagName === "P" &&
-          element.textContent?.includes("当前绑定的 Prism model_id") === true,
+          element.textContent?.includes("当前绑定的模型配置 ID") === true,
       ),
     ).toBeVisible();
   });
@@ -580,7 +580,7 @@ describe("ModelExportPage Pi-only", () => {
       "data-disabled",
     );
     await user.keyboard("{Escape}");
-    expect(within(boundRow).getByText(/绑定时 Prism model_id/)).toBeVisible();
+    expect(within(boundRow).getByText(/绑定时的模型配置 ID/)).toBeVisible();
   });
 
   it("does not fabricate a missing bind-time identity from the current model id", async () => {
@@ -669,7 +669,7 @@ describe("ModelExportPage Pi-only", () => {
     renderPage();
     const row = await screen.findByTestId("export-row-3");
     await openBindingMenu(user, row);
-    await user.click(screen.getByRole("menuitem", { name: "覆盖" }));
+    await user.click(screen.getByRole("menuitem", { name: "编辑覆盖" }));
 
     expect(screen.getByText("输入模态")).toBeVisible();
     expect(screen.getByText("思考等级映射")).toBeVisible();
@@ -715,7 +715,7 @@ describe("ModelExportPage Pi-only", () => {
     renderPage();
     const row = await screen.findByTestId("export-row-3");
     await openBindingMenu(user, row);
-    await user.click(screen.getByRole("menuitem", { name: "刷新" }));
+    await user.click(screen.getByRole("menuitem", { name: "重读并冻结来源" }));
 
     expect(await screen.findByText("preview transport failed")).toBeVisible();
     expect(screen.queryByText("正在获取最新目录数据...")).toBeNull();
@@ -742,9 +742,9 @@ describe("ModelExportPage Pi-only", () => {
     renderPage();
     const row = await screen.findByTestId("export-row-3");
     await openBindingMenu(user, row);
-    await user.click(screen.getByRole("menuitem", { name: "刷新" }));
+    await user.click(screen.getByRole("menuitem", { name: "重读并冻结来源" }));
     await screen.findByText("目录数据未发生变化。");
-    await user.click(screen.getByRole("button", { name: "应用刷新" }));
+    await user.click(screen.getByRole("button", { name: "应用重读结果" }));
 
     expect(await screen.findByText("刷新提交失败")).toBeVisible();
     expect(screen.getByText("pi_binding_stale")).toBeVisible();
@@ -818,7 +818,7 @@ describe("ModelExportPage Pi-only", () => {
     renderPage();
     const row = await screen.findByTestId("export-row-3");
     await openBindingMenu(user, row);
-    await user.click(screen.getByRole("menuitem", { name: "解绑" }));
+    await user.click(screen.getByRole("menuitem", { name: "解除 Pi 绑定" }));
     expect(screen.getByText(/当前绑定含有手动覆盖/)).toBeVisible();
     await user.click(screen.getByTestId("pi-unbind-confirm"));
 
@@ -844,7 +844,7 @@ describe("ModelExportPage Pi-only", () => {
     renderPage();
     const row = await screen.findByTestId("export-row-3");
     await openBindingMenu(user, row);
-    await user.click(screen.getByRole("menuitem", { name: "覆盖" }));
+    await user.click(screen.getByRole("menuitem", { name: "编辑覆盖" }));
     await user.click(screen.getByRole("button", { name: "清除全部覆盖" }));
     expect(clearModelPiOverride).not.toHaveBeenCalled();
     expect(screen.getByText("清除全部 Pi 手动覆盖？")).toBeVisible();
@@ -902,16 +902,16 @@ describe("ModelExportPage Pi-only", () => {
     renderPage();
     const row = await screen.findByTestId("export-row-3");
     await openBindingMenu(user, row);
-    expect(screen.getByRole("menuitem", { name: "刷新" })).toHaveAttribute(
+    expect(screen.getByRole("menuitem", { name: "重读并冻结来源" })).toHaveAttribute(
       "data-disabled",
     );
-    expect(screen.getByRole("menuitem", { name: "覆盖" })).toHaveAttribute(
+    expect(screen.getByRole("menuitem", { name: "编辑覆盖" })).toHaveAttribute(
       "data-disabled",
     );
     expect(
       screen.getByRole("menuitem", { name: "更换来源" }),
     ).not.toHaveAttribute("data-disabled");
-    expect(screen.getByRole("menuitem", { name: "解绑" })).not.toHaveAttribute(
+    expect(screen.getByRole("menuitem", { name: "解除 Pi 绑定" })).not.toHaveAttribute(
       "data-disabled",
     );
     expect(screen.getByRole("button", { name: /生成配置文件/ })).toBeDisabled();

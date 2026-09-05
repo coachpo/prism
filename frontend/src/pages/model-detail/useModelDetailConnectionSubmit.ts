@@ -21,8 +21,7 @@ import {
   validateUpstreamModelIdField,
 } from "./upstreamModelIdField";
 
-const TERMINAL_TARGET_OWNER_MISMATCH =
-  "Terminal Target owner does not match the current model";
+
 
 interface UseModelDetailConnectionSubmitInput
   extends Omit<
@@ -157,7 +156,7 @@ export function useModelDetailConnectionSubmit({
               editingConnection.id,
             )
           ) {
-            toast.error(TERMINAL_TARGET_OWNER_MISMATCH);
+            toast.error(getStaticMessages().modelDetailData.terminalTargetOwnerMismatch);
             return;
           }
           const updatedResponse = await api.models.connections.update(

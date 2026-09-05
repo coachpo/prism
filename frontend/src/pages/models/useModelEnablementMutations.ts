@@ -21,7 +21,8 @@ export function useModelEnablementMutations({
     new Set(),
   );
 
-  const setModelEnabled = useCallback(
+  /** 不带反馈的内部写入；成功提示与撤销由外层决定，避免批量时刷屏。 */
+  const writeModelEnabled = useCallback(
     async (model: ManagedModelConfigListItem, nextEnabled: boolean) => {
       const messages = getStaticMessages();
       setTogglingModelIds((current) => new Set(current).add(model.id));
@@ -55,11 +56,42 @@ export function useModelEnablementMutations({
     [commitModels],
   );
 
+  /**
+   * 行内开关即点即写，不加确认 —— 但成功必须有反馈，且必须能撤销：
+   * 扫描「现在健康吗」时误触一次，就是一个入口模型立刻停止路由。
+   */
+  const setModelEnabled = useCallback(
+    async (model: ManagedModelConfigListItem, nextEnabled: boolean) => {
+      const messages = getStaticMessages();
+      const succeeded = await writeModelEnabled(model, nextEnabled);
+      if (!succeeded) return false;
+      const name = model.display_name?.trim() || model.model_id;
+      toast.success(
+        nextEnabled
+          ? messages.modelsPage.toggleEnabledDone(name)
+          : messages.modelsPage.toggleDisabledDone(name),
+        {
+          duration: 8000,
+          action: {
+            label: messages.modelsPage.toggleUndo,
+            onClick: () => {
+              void writeModelEnabled(model, !nextEnabled).then((reverted) => {
+                if (reverted) toast.success(messages.modelsPage.toggleUndone);
+              });
+            },
+          },
+        },
+      );
+      return true;
+    },
+    [writeModelEnabled],
+  );
+
   const setModelsEnabled = useCallback(
     async (targets: ManagedModelConfigListItem[], nextEnabled: boolean) => {
       const messages = getStaticMessages();
       const results = await Promise.all(
-        targets.map((model) => setModelEnabled(model, nextEnabled)),
+        targets.map((model) => writeModelEnabled(model, nextEnabled)),
       );
       const succeeded = results.filter(Boolean).length;
       const failed = results.length - succeeded;
@@ -67,7 +99,7 @@ export function useModelEnablementMutations({
         messages.modelsPage.bulkDone(String(succeeded), String(failed)),
       );
     },
-    [setModelEnabled],
+    [writeModelEnabled],
   );
 
   return { setModelEnabled, setModelsEnabled, togglingModelIds };

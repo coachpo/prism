@@ -157,13 +157,18 @@ export function piOverrideValueToRaw(
   return String(value);
 }
 
+/**
+ * 与 models.dev 面板共用同一套呈现规则：布尔是「是/否」而不是 true/false，
+ * 数组用顿号连接。同一个字段在两个目录面板里长成两个样子会让人怀疑数据不同。
+ */
 export function formatPiBindingMetadataValue(
   metadata: PiBindingMetadataWire | null | undefined,
   field: PiOverrideField,
 ): string | null {
   const value = piBindingMetadataValue(metadata, field);
-  if (value === undefined) return null;
-  if (Array.isArray(value)) return value.join(", ");
+  if (value === undefined || value === null) return null;
+  if (Array.isArray(value)) return value.join("、");
+  if (typeof value === "boolean") return value ? "是" : "否";
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
 }

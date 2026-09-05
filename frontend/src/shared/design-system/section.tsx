@@ -1,4 +1,4 @@
-import type { ComponentProps, ReactNode } from "react"
+import { useId, type ComponentProps, type ReactNode } from "react"
 
 import {
   Card,
@@ -32,16 +32,28 @@ export function OperatorSectionCard({
   ...props
 }: OperatorSectionCardProps) {
   const hasHeader = title || description || actions
+  const titleId = useId()
 
   return (
-    <Card className={cn("operator-section-surface min-w-0", className)} {...props}>
+    // 区块是长页的路标：标题必须是真正的 h2，卡片本身由它命名，
+    // 否则读屏按 H 键会从页标题直接跳过整个区块。
+    <Card
+      className={cn("operator-section-surface min-w-0", className)}
+      aria-labelledby={title ? titleId : undefined}
+      {...props}
+    >
       {hasHeader ? (
         <CardHeader className="border-b">
           <div className="flex min-w-0 items-center gap-2">
             {icon ? <span className="shrink-0 text-muted-foreground">{icon}</span> : null}
             <div className="min-w-0">
               {title ? (
-                <CardTitle className="text-[0.8125rem] font-semibold leading-[1.125rem]">{title}</CardTitle>
+                <CardTitle
+                  asChild
+                  className="text-[0.9375rem] font-semibold leading-5"
+                >
+                  <h2 id={titleId}>{title}</h2>
+                </CardTitle>
               ) : null}
               {description ? <CardDescription className="text-xs">{description}</CardDescription> : null}
             </div>

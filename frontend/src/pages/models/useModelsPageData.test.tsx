@@ -73,6 +73,10 @@ vi.mock("@/i18n/staticMessages", () => ({
       bulkDone: (succeeded: string, failed: string) =>
         `${succeeded} succeeded, ${failed} failed`,
       toggleFailed: "Toggle failed",
+      toggleEnabledDone: (name: string) => `Enabled ${name}`,
+      toggleDisabledDone: (name: string) => `Disabled ${name}`,
+      toggleUndo: "Undo",
+      toggleUndone: "Undone",
     },
   }),
 }));

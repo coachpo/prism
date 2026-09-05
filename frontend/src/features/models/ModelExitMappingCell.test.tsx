@@ -151,7 +151,7 @@ describe("ModelExitMappingCell", () => {
     expect(screen.getByText("未参与")).toBeInTheDocument();
   });
 
-  it("shows the first two rows in (position, id) order and links the remainder to detail", () => {
+  it("shows all three rows when folding would save nothing", () => {
     renderCell(
       entryModelListItem([
         terminalTargetRow(23, 1, {
@@ -168,10 +168,9 @@ describe("ModelExitMappingCell", () => {
     // Ordered rows: the Model Target (position 0) first, then position 1.
     expect(screen.getByText("child-summary")).toBeInTheDocument();
     expect(screen.getByTitle("ep-b")).toBeInTheDocument();
-    // The third row never renders in the cell; the remainder line points at
-    // the detail page instead.
-    expect(screen.queryByTitle("ep-c")).not.toBeInTheDocument();
-    expect(screen.getByText("还有 1 项，见详情")).toBeInTheDocument();
+    // 余量恰为 1 时折叠零节省，第三条直接显示，尾行不出现。
+    expect(screen.getByTitle("ep-c")).toBeInTheDocument();
+    expect(screen.queryByText(/还有 .* 项，见详情/)).not.toBeInTheDocument();
   });
 
   it("renders a failed routing summary as an error reason instead of exit rows", () => {
@@ -186,14 +185,14 @@ describe("ModelExitMappingCell", () => {
     expect(screen.queryByText(/启用 \//)).not.toBeInTheDocument();
   });
 
-  it("renders zero targets as the 需要目标 failing state", () => {
+  it("renders zero targets as the 缺访问目标 failing state", () => {
     const model = entryModelListItem([]);
     model.routing_summary = routingSummary({
       enabled_access_target_count: 0,
       total_access_target_count: 0,
     });
     renderCell(model);
-    const badge = screen.getByText("需要目标");
+    const badge = screen.getByText("缺访问目标");
     expect(badge).toBeInTheDocument();
     expect(badge).toHaveAttribute(
       "title",
