@@ -1,16 +1,31 @@
 package runtimetest
 
 import (
+	"fmt"
+	"net"
 	"net/http"
 	"testing"
 	"time"
 )
 
-// unroutableUpstreamBaseURL points at the reserved discard port, which is
-// closed on a normal host. A request there fails at the transport layer
-// instead of returning an HTTP status, which is what forces the gateway-side
+// unroutableUpstreamBaseURL points at a loopback port this process bound and
+// released, so a connection there is refused immediately. A fixed low port
+// such as 9 looks closed on a normal host but silently drops SYNs behind the
+// WSL2 localhost relay, where the transport then blocks for the full TCP
+// connect timeout. A request here must fail at the transport layer instead of
+// returning an HTTP status, which is what forces the gateway-side
 // total-failure path rather than a relayed upstream 4xx.
-const unroutableUpstreamBaseURL = "http://127.0.0.1:9"
+var unroutableUpstreamBaseURL = func() string {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		panic(fmt.Sprintf("reserve unroutable upstream port: %v", err))
+	}
+	address := listener.Addr().String()
+	if err := listener.Close(); err != nil {
+		panic(fmt.Sprintf("release unroutable upstream port: %v", err))
+	}
+	return "http://" + address
+}()
 
 // TestRuntimeAttributionIdentifiedOnAllConnectionsFailed covers the gap that
 // let a wedged telemetry pipeline ship: every existing attribution test drives
