@@ -22,6 +22,8 @@ import (
 	"github.com/coachpo/prism/backend/internal/platform/startup"
 )
 
+const runtimeHarnessSecretEncryptionKey = "runtime-secret"
+
 func newRuntimeHarnessForDatabaseWithConfig(tb testing.TB, databaseName string, conn *pgx.Conn, harnessConfig runtimeHarnessConfig) *runtimeHarness {
 	tb.Helper()
 	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -29,7 +31,7 @@ func newRuntimeHarnessForDatabaseWithConfig(tb testing.TB, databaseName string, 
 
 	startupService, err := startup.New(startup.Options{
 		DatabaseURL:         sharedPostgresHarness.connectionString(databaseName),
-		SecretEncryptionKey: "runtime-secret",
+		SecretEncryptionKey: runtimeHarnessSecretEncryptionKey,
 	})
 	if err != nil {
 		tb.Fatalf("build startup service: %v", err)
@@ -44,7 +46,7 @@ func newRuntimeHarnessForDatabaseWithConfig(tb testing.TB, databaseName string, 
 		Port:                       8000,
 		AppEnv:                     config.EnvironmentProduction,
 		DatabaseURL:                sharedPostgresHarness.connectionString(databaseName),
-		SecretEncryptionKey:        "runtime-secret",
+		SecretEncryptionKey:        runtimeHarnessSecretEncryptionKey,
 		CORSAllowedOrigins:         "http://localhost:5173,http://127.0.0.1:5173",
 		AuthJWTSecret:              "runtime-jwt-secret",
 		AuthAccessTokenTTLSeconds:  900,

@@ -16,11 +16,21 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	sharedPostgresHarness = harness
+	if err := prepareContractTemplateDatabase(harness); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		cleanupSharedPostgresHarness(harness)
+		os.Exit(1)
+	}
 	code := m.Run()
+	cleanupSharedPostgresHarness(harness)
+	os.Exit(code)
+}
+
+func cleanupSharedPostgresHarness(harness testPostgresHarness) {
+	if harness.containerName == "" {
+		return
+	}
 	cleanupContext, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	if harness.containerName != "" {
-		_ = exec.CommandContext(cleanupContext, "docker", "rm", "-f", harness.containerName).Run()
-	}
-	os.Exit(code)
+	_ = exec.CommandContext(cleanupContext, "docker", "rm", "-f", harness.containerName).Run()
 }

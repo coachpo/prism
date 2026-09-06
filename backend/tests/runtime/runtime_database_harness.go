@@ -43,7 +43,7 @@ func (h testPostgresHarness) openDatabase(tb testing.TB, ctx context.Context, da
 	if _, err := adminConn.Exec(ctx, `DROP DATABASE IF EXISTS `+quoteIdentifier(databaseName)+` WITH (FORCE)`); err != nil {
 		tb.Fatalf("drop database %s: %v", databaseName, err)
 	}
-	if _, err := adminConn.Exec(ctx, `CREATE DATABASE `+quoteIdentifier(databaseName)); err != nil {
+	if _, err := adminConn.Exec(ctx, `CREATE DATABASE `+quoteIdentifier(databaseName)+` TEMPLATE `+quoteIdentifier(runtimeTemplateDatabase)); err != nil {
 		tb.Fatalf("create database %s: %v", databaseName, err)
 	}
 	return connectDatabase(tb, ctx, h.connectionString(databaseName))

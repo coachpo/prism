@@ -21,6 +21,12 @@ import (
 	"github.com/coachpo/prism/backend/tests/testsupport/containername"
 )
 
+// priorityTemplateDatabase holds one migrated and startup-seeded schema so each
+// test clones it instead of replaying every migration.
+const priorityTemplateDatabase = "prism_priority_template"
+
+const priorityTestSecretEncryptionKey = "priority-test-secret"
+
 var priorityTestPostgres struct {
 	once     sync.Once
 	name     string
@@ -61,6 +67,10 @@ func priorityPostgres(t testing.TB) priorityPostgresHarness {
 		}
 		priorityTestPostgres.name = containerName
 		priorityTestPostgres.hostPort = hostPort
+		if err := preparePriorityTemplateDatabase(priorityPostgresHarness{hostPort: hostPort}); err != nil {
+			priorityTestPostgres.err = err
+			return
+		}
 	})
 	if priorityTestPostgres.err != nil {
 		t.Fatalf("start priority postgres harness: %v", priorityTestPostgres.err)
@@ -82,7 +92,7 @@ func (h priorityPostgresHarness) openDatabase(tb testing.TB, ctx context.Context
 	if _, err := adminConn.Exec(ctx, `DROP DATABASE IF EXISTS `+priorityQuoteIdentifier(databaseName)+` WITH (FORCE)`); err != nil {
 		tb.Fatalf("drop database %s: %v", databaseName, err)
 	}
-	if _, err := adminConn.Exec(ctx, `CREATE DATABASE `+priorityQuoteIdentifier(databaseName)); err != nil {
+	if _, err := adminConn.Exec(ctx, `CREATE DATABASE `+priorityQuoteIdentifier(databaseName)+` TEMPLATE `+priorityQuoteIdentifier(priorityTemplateDatabase)); err != nil {
 		tb.Fatalf("create database %s: %v", databaseName, err)
 	}
 	conn, err := pgx.Connect(ctx, h.connectionString(databaseName))
@@ -104,7 +114,7 @@ func openPriorityTestPool(tb testing.TB) (context.Context, *pgxpool.Pool, string
 
 	startupService, err := startup.New(startup.Options{
 		DatabaseURL:         harness.connectionString(databaseName),
-		SecretEncryptionKey: "priority-test-secret",
+		SecretEncryptionKey: priorityTestSecretEncryptionKey,
 	})
 	if err != nil {
 		tb.Fatalf("build startup service: %v", err)
@@ -127,7 +137,7 @@ func priorityTestSettings(databaseURL string) config.Settings {
 		Port:                       8000,
 		AppEnv:                     config.EnvironmentProduction,
 		DatabaseURL:                databaseURL,
-		SecretEncryptionKey:        "priority-test-secret",
+		SecretEncryptionKey:        priorityTestSecretEncryptionKey,
 		CORSAllowedOrigins:         "http://localhost:5173,http://127.0.0.1:5173",
 		AuthJWTSecret:              "priority-test-jwt-secret",
 		AuthAccessTokenTTLSeconds:  900,
@@ -186,4 +196,55 @@ func priorityRandomSuffix() string {
 	var buffer [4]byte
 	_, _ = rand.Read(buffer[:])
 	return hex.EncodeToString(buffer[:])
+}
+
+func preparePriorityTemplateDatabase(harness priorityPostgresHarness) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	adminConn, err := pgx.Connect(ctx, harness.connectionString("postgres"))
+	if err != nil {
+		return fmt.Errorf("connect postgres admin database: %w", err)
+	}
+	defer func() { _ = adminConn.Close(context.Background()) }()
+
+	// PostgreSQL refuses to drop a database that is still flagged as a
+	// template, so clear the flag before recreating it.
+	if _, err := adminConn.Exec(ctx, `UPDATE pg_database SET datistemplate = FALSE WHERE datname = $1`, priorityTemplateDatabase); err != nil {
+		return fmt.Errorf("clear template flag on %s: %w", priorityTemplateDatabase, err)
+	}
+	if _, err := adminConn.Exec(ctx, `DROP DATABASE IF EXISTS `+priorityQuoteIdentifier(priorityTemplateDatabase)+` WITH (FORCE)`); err != nil {
+		return fmt.Errorf("drop template database %s: %w", priorityTemplateDatabase, err)
+	}
+	if _, err := adminConn.Exec(ctx, `CREATE DATABASE `+priorityQuoteIdentifier(priorityTemplateDatabase)); err != nil {
+		return fmt.Errorf("create template database %s: %w", priorityTemplateDatabase, err)
+	}
+
+	templateConn, err := pgx.Connect(ctx, harness.connectionString(priorityTemplateDatabase))
+	if err != nil {
+		return fmt.Errorf("connect template database %s: %w", priorityTemplateDatabase, err)
+	}
+	startupService, err := startup.New(startup.Options{
+		DatabaseURL:         harness.connectionString(priorityTemplateDatabase),
+		SecretEncryptionKey: priorityTestSecretEncryptionKey,
+	})
+	if err != nil {
+		_ = templateConn.Close(context.Background())
+		return fmt.Errorf("build template startup service: %w", err)
+	}
+	if _, err := startupService.RunWithConn(ctx, templateConn); err != nil {
+		_ = templateConn.Close(context.Background())
+		return fmt.Errorf("run startup on template database %s: %w", priorityTemplateDatabase, err)
+	}
+	if err := templateConn.Close(ctx); err != nil {
+		return fmt.Errorf("close template database %s: %w", priorityTemplateDatabase, err)
+	}
+
+	if _, err := adminConn.Exec(ctx, `ALTER DATABASE `+priorityQuoteIdentifier(priorityTemplateDatabase)+` WITH IS_TEMPLATE true`); err != nil {
+		return fmt.Errorf("mark template database %s: %w", priorityTemplateDatabase, err)
+	}
+	if _, err := adminConn.Exec(ctx, `ALTER DATABASE `+priorityQuoteIdentifier(priorityTemplateDatabase)+` WITH ALLOW_CONNECTIONS false`); err != nil {
+		return fmt.Errorf("disable connections to template database %s: %w", priorityTemplateDatabase, err)
+	}
+	return nil
 }
