@@ -13,7 +13,18 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/coachpo/prism/backend/internal/platform/startup"
 )
+
+// contractTemplateDatabase holds one migrated and startup-seeded schema so each
+// harness clones it instead of replaying every migration.
+const contractTemplateDatabase = "prism_contract_template"
+
+// contractTemplateSecretEncryptionKey seeds the template. The only key-sensitive
+// startup step rewrites existing endpoint secrets and the template carries no
+// endpoints, so a harness clone still runs startup under its own key.
+const contractTemplateSecretEncryptionKey = "contract-secret"
 
 var sharedPostgresHarness testPostgresHarness
 
@@ -93,7 +104,7 @@ func (h testPostgresHarness) openDatabase(t *testing.T, ctx context.Context, dat
 	if _, err := adminConn.Exec(ctx, `DROP DATABASE IF EXISTS `+quoteIdentifier(databaseName)+` WITH (FORCE)`); err != nil {
 		t.Fatalf("drop database %s: %v", databaseName, err)
 	}
-	if _, err := adminConn.Exec(ctx, `CREATE DATABASE `+quoteIdentifier(databaseName)); err != nil {
+	if _, err := adminConn.Exec(ctx, `CREATE DATABASE `+quoteIdentifier(databaseName)+` TEMPLATE `+quoteIdentifier(contractTemplateDatabase)); err != nil {
 		t.Fatalf("create database %s: %v", databaseName, err)
 	}
 	return connectDatabase(t, ctx, h.connectionString(databaseName))
@@ -189,4 +200,55 @@ func branchContainerPrefix() string {
 		label = label[:32]
 	}
 	return strings.Trim(label, "-.")
+}
+
+func prepareContractTemplateDatabase(harness testPostgresHarness) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	adminConn, err := pgx.Connect(ctx, harness.connectionString("postgres"))
+	if err != nil {
+		return fmt.Errorf("connect postgres admin database: %w", err)
+	}
+	defer func() { _ = adminConn.Close(context.Background()) }()
+
+	// A reused external PostgreSQL carries the template flag over from the
+	// previous run, and PostgreSQL refuses to drop a flagged database.
+	if _, err := adminConn.Exec(ctx, `UPDATE pg_database SET datistemplate = FALSE WHERE datname = $1`, contractTemplateDatabase); err != nil {
+		return fmt.Errorf("clear template flag on %s: %w", contractTemplateDatabase, err)
+	}
+	if _, err := adminConn.Exec(ctx, `DROP DATABASE IF EXISTS `+quoteIdentifier(contractTemplateDatabase)+` WITH (FORCE)`); err != nil {
+		return fmt.Errorf("drop template database %s: %w", contractTemplateDatabase, err)
+	}
+	if _, err := adminConn.Exec(ctx, `CREATE DATABASE `+quoteIdentifier(contractTemplateDatabase)); err != nil {
+		return fmt.Errorf("create template database %s: %w", contractTemplateDatabase, err)
+	}
+
+	templateConn, err := pgx.Connect(ctx, harness.connectionString(contractTemplateDatabase))
+	if err != nil {
+		return fmt.Errorf("connect template database %s: %w", contractTemplateDatabase, err)
+	}
+	startupService, err := startup.New(startup.Options{
+		DatabaseURL:         harness.connectionString(contractTemplateDatabase),
+		SecretEncryptionKey: contractTemplateSecretEncryptionKey,
+	})
+	if err != nil {
+		_ = templateConn.Close(context.Background())
+		return fmt.Errorf("build template startup service: %w", err)
+	}
+	if _, err := startupService.RunWithConn(ctx, templateConn); err != nil {
+		_ = templateConn.Close(context.Background())
+		return fmt.Errorf("run startup on template database %s: %w", contractTemplateDatabase, err)
+	}
+	if err := templateConn.Close(ctx); err != nil {
+		return fmt.Errorf("close template database %s: %w", contractTemplateDatabase, err)
+	}
+
+	if _, err := adminConn.Exec(ctx, `ALTER DATABASE `+quoteIdentifier(contractTemplateDatabase)+` WITH IS_TEMPLATE true`); err != nil {
+		return fmt.Errorf("mark template database %s: %w", contractTemplateDatabase, err)
+	}
+	if _, err := adminConn.Exec(ctx, `ALTER DATABASE `+quoteIdentifier(contractTemplateDatabase)+` WITH ALLOW_CONNECTIONS false`); err != nil {
+		return fmt.Errorf("disable connections to template database %s: %w", contractTemplateDatabase, err)
+	}
+	return nil
 }
