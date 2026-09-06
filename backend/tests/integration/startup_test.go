@@ -245,6 +245,20 @@ func TestStartupRuleSeeds(t *testing.T) {
 		t.Fatalf("expected existing Via header rule to be preserved, got name=%q enabled=%v", viaRuleName, viaEnabled)
 	}
 	assertCount(t, testContext, conn, `SELECT COUNT(*) FROM header_blocklist_rules WHERE is_system = TRUE`, len(startup.SystemHeaderBlocklistDefaults))
+
+	// Client headers are forwarded unless a rule stops them, so the seeded
+	// Cookie rule is what keeps one caller's session out of the requests other
+	// callers make through the same upstream key. It has to arrive enabled.
+	var cookieEnabled bool
+	if err := conn.QueryRow(
+		testContext,
+		`SELECT enabled FROM header_blocklist_rules WHERE is_system = TRUE AND match_type = 'exact' AND pattern = 'cookie'`,
+	).Scan(&cookieEnabled); err != nil {
+		t.Fatalf("load seeded Cookie header blocklist rule: %v", err)
+	}
+	if !cookieEnabled {
+		t.Fatal("expected the seeded Cookie header blocklist rule to be enabled")
+	}
 }
 
 func TestStartupIdempotency(t *testing.T) {

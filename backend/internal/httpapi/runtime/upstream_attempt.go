@@ -205,10 +205,13 @@ func (s *Service) doUpstreamRequest(ctx context.Context, client *http.Client, me
 	for key, value := range headers {
 		request.Header.Set(key, value)
 	}
-	if _, ok := headers["User-Agent"]; !ok {
-		if _, ok := headers["user-agent"]; !ok {
-			request.Header["User-Agent"] = []string{""}
-		}
+	// Header.Set has already canonicalized whatever casing the client or the
+	// connection's custom headers used, so this reads the effective value
+	// rather than guessing at map keys. With nothing set, send an empty
+	// User-Agent instead of letting net/http substitute its Go-http-client
+	// default, which would name the gateway's implementation outright.
+	if request.Header.Get("User-Agent") == "" {
+		request.Header["User-Agent"] = []string{""}
 	}
 	headersReceivedAt := s.nowUTC()
 	response, err := client.Do(request)

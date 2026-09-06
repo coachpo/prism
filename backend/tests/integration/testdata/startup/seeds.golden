@@ -8,6 +8,7 @@ profile_id=1	report_currency_code="USD"	report_currency_symbol="$"	timezone_pref
 singleton_key="app"	email_verification_attempt_count=0	must_change_password=false	created_at="2026-04-18T13:00:00Z"	updated_at="2026-04-18T13:00:00Z"
 
 [header_blocklist_rules]
+name="Cookie"	match_type="exact"	pattern="cookie"	enabled=true	created_at="2026-04-18T13:00:00Z"	updated_at="2026-04-18T13:00:00Z"
 name="Cloudflare headers"	match_type="prefix"	pattern="cf-"	enabled=true	created_at="2026-04-18T13:00:00Z"	updated_at="2026-04-18T13:00:00Z"
 name="Cloudflare extended headers"	match_type="prefix"	pattern="x-cf-"	enabled=true	created_at="2026-04-18T13:00:00Z"	updated_at="2026-04-18T13:00:00Z"
 name="Cloudflare Access headers"	match_type="prefix"	pattern="cf-access-"	enabled=true	created_at="2026-04-18T13:00:00Z"	updated_at="2026-04-18T13:00:00Z"

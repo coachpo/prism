@@ -12,6 +12,13 @@ type UserAgentClientRuleDefinition struct {
 }
 
 var SystemHeaderBlocklistDefaults = []HeaderBlocklistRuleDefinition{
+	// Client headers reach an upstream unless a rule stops them, so the caller's
+	// session state is withheld by default: on a shared instance several callers
+	// authenticate through one upstream key, and a forwarded Cookie would carry
+	// one of them into a request the others also make. A deployment where the
+	// upstream genuinely needs the caller's cookie can disable this rule; system
+	// rules cannot be deleted or repatterned, only enabled and disabled.
+	{Name: "Cookie", MatchType: "exact", Pattern: "cookie"},
 	{Name: "Cloudflare headers", MatchType: "prefix", Pattern: "cf-"},
 	{Name: "Cloudflare extended headers", MatchType: "prefix", Pattern: "x-cf-"},
 	{Name: "Cloudflare Access headers", MatchType: "prefix", Pattern: "cf-access-"},

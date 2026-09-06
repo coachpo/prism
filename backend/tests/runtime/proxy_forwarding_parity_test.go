@@ -124,21 +124,19 @@ func TestRuntimeHeaderBlocklistMerge(t *testing.T) {
 	if upstreamRequest.Headers.Get("X-Allow-Smoke") != allowedHeaderValue {
 		t.Fatalf("expected allowed custom header, got %q", upstreamRequest.Headers.Get("X-Allow-Smoke"))
 	}
-	// Client headers outside the protocol allowlist never reach an upstream,
-	// blocklist rule or not. A blocklist cannot deliver the anti-fingerprinting
-	// this filter exists for, because every IDE keeps inventing new headers;
-	// operators declare what an upstream needs via connection.custom_headers
-	// instead (X-Allow-Smoke above). The dropped header stays visible in the
-	// audit trail — see TestRuntimeAuditHeaderScrubPersistsRedactedOnly — so the
-	// filter removes the leak without also removing the evidence.
-	if upstreamRequest.Headers.Get("X-Client-Kept") != "" {
-		t.Fatalf("expected unlisted client header to be withheld from the upstream, got %q", upstreamRequest.Headers.Get("X-Client-Kept"))
+	// A client header nobody blocked reaches the upstream as sent. Forwarding is
+	// a blocklist: the upstream should see the request the caller actually made,
+	// because a request pared down to a few protocol headers is itself the
+	// signal that a gateway is in the path. What an operator does not want
+	// forwarded is named in the Header Blocklist — X-Request-Id below.
+	if upstreamRequest.Headers.Get("X-Client-Kept") != "runtime-ok" {
+		t.Fatalf("expected an unblocked client header to be forwarded, got %q", upstreamRequest.Headers.Get("X-Client-Kept"))
 	}
-	// The caller's User-Agent identifies the client more precisely than any
-	// other header, so it never crosses; what the upstream sees is what the
-	// connection declared, identically on every request regardless of caller.
+	// custom_headers still wins over the forwarded value: this connection pinned
+	// a User-Agent, so every caller reaches this upstream under that one string
+	// regardless of what they sent.
 	if got := upstreamRequest.Headers.Get("User-Agent"); got != "declared-by-connection/1.0" {
-		t.Fatalf("expected the connection-declared User-Agent, got %q", got)
+		t.Fatalf("expected the connection-declared User-Agent to override the caller's, got %q", got)
 	}
 	if upstreamRequest.Headers.Get("X-Request-Id") != "" {
 		t.Fatalf("expected blocked request id header to be removed, got %q", upstreamRequest.Headers.Get("X-Request-Id"))
@@ -168,11 +166,12 @@ func TestRuntimeUserAgentRuleMerge(t *testing.T) {
 		map[string]string{"User-Agent": callerUserAgent},
 	)
 	assertStatus(t, firstResponse, http.StatusOK)
-	// With nothing declared on the connection the upstream learns nothing about
-	// the caller: Prism sends an empty User-Agent rather than relaying
-	// "claude-cli/..." or falling back to Go's default.
-	if firstUpstreamUA := harness.upstream.lastRequest(t).Headers.Get("User-Agent"); firstUpstreamUA != "" {
-		t.Fatalf("expected the caller user-agent to be withheld from the upstream, got %q", firstUpstreamUA)
+	// With nothing declared on the connection the caller's own User-Agent goes
+	// through untouched. Withholding it used to be the rule and was a negative
+	// trade: an empty User-Agent announces a proxy more loudly than any real
+	// client string does.
+	if firstUpstreamUA := harness.upstream.lastRequest(t).Headers.Get("User-Agent"); firstUpstreamUA != callerUserAgent {
+		t.Fatalf("expected the caller user-agent to be forwarded, got %q", firstUpstreamUA)
 	}
 
 	harness.updateConnectionCustomHeaders(t, route.ConnectionID, map[string]any{"User-Agent": "Prism Custom Agent/1.0"})
@@ -199,6 +198,9 @@ func TestRuntimeUserAgentRuleMerge(t *testing.T) {
 		map[string]string{"User-Agent": callerUserAgent},
 	)
 	assertStatus(t, thirdResponse, http.StatusOK)
+	// A blocklist rule outranks both the caller's header and the connection's
+	// custom_headers override, and the empty-User-Agent fallback then applies
+	// so net/http cannot substitute its Go-http-client default.
 	if blockedUA := harness.upstream.lastRequest(t).Headers.Get("User-Agent"); blockedUA != "" {
 		t.Fatalf("expected blocklisted user-agent to be removed, got %q", blockedUA)
 	}

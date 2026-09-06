@@ -1451,7 +1451,7 @@ export const zhCNMessages = {
     openaiFamily: "OpenAI",
     saveAuditSettings: "保存审计设置",
     savingAuditSettings: "保存中...",
-    stripsHeadersBeforeSendingUpstream: "在发送到上游之前移除指定请求头。",
+    stripsHeadersBeforeSendingUpstream: "在发送到上游之前移除指定请求头，并在审计日志与失败诊断中对同名请求头的值脱敏。其余请求头按客户端原样透传。",
     userAgentClientRules: "User-Agent 客户端规则",
     loadingStorageSummary: "正在加载审计存储摘要...",
     retainedAuditRows: "保留审计行",

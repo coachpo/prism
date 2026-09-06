@@ -21,50 +21,59 @@ var hopByHopHeaders = map[string]struct{}{
 	"host":                {},
 }
 
+// clientAuthHeaders are the caller's own credentials. Prism authenticates to
+// the upstream with the connection's key, so forwarding these would leak a
+// client credential to a third party and can collide with the header Prism
+// sets. The provider auth profile's ControlledHeaderNames only covers the
+// active api family (an Anthropic connection controls x-api-key, not
+// authorization), so this full set is checked separately.
 var clientAuthHeaders = map[string]struct{}{
 	"authorization":  {},
 	"x-api-key":      {},
 	"x-goog-api-key": {},
 }
 
-// forwardableClientHeaderNames is the only set of client headers allowed to
-// pass through to the upstream verbatim. Credentials (authorization /
-// x-api-key / x-goog-api-key), session state (cookie), tracing and arbitrary
-// custom headers are never forwarded; operators add extra headers via
-// connection.custom_headers instead.
-//
-// user-agent is deliberately absent. It is the strongest client fingerprint
-// there is, and forwarding it also leaks transitively when the upstream is
-// itself a proxy. An upstream that demands a particular User-Agent is stating a
-// fact about that endpoint, not about whoever happened to call, so it belongs on
-// connection.custom_headers: declared once, identical on every request, and
-// visible afterwards through request_logs.user_agent_overridden. Forwarding the
-// caller's value instead made acceptance depend on which client made the call —
-// the same model working from one IDE and failing from a script. With nothing
-// configured, doUpstreamRequest sends an empty User-Agent rather than Go's
-// default, so no client identity reaches the upstream.
-var forwardableClientHeaderNames = map[string]struct{}{
-	"accept":              {},
-	"accept-language":     {},
-	"content-type":        {},
-	"anthropic-version":   {},
-	"anthropic-beta":      {},
-	"openai-beta":         {},
-	"openai-organization": {},
-	"openai-project":      {},
+// transportControlledHeaderNames are decided by Prism's own transport and the
+// response decoding path, never by the caller. content-length is recomputed
+// from the body Prism actually sends. accept-encoding must not be forwarded
+// because the runtime transport runs with DisableCompression: a forwarded
+// "gzip" would return a compressed body that the streaming parsers cannot read,
+// breaking usage, token, and output-rate extraction.
+var transportControlledHeaderNames = map[string]struct{}{
+	"accept-encoding": {},
+	"content-length":  {},
 }
 
-// forwardableClientHeaders applies the outbound whitelist. content-length and
-// accept-encoding are decided by the transport and response decoding and are
-// never forwarded.
+// forwardableClientHeaders forwards the caller's headers verbatim except for
+// the ones that cannot survive a hop.
+//
+// This is a blocklist, and that is the point. Prism's goal at this boundary is
+// that the upstream sees what the client actually sent, because a request
+// stripped down to a handful of protocol headers is itself an anomaly: no real
+// client sends an empty User-Agent and nothing else. Reproducing the caller's
+// headers is what keeps the gateway from announcing itself. Withheld here are
+// only the headers that are wrong to copy rather than merely revealing:
+//
+//   - hop-by-hop headers and host, which describe this connection, not the next
+//     one (RFC 7230 §6.1)
+//   - transport-controlled headers, which Prism recomputes
+//   - the caller's own credentials, which must never reach an upstream Prism
+//     authenticates by itself
+//   - headers the provider auth profile controls, which Prism sets downstream
+//
+// Everything else, including User-Agent, tracing headers, and whatever headers
+// a given IDE invents, is the operator's call through the Header Blocklist.
 func forwardableClientHeaders(clientHeaders map[string]string, proxyControlledHeaders map[string]struct{}) map[string]string {
 	forwarded := make(map[string]string, len(clientHeaders))
 	for key, value := range clientHeaders {
 		keyLower := strings.ToLower(strings.TrimSpace(key))
-		if _, allowed := forwardableClientHeaderNames[keyLower]; !allowed {
+		if _, blocked := hopByHopHeaders[keyLower]; blocked {
 			continue
 		}
-		if _, blocked := hopByHopHeaders[keyLower]; blocked {
+		if _, blocked := transportControlledHeaderNames[keyLower]; blocked {
+			continue
+		}
+		if _, blocked := clientAuthHeaders[keyLower]; blocked {
 			continue
 		}
 		if _, blocked := proxyControlledHeaders[keyLower]; blocked {
@@ -148,13 +157,13 @@ type headerBlocklistRule struct {
 // headers the client actually sent, unioned with the headers Prism actually
 // forwarded.
 //
-// Recording only the forwarded set made the outbound allowlist erase evidence:
-// a client that leaked a Cookie left no trace at all, so the operator could not
-// answer "did anything leak, and did Prism stop it?" — the one question this
-// filter exists to make answerable. Client-only entries are the ones that were
-// seen and dropped; forwarded-only entries are what Prism added (provider auth,
-// connection custom headers). Sensitive values are replaced downstream by the
-// audit scrubber, which already derives its rules from the same blocklist.
+// Recording only the forwarded set would let the outbound filter erase its own
+// evidence: a header that was dropped would leave no trace at all, so the
+// operator could not answer "what did my client send, and what did Prism
+// actually pass on?" from one record. Client-only entries are the ones that
+// were seen and withheld; forwarded-only entries are what Prism added (provider
+// auth, connection custom headers). Sensitive values are replaced downstream by
+// the audit scrubber, which already derives its rules from the same blocklist.
 func auditableAttemptHeaders(clientHeaders map[string]string, forwardedHeaders map[string]string) map[string]string {
 	audited := make(map[string]string, len(clientHeaders)+len(forwardedHeaders))
 	maps.Copy(audited, clientHeaders)
@@ -175,12 +184,25 @@ func (s *Service) buildUpstreamHeaders(connection runtimeConnection, apiFamily s
 	headers[compiledAuth.AuthHeader] = compiledAuth.AuthValue
 	maps.Copy(headers, compiledAuth.ExtraHeaders)
 	for key, rawValue := range connection.CustomHeaders {
-		if _, protected := proxyControlledHeaders[strings.ToLower(strings.TrimSpace(key))]; protected {
+		keyLower := strings.ToLower(strings.TrimSpace(key))
+		if _, protected := proxyControlledHeaders[keyLower]; protected {
 			continue
 		}
 		normalizedValue, ok := normalizeHeaderValue(fmt.Sprint(rawValue))
 		if !ok {
 			continue
+		}
+		// A custom header replaces the forwarded header of the same name, and
+		// header names are case-insensitive while map keys are not: the caller's
+		// "User-Agent" and a connection's "user-agent" are one header arriving
+		// under two keys. Both would survive into doUpstreamRequest, where
+		// Header.Set canonicalizes each in map iteration order and the last
+		// write wins at random. Drop every case variant so the declared value is
+		// the only one left.
+		for existing := range headers {
+			if strings.EqualFold(strings.TrimSpace(existing), keyLower) {
+				delete(headers, existing)
+			}
 		}
 		headers[key] = normalizedValue
 	}
