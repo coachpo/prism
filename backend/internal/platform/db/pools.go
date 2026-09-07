@@ -157,12 +157,33 @@ func openLanePool(ctx context.Context, databaseURL string, lane config.PostgresP
 	}
 	parsedConfig.MaxConns = budget.MaxConns
 	parsedConfig.MinIdleConns = budget.MinIdleConns
+	for name, value := range laneRuntimeParameters(lane) {
+		parsedConfig.ConnConfig.RuntimeParams[name] = value
+	}
 	pool, err := pgxpool.NewWithConfig(ctx, parsedConfig)
 	if err != nil {
 		return nil, fmt.Errorf("create postgres pool lane=%s: %w", lane, err)
 	}
 	slog.Info("postgres pool created", "lane", lane, "max_conns", budget.MaxConns, "min_idle_conns", budget.MinIdleConns)
 	return pool, nil
+}
+
+// laneRuntimeParameters returns the startup-packet GUCs a lane needs. They are
+// per-lane on purpose: a global server setting would also change the runtime
+// write path, which has no stake in these values.
+//
+// Management reads the partitioned stats tables. A partitioned plan with
+// per-ingress LATERAL joins crosses jit_above_cost once the retention window
+// holds a real number of partitions, and PostgreSQL then re-compiles the plan
+// on every execution instead of amortizing it: measured on a 30-day/1.07M-row
+// corpus (45 partitions), the finalized-summary statement costs 500 ms with
+// JIT and 67 ms without, and one chain page 861 ms versus 183 ms. Small
+// datasets stay below the threshold, so this only ever removes a cliff.
+func laneRuntimeParameters(lane config.PostgresPoolLane) map[string]string {
+	if lane == config.PostgresLaneManagement {
+		return map[string]string{"jit": "off"}
+	}
+	return nil
 }
 
 func closeCreatedLanePools(pools []LanePool) {
