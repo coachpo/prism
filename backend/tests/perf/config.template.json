@@ -1,0 +1,55 @@
+{
+  "meta": {
+    "schemaVersion": 1,
+    "revision": 1,
+    "createdAt": "2026-01-01T00:00:00Z",
+    "updatedAt": "2026-01-01T00:00:00Z"
+  },
+  "server": {
+    "host": "127.0.0.1",
+    "port": @PORT@
+  },
+  "database": {
+    "url": "@DATABASE_URL@",
+    "pools": {
+      "totalMaxConns": 53,
+      "management": { "maxConns": 17, "minIdleConns": 1 },
+      "runtimeExecution": { "maxConns": 16, "minIdleConns": 2 },
+      "runtimeTelemetry": { "maxConns": 8, "minIdleConns": 1 },
+      "runtimeFeedback": { "maxConns": 4, "minIdleConns": 0 },
+      "cacheRefresh": { "maxConns": 4, "minIdleConns": 0 },
+      "backgroundJobs": { "maxConns": 4, "minIdleConns": 0 }
+    },
+    "managementAdmission": {
+      "m2MaxConcurrent": 16,
+      "m3MaxConcurrent": 8
+    }
+  },
+  "runtime": {
+    "secretEncryptionKey": "prism-bench-runtime-secret-not-a-credential",
+    "sideEffects": {
+      "attemptTimeout": "10s"
+    }
+  },
+  "http": {
+    "corsAllowedOrigins": []
+  },
+  "auth": {
+    "jwtSigningKey": "prism-bench-jwt-secret-not-a-credential",
+    "accessTokenTtlSeconds": 900,
+    "refreshTokenTtlSeconds": 604800,
+    "resetCodeTtlSeconds": 600,
+    "accessCookieName": "prism_access_token",
+    "refreshCookieName": "prism_refresh_token",
+    "cookieSecure": false
+  },
+  "alerting": {
+    "webhookUrl": ""
+  },
+  "mail": {
+    "enabled": false
+  },
+  "telemetry": {
+    "enabled": false
+  }
+}
