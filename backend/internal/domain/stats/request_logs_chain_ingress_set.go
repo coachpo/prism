@@ -173,7 +173,7 @@ func buildFinalizedChainSelectorClauses(args *[]any, params ChainQueryParams) st
 	if params.IsStream != nil {
 		query = fmt.Sprintf("%s AND is_stream = $%d", query, appendArg(*params.IsStream))
 	}
-	if len(params.StreamOutcomes) > 0 {
+	if usesFinalizedChainCohort(params) && len(params.StreamOutcomes) > 0 {
 		// stream_outcome is a retained-row selector that the finalized cohort
 		// additionally applies to the finalized event. Narrower than the
 		// totals, which reach it only through the row EXISTS; preserved as-is
@@ -203,6 +203,8 @@ func buildFinalizedChainSelectorClauses(args *[]any, params ChainQueryParams) st
 // cover for this page: from the cursor (or the window edge) down to the last
 // finalized row the page walked. A short page means the finalized walk reached
 // the end of the window, so the span runs to the window edge instead.
+// Inclusive timestamps need one PostgreSQL microsecond before becoming an
+// exclusive upper bound; pgx truncates sub-microsecond increments.
 func orphanChainSpan(params ChainQueryParams, cursorAt time.Time, hasCursor bool, sortOrder string, finalized []chainIngressRef, pageSize int) (*time.Time, *time.Time) {
 	from, to := params.FromTime, params.ToTime
 	pageComplete := len(finalized) == pageSize
@@ -213,7 +215,7 @@ func orphanChainSpan(params ChainQueryParams, cursorAt time.Time, hasCursor bool
 	}
 	if sortOrder == "desc" {
 		if hasCursor {
-			upper := cursorAt.Add(time.Nanosecond)
+			upper := cursorAt.Add(time.Microsecond)
 			to = &upper
 		}
 		if edge != nil {
@@ -226,7 +228,7 @@ func orphanChainSpan(params ChainQueryParams, cursorAt time.Time, hasCursor bool
 		from = &lower
 	}
 	if edge != nil {
-		upper := edge.Add(time.Nanosecond)
+		upper := edge.Add(time.Microsecond)
 		to = &upper
 	}
 	return from, to
