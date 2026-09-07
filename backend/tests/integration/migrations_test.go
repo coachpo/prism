@@ -51,6 +51,7 @@ var expectedPrismMigrationVersions = []string{
 	"000030_output_delivery_rate_evidence",
 	"000031_terminal_target_upstream_model_identity",
 	"000032_model_direct_request_enabled",
+	"000033_retained_history_index_slimming",
 }
 
 func TestSingleBaselineAppliesToFreshDatabase(t *testing.T) {
