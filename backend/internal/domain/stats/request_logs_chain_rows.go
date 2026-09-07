@@ -99,14 +99,16 @@ func applyChainRowProjection(item *ChainRowItem, raw *chainRowRawDetail, connect
 
 // loadRetainedRowCountsBatch computes full-chain retained counts for every
 // listed ingress in one grouped aggregate. Counts cover the whole retained
-// chain (not just the query window), exactly like the historical per-ingress
-// lookup; the matched count keeps the row-filter/time predicate.
-func loadRetainedRowCountsBatch(ctx context.Context, exec queryExecutor, params ChainQueryParams, ingressIDs []string) (map[string]retainedRowCounts, error) {
+// chain rather than only the query window, bounded by the page's own span
+// plus chainWindowSlack so the aggregate prunes to the partitions the page
+// actually spans; the matched count keeps the row-filter/time predicate.
+func loadRetainedRowCountsBatch(ctx context.Context, exec queryExecutor, params ChainQueryParams, ingressIDs []string, rowsFrom, rowsTo *time.Time) (map[string]retainedRowCounts, error) {
 	counts := make(map[string]retainedRowCounts, len(ingressIDs))
 	if len(ingressIDs) == 0 {
 		return counts, nil
 	}
 	queryArgs := []any{params.ProfileID, ingressIDs}
+	rowWindow := chainRowBoundFragments(&queryArgs, rowsFrom, rowsTo, "request_logs")[0]
 	matchPredicate := buildChainRowMatchPredicate(&queryArgs, params, "request_logs")
 	query := `SELECT ingress_request_id,
 			COUNT(*) FILTER (WHERE row_kind = 'upstream'),
@@ -114,7 +116,7 @@ func loadRetainedRowCountsBatch(ctx context.Context, exec queryExecutor, params 
 			COUNT(*) FILTER (WHERE row_kind = 'legacy_unknown'),
 			COUNT(*) FILTER (WHERE ` + matchPredicate + `)
 		FROM request_logs
-		WHERE profile_id = $1 AND ingress_request_id = ANY($2)
+		WHERE profile_id = $1 AND ingress_request_id = ANY($2)` + rowWindow + `
 		GROUP BY ingress_request_id`
 	rows, err := exec.Query(ctx, query, queryArgs...)
 	if err != nil {
@@ -140,19 +142,20 @@ func loadRetainedRowCountsBatch(ctx context.Context, exec queryExecutor, params 
 // `ORDER BY created_at ASC, id ASC LIMIT row_limit+1`, so the limit+1
 // sentinel still determines page completeness per chain without deriving
 // full-chain counts from the bounded page.
-func loadRetainedRowsBatch(ctx context.Context, exec queryExecutor, params ChainQueryParams, ingressIDs []string, rowLimit int, connectionCatalog map[int]connectionRecord) (map[string]retainedRowsPage, error) {
+func loadRetainedRowsBatch(ctx context.Context, exec queryExecutor, params ChainQueryParams, ingressIDs []string, rowLimit int, connectionCatalog map[int]connectionRecord, rowsFrom, rowsTo *time.Time) (map[string]retainedRowsPage, error) {
 	pages := make(map[string]retainedRowsPage, len(ingressIDs))
 	if len(ingressIDs) == 0 {
 		return pages, nil
 	}
 	queryArgs := []any{params.ProfileID, ingressIDs, rowLimit + 1}
+	rowWindow := chainRowBoundFragments(&queryArgs, rowsFrom, rowsTo, "request_logs")[0]
 	matchPredicate := buildChainRowMatchPredicate(&queryArgs, params, "request_logs")
 	query := `SELECT p.ord, r.*
 		FROM unnest($2::text[]) WITH ORDINALITY AS p(ingress_id, ord)
 		CROSS JOIN LATERAL (
 			SELECT ` + chainRowSelectList + `, (` + matchPredicate + `) AS matched_by_filter
 			FROM request_logs
-			WHERE profile_id = $1 AND ingress_request_id = p.ingress_id
+			WHERE profile_id = $1 AND ingress_request_id = p.ingress_id` + rowWindow + `
 			ORDER BY created_at ASC, id ASC
 			LIMIT $3
 		) r
@@ -195,15 +198,16 @@ func loadRetainedRowsBatch(ctx context.Context, exec queryExecutor, params Chain
 // limit+1 sentinel determines page completeness without deriving full-chain
 // counts from the bounded page. This is the precise row-cursor continuation
 // path: only it may apply the signed (created_at, id) keyset bound.
-func loadRetainedRows(ctx context.Context, exec queryExecutor, params ChainQueryParams, ingressRequestID string, rowLimit int, cursor *rowCursorPayload, connectionCatalog map[int]connectionRecord) (retainedRowsPage, error) {
+func loadRetainedRows(ctx context.Context, exec queryExecutor, params ChainQueryParams, ingressRequestID string, rowLimit int, cursor *rowCursorPayload, connectionCatalog map[int]connectionRecord, rowsFrom, rowsTo *time.Time) (retainedRowsPage, error) {
 	profileID := params.ProfileID
 	queryArgs := []any{profileID, ingressRequestID}
+	rowWindow := chainRowBoundFragments(&queryArgs, rowsFrom, rowsTo, "request_logs")[0]
 	matchPredicate := buildChainRowMatchPredicate(&queryArgs, params, "request_logs")
 	query := `SELECT
 			` + chainRowSelectList + `,
 			(` + matchPredicate + `) AS matched_by_filter
 		FROM request_logs
-		WHERE profile_id = $1 AND ingress_request_id = $2`
+		WHERE profile_id = $1 AND ingress_request_id = $2` + rowWindow
 	if cursor != nil {
 		orderAt, err := time.Parse(time.RFC3339Nano, cursor.OrderAt)
 		if err != nil {

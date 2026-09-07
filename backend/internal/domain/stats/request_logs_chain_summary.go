@@ -15,14 +15,17 @@ import (
 // finalizedSummaryJoinSQL is the shared finalized-summary join shape: the
 // authoritative final request-log row, the Terminal Target connection, and
 // the Terminal Target's owner model. Aliases stay fixed so the select list
-// below remains the single projection contract.
-const finalizedSummaryJoinSQL = `
+// below remains the single projection contract. The caller supplies the
+// retained-row created_at window so the LATERAL prunes partitions instead of
+// probing the whole retained history for each usage event.
+func finalizedSummaryJoinSQL(retainedRowWindow string) string {
+	return `
 		FROM usage_request_events ue
 		LEFT JOIN LATERAL (
 			SELECT request_logs.id
 			FROM request_logs
 			WHERE request_logs.profile_id = ue.profile_id
-			  AND request_logs.ingress_request_id = ue.ingress_request_id
+			  AND request_logs.ingress_request_id = ue.ingress_request_id` + retainedRowWindow + `
 			ORDER BY
 				(ue.final_attempt_number IS NOT NULL
 					AND request_logs.attempt_number = ue.final_attempt_number) DESC,
@@ -41,6 +44,7 @@ const finalizedSummaryJoinSQL = `
 			ORDER BY model_access_targets.position ASC, model_access_targets.id ASC
 			LIMIT 1
 		) AS owner_model_configs ON TRUE`
+}
 
 // finalizedSummarySelectList is the finalized-ingress projection consumed by
 // finalizedSummaryScan. One list, two entry points (single chain and page
@@ -259,16 +263,18 @@ func (scan *finalizedSummaryScan) assemble() *FinalizedSummary {
 // (DISTINCT ON ingress ORDER BY id DESC), matching the historical per-ingress
 // `ORDER BY id DESC LIMIT 1` lookup exactly. Ingresses without finalized
 // evidence are absent from the returned map.
-func loadFinalizedSummaries(ctx context.Context, exec queryExecutor, profileID int, ingressIDs []string) (map[string]*FinalizedSummary, error) {
+func loadFinalizedSummaries(ctx context.Context, exec queryExecutor, profileID int, ingressIDs []string, rowsFrom, rowsTo *time.Time) (map[string]*FinalizedSummary, error) {
 	summaries := make(map[string]*FinalizedSummary, len(ingressIDs))
 	if len(ingressIDs) == 0 {
 		return summaries, nil
 	}
+	queryArgs := []any{profileID, ingressIDs}
+	windows := chainRowBoundFragments(&queryArgs, rowsFrom, rowsTo, "ue", "request_logs")
 	query := `SELECT DISTINCT ON (ue.ingress_request_id) ue.ingress_request_id,
-			` + finalizedSummarySelectList + finalizedSummaryJoinSQL + `
-		WHERE ue.profile_id = $1 AND ue.ingress_request_id = ANY($2)
+			` + finalizedSummarySelectList + finalizedSummaryJoinSQL(windows[1]) + `
+		WHERE ue.profile_id = $1 AND ue.ingress_request_id = ANY($2)` + windows[0] + `
 		ORDER BY ue.ingress_request_id ASC, ue.id DESC`
-	rows, err := exec.Query(ctx, query, profileID, ingressIDs)
+	rows, err := exec.Query(ctx, query, queryArgs...)
 	if err != nil {
 		return nil, fmt.Errorf("load finalized summaries for profile %d: %w", profileID, err)
 	}
@@ -292,7 +298,7 @@ func loadFinalizedSummaries(ctx context.Context, exec queryExecutor, profileID i
 // It is the single-chain form of loadFinalizedSummaries.
 func loadFinalizedSummary(ctx context.Context, exec queryExecutor, profileID int, ingressRequestID string) (*FinalizedSummary, bool, error) {
 	scan := newFinalizedSummaryScan()
-	err := exec.QueryRow(ctx, `SELECT `+finalizedSummarySelectList+finalizedSummaryJoinSQL+`
+	err := exec.QueryRow(ctx, `SELECT `+finalizedSummarySelectList+finalizedSummaryJoinSQL("")+`
 		WHERE ue.profile_id = $1 AND ue.ingress_request_id = $2
 		ORDER BY ue.id DESC LIMIT 1`,
 		profileID, ingressRequestID).Scan(scan.dest()...)

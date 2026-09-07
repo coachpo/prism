@@ -510,7 +510,7 @@ Request-log semantics are per-materialized attempt: one incoming runtime request
 
 - Filter by model, final target model, caller client rule, endpoint, api family, status family/exact status, error text, pricing status (`priced|unpriced|ineligible|unknown`), unpriced reason, and time range; unknown query keys return `422 unknown_query_key` (the old `priced` boolean alias is rejected)
 - Attempt view (`view=attempts`) with scoped status/duration filters and `sort_by` over `created_at|display_status|ttft_ms|total_tokens|total_cost_user_currency_micros`; rows with no value for the selected key (no TTFT on a non-stream row, no cost on an unpriced row) sort last in both directions, and `created_at`/`id` break ties so offset pages stay stable
-- Ingress-chain view (`view=ingress_chains`, default) with cohort filters (`ingress_final_result`, `confirmed_failover`, pricing cohort), whole-ingress outer pagination via signed chain cursors, and bounded retained-row inner pages with row cursors; the ordinary ingress set is resolved from retained request logs only (request-only chains stay visible with an unavailable finalized summary) and rows with a NULL `ingress_request_id` never form a chain
+- Ingress-chain view (`view=ingress_chains`, default) with cohort filters (`ingress_final_result`, `confirmed_failover`, pricing cohort), whole-ingress outer pagination via signed chain cursors, and bounded retained-row inner pages with row cursors; the ordinary ingress set is the finalized usage events merged with the chains that have retained rows but no usage event (request-only chains stay visible with an unavailable finalized summary), and rows with a NULL `ingress_request_id` never form a chain
 - Server-side full filtered CSV export (`GET /api/stats/requests/export`) from a single `REPEATABLE READ` snapshot with 100,000-row/128 MiB/31-day bounds, formula-injection escaping, SHA-256 digest verification, and no partial files
 - Exact v2 detail (`GET /api/stats/requests/{request_id}`) with scoped statuses, the unified failure projection, canonical terminal-target/endpoint refs, routing provenance, pricing layers, and `legacy_pricing_evidence` for legacy-untrusted rows
 - Cost segment catalogue (`GET /api/stats/cost-segments`, `/symbols`) with canonical `e.N`/`l.AAA`/`l.__unknown__` keys
@@ -2468,6 +2468,10 @@ Chain semantics:
 - `started_at`/`completed_at`/`elapsed_ms` come only from finalized usage evidence (`ingress_started_at`/`ingress_completed_at`); without finalized evidence all three are null with `elapsed_evidence_state=unavailable`.
 - `retained_upstream_attempt_count` counts `row_kind=upstream` only; `retained_request_log_row_count` counts all retained row kinds; legacy rows are counted separately in `legacy_unknown_row_count`.
 - `chain_complete` expresses retention/evidence reconciliation (expected vs retained), not the current API row page.
+- Whole-chain counts, retained-row pages, and full-cohort totals read retained rows inside the requested window widened by one day on each side. A chain whose retained rows straddle that boundary contributes only the rows inside it. The bound exists because `request_logs` and `usage_request_events` are range-partitioned on `created_at` and only prune when the window constrains the scanned relation directly; one day is far beyond the span of a single client request and its retries.
+- The outer page walks `usage_request_events` in `(profile_id, created_at)` order and merges the chains that have retained rows but no usage event, resolved over the same page span. Both sources carry the same `(created_at, ingress_request_id)` key, so an ingress is never split across pages and never appears twice.
+- Items are keyed by the finalized event; the full-cohort totals and the CSV export are keyed by retained rows. The two agree on every chain that finalized inside the window. A chain still in flight at the window's upper edge — rows retained before `to_time`, finalization landing after it — is counted by the totals and exported, and appears as an item on the window that contains its finalization. This is the same incompleteness the coverage projection already reports for the live edge, not a cohort-selector difference.
+- Outer chain cursors carry the ordering version. A well-formed, correctly signed cursor minted under a retired ordering returns `410 chain_cursor_version_retired`; the client reloads the first page. Row cursors are unaffected: retained rows keep their `(created_at, id)` order.
 - `finalized_summary` fields come only from the finalized `usage_request_events` row; attempt rows never carry `final_*` facts.
 - Each attempt/list/chain/exact-detail row exposes its stored `upstream_model_id`. `finalized_summary.final_upstream_model_id` comes only from the winner usage event. A missing historical or diagnostic value stays `null`; the server and UI never substitute a current Terminal Target value or a logical model ID.
 - `finalized_summary.currency_attribution` comes from persisted usage-event provenance; `cost_segment_key` remains independently canonicalized as epoch first, then legacy code, then unknown.
@@ -4794,7 +4798,15 @@ and dropped `idx_request_logs_profile_created_at`,
 `idx_usage_request_events_ingress_request_id`, and
 `ix_usage_request_events_profile_id`; `000026_resolved_target_indexes` adds the
 resolved-model and actual/final Terminal Target index pairs used by
-`final_execution` and `route_attempt`. Partitioned declarations propagate to
+`final_execution` and `route_attempt`;
+`000033_retained_history_index_slimming` drops five indexes with no reachable
+consumer — `idx_request_logs_ingress_chain` (strictly dominated by
+`idx_request_logs_ingress_created_id`), `idx_request_logs_ingress_request_id`
+(every ingress lookup carries `profile_id`), `ix_request_logs_api_family` and
+`ix_usage_request_events_api_family` (the only filter is written over
+`NULLIF(api_family, '')`, which no plain btree matches), and
+`ix_usage_request_events_created_at` (the partition key alone, dominated by
+`idx_usage_request_events_profile_created_at`). Partitioned declarations propagate to
 existing children when the migration is applied and to future children at
 creation time; inspect live children when diagnosing per-partition indexes.
 

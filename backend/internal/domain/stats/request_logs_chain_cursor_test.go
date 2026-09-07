@@ -1,6 +1,7 @@
 package stats
 
 import (
+	"errors"
 	"testing"
 	"time"
 )
@@ -42,7 +43,7 @@ func TestChainCursorBindsCohortAndCarriesFrozenWindow(t *testing.T) {
 
 	windowFrom, windowTo := chainCursorWindow(params)
 	encoded, err := encodeChainCursor(chainCursorPayload{
-		Version: 1, ProfileID: 1, OrderAt: to.Format(time.RFC3339Nano), IngressID: "ingress-1",
+		Version: chainCursorVersion, ProfileID: 1, OrderAt: to.Format(time.RFC3339Nano), IngressID: "ingress-1",
 		Limit: 20, SortOrder: "desc", CohortHash: hash, WindowFrom: windowFrom, WindowTo: windowTo,
 	})
 	if err != nil {
@@ -58,5 +59,19 @@ func TestChainCursorBindsCohortAndCarriesFrozenWindow(t *testing.T) {
 	}
 	if resumed.FromTime == nil || !resumed.FromTime.Equal(from) || resumed.ToTime == nil || !resumed.ToTime.Equal(to) {
 		t.Fatalf("resumed window = %v..%v, want %v..%v", resumed.FromTime, resumed.ToTime, from, to)
+	}
+
+	// A cursor from a retired ordering is signed and well-formed but no longer
+	// addressable: it must be distinguishable from a corrupt cursor so the
+	// caller can answer "reload the first page" instead of "malformed input".
+	retired, err := encodeChainCursor(chainCursorPayload{
+		Version: chainCursorVersion - 1, ProfileID: 1, OrderAt: to.Format(time.RFC3339Nano), IngressID: "ingress-1",
+		Limit: 20, SortOrder: "desc", CohortHash: hash, WindowFrom: windowFrom, WindowTo: windowTo,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := decodeChainCursor(retired); !errors.Is(err, errChainCursorVersionRetired) {
+		t.Fatalf("decoding a retired cursor version = %v, want errChainCursorVersionRetired", err)
 	}
 }

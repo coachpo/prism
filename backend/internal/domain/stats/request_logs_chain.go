@@ -3,6 +3,7 @@ package stats
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -265,6 +266,7 @@ func ListIngressChains(ctx context.Context, exec queryExecutor, params ChainQuer
 		}
 		params.CostSegmentKey = normalized
 	}
+	applyChainStatementWorkMem(ctx, exec)
 	referenceNow := time.Now().UTC()
 	if !params.CoverageReferenceNow.IsZero() {
 		referenceNow = params.CoverageReferenceNow.UTC()
@@ -358,6 +360,9 @@ func ListIngressChains(ctx context.Context, exec queryExecutor, params ChainQuer
 	var hasCursor bool
 	if params.ChainCursor != nil && strings.TrimSpace(*params.ChainCursor) != "" {
 		decoded, err := decodeChainCursor(*params.ChainCursor)
+		if errors.Is(err, errChainCursorVersionRetired) {
+			return ChainResponse{}, &HTTPError{StatusCode: 410, Code: "chain_cursor_version_retired", Detail: "The ingress-chain page order changed; reload the first page."}
+		}
 		if err != nil {
 			return ChainResponse{}, &HTTPError{StatusCode: 400, Code: "chain_cursor_invalid", Detail: "Ingress chain cursor is invalid."}
 		}
@@ -465,7 +470,7 @@ func ListIngressChains(ctx context.Context, exec queryExecutor, params ChainQuer
 		last := ingresses[len(ingresses)-1]
 		windowFrom, windowTo := chainCursorWindow(params)
 		encoded, err := encodeChainCursor(chainCursorPayload{
-			Version:             1,
+			Version:             chainCursorVersion,
 			ProfileID:           params.ProfileID,
 			OrderAt:             last.OrderAt.UTC().Format(time.RFC3339Nano),
 			IngressID:           last.IngressRequestID,
@@ -499,210 +504,6 @@ type chainIngressRef struct {
 	OrderAt          time.Time
 }
 
-// selectChainIngressSet resolves the ordered ingress set. With finalized
-// cohort selectors the authoritative finalized usage events are the ingress
-// set (Requests SPEC §6.4); in ordinary mode the set comes from the retained
-// request logs themselves so chains without finalized usage evidence still
-// appear with finalized_summary=null / finalized_evidence_state=unavailable
-// instead of being silently dropped.
-func selectChainIngressSet(ctx context.Context, exec queryExecutor, params ChainQueryParams, cursor chainCursorPayload, hasCursor bool, sortOrder string) ([]chainIngressRef, error) {
-	// Finalized-cohort selectors resolve through the authoritative usage
-	// summary; they are never translated into retained-row facts.
-	if !usesFinalizedChainCohort(params) {
-		return selectOrdinaryChainIngressSet(ctx, exec, params, cursor, hasCursor, sortOrder)
-	}
-	// Use the finalized usage events as the authoritative ingress set; rows
-	// without usage evidence appear only when they are explicitly selected by
-	// an exact ingress ID.
-	query := `SELECT ingress_request_id, id, created_at FROM usage_request_events
-		WHERE profile_id = $1
-		AND EXISTS (SELECT 1 FROM request_logs retained_rows
-			WHERE retained_rows.profile_id = usage_request_events.profile_id
-			AND retained_rows.ingress_request_id = usage_request_events.ingress_request_id)`
-	queryArgs := []any{params.ProfileID}
-	nextArg := func() int { return len(queryArgs) + 1 }
-	appendArg := func(value any) int {
-		index := nextArg()
-		queryArgs = append(queryArgs, value)
-		return index
-	}
-	if params.IngressRequestID != nil && strings.TrimSpace(*params.IngressRequestID) != "" {
-		query = fmt.Sprintf("%s AND ingress_request_id = $%d", query, appendArg(strings.TrimSpace(*params.IngressRequestID)))
-	}
-	if params.Q != nil && strings.TrimSpace(*params.Q) != "" {
-		query = fmt.Sprintf("%s AND ingress_request_id ILIKE $%d", query, appendArg("%"+strings.TrimSpace(*params.Q)+"%"))
-	}
-	if params.ProxyAPIKeyID != nil {
-		query = fmt.Sprintf("%s AND proxy_api_key_id_snapshot = $%d", query, appendArg(*params.ProxyAPIKeyID))
-	}
-	if params.FromTime != nil {
-		query = fmt.Sprintf("%s AND created_at >= $%d", query, appendArg(params.FromTime.UTC()))
-	}
-	if params.ToTime != nil {
-		query = fmt.Sprintf("%s AND created_at < $%d", query, appendArg(params.ToTime.UTC()))
-	}
-	if params.IngressFinalResult != nil {
-		// Shared finalized classifier (Observe SPEC §3.2): final_result is
-		// derived, never a stored column.
-		classifier := `CASE WHEN status_code NOT BETWEEN 200 AND 299 THEN 'failed'
-			WHEN stream_outcome = 'client_disconnected' THEN 'client_disconnected'
-			WHEN stream_outcome IN ('provider_incomplete','upstream_read_error','gateway_timeout','upstream_ended_without_terminal','unknown') THEN 'failed'
-			ELSE 'completed' END`
-		query = fmt.Sprintf("%s AND %s = $%d", query, classifier, appendArg(*params.IngressFinalResult))
-	}
-	if params.ConfirmedFailover != nil {
-		query = fmt.Sprintf("%s AND failover_occurred = $%d", query, appendArg(*params.ConfirmedFailover))
-	}
-	if params.FinalTargetModelID != nil && strings.TrimSpace(*params.FinalTargetModelID) != "" {
-		query = fmt.Sprintf("%s AND resolved_target_model_id = $%d", query, appendArg(strings.TrimSpace(*params.FinalTargetModelID)))
-	}
-	if params.PricingStatus != nil {
-		query = fmt.Sprintf("%s AND pricing_status = $%d", query, appendArg(*params.PricingStatus))
-	}
-	if len(params.UnpricedReasons) > 0 {
-		placeholders := make([]string, 0, len(params.UnpricedReasons))
-		for _, reason := range params.UnpricedReasons {
-			placeholders = append(placeholders, fmt.Sprintf("$%d", appendArg(reason)))
-		}
-		query += " AND unpriced_reason IN (" + strings.Join(placeholders, ",") + ")"
-	}
-	if params.ReportingCurrencyEpoch != nil && strings.TrimSpace(*params.ReportingCurrencyEpoch) != "" {
-		if *params.ReportingCurrencyEpoch == "__legacy_unknown__" {
-			query += " AND reporting_currency_epoch IS NULL"
-		} else {
-			query = fmt.Sprintf("%s AND reporting_currency_epoch = $%d", query, appendArg(*params.ReportingCurrencyEpoch))
-		}
-	}
-	if params.IsStream != nil {
-		query = fmt.Sprintf("%s AND is_stream = $%d", query, appendArg(*params.IsStream))
-	}
-	if len(params.StreamOutcomes) > 0 {
-		placeholders := make([]string, 0, len(params.StreamOutcomes))
-		for _, outcome := range params.StreamOutcomes {
-			placeholders = append(placeholders, fmt.Sprintf("$%d", appendArg(outcome)))
-		}
-		query += " AND stream_outcome IN (" + strings.Join(placeholders, ",") + ")"
-	}
-	if len(params.UpstreamStatusCodes) > 0 {
-		// Upstream status is a retained-row selector, not a finalized usage
-		// fact. It is applied below through the ingress-level row EXISTS.
-	}
-	if params.IngressFinalStatusCodes != nil && len(params.IngressFinalStatusCodes) > 0 {
-		placeholders := make([]string, 0, len(params.IngressFinalStatusCodes))
-		for _, code := range params.IngressFinalStatusCodes {
-			placeholders = append(placeholders, fmt.Sprintf("$%d", appendArg(code)))
-		}
-		query += " AND status_code IN (" + strings.Join(placeholders, ",") + ")"
-	}
-	if params.CostSegmentKey != nil && strings.TrimSpace(*params.CostSegmentKey) != "" {
-		segment := strings.TrimSpace(*params.CostSegmentKey)
-		query = fmt.Sprintf("%s AND %s = $%d", query, canonicalCostSegmentKeySQLFor(""), appendArg(segment))
-	}
-	if hasChainRowFilter(params) {
-		query = appendChainRowCohortExists(query, &queryArgs, params, "usage_request_events")
-	}
-	// Keyset continuation.
-	if hasCursor {
-		queryArgs = append(queryArgs, cursor.OrderAt, cursor.IngressID)
-		if sortOrder == "desc" {
-			query += fmt.Sprintf(" AND (created_at, ingress_request_id) < ($%d, $%d)", len(queryArgs)-1, len(queryArgs))
-		} else {
-			query += fmt.Sprintf(" AND (created_at, ingress_request_id) > ($%d, $%d)", len(queryArgs)-1, len(queryArgs))
-		}
-	}
-	queryArgs = append(queryArgs, params.ChainLimit+1)
-	query += fmt.Sprintf(" ORDER BY created_at %s, ingress_request_id %s LIMIT $%d", strings.ToUpper(sortOrder), strings.ToUpper(sortOrder), len(queryArgs))
-
-	rows, err := exec.Query(ctx, query, queryArgs...)
-	if err != nil {
-		return nil, fmt.Errorf("query chain ingress set for profile %d: %w", params.ProfileID, err)
-	}
-	defer rows.Close()
-	ingresses := make([]chainIngressRef, 0)
-	for rows.Next() {
-		var ref chainIngressRef
-		if err := rows.Scan(&ref.IngressRequestID, &ref.UsageEventID, &ref.OrderAt); err != nil {
-			return nil, fmt.Errorf("scan chain ingress set: %w", err)
-		}
-		ref.OrderAt = ref.OrderAt.UTC()
-		ingresses = append(ingresses, ref)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate chain ingress set: %w", err)
-	}
-	return ingresses, nil
-}
-
-// selectOrdinaryChainIngressSet resolves the ordinary-mode ingress set from
-// the retained request logs themselves (no finalized cohort selectors). The
-// usage-event owner is never consulted here: the finalized summary loader is
-// the only consumer of usage facts, and it resolves them per page. Rows with
-// a NULL ingress_request_id are diagnostic orphans and never form a chain.
-func selectOrdinaryChainIngressSet(ctx context.Context, exec queryExecutor, params ChainQueryParams, cursor chainCursorPayload, hasCursor bool, sortOrder string) ([]chainIngressRef, error) {
-	query := `SELECT rl.ingress_request_id,
-		MIN(rl.created_at) AS first_at
-		FROM request_logs rl
-		WHERE rl.profile_id = $1 AND rl.ingress_request_id IS NOT NULL`
-	queryArgs := []any{params.ProfileID}
-	havingClause := ""
-	nextArg := func() int { return len(queryArgs) + 1 }
-	appendArg := func(value any) int {
-		index := nextArg()
-		queryArgs = append(queryArgs, value)
-		return index
-	}
-	if params.IngressRequestID != nil && strings.TrimSpace(*params.IngressRequestID) != "" {
-		query = fmt.Sprintf("%s AND rl.ingress_request_id = $%d", query, appendArg(strings.TrimSpace(*params.IngressRequestID)))
-	}
-	if params.Q != nil && strings.TrimSpace(*params.Q) != "" {
-		query = fmt.Sprintf("%s AND rl.ingress_request_id ILIKE $%d", query, appendArg("%"+strings.TrimSpace(*params.Q)+"%"))
-	}
-	if params.ProxyAPIKeyID != nil {
-		query = fmt.Sprintf("%s AND EXISTS (SELECT 1 FROM request_logs key_rows WHERE key_rows.profile_id = rl.profile_id AND key_rows.ingress_request_id = rl.ingress_request_id AND key_rows.proxy_api_key_id_snapshot = $%d)", query, appendArg(*params.ProxyAPIKeyID))
-	}
-	if params.FromTime != nil {
-		query = fmt.Sprintf("%s AND rl.created_at >= $%d", query, appendArg(params.FromTime.UTC()))
-	}
-	if params.ToTime != nil {
-		query = fmt.Sprintf("%s AND rl.created_at < $%d", query, appendArg(params.ToTime.UTC()))
-	}
-	if hasChainRowFilter(params) {
-		query = appendChainRowCohortExists(query, &queryArgs, params, "rl")
-	}
-	if params.CostSegmentKey != nil && strings.TrimSpace(*params.CostSegmentKey) != "" {
-		query = appendChainFinalizedCohortExists(query, &queryArgs, params, "rl")
-	}
-	if hasCursor {
-		queryArgs = append(queryArgs, cursor.OrderAt, cursor.IngressID)
-		if sortOrder == "desc" {
-			havingClause = fmt.Sprintf(" HAVING MIN(rl.created_at) < $%d OR (MIN(rl.created_at) = $%d AND rl.ingress_request_id < $%d)", len(queryArgs)-1, len(queryArgs)-1, len(queryArgs))
-		} else {
-			havingClause = fmt.Sprintf(" HAVING MIN(rl.created_at) > $%d OR (MIN(rl.created_at) = $%d AND rl.ingress_request_id > $%d)", len(queryArgs)-1, len(queryArgs)-1, len(queryArgs))
-		}
-	}
-	queryArgs = append(queryArgs, params.ChainLimit+1)
-	query += fmt.Sprintf(" GROUP BY rl.ingress_request_id%s ORDER BY first_at %s, rl.ingress_request_id %s LIMIT $%d", havingClause, strings.ToUpper(sortOrder), strings.ToUpper(sortOrder), len(queryArgs))
-
-	rows, err := exec.Query(ctx, query, queryArgs...)
-	if err != nil {
-		return nil, fmt.Errorf("query ordinary chain ingress set for profile %d: %w", params.ProfileID, err)
-	}
-	defer rows.Close()
-	ingresses := make([]chainIngressRef, 0)
-	for rows.Next() {
-		var ref chainIngressRef
-		if err := rows.Scan(&ref.IngressRequestID, &ref.OrderAt); err != nil {
-			return nil, fmt.Errorf("scan ordinary chain ingress set: %w", err)
-		}
-		ref.OrderAt = ref.OrderAt.UTC()
-		ingresses = append(ingresses, ref)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate ordinary chain ingress set: %w", err)
-	}
-	return ingresses, nil
-}
-
 // loadExactChainIngressItem loads one chain item through the precise
 // single-chain path: per-ingress summary/counts plus the signed row-cursor
 // keyset page. Only this path may consume a row cursor.
@@ -718,15 +519,17 @@ func loadExactChainIngressItem(
 	connectionCatalog map[int]connectionRecord,
 ) (ChainIngressItem, error) {
 	ids := []string{ingress.IngressRequestID}
-	summaries, err := loadFinalizedSummaries(ctx, exec, params.ProfileID, ids)
+	// One chain, so the page span is this chain's own start plus the slack.
+	rowsFrom, rowsTo := chainPageRowBounds([]chainIngressRef{ingress})
+	summaries, err := loadFinalizedSummaries(ctx, exec, params.ProfileID, ids, rowsFrom, rowsTo)
 	if err != nil {
 		return ChainIngressItem{}, err
 	}
-	countsByIngress, err := loadRetainedRowCountsBatch(ctx, exec, params, ids)
+	countsByIngress, err := loadRetainedRowCountsBatch(ctx, exec, params, ids, rowsFrom, rowsTo)
 	if err != nil {
 		return ChainIngressItem{}, err
 	}
-	page, err := loadRetainedRows(ctx, exec, params, ingress.IngressRequestID, rowLimit, rowCursor, connectionCatalog)
+	page, err := loadRetainedRows(ctx, exec, params, ingress.IngressRequestID, rowLimit, rowCursor, connectionCatalog, rowsFrom, rowsTo)
 	if err != nil {
 		return ChainIngressItem{}, err
 	}
@@ -752,15 +555,19 @@ func loadChainIngressItemsBatch(
 	for _, ingress := range ingresses {
 		ids = append(ids, ingress.IngressRequestID)
 	}
-	summaries, err := loadFinalizedSummaries(ctx, exec, params.ProfileID, ids)
+	// All three statements are bounded by the span this page actually covers
+	// instead of the whole retained history: the ingress IDs alone cannot
+	// prune partitions, and at retention scale planning dominates them.
+	rowsFrom, rowsTo := chainPageRowBounds(ingresses)
+	summaries, err := loadFinalizedSummaries(ctx, exec, params.ProfileID, ids, rowsFrom, rowsTo)
 	if err != nil {
 		return nil, err
 	}
-	countsByIngress, err := loadRetainedRowCountsBatch(ctx, exec, params, ids)
+	countsByIngress, err := loadRetainedRowCountsBatch(ctx, exec, params, ids, rowsFrom, rowsTo)
 	if err != nil {
 		return nil, err
 	}
-	pages, err := loadRetainedRowsBatch(ctx, exec, params, ids, rowLimit, connectionCatalog)
+	pages, err := loadRetainedRowsBatch(ctx, exec, params, ids, rowLimit, connectionCatalog, rowsFrom, rowsTo)
 	if err != nil {
 		return nil, err
 	}
@@ -898,6 +705,12 @@ func buildChainCohortWhere(params ChainQueryParams, outerAlias string) (string, 
 		outerAlias + ".ingress_request_id IS NOT NULL",
 	}
 	args := []any{params.ProfileID}
+	// The scanned relation carries the window itself so the totals read only
+	// the partitions the window covers. Every cohort branch below expresses
+	// the window again through an EXISTS, which selects the chains; this
+	// bound decides which of their rows are in reach. See chainWindowSlack.
+	cohortFrom, cohortTo := chainCohortRowBounds(params)
+	clauses = append(clauses, chainRowBoundClauses(&args, outerAlias, cohortFrom, cohortTo)...)
 	if params.ProxyAPIKeyID != nil {
 		args = append(args, *params.ProxyAPIKeyID)
 		clauses = append(clauses, fmt.Sprintf("EXISTS (SELECT 1 FROM request_logs key_rows WHERE key_rows.profile_id = %s.profile_id AND key_rows.ingress_request_id = %s.ingress_request_id AND key_rows.proxy_api_key_id_snapshot = $%d)", outerAlias, outerAlias, len(args)))

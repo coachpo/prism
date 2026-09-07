@@ -5,11 +5,23 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
 )
+
+// chainCursorVersion is the outer-cursor payload version. Version 1 ordered
+// the ordinary cohort by the earliest retained row of each chain; version 2
+// orders every cohort by the finalized usage event. A version-1 cursor points
+// into an order that no longer exists, so it is retired rather than
+// reinterpreted.
+const chainCursorVersion = 2
+
+// errChainCursorVersionRetired marks a well-formed, correctly signed cursor
+// from a retired ordering. Callers surface it as "reload the first page".
+var errChainCursorVersionRetired = errors.New("chain cursor version retired")
 
 // chainCursorSigningKey is a local domain separator, not a credential. Keep
 // it assembled rather than storing a secret-looking literal in source.
@@ -74,8 +86,8 @@ func decodeChainCursor(encoded string) (chainCursorPayload, error) {
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		return chainCursorPayload{}, err
 	}
-	if payload.Version != 1 {
-		return chainCursorPayload{}, fmt.Errorf("unsupported chain cursor version")
+	if payload.Version != chainCursorVersion {
+		return chainCursorPayload{}, errChainCursorVersionRetired
 	}
 	return payload, nil
 }
