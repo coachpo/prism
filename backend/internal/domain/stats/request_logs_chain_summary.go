@@ -3,13 +3,10 @@ package stats
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/jackc/pgx/v5"
 )
 
 // finalizedSummaryJoinSQL is the shared finalized-summary join shape: the
@@ -292,23 +289,6 @@ func loadFinalizedSummaries(ctx context.Context, exec queryExecutor, profileID i
 		return nil, fmt.Errorf("iterate finalized summaries: %w", err)
 	}
 	return summaries, nil
-}
-
-// loadFinalizedSummary loads the finalized usage projection for one ingress.
-// It is the single-chain form of loadFinalizedSummaries.
-func loadFinalizedSummary(ctx context.Context, exec queryExecutor, profileID int, ingressRequestID string) (*FinalizedSummary, bool, error) {
-	scan := newFinalizedSummaryScan()
-	err := exec.QueryRow(ctx, `SELECT `+finalizedSummarySelectList+finalizedSummaryJoinSQL("")+`
-		WHERE ue.profile_id = $1 AND ue.ingress_request_id = $2
-		ORDER BY ue.id DESC LIMIT 1`,
-		profileID, ingressRequestID).Scan(scan.dest()...)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, false, nil
-	}
-	if err != nil {
-		return nil, false, fmt.Errorf("load finalized summary for ingress %s: %w", ingressRequestID, err)
-	}
-	return scan.assemble(), true, nil
 }
 
 func deriveFinalResult(statusCode int, successFlag bool, streamOutcome string) string {
