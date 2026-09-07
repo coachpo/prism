@@ -128,12 +128,11 @@ func exportTargetFacts(rows []exportTargetRow) []modelexport.TargetFact {
 	return facts
 }
 
-// reachablePricingTargets narrows the reachable targets to those actually
-// serving the model's accepted operations, mirroring runtime attempt
-// eligibility for price-truth purposes.
-func reachablePricingTargets(fact modelexport.ModelFact) []modelexport.TargetPriceSnapshot {
-	snapshots := make([]modelexport.TargetPriceSnapshot, 0, len(fact.Targets))
-	for _, target := range fact.Targets {
+// exportPricingSnapshots preserves missing price evidence for every leaf
+// already filtered to the exported client's statically reachable operations.
+func exportPricingSnapshots(targets []modelexport.TargetFact) []modelexport.TargetPriceSnapshot {
+	snapshots := make([]modelexport.TargetPriceSnapshot, 0, len(targets))
+	for _, target := range targets {
 		if target.Pricing == nil {
 			snapshots = append(snapshots, modelexport.TargetPriceSnapshot{TerminalTargetID: target.TerminalTargetID})
 			continue

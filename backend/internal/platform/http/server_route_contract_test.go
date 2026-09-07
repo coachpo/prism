@@ -108,6 +108,8 @@ func TestModelExportRouteSpecsAreScopedM3AndPlanningNeutral(t *testing.T) {
 	}{
 		{method: http.MethodGet, path: "/api/models/exports/pi/source"},
 		{method: http.MethodPost, path: "/api/models/exports/pi/render"},
+		{method: http.MethodGet, path: "/api/models/exports/opencode/source"},
+		{method: http.MethodPost, path: "/api/models/exports/opencode/render"},
 	}
 	for _, testCase := range testCases {
 		spec, ok := matchManagementRouteSpec(testCase.method, testCase.path)

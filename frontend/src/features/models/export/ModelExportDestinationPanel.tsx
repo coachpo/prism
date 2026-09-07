@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { OperatorSectionCard } from "@/shared/design-system";
 
 export function ModelExportDestinationPanel({
+  target = "pi",
   gatewayOrigin,
   gatewayOriginInvalid,
   onGatewayOriginChange,
@@ -16,6 +17,7 @@ export function ModelExportDestinationPanel({
   providerId,
   providerIdInvalid,
 }: {
+  target?: "pi" | "opencode";
   gatewayOrigin: string;
   gatewayOriginInvalid: boolean;
   onGatewayOriginChange: (value: string) => void;
@@ -25,10 +27,11 @@ export function ModelExportDestinationPanel({
 }) {
   const { messages } = useLocale();
   const copy = messages.modelExportPage;
+  const destination = target === "opencode" ? messages.opencodeExport : copy;
   return (
     <OperatorSectionCard
       title={copy.commonSettingsTitle}
-      description={copy.commonSettingsDescription}
+      description={destination.commonSettingsDescription}
     >
       <FieldGroup className="gap-4 md:grid md:grid-cols-2">
         <Field data-invalid={gatewayOriginInvalid}>
@@ -60,7 +63,7 @@ export function ModelExportDestinationPanel({
             onChange={(e) => onProviderIdChange(e.target.value)}
           />
           <FieldDescription>
-            {providerIdInvalid ? copy.providerIdInvalid : copy.providerIdHint}
+            {providerIdInvalid ? destination.providerIdInvalid : destination.providerIdHint}
           </FieldDescription>
         </Field>
       </FieldGroup>

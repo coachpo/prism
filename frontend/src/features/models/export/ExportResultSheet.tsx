@@ -12,9 +12,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { OperatorCallout, OperatorTypeBadge } from "@/shared/design-system";
+import { exportWarningLabel } from "./exportWarningLabel";
 import type { ExportRenderResponse } from "@/lib/types";
 
-const EXPORT_FILE_NAME = "prism-pi-models.json";
+const EXPORT_FILE_NAMES = { pi: "prism-pi-models.json", opencode: "opencode-prism.json" };
 const EXPORT_MIME_TYPE = "application/json;charset=utf-8";
 // 「已复制」是一次瞬时反馈，不是按钮的终态：剪贴板随时会被别的内容顶掉。
 const COPY_FEEDBACK_MS = 2000;
@@ -26,13 +27,18 @@ const PREVIEW_ID = "export-content-preview";
  * or leaving the page clears the (possibly key-bearing) content from memory.
  */
 export function ExportResultSheet(props: {
+  target?: "pi" | "opencode";
   result: ExportRenderResponse | null;
   onClose: () => void;
 }) {
   const { messages } = useLocale();
   const copy = messages.modelExportPage;
+  const target = props.target ?? "pi";
+  const resultCopy = target === "opencode" ? messages.opencodeExport : copy;
+  const contentScope = useRef<HTMLDivElement>(null);
+  const generation = useRef(0);
   const [copiedSha, setCopiedSha] = useState<string | null>(null);
-  const [copiedPiFragmentSha, setCopiedPiFragmentSha] = useState<string | null>(
+  const [copiedProviderFragmentSha, setCopiedProviderFragmentSha] = useState<string | null>(
     null,
   );
   const [copyFailed, setCopyFailed] = useState(false);
@@ -41,11 +47,15 @@ export function ExportResultSheet(props: {
   const copyResetTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const sha = props.result?.content_sha256 ?? null;
   const copied = sha !== null && copiedSha === sha;
-  const copiedPiFragment = sha !== null && copiedPiFragmentSha === sha;
-  const piProvidersFragment = props.result
-    ? derivePiProvidersFragment(props.result.content)
+  const copiedProviderFragment = sha !== null && copiedProviderFragmentSha === sha;
+  const providerFragment = props.result
+    ? deriveProviderFragment(props.result.content, target)
     : null;
   const warnings = props.result?.warnings ?? [];
+  useEffect(() => {
+    generation.current += 1;
+    return () => { generation.current += 1; };
+  }, [sha, target]);
 
   const revokeBlobURLs = () => {
     for (const url of blobURLs.current) URL.revokeObjectURL(url);
@@ -74,7 +84,7 @@ export function ExportResultSheet(props: {
 
   if (!props.result || !sha) return null;
 
-  const fileName = EXPORT_FILE_NAME;
+  const fileName = EXPORT_FILE_NAMES[target];
 
   const createContentURL = () => {
     const blob = new Blob([props.result!.content], { type: EXPORT_MIME_TYPE });
@@ -84,7 +94,10 @@ export function ExportResultSheet(props: {
   };
 
   const handleCopy = async () => {
-    if (await copyTextToClipboard(props.result!.content)) {
+    const current = generation.current;
+    const success = await copyTextToClipboard(props.result!.content, contentScope.current);
+    if (current !== generation.current) return;
+    if (success) {
       setCopyFailed(false);
       setCopiedSha(sha);
       scheduleCopyReset(() => setCopiedSha(null));
@@ -94,15 +107,18 @@ export function ExportResultSheet(props: {
     setCopyFailed(true);
   };
 
-  const handleCopyPiProviderFragment = async () => {
-    if (!piProvidersFragment) return;
-    if (await copyTextToClipboard(piProvidersFragment)) {
+  const handleCopyProviderFragment = async () => {
+    if (!providerFragment) return;
+    const current = generation.current;
+    const success = await copyTextToClipboard(providerFragment, contentScope.current);
+    if (current !== generation.current) return;
+    if (success) {
       setCopyFailed(false);
-      setCopiedPiFragmentSha(sha);
-      scheduleCopyReset(() => setCopiedPiFragmentSha(null));
+      setCopiedProviderFragmentSha(sha);
+      scheduleCopyReset(() => setCopiedProviderFragmentSha(null));
       return;
     }
-    setCopiedPiFragmentSha(null);
+    setCopiedProviderFragmentSha(null);
     setCopyFailed(true);
   };
 
@@ -133,6 +149,7 @@ export function ExportResultSheet(props: {
   };
 
   const handleClose = () => {
+    generation.current += 1;
     revokeBlobURLs();
     props.onClose();
   };
@@ -140,6 +157,7 @@ export function ExportResultSheet(props: {
   return (
     <Sheet open onOpenChange={(open) => !open && handleClose()}>
       <SheetContent
+        ref={contentScope}
         size="lg"
         className="flex flex-col gap-4 overflow-y-auto"
         data-testid="export-result-sheet"
@@ -192,8 +210,7 @@ export function ExportResultSheet(props: {
               <ul className="list-disc pl-5">
                 {warnings.map((warning) => (
                   <li key={warning}>
-                    {(copy as Record<string, string>)[warningKey(warning)] ??
-                      copy.warnGeneric}
+                    {exportWarningLabel(copy, warning)}
                   </li>
                 ))}
               </ul>
@@ -232,12 +249,12 @@ export function ExportResultSheet(props: {
         </div>
 
         <p className="text-xs text-muted-foreground">
-          {copy.costZeroDisclaimer}
+          {resultCopy.costZeroDisclaimer}
         </p>
 
-        {piProvidersFragment && (
+        {providerFragment && (
           <p className="text-xs text-muted-foreground">
-            {copy.piProviderMergeHint}
+            {target === "opencode" ? messages.opencodeExport.providerMergeHint : copy.piProviderMergeHint}
           </p>
         )}
 
@@ -246,12 +263,16 @@ export function ExportResultSheet(props: {
           <Button onClick={() => void handleCopy()}>
             {copied ? copy.copied : copy.copyButton}
           </Button>
-          {piProvidersFragment && (
+          {providerFragment && (
             <Button
               variant="outline"
-              onClick={() => void handleCopyPiProviderFragment()}
+              onClick={() => void handleCopyProviderFragment()}
             >
-              {copiedPiFragment ? copy.copied : copy.copyPiProviderFragment}
+              {copiedProviderFragment
+                ? copy.copied
+                : target === "opencode"
+                  ? messages.opencodeExport.copyProviderFragment
+                  : copy.copyPiProviderFragment}
             </Button>
           )}
           <Button variant="outline" onClick={handleDownload}>
@@ -270,17 +291,22 @@ export function ExportResultSheet(props: {
 }
 
 /**
- * Derives the one-provider map that can be merged beneath an existing Pi
- * models.json `providers` object. The full backend content remains untouched
+ * Derives the one-provider map beneath the target client’s provider object.
+ * The full backend content remains untouched
  * and continues to back preview, regular copy, download, and raw view.
  */
-function derivePiProvidersFragment(content: string): string | null {
+function deriveProviderFragment(
+  content: string,
+  target: "pi" | "opencode",
+): string | null {
   try {
     const document = JSON.parse(content) as unknown;
     if (!document || typeof document !== "object" || Array.isArray(document)) {
       return null;
     }
-    const providers = (document as Record<string, unknown>).providers;
+    const providers = (document as Record<string, unknown>)[
+      target === "opencode" ? "provider" : "providers"
+    ];
     if (
       !providers ||
       typeof providers !== "object" ||
@@ -289,27 +315,10 @@ function derivePiProvidersFragment(content: string): string | null {
       return null;
     }
     if (Object.keys(providers).length !== 1) return null;
-    return `${JSON.stringify(providers, null, 2)}\n`;
+    const serialized = JSON.stringify(providers, null, 2);
+    // OpenCode interpolates these tokens before JSON parsing, including keys.
+    return `${target === "opencode" ? serialized.replace(/\{(env|file):/g, "\\u007b$1:") : serialized}\n`;
   } catch {
     return null;
   }
-}
-
-function warningKey(code: string): string {
-  const map: Record<string, string> = {
-    price_no_template: "warnNoTemplate",
-    price_currency_not_usd: "warnNotUsd",
-    price_unit_not_per_1m: "warnNotPerMillion",
-    price_incomplete_components: "warnIncomplete",
-    pricing_component_missing: "warnIncomplete",
-    price_reasoning_mismatch: "warnReasoningMismatch",
-    price_target_conflict: "warnTargetConflict",
-    price_peak_valley_unrepresentable: "warnPeakValley",
-    price_tier_unrepresentable: "warnTierUnrepresentable",
-    metadata_incomplete: "warnMetadataIncomplete",
-    pi_source_fields_dropped: "warnPiSourceFieldsDropped",
-    unsupported_input_modality: "warnUnsupportedInputModality",
-    mixed_base_urls: "warnMixedBaseUrls",
-  };
-  return map[code] ?? code;
 }

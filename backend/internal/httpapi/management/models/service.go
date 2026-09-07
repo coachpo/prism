@@ -134,6 +134,8 @@ func (s *Service) MountManagementRoutes(api chi.Router) {
 	api.Delete("/models/{model_config_id}/catalog/override", privateNoStore(s.handleClearCatalogOverride))
 	api.Delete("/models/{model_config_id}/catalog", privateNoStore(s.handleUnbindModelCatalog))
 	api.Get("/models/exports/pi/source", privateNoStore(s.handleGetPiExportSource))
+	api.Get("/models/exports/opencode/source", privateNoStore(s.handleGetOpenCodeExportSource))
+	api.Post("/models/exports/opencode/render", privateNoStore(s.handlePostOpenCodeExportRender))
 	api.Post("/models/exports/pi/render", privateNoStore(s.handlePostPiExportRender))
 	api.Post("/models/{model_config_id}/pi/bind", privateNoStore(s.handleBindModelPi))
 	api.Get("/models/{model_config_id}/pi", privateNoStore(s.handleGetModelPi))

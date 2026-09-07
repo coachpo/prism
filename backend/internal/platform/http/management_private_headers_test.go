@@ -25,6 +25,8 @@ func TestPrivateNoStoreRoutePolicyIsExact(t *testing.T) {
 	}{
 		{method: http.MethodGet, path: "/api/models/exports/pi/source"},
 		{method: http.MethodPost, path: "/api/models/exports/pi/render"},
+		{method: http.MethodGet, path: "/api/models/exports/opencode/source"},
+		{method: http.MethodPost, path: "/api/models/exports/opencode/render"},
 		{method: http.MethodGet, path: "/api/models/7/pi"},
 		{method: http.MethodPost, path: "/api/models/7/pi/bind"},
 		{method: http.MethodPost, path: "/api/models/7/pi/search"},

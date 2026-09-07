@@ -1,252 +1,35 @@
-// 客户端模型配置导出 journey：默认选中、未绑定模型的绑定操作、
-// 绑定后才能进入最终密钥 Dialog、结果 Sheet 的复制/下载/原始查看复用同一内容，
-// 关闭即清除。后端流量全部 mock。
-import { expect, test, type Page } from "@playwright/test";
+// Pi 绑定与 OpenCode 导出共用页面旅程；接口全部 mock。
+// 真客户端与受控上游往返由 backend/tests/runtime/opencode_* 负责。
+import { expect, test } from "@playwright/test";
+import { readFile } from "node:fs/promises";
 
-function sourceModel(overrides: Record<string, unknown> = {}) {
-  return {
-    model_config_id: 3,
-    model_id: "gpt-x",
-    api_family: "openai",
-    display_name: "gpt-x",
-    is_enabled: true,
-    direct_request_enabled: true,
-    selectable: true,
-    openai_accepted_format: "dual_native",
-    openai_image_operations: null,
-    prism_metadata: {},
-    merged_metadata: { name: "gpt-x" },
-    metadata_provenance: {},
-    missing_metadata: [],
-    completeness: { metadata_fields: { name: true }, cost_exportable: true },
-    targets: [
-      {
-        terminal_target_id: 11,
-        position: 0,
-        endpoint_id: 21,
-        endpoint_name: "primary",
-        openai_text_capability: "dual_native",
-        pricing: {
-          terminal_target_id: 11,
-          template_kind: "standard",
-          currency_code: "USD",
-          pricing_unit: "PER_1M",
-          card: {
-            input_price: "3",
-            output_price: "15",
-            cached_input_price: "0.3",
-            cache_creation_price: "3.75",
-            reasoning_price: "15",
-          },
-        },
-      },
-    ],
-    price_risk: { exportable: true },
-    pi_api: "openai-responses",
-    pi_candidates: [
-      {
-        provider_id: "openai",
-        model_id: "gpt-x",
-        api: "openai-responses",
-        name: "GPT X",
-      },
-    ],
-    candidate_status: "single",
-    pi_selected: null,
-    pi_binding_status: "unbound",
-    pi_binding_renderable: false,
-    ...overrides,
-  };
-}
+import { installExportRoutes, renderPayload } from "./model-export-fixtures";
+import { openCodeRenderPayload, openCodeSource } from "./opencode-export-fixtures";
 
-const catalogWire = {
-  status: "fresh" as const,
-  revision: "rev-1",
-  minimum_version: "0.80.0",
-};
-
-const searchCatalogWire = {
-  ...catalogWire,
-  revision: "rev-2",
-};
-
-const internalSourceModel = sourceModel({
-  model_config_id: 9,
-  model_id: "deepseek/deepseek-v4-flash-0731",
-  direct_request_enabled: false,
-});
-
-const unboundSource = {
-  target_version: "0.84.3",
-  catalog: catalogWire,
-  source_digest: "a".repeat(64),
-  models: [
-    sourceModel({
-      model_id: "codex/gpt-x",
-      display_name: "Codex GPT X",
-      pi_candidates: [],
-      candidate_status: "not_in_catalog",
-    }),
-    internalSourceModel,
-  ],
-};
-
-const boundSource = {
-  target_version: "0.84.3",
-  catalog: searchCatalogWire,
-  source_digest: "b".repeat(64),
-  models: [
-    sourceModel({
-      model_id: "codex/gpt-x",
-      display_name: "Codex GPT X",
-      pi_candidates: [],
-      candidate_status: "not_in_catalog",
-      pi_selected: {
-        provider_id: "alias-provider",
-        model_id: "gpt-x-alias",
-        api: "openai-responses",
-      },
-      pi_binding_status: "bound",
-      pi_binding_renderable: true,
-      pi_bind_source: "manual",
-      pi_binding_prism_model_id: "codex/gpt-x",
-      pi_binding_catalog_revision: "rev-2",
-    }),
-    internalSourceModel,
-  ],
-};
-
-const renderPayload = {
-  target_version: "0.84.3",
-  content: `{"providers":{"prism":{"name":"Prism"}}}\n`,
-  content_sha256: "c".repeat(64),
-  file_name: "prism-pi-models.json",
-  mime_type: "application/json;charset=utf-8",
-  model_results: [
-    { model_config_id: 3, model_id: "codex/gpt-x", cost_exported: true },
-  ],
-  warnings: [],
-};
-
-async function installExportRoutes(page: Page) {
-  let bound = false;
-  const outbound: string[] = [];
-  const unexpectedApi: string[] = [];
-  const pageErrors: string[] = [];
-  page.on("pageerror", (error) => pageErrors.push(error.message));
-  await page.route("**/*", async (route) => {
-    const request = route.request();
-    outbound.push(request.url());
-    const pathname = new URL(request.url()).pathname;
-    if (!pathname.startsWith("/api/")) return route.continue();
-    const fulfillJson = (body: unknown, status = 200) =>
-      route.fulfill({
-        status,
-        contentType: "application/json",
-        body: JSON.stringify(body),
-      });
-
-    if (pathname === "/api/auth/status") {
-      return fulfillJson({
-        state: "disabled",
-        transition_state: null,
-        login_available: false,
-        effective_generation: "1",
-        retry_after_seconds: null,
-      });
-    }
-    if (pathname === "/api/settings/costing") {
-      return fulfillJson({
-        report_currency_code: "USD",
-        report_currency_symbol: "$",
-        endpoint_fx_mappings: [],
-        timezone_preference: null,
-      });
-    }
-    if (pathname === "/api/settings/timezone") {
-      return fulfillJson({ timezone_preference: "UTC" });
-    }
-    if (pathname === "/api/models/exports/pi/source") {
-      return fulfillJson(bound ? boundSource : unboundSource);
-    }
-    if (pathname === "/api/models/3/pi/search" && request.method() === "POST") {
-      return fulfillJson({
-        query: "gpt-x",
-        api: "openai-responses",
-        limit: 20,
-        total: 1,
-        returned: 1,
-        truncated: false,
-        selected: false,
-        catalog: searchCatalogWire,
-        fetched_at: "2026-08-30T00:00:00Z",
-        export_identity: {
-          model_config_id: 3,
-          model_id: "codex/gpt-x",
-          api: "openai-responses",
-          provider_id_source: "operator_input",
-        },
-        results: [
-          {
-            provider_id: "alias-provider",
-            model_id: "gpt-x-alias",
-            api: "openai-responses",
-            name: "GPT X Alias",
-            context_window: 200000,
-            dropped_fields: ["headers"],
-          },
-        ],
-      });
-    }
-    if (pathname === "/api/models/3/pi/bind" && request.method() === "POST") {
-      bound = true;
-      return fulfillJson({
-        bound: true,
-        bind_source: "manual",
-        provider_id: "alias-provider",
-        catalog_model_id: "gpt-x-alias",
-        api: "openai-responses",
-        prism_model_id_at_bind: "codex/gpt-x",
-        catalog_revision: "rev-2",
-        source: {
-          name: "GPT X",
-          reasoning: null,
-          input: null,
-          context_window: null,
-          max_tokens: null,
-          thinking_level_map: null,
-          compat: null,
-        },
-        override: null,
-        effective: {
-          name: "GPT X",
-          reasoning: null,
-          input: null,
-          context_window: null,
-          max_tokens: null,
-          thinking_level_map: null,
-          compat: null,
-        },
-      });
-    }
-    if (
-      pathname === "/api/models/exports/pi/render" &&
-      request.method() === "POST"
-    ) {
-      return fulfillJson(renderPayload);
-    }
-    unexpectedApi.push(`${request.method()} ${pathname}`);
-    return fulfillJson({ detail: "unexpected mocked API request" }, 500);
-  });
-  return { outbound, pageErrors, unexpectedApi };
-}
-
-test("export journey: bind an uncatalogued Prism id through directory search, then generate", async ({
+test("export journey: bind Pi, inspect OpenCode metadata, and deliver isolated client files", async ({
   page,
 }) => {
-  const { outbound, pageErrors, unexpectedApi } =
+  const { outbound, pageErrors, unexpectedApi, openCodeRequests } =
     await installExportRoutes(page);
-  await page.goto("/route/models/export");
+  // A plain HTTP IP origin exercises the same Clipboard API absence as a LAN
+  // deployment. 0.0.0.0 reaches the local Vite listener without localhost's
+  // secure-context exemption.
+  const exportURL = new URL("/route/models/export", test.info().project.use.baseURL);
+  exportURL.hostname = "0.0.0.0";
+  await page.addInitScript(() => {
+    const copied: string[] = [];
+    Object.defineProperty(window, "exportCopiedTexts", { value: copied });
+    const copy = document.execCommand.bind(document);
+    document.execCommand = (command, showUI, value) => {
+      const selected = (document.activeElement as HTMLTextAreaElement | null)?.value;
+      const success = copy(command, showUI, value);
+      if (command === "copy" && success && selected !== undefined) copied.push(selected);
+      return success;
+    };
+  });
+  await page.goto(exportURL.href);
+  expect(await page.evaluate(() => ({ secure: isSecureContext, clipboard: typeof navigator.clipboard })))
+    .toEqual({ secure: false, clipboard: "undefined" });
   const row = page.getByTestId("export-row-3");
   await row.waitFor({ timeout: 15000 });
   await expect(page.getByTestId("export-row-9")).toHaveCount(0);
@@ -368,7 +151,87 @@ test("export journey: bind an uncatalogued Prism id through directory search, th
   await sheet.getByRole("button", { name: "关闭并清除" }).click();
   await expect(page.getByTestId("export-result-sheet")).toHaveCount(0);
 
-  expect(outbound.filter((url) => /pi\.dev/i.test(url))).toEqual([]);
+  // The second target starts from its own source and selection, with no Pi
+  // binding workflow. Missing limits explain the blocked row before export.
+  await page.getByRole("radio", { name: "OpenCode", exact: true }).click();
+  const openCodeRow = page.getByTestId("opencode-export-row-3");
+  await expect(openCodeRow.getByRole("checkbox")).toBeChecked();
+  const missingLimits = page.getByTestId("opencode-export-row-4");
+  await expect(missingLimits.getByRole("checkbox")).toBeDisabled();
+  await expect(missingLimits).toContainText("上下文 / 输出上限");
+  await openCodeRow.getByText("查看最终值与来源", { exact: true }).click();
+  await expect(openCodeRow.getByText("Catalog GPT X", { exact: true })).toBeVisible();
+  await expect(openCodeRow.getByText("models.dev 人工覆盖").first()).toBeVisible();
+  await expect(openCodeRow.getByRole("link", { name: "到模型详情补全 models.dev 元数据" }))
+    .toHaveAttribute("href", "/route/models/3");
+  await expect(page.getByText(/OpenCode 可能显示零估算，这不等于免费/)).toBeVisible();
+  await page.locator("#export-model-search").fill("codex/");
+  await expect(missingLimits).toHaveCount(0);
+  await page.locator("#export-model-search").fill("");
+  await page.getByRole("textbox", { name: "Prism Gateway origin" }).fill("http://127.0.0.1:8000");
+
+  await generateButton.click();
+  await dialog.getByText("手动输入统一密钥", { exact: true }).click();
+  await expect(dialog.getByRole("button", { name: "确认生成" })).toBeDisabled();
+  await dialog.getByLabel(/^Prism 代理密钥/).fill("  prism-e2e-synthetic-key  ");
+  await dialog.getByRole("button", { name: "确认生成" }).click();
+  await expect(sheet).toBeVisible();
+  const keyedPayload = openCodeRenderPayload("prism-e2e-synthetic-key");
+  expect(await preview.textContent()).toBe(keyedPayload.content);
+  expect(openCodeRequests[0]).toEqual({
+    expected_source_digest: openCodeSource.source_digest,
+    model_config_ids: [3],
+    base_url: "http://127.0.0.1:8000",
+    provider_id: "prism",
+    credential: { include: true, api_key: "prism-e2e-synthetic-key" },
+  });
+  await sheet.getByRole("button", { name: "关闭并清除" }).click();
+
+  // A new generation starts with no key. All delivery actions use this exact
+  // response; the fragment is only the map beneath singular `provider`.
+  await generateButton.click();
+  await expect(dialog.getByRole("radio", { name: /不嵌入密钥/ })).toBeChecked();
+  await expect(dialog.locator("#export-manual-key")).toHaveCount(0);
+  await dialog.getByRole("button", { name: "确认生成" }).click();
+  await expect(sheet).toBeVisible();
+  const openCodePayload = openCodeRenderPayload();
+  expect(await preview.textContent()).toBe(openCodePayload.content);
+  expect(openCodeRequests[1].credential).toEqual({ include: false });
+  await sheet.getByRole("button", { name: "复制", exact: true }).click();
+  await expect(sheet.getByRole("button", { name: "已复制", exact: true })).toBeVisible();
+  await sheet.getByRole("button", { name: "复制 provider 合并片段", exact: true }).click();
+  const copied = await page.evaluate(() =>
+    (window as unknown as { exportCopiedTexts: string[] }).exportCopiedTexts,
+  );
+  expect(copied).toEqual([
+    openCodePayload.content,
+    `${JSON.stringify(JSON.parse(openCodePayload.content).provider, null, 2)}\n`,
+  ]);
+
+  const openCodeDownloadPromise = page.waitForEvent("download");
+  await sheet.getByRole("button", { name: "下载", exact: true }).click();
+  const openCodeDownload = await openCodeDownloadPromise;
+  expect(openCodeDownload.suggestedFilename()).toBe("opencode-prism.json");
+  const downloadedPath = test.info().outputPath("downloaded-opencode-prism.json");
+  await openCodeDownload.saveAs(downloadedPath);
+  expect(await readFile(downloadedPath, "utf8")).toBe(openCodePayload.content);
+  const rawViewPromise = page.context().waitForEvent("page");
+  await sheet.getByRole("button", { name: "在新标签页查看原始 JSON", exact: true }).click();
+  const rawView = await rawViewPromise;
+  await rawView.waitForLoadState("domcontentloaded");
+  expect(rawView.url()).toMatch(/^blob:/);
+  expect(await rawView.locator("body").innerText()).toContain(openCodePayload.content.trim());
+  await rawView.close();
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await sheet.evaluate((element) => { element.scrollTop = 0; });
+  await sheet.screenshot({ path: test.info().outputPath("export-result.png") });
+  await sheet.getByRole("button", { name: "关闭并清除" }).click();
+  await page.getByRole("radio", { name: "Pi", exact: true }).click();
+  await expect(row).toBeVisible();
+  await expect(generateButton).toBeEnabled();
+  await expect(sheet).toHaveCount(0);
+
+  expect(outbound.filter((url) => /pi\.dev|models\.dev/i.test(url))).toEqual([]);
   expect(unexpectedApi).toEqual([]);
   expect(pageErrors).toEqual([]);
 });
@@ -387,28 +250,31 @@ test("export table pins the identity column exactly at the select column's width
 }) => {
   await installExportRoutes(page);
   await page.goto("/route/models/export");
-  await page.getByTestId("export-row-3").waitFor({ timeout: 15000 });
+  for (const target of ["Pi", "OpenCode"]) {
+    await page.getByRole("radio", { name: target, exact: true }).click();
+    await page.getByTestId(target === "Pi" ? "export-row-3" : "opencode-export-row-3").waitFor({ timeout: 15000 });
 
-  const contract = await page.evaluate(() => {
-    const container = document.querySelector<HTMLElement>(
-      '[data-slot="table-container"]',
-    );
-    if (!container) return null;
-    const rows = [
-      container.querySelector("thead tr"),
-      container.querySelector("tbody tr"),
-    ];
-    return rows.map((row) => {
-      if (!row) return null;
-      const [select, identity] = [row.children[0], row.children[1]];
-      return {
-        selectWidth: Math.round(select.getBoundingClientRect().width),
-        identityOffset: getComputedStyle(identity).left,
-      };
+    const contract = await page.evaluate(() => {
+      const container = document.querySelector<HTMLElement>(
+        '[data-slot="table-container"]',
+      );
+      if (!container) return null;
+      const rows = [
+        container.querySelector("thead tr"),
+        container.querySelector("tbody tr"),
+      ];
+      return rows.map((row) => {
+        if (!row) return null;
+        const [select, identity] = [row.children[0], row.children[1]];
+        return {
+          selectWidth: Math.round(select.getBoundingClientRect().width),
+          identityOffset: getComputedStyle(identity).left,
+        };
+      });
     });
-  });
-  expect(contract).toEqual([
-    { selectWidth: 48, identityOffset: "48px" },
-    { selectWidth: 48, identityOffset: "48px" },
-  ]);
+    expect(contract).toEqual([
+      { selectWidth: 48, identityOffset: "48px" },
+      { selectWidth: 48, identityOffset: "48px" },
+    ]);
+  }
 });

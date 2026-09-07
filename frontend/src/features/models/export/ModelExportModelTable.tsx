@@ -16,20 +16,7 @@ import { PiBindingCell } from "./PiBindingCell";
 import type { PiBindingController } from "@/features/models/catalog/pi/usePiBindingController";
 import type { ModelExportSourceState } from "./useModelExportSource";
 
-const WARNING_LABEL_KEYS: Record<string, string> = {
-    price_no_template: "warnNoTemplate",
-    price_currency_not_usd: "warnNotUsd",
-    price_unit_not_per_1m: "warnNotPerMillion",
-    pricing_component_missing: "warnIncomplete",
-    price_reasoning_mismatch: "warnReasoningMismatch",
-    price_target_conflict: "warnTargetConflict",
-    price_peak_valley_unrepresentable: "warnPeakValley",
-    price_tier_unrepresentable: "warnTierUnrepresentable",
-    metadata_incomplete: "warnMetadataIncomplete",
-    pi_source_fields_dropped: "warnPiSourceFieldsDropped",
-    unsupported_input_modality: "warnUnsupportedInputModality",
-    mixed_base_urls: "warnMixedBaseUrls",
-};
+import { exportWarningLabel } from "./exportWarningLabel";
 
 export function ModelExportModelTable({
     controller,
@@ -166,8 +153,7 @@ function ModelExportModelRow({
                 <div className="flex flex-wrap gap-1">
                     {warningCodes.map((code) => (
                         <Badge key={code} variant="outline" title={code}>
-                            {copy[WARNING_LABEL_KEYS[code] ?? ""] ??
-                                copy.warnGeneric}
+                            {exportWarningLabel(copy, code)}
                         </Badge>
                     ))}
                 </div>

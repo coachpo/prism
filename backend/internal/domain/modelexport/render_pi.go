@@ -250,7 +250,7 @@ func renderPiModel(fact ModelFact, input PiInput) (map[string]any, *ModelRenderR
 		object[field] = decoded
 	}
 
-	priceTargets := priceSnapshots(fact)
+	priceTargets := targetPriceSnapshots(fact.Targets)
 	decision := DecidePriceExport(priceTargets)
 	for _, code := range decision.WarningCodes {
 		warnings[code] = struct{}{}
@@ -304,21 +304,6 @@ func derefOrZero(value *string) string {
 		return "0"
 	}
 	return *value
-}
-
-func priceSnapshots(fact ModelFact) []TargetPriceSnapshot {
-	targets := make([]TargetPriceSnapshot, 0, len(fact.Targets))
-	for _, target := range fact.Targets {
-		if target.Pricing == nil {
-			targets = append(targets, TargetPriceSnapshot{TerminalTargetID: target.TerminalTargetID})
-			continue
-		}
-		snapshot := *target.Pricing
-		snapshot.TerminalTargetID = target.TerminalTargetID
-		targets = append(targets, snapshot)
-	}
-	sort.SliceStable(targets, func(i, j int) bool { return targets[i].TerminalTargetID < targets[j].TerminalTargetID })
-	return targets
 }
 
 func providerIDOrDefault(value string) string {

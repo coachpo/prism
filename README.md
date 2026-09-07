@@ -14,13 +14,32 @@ A single Go binary, a React dashboard, and PostgreSQL are all it needs.
 - Applies *ban policies*: a failing Terminal Target is excluded temporarily or until reset, according to its configured strategy.
 - Records request logs, token usage, latency, and spending in PostgreSQL, with dashboard analysis by entry request, final target, or routing attempt.
 - Prices each request from reusable pricing templates you define per provider, with optional import from the [models.dev](https://models.dev) catalog: model metadata on the model detail page plus one-click source-linked price templates assigned atomically to a Terminal Target.
-- Exports Pi 0.84.3 client configuration from `/route/models/export`, using independent pi.dev bindings for client templates and Prism routing/pricing facts. Review candidates and warnings, then copy or download `prism-pi-models.json`; [the product specification](docs/product.md#420-client-model-configuration-export-pi-0843) describes the workflow.
+- Exports Pi 0.84.3 and OpenCode 1.18.27 client configuration from `/route/models/export`. Pi uses its independent pi.dev bindings; OpenCode uses saved models.dev metadata and overrides. Both use Prism entry IDs, routing and current prices. Review final values and warnings, then copy or download the client file; [the product specification](docs/product.md#420-client-model-configuration-export) describes the workflow.
 - Protects access with optional operator login for the dashboard and optional API keys for proxy callers; provider keys are encrypted at rest.
 - Ships as one Docker image plus PostgreSQL.
 
+## Client configuration export
+
+Open **路由配置 → 模型配置 → 导出客户端配置**. Pi remains the default; choose **OpenCode** for OpenCode **1.18.27**. Enter the Prism gateway origin and a provider key (`prism`, or `prism-` followed by a lowercase letter or digit and then lowercase letters, digits, `_` or `-`). Select the eligible text entries and inspect **查看最终值与来源** before generating `opencode-prism.json`.
+
+OpenCode requires valid positive context and output limits. Missing or invalid limits block that model; follow the row's link to the existing models.dev metadata panel to bind or correct its saved values. Export never fetches a catalog or borrows Pi metadata. Prices are included only when every reachable target has the same complete standard USD price per million tokens. Tiered, peak/valley, missing or conflicting prices omit the whole cost group; OpenCode's possible zero estimate does not mean the model is free.
+
+**不嵌入密钥** writes `env: ["PRISM_API_KEY"]` and omits `apiKey`. Set the environment variable in the terminal that launches OpenCode, then load the downloaded file:
+
+```bash
+export PRISM_API_KEY='replace-with-your-prism-proxy-key'
+OPENCODE_CONFIG=/absolute/path/opencode-prism.json opencode
+```
+
+Alternatively, enter a final key in the export dialog; the downloaded file then carries it explicitly. In OpenCode select `prism/<complete Prism model ID>` (for example `prism/codex/gpt-x` when that exact entry exists). A custom provider key replaces only the initial `prism` segment. Chat Completions, Responses (including `dual_native`), Anthropic Messages and Gemini use model-specific SDKs and URLs inside the same provider.
+
+To merge into an existing `opencode.json`, copy **provider 合并片段** into its singular `provider` object, preserving other provider keys. Pi's corresponding fragment belongs under plural `providers`. `OPENCODE_CONFIG` participates in OpenCode's normal configuration merge; it does not isolate existing user/project settings. Use a distinct provider key and check that existing settings do not override its models, credentials or URLs. Prism never edits client files or sets a default model automatically.
+
+The [OpenCode format example](backend/internal/domain/modelexport/testdata/opencode_prism.golden.json) contains synthetic model metadata and no real key. Generate from your own Prism models for use. Gemini IDs that cannot survive its URL path grammar are explicitly unavailable for export; complete IDs containing `/` are retained for the body-based OpenAI and Anthropic protocols. Client inference defaults are not authored reasoning adaptations: custom variants, SDK options and interleaved reasoning are outside this export.
+
 ## Data attribution
 
-Model catalog metadata and catalog prices are sourced from [models.dev](https://models.dev), fetched read-only at operator request from its fixed official endpoint (`https://models.dev/api.json`). models.dev data is licensed under the MIT License (Copyright (c) 2025 models.dev); Prism stores only the metadata fields an operator explicitly binds or imports and never redistributes the catalog itself. Catalog lookups and metadata bindings stay on the management path and do not determine routing or capability. Accepted price imports become ordinary Prism pricing templates.
+Model catalog metadata and catalog prices are sourced from [models.dev](https://models.dev), fetched read-only at operator request from its fixed official endpoint (`https://models.dev/api.json`). models.dev data is licensed under the MIT License (Copyright (c) 2025 models.dev); Prism stores only the metadata fields an operator explicitly binds or imports and never redistributes the catalog itself. Catalog lookups and metadata bindings stay on the management path and do not determine Prism runtime compatibility or routing. Accepted price imports become ordinary Prism pricing templates.
 
 ## Quick start
 

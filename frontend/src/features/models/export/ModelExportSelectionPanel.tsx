@@ -19,7 +19,11 @@ import type { ModelExportSourceState } from "./useModelExportSource";
 export function ModelExportSelectionPanel({
   sourceState,
 }: {
-  sourceState: ModelExportSourceState;
+  sourceState: Pick<ModelExportSourceState,
+    "batchClearVisible" | "batchSelectVisible" | "familyFilter" | "metadataFilter" |
+    "priceCompleteOnly" | "setFamilyFilter" | "setMetadataFilter" |
+    "setPriceCompleteOnly" | "setSearchText" | "searchText"
+  > & { sourceQuery: { refetch: () => unknown; isFetching: boolean } };
 }) {
   const { messages } = useLocale();
   const copy = messages.modelExportPage;

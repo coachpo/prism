@@ -11,3 +11,5 @@ export * from "./types/auth";
 export * from "./types/loadbalance";
 export * from "./types/routing-diagnostics";
 export * from "./types/setup";
+
+export * from "./types/opencode-export";

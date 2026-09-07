@@ -43,8 +43,10 @@ export function fetchModelExportSource(
  */
 export function renderModelExport(
   body: PiRenderRequest,
+  signal?: AbortSignal,
 ): Promise<ExportRenderResponse> {
   return request<ExportRenderResponse>(`/api/models/exports/pi/render`, {
+    signal,
     method: "POST",
     cache: "no-store",
     headers: { "Content-Type": "application/json" },

@@ -12,6 +12,7 @@ import { stats } from "./api/stats";
 import { settingsAudit } from "./api/settingsAudit";
 import { settingsCosting } from "./api/settingsCosting";
 import { settingsRetention } from "./api/settingsRetention";
+import * as opencodeExportClient from "./api/opencodeExport";
 import * as modelExportClient from "./api/modelExport";
 
 export { ApiError, getApiProfileId };
@@ -29,6 +30,7 @@ export const api = {
   // Pi export/binding client: every Pi wire type lives in
   // `lib/types/model-export`, so `lib` never imports from `features/`.
   modelExport: modelExportClient,
+  opencodeExport: opencodeExportClient,
   pricingTemplates,
   settings: {
     ...settings,

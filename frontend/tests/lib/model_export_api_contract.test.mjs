@@ -394,3 +394,25 @@ test("model export unbind sends DELETE to the per-model pi route", async () => {
     restore();
   }
 });
+
+test("OpenCode uses independent static no-store routes with profile scope and abort signals", async () => {
+  const { requests, restore } = stubFetch({ target_version: "1.18.27", models: [], source_digest: "d".repeat(64) });
+  try {
+    const { api } = await loadPublicApi();
+    const controller = new AbortController();
+    await api.opencodeExport.fetchOpenCodeExportSource(controller.signal);
+    const body = { expected_source_digest: "d".repeat(64), model_config_ids: [9], base_url: "http://127.0.0.1:8000", provider_id: "prism", credential: { include: true, api_key: "synthetic-final" } };
+    await api.opencodeExport.renderOpenCodeExport(body, controller.signal);
+    assert.ok(requests[0].url.endsWith("/api/models/exports/opencode/source"));
+    assert.ok(requests[1].url.endsWith("/api/models/exports/opencode/render"));
+    assert.equal(requests[1].init.method, "POST");
+    assert.deepEqual(requests[1].init.body, body);
+    controller.abort();
+    for (const request of requests) {
+      assert.equal(request.init.cache, "no-store");
+      assert.equal(request.init.signal.aborted, true);
+      assert.equal(request.init.headers["X-Profile-Id"], "1");
+      assert.ok(!request.url.includes("synthetic-final"));
+    }
+  } finally { restore(); }
+});

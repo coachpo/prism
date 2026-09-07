@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocale } from "@/i18n/useLocale";
 import {
   Dialog,
   DialogContent,
+  DialogBody,
   DialogDescription,
   DialogFooter,
   DialogHeader,
@@ -33,6 +34,7 @@ export interface KeyDecision {
  * persisted anywhere else.
  */
 export function ExportKeyDialog(props: {
+  target?: "pi" | "opencode";
   open: boolean;
   selectedCount: number;
   /** 已选模型里已知的代价，与页面上的风险摘要同源。 */
@@ -44,6 +46,7 @@ export function ExportKeyDialog(props: {
 }) {
   const { messages } = useLocale();
   const copy = messages.modelExportPage;
+  const session = useRef(0);
   const [mode, setMode] = useState<KeyDecision["mode"]>("none");
   const [manualKey, setManualKey] = useState("");
   const [busy, setBusy] = useState(false);
@@ -55,27 +58,36 @@ export function ExportKeyDialog(props: {
   };
 
   useEffect(() => {
+    session.current += 1;
+    setBusy(false);
     if (!props.open) {
       setMode("none");
       setManualKey("");
     }
   }, [props.open]);
 
+  useEffect(
+    () => () => { session.current += 1; },
+    [],
+  );
+
   const handleClose = () => {
+    session.current += 1;
     clearCredential();
     props.onClose();
   };
 
   const handleConfirm = async () => {
-    if (manualKeyInvalid) return;
+    if (busy || props.confirmDisabled || manualKeyInvalid) return;
+    const generation = session.current;
     setBusy(true);
     try {
       await props.onConfirm({ mode, manualKey: manualKey.trim() });
-      handleClose();
+      if (generation === session.current) handleClose();
     } catch {
       // Render failures stay on the page; the dialog stays open.
     } finally {
-      setBusy(false);
+      if (generation === session.current) setBusy(false);
     }
   };
 
@@ -104,99 +116,103 @@ export function ExportKeyDialog(props: {
             void handleConfirm();
           }}
         >
-          {/* 最后一次能反悔的步骤：先复述本次导出的范围与已知代价。 */}
-          <OperatorInsetPanel title={copy.keyDialogImpactTitle}>
-            <ul className="flex flex-col gap-1 text-xs text-muted-foreground">
-              <li>
-                {copy.keyDialogImpactSelected.replace(
-                  "{count}",
-                  String(props.selectedCount),
-                )}
-              </li>
-              {props.riskSummary && props.riskSummary.costOmitted > 0 ? (
+          <DialogBody>
+            {props.error ? (
+              <OperatorCallout intent="danger" description={props.error} />
+            ) : null}
+            {/* 最后一次能反悔的步骤：先复述本次导出的范围与已知代价。 */}
+            <OperatorInsetPanel title={copy.keyDialogImpactTitle}>
+              <ul className="flex flex-col gap-1 text-xs text-muted-foreground">
                 <li>
-                  {copy.keyDialogImpactCostOmitted.replace(
+                  {copy.keyDialogImpactSelected.replace(
                     "{count}",
-                    String(props.riskSummary.costOmitted),
+                    String(props.selectedCount),
                   )}
                 </li>
-              ) : null}
-              {props.riskSummary && props.riskSummary.metadataIncomplete > 0 ? (
-                <li>
-                  {copy.keyDialogImpactMetadataMissing.replace(
-                    "{count}",
-                    String(props.riskSummary.metadataIncomplete),
-                  )}
-                </li>
-              ) : null}
-            </ul>
-          </OperatorInsetPanel>
-          <FieldSet>
-            <FieldLegend variant="label">{copy.keyModeLegend}</FieldLegend>
-            <FieldGroup className="gap-3">
-              {(
-                [
-                  {
-                    value: "none",
-                    title: copy.keyModeNone,
-                    hint: copy.keyModeNoneHint,
-                  },
-                  {
-                    value: "manual",
-                    title: copy.keyModeManual,
-                    hint: copy.keyModeManualHint,
-                  },
-                ] as const
-              ).map((option) => (
-                <Field key={option.value} orientation="horizontal">
-                  <input
-                    id={`export-key-mode-${option.value}`}
-                    type="radio"
-                    name="export-key-mode"
-                    checked={mode === option.value}
-                    onChange={() => setMode(option.value)}
-                  />
-                  <FieldLabel
-                    htmlFor={`export-key-mode-${option.value}`}
-                    className="flex-col items-start gap-0"
-                  >
-                    <span>{option.title}</span>
-                    <span className="text-xs font-normal text-muted-foreground">
-                      {option.hint}
-                    </span>
-                  </FieldLabel>
-                </Field>
-              ))}
-            </FieldGroup>
-          </FieldSet>
-          {mode === "manual" && (
-            <Field data-invalid={manualKeyInvalid || undefined}>
-              <FieldLabel htmlFor="export-manual-key" required>
-                {copy.manualKeyLabel}
-              </FieldLabel>
-              <Input
-                id="export-manual-key"
-                type="password"
-                autoComplete="off"
-                value={manualKey}
-                aria-required="true"
-                aria-invalid={manualKeyInvalid}
-                onChange={(event) => setManualKey(event.target.value)}
-              />
-              <FieldDescription>
-                {manualKeyInvalid ? copy.manualKeyRequired : copy.manualKeyHint}
-              </FieldDescription>
-            </Field>
-          )}
-          {props.error ? (
-            <OperatorCallout intent="danger" description={props.error} />
-          ) : null}
+                {props.riskSummary && props.riskSummary.costOmitted > 0 ? (
+                  <li>
+                    {copy.keyDialogImpactCostOmitted.replace(
+                      "{count}",
+                      String(props.riskSummary.costOmitted),
+                    )}
+                  </li>
+                ) : null}
+                {props.riskSummary && props.riskSummary.metadataIncomplete > 0 ? (
+                  <li>
+                    {copy.keyDialogImpactMetadataMissing.replace(
+                      "{count}",
+                      String(props.riskSummary.metadataIncomplete),
+                    )}
+                  </li>
+                ) : null}
+              </ul>
+            </OperatorInsetPanel>
+            <FieldSet>
+              <FieldLegend variant="label">{copy.keyModeLegend}</FieldLegend>
+              <FieldGroup className="gap-3">
+                {(
+                  [
+                    {
+                      value: "none",
+                      title: copy.keyModeNone,
+                      hint:
+                        props.target === "opencode"
+                          ? messages.opencodeExport.keyModeNoneHint
+                          : copy.keyModeNoneHint,
+                    },
+                    {
+                      value: "manual",
+                      title: copy.keyModeManual,
+                      hint: copy.keyModeManualHint,
+                    },
+                  ] as const
+                ).map((option) => (
+                  <Field key={option.value} orientation="horizontal">
+                    <input
+                      id={`export-key-mode-${option.value}`}
+                      type="radio"
+                      name="export-key-mode"
+                      checked={mode === option.value}
+                      onChange={() => setMode(option.value)}
+                    />
+                    <FieldLabel
+                      htmlFor={`export-key-mode-${option.value}`}
+                      className="flex-col items-start gap-0"
+                    >
+                      <span>{option.title}</span>
+                      <span className="text-xs font-normal text-muted-foreground">
+                        {option.hint}
+                      </span>
+                    </FieldLabel>
+                  </Field>
+                ))}
+              </FieldGroup>
+            </FieldSet>
+            {mode === "manual" && (
+              <Field data-invalid={manualKeyInvalid || undefined}>
+                <FieldLabel htmlFor="export-manual-key" required>
+                  {copy.manualKeyLabel}
+                </FieldLabel>
+                <Input
+                  id="export-manual-key"
+                  type="password"
+                  autoComplete="off"
+                  value={manualKey}
+                  aria-required="true"
+                  aria-invalid={manualKeyInvalid}
+                  onChange={(event) => setManualKey(event.target.value)}
+                />
+                <FieldDescription>
+                  {manualKeyInvalid ? copy.manualKeyRequired : copy.manualKeyHint}
+                </FieldDescription>
+              </Field>
+            )}
+          </DialogBody>
           <DialogFooter>
             <Button
               type="button"
               variant="outline"
               onClick={handleClose}
-              disabled={busy}
             >
               {copy.cancel}
             </Button>

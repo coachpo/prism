@@ -241,7 +241,7 @@ The model-management frontend keeps model CRUD form state in `frontend/src/pages
 
 The Models list data boundary keeps concurrent model/strategy bootstrap, revision-keyed reference-cache reads, and server-DTO list patching in `frontend/src/pages/models/useModelsCollection.ts`. `useModelDialogMutations.ts` owns create/edit dialog session fencing, form CRUD, and structured server-error mapping; `useModelEnablementMutations.ts` owns row/bulk enablement; `useModelDeletion.ts` owns deletion; and `useLoadbalanceStrategyDefaults.ts` owns default creation, forced strategy re-read, and create-dialog form reconciliation. `useModelsPageData.ts` only composes those owners and the separate 24-hour metrics hook, preserving the page-facing return contract.
 
-The client model-export host adapter `useModelExportSource.ts` owns the aggregate source query, batch selection and filters, per-row `PiCatalogModelView` mapping, and authoritative source reconciliation; it performs neither Pi mutations nor per-row single-model reads. Model detail uses `useModelDetailPiSource.ts` for `GET /api/models/{id}/pi` and its reconciliation. Both hosts compose `models/catalog/pi/usePiBindingController.ts`, which owns paged directory search plus bind/refresh/override/unbind mutations and invokes the caller-supplied reconciliation after success. `useModelExportRender.ts` retains destination validation, render/key/result lifecycle and stale-source handling. The shared dialogs and evidence components live under `models/catalog/pi/`; `PiBindingCell.tsx` and `PiDevCatalogPanel.tsx` are host presentation adapters, while `ModelExportPage.tsx` and `ExternalCatalogSourcesSection.tsx` remain composition roots.
+The client model-export composition root `ModelExportPage.tsx` switches between separately mounted Pi and OpenCode feature trees, defaulting to Pi. The Pi host adapter `useModelExportSource.ts` owns the aggregate source query, batch selection and filters, per-row `PiCatalogModelView` mapping, and authoritative source reconciliation; it performs neither Pi mutations nor per-row single-model reads. Model detail uses `useModelDetailPiSource.ts` for `GET /api/models/{id}/pi` and its reconciliation. Both hosts compose `models/catalog/pi/usePiBindingController.ts`, which owns paged directory search plus bind/refresh/override/unbind mutations and invokes the caller-supplied reconciliation after success. `useModelExportRender.ts` authors Pi render requests. `useOpenCodeExportSource.ts` owns the separate persisted-metadata snapshot and selection; `useOpenCodeExportRender.ts` authors its OpenCode requests. Both render hosts compose `useExportRenderSession.ts` for cancellation, request-generation checks, ephemeral credentials/results and stale-source handling, and reuse `exportDestination.ts` for gateway-origin validation. Target switches unmount the former tree and clear its query entry; closing, switching or leaving aborts work and discards late results. `ExportResultSheet.tsx` owns exact-byte delivery and target-specific provider fragments; `OpenCodeMetadataDetails.tsx` presents the source/override/final metadata projection. The shared dialogs and evidence components live under `models/catalog/pi/`; `PiBindingCell.tsx` and `PiDevCatalogPanel.tsx` are host presentation adapters, while `ModelExportPage.tsx` and `ExternalCatalogSourcesSection.tsx` remain composition roots.
 
 ### 3.5 Management API Profile Scoping
 
@@ -958,9 +958,9 @@ Response `200`: `{ items[] (provider_id, provider_name, model_id, name), total, 
 
 ---
 
-#### 1.3B Client Model Configuration Export (Pi 0.84.3)
+#### 1.3B Client Model Configuration Export
 
-The export surface generates deterministic Pi 0.84.3 `prism-pi-models.json` (Pi `models.json` format) from Prism-managed model truth. It is management-authenticated; `source` and `render` are read-only with respect to runtime state (no runtime cache invalidation, `M3` management lane), while the eight model-level Pi source routes below use the `M2` lane and the two additive migrations `000027_model_pi_catalog_bindings.sql`/`000028_model_pi_binding_identity.sql`. `source`, `render`, the model-level Pi routes, and all their error responses carry `Cache-Control: private, no-store`. The pi.dev structured directory (`https://pi.dev/api/models`) is the single template source; OpenCode, manual upload enhancement, platform abstraction, `enhancements`/`default_model_config_id`/deprecated candidate wires, `clientConfigExtract` and `jsonc-parser` are removed.
+The export surface defaults to Pi 0.84.3 `prism-pi-models.json` (Pi `models.json` format) and separately supports OpenCode 1.18.27 `opencode-prism.json`, both from Prism-managed model truth. It is management-authenticated; `source` and `render` are read-only with respect to runtime state (no runtime cache invalidation, `M3` management lane), while the eight model-level Pi source routes below use the `M2` lane and the two additive migrations `000027_model_pi_catalog_bindings.sql`/`000028_model_pi_binding_identity.sql`. `source`, `render`, the model-level Pi routes, and all their error responses carry `Cache-Control: private, no-store`. The pi.dev structured directory (`https://pi.dev/api/models`) is the Pi template source; OpenCode reads only the persisted safe models.dev metadata described below. Upload enhancement, default-model management, `enhancements`/`default_model_config_id`/deprecated candidate wires, `clientConfigExtract` and `jsonc-parser` remain absent.
 
 ##### Pi Catalog, Transport and Candidate Matching
 
@@ -985,7 +985,7 @@ DELETE /api/models/{model_config_id}/pi
 
 ##### Source, Render Fact Chain
 
-Two static `Default-profile` routes share `M3`, `planning-neutral`, `private, no-store` and have no compatibility shell; only the literal `pi` coordinate is mounted, while the former variable-platform route and the interim `resolve` step are removed.
+Pi has two static `Default-profile` routes with `M3`, `planning-neutral`, `private, no-store`. OpenCode has its own literal source/render pair below; neither uses a variable-platform compatibility route or an interim `resolve` step.
 
 ```text
 GET /api/models/exports/pi/source
@@ -1002,7 +1002,64 @@ Output preserves only safe pi.dev leaves `name`/`reasoning`/`input`/`contextWind
 
 Credentials have only `include=false` (omit) or `include=true` with a manually entered, trimmed, non-empty string. Pi 0.84.3 rejects an empty `apiKey`; the UI blocks it and the backend returns `422 credential_api_key_required` before snapshot work. Export never reads stored endpoint keys and the typed value never enters source URLs, PostgreSQL, query caches, browser storage, logs, errors or warnings. All `source`/`render` and error responses are `private, no-store`; the rendered file ends with exactly one newline, `content_sha256` is the SHA-256 of those UTF-8 bytes, the response carries the fixed `prism-pi-models.json` name and `application/json;charset=utf-8` MIME, and full-content copy, Blob download and a true new-tab raw view reuse the same bytes. The browser may also copy a locally derived `{ "<provider_id>": { ...provider... } }\n` fragment for merging beneath an existing `models.json` `providers` object. Closing the result or leaving the route clears content and revokes its Blob URL.
 
-The Pi-only UI has no platform/default-model/upload-enhancement controls, honestly distinguishes live catalog `fresh`/`stale`/`unavailable`, `not_in_catalog`, `api_mismatch` and `multiple` evidence from persisted `unbound`/`bound`/`bound_drifted` binding status, shows the selected candidate's seven safe template fields and dropped paths before bind/rebind confirmation, surfaces refresh/override affordances per model, and keeps the provider-merge fragment. Bind and rebind share one 更换来源 dialog for every model whose final Pi API is determinable, keeping the default exact-candidate layer and the bounded directory-search layer visibly separate; nothing is preselected, a one-hit search stays evidence, the Prism-owned final export identity is shown before confirmation, and confirm is blocked unless the catalog is `fresh`. The exported file's provider key is labelled 导出 Provider 键名 and a binding's directory origin 目录 Provider, so the two domains are never both called `Provider ID`; row actions beyond three use an overflow menu.
+The Pi target preserves its source controls without default-model/upload-enhancement controls, and honestly distinguishes live catalog `fresh`/`stale`/`unavailable`, `not_in_catalog`, `api_mismatch` and `multiple` evidence from persisted `unbound`/`bound`/`bound_drifted` binding status, shows the selected candidate's seven safe template fields and dropped paths before bind/rebind confirmation, surfaces refresh/override affordances per model, and keeps the provider-merge fragment. Bind and rebind share one 更换来源 dialog for every model whose final Pi API is determinable, keeping the default exact-candidate layer and the bounded directory-search layer visibly separate; nothing is preselected, a one-hit search stays evidence, the Prism-owned final export identity is shown before confirmation, and confirm is blocked unless the catalog is `fresh`. The exported file's provider key is labelled 导出 Provider 键名 and a binding's directory origin 目录 Provider, so the two domains are never both called `Provider ID`; row actions beyond three use an overflow menu.
+
+
+##### OpenCode 1.18.27 Source and Render
+
+`internal/domain/modelexport/` owns the independent OpenCode fact digest, safe metadata projection, target-specific price gates and deterministic renderer; it uses no database, HTTP transport or client SDK dependency. `internal/httpapi/management/models/export_opencode_*` owns snapshot queries, ingress addressability, typed requests and responses. It reuses the current export eligibility/routing/price facts, but does not load Pi bindings or a live models.dev/pi.dev catalog. `internal/platform/http/management_route_specs.go` assigns both routes Default profile `1`, `M3`, private/no-store and no planning invalidation:
+
+```text
+GET /api/models/exports/opencode/source
+POST /api/models/exports/opencode/render
+```
+
+Both handlers read all model, route/target, current price and saved source/override metadata facts inside a single read-only `REPEATABLE READ` transaction per request. Source returns `{target_version, source_digest, models[], warnings?}`. Rows contain Prism identity and state, `selectable`/`unselectable_reason`, `npm`, `api_path`, current `targets`/`price_risk`, and these evidence objects:
+
+| Field | Contract |
+| --- | --- |
+| `source_metadata`, `override_metadata` | Persisted safe catalog leaves, with absent values omitted and explicit false/zero/empty arrays retained |
+| `merged_metadata` | Valid final export values in the same catalog leaf names |
+| `metadata_provenance` | Per final leaf: `prism_display_name`, `models_dev_source`, `models_dev_override`, or `model_id` |
+| `missing_metadata` | Leaves with no valid final value; absence is not zero |
+| `metadata_issues` | `{field, reason, source}` entries identifying missing or invalid inputs and limit-group conflicts |
+
+Only `name`, `family`, `release_date`, `attachment`, `reasoning`, `tool_call`, `temperature`, `modalities_input`, `modalities_output`, `limit_context`, `limit_input` and `limit_output` are queried from `model_catalog_bindings`. A present manual override takes precedence; an invalid override remains visible as invalid rather than silently exposing the source value. A non-empty Prism display name overrides catalog naming; otherwise a valid effective catalog name is used, falling back to the unchanged model ID. The renderer nests `modalities_*` and `limit_*` into the target schema. It does not import directory model IDs, SDKs, prices, options, variants, interleaved reasoning, Pi templates or client credentials.
+
+Context/output must be positive integers no greater than `9007199254740991`; optional input must be a non-negative safe integer. Input and output individually cannot exceed context; they are not required to sum to context. Missing/invalid required limits, an invalid optional input, or a group conflict produces `invalid_metadata_limits` and blocks selection. Explicit input zero can be represented in the file, although OpenCode's budget consumer can apply its own zero-value fallback. Boolean fields preserve false; missing capability fields remain omitted even when OpenCode later assigns a default.
+
+Eligibility first uses the existing enabled direct-entry and statically routable primary-text-operation gates. The full unchanged ID must also survive the client's URL construction and Prism's registered operation matcher. Body-based OpenAI/Anthropic IDs preserve `/`; Gemini path IDs that cannot do so return `unaddressable_model_id`. This adds an export eligibility explanation without widening runtime protocol support. It does not assess live upstream availability, admission or Ban state.
+
+| Prism text contract | Per-model `provider.npm` | Per-model `provider.api` |
+| --- | --- | --- |
+| OpenAI `chat_completions_only` | `@ai-sdk/openai-compatible` | gateway origin + `/v1` |
+| OpenAI `responses_only` or `dual_native` | `@ai-sdk/openai` | gateway origin + `/v1` |
+| Anthropic Messages | `@ai-sdk/anthropic` | gateway origin + `/v1` |
+| Gemini | `@ai-sdk/google` | gateway origin + `/v1beta` |
+
+These SDKs are built into [OpenCode 1.18.27](https://github.com/anomalyco/opencode/blob/4b7e19e315cca414121ba1d61523fef74bb3ae8b/packages/opencode/src/provider/provider.ts); no Prism dependency is added. A single custom provider can mix them. The file uses singular `provider`, with key `prism` or `prism-` followed by a lowercase letter/digit and then lowercase letters, digits, `_` or `-`. An omitted key defaults to `prism`. It sets neither a global `options.baseURL` nor a per-model `id` override; authored model-map keys are the complete Prism IDs.
+
+OpenCode supports only the base cost fields consumed by that version: `input`, `output`, `cache_read`, `cache_write`. They are emitted only when every reachable target has the same standard USD/PER_1M price with all five Prism components configured and reasoning equal to output. Explicit zero is preserved. Any tier (including 200k), peak/valley shape, missing/conflicting component, currency/unit mismatch or reasoning differential omits the entire object with stable warning codes. No `tiers` or `context_over_200k` pricing is emitted; omission can appear as a zero estimate in OpenCode and is not a free-price assertion.
+
+Render accepts exactly:
+
+```json
+{
+  "expected_source_digest": "<digest returned by source>",
+  "model_config_ids": [3],
+  "base_url": "http://127.0.0.1:8080",
+  "provider_id": "prism",
+  "credential": { "include": false }
+}
+```
+
+`model_config_ids` must be non-empty and refer to currently selectable entries; duplicates are normalized and order is deterministic. An origin must be HTTP(S), with no path, user information, query or fragment. Unknown request fields or malformed JSON return `400`; invalid selections, origin/provider parameters and credential combinations return `422`. There are no Pi coordinate assertions in this request. Manual credentials use `{"include":true,"api_key":"<final non-empty value>"}` with whitespace trimmed; a non-empty key sent with `include=false` is rejected. No-key output contains only `env:["PRISM_API_KEY"]`; manual output carries `options.apiKey`. Neither mode reads any stored key.
+
+The clock-free digest includes the target version, normalized models and reachable targets/prices, plus effective metadata, provenance and validity issues. It excludes Pi facts, catalog availability, binding coordinates/timestamps, unrelated metadata and source values shadowed by valid overrides. A consumed-fact change returns `409 export_source_stale` before rendering, and the caller must refresh source. Source and render are read-only; neither mutates a binding or runtime snapshot.
+
+The response is `{target_version, source_digest, content, content_sha256, file_name, mime_type, model_results, warnings?}`. `file_name` is `opencode-prism.json`, MIME is `application/json;charset=utf-8`, and `content` is deterministic UTF-8 JSON with exactly one terminal newline. The hash covers those exact bytes. Because [OpenCode substitutes configuration variables before parsing JSON](https://github.com/anomalyco/opencode/blob/4b7e19e315cca414121ba1d61523fef74bb3ae8b/packages/opencode/src/config/variable.ts), literal `{env:...}` and `{file:...}` in IDs, names or final keys encode the opening brace as `\u007b`; JSON parsing restores the literal value without variable/file expansion. The provider merge fragment preserves the same escaping. Full copy, Blob download and new-tab viewing reuse `content`; closing, replacing, switching or leaving clears the result and revokes Blob URLs. Credentials never enter source responses, URLs, Prism databases, query/HTTP caches, browser storage or logs.
+
+The UI links to the existing metadata editor for corrections and shows all final values, provenance and missing/invalid reasons. OpenCode can apply SDK/model-ID-based inference defaults after loading; the exporter does not claim authored custom reasoning adaptation. [README](../README.md#client-configuration-export) owns loading and provider-merge instructions. Package-local renderer tests, management contract tests and the existing browser journey cover their respective boundaries; `tests/runtime/opencode_*_test.go` provides the separately invoked real-client round-trip boundary documented in [CONTRIBUTING](../CONTRIBUTING.md#real-opencode-export-acceptance).
 
 ---
 

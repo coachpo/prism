@@ -28,7 +28,7 @@ func assemblePiSourceResponse(facts modelexport.SourceFacts, templates map[int]m
 		if err != nil {
 			return nil, err
 		}
-		priceTargets := reachablePricingTargets(fact)
+		priceTargets := exportPricingSnapshots(fact.Targets)
 		decision := modelexport.DecidePriceExport(priceTargets)
 		metadataWarnings := modelexport.MetadataWarningCodes(merge.Merged)
 		if len(cand.DroppedFields) > 0 {

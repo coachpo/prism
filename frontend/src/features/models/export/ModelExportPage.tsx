@@ -1,4 +1,7 @@
-// Pi-only page composition. No platform switching, no upload enhancement.
+import { useState, type ReactNode } from "react";
+import { Field, FieldLabel } from "@/components/ui/field";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { OpenCodeExportPage } from "./OpenCodeExportPage";
 import { Button } from "@/components/ui/button";
 import {
   OperatorCallout,
@@ -18,7 +21,7 @@ import { useModelExportSource } from "./useModelExportSource";
 // 禁用的主按钮不可聚焦，说明必须自己站在页头下方，并被按钮 describedby 指向。
 const BLOCKED_NOTICE_ID = "model-export-blocked-notice";
 
-export function ModelExportPage() {
+function PiExportPage({ targetControl }: { targetControl: ReactNode }) {
   const { messages } = useLocale();
   const copy = messages.modelExportPage;
   const source = useModelExportSource();
@@ -73,6 +76,7 @@ export function ModelExportPage() {
       </OperatorPageHeader>
 
       <div className="flex flex-col gap-4">
+        {targetControl}
         {blockedDescription ? (
           <OperatorCallout
             id={BLOCKED_NOTICE_ID}
@@ -137,6 +141,39 @@ export function ModelExportPage() {
         />
       </div>
     </OperatorPageShell>
+  );
+}
+
+export function ModelExportPage() {
+  const { messages } = useLocale();
+  const [target, setTarget] = useState<"pi" | "opencode">("pi");
+  const targetControl = (
+    <Field>
+      <FieldLabel id="export-client-label">
+        {messages.opencodeExport.targetLabel}
+      </FieldLabel>
+      <ToggleGroup
+        type="single"
+        variant="outline"
+        value={target}
+        aria-labelledby="export-client-label"
+        onValueChange={(value) => {
+          if (value === "pi" || value === "opencode") setTarget(value);
+        }}
+      >
+        <ToggleGroupItem value="pi">
+          {messages.opencodeExport.targetPi}
+        </ToggleGroupItem>
+        <ToggleGroupItem value="opencode">
+          {messages.opencodeExport.targetOpenCode}
+        </ToggleGroupItem>
+      </ToggleGroup>
+    </Field>
+  );
+  return target === "pi" ? (
+    <PiExportPage targetControl={targetControl} />
+  ) : (
+    <OpenCodeExportPage targetControl={targetControl} />
   );
 }
 

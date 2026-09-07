@@ -1,8 +1,11 @@
 import { useCallback, useMemo, useState } from "react";
 import { getEffectiveBackendOrigin } from "@/features/runtime-self-test/effectiveOrigin";
 import { api } from "@/lib/api";
-import type { ExportRenderResponse, ExportSourceResponse } from "@/lib/types";
+import type { ExportSourceResponse } from "@/lib/types";
 import type { KeyDecision } from "./ExportKeyDialog";
+
+import { normalizeGatewayOrigin } from "./exportDestination";
+import { useExportRenderSession } from "./useExportRenderSession";
 
 const DEFAULT_PROVIDER_ID = "prism";
 
@@ -22,25 +25,6 @@ function defaultGatewayOrigin(): string {
   return getEffectiveBackendOrigin().origin;
 }
 
-function normalizeGatewayOrigin(value: string): string | null {
-  try {
-    const parsed = new URL(value.trim());
-    if (
-      (parsed.protocol !== "http:" && parsed.protocol !== "https:") ||
-      parsed.username !== "" ||
-      parsed.password !== "" ||
-      parsed.search !== "" ||
-      parsed.hash !== "" ||
-      (parsed.pathname !== "" && parsed.pathname !== "/")
-    ) {
-      return null;
-    }
-    return parsed.origin;
-  } catch {
-    return null;
-  }
-}
-
 interface UseModelExportRenderInput {
   refetchSource: () => unknown;
   renderFailedMessage: string;
@@ -58,13 +42,6 @@ export function useModelExportRender({
 }: UseModelExportRenderInput) {
   const [gatewayOrigin, setGatewayOrigin] = useState(defaultGatewayOrigin);
   const [providerId, setProviderId] = useState(DEFAULT_PROVIDER_ID);
-  const [keyDialogOpen, setKeyDialogOpen] = useState(false);
-  const [renderResult, setRenderResult] = useState<ExportRenderResponse | null>(
-    null,
-  );
-  const [renderError, setRenderError] = useState<string | null>(null);
-  const [renderStale, setRenderStale] = useState(false);
-
   const normalizedOrigin = useMemo(
     () => normalizeGatewayOrigin(gatewayOrigin),
     [gatewayOrigin],
@@ -154,55 +131,26 @@ export function useModelExportRender({
     ],
   );
 
-  const handleGenerate = useCallback(
-    async (decision: KeyDecision) => {
-      setRenderError(null);
-      setRenderStale(false);
-      try {
-        const response = await api.modelExport.renderModelExport(
-          buildRenderRequest(decision),
-        );
-        setRenderResult(response);
-      } catch (error) {
-        const detail = error as {
-          status?: number;
-          message?: string;
-        };
-        if (detail.status === 409) {
-          setRenderStale(true);
-          void refetchSource();
-        }
-        setRenderError(detail.message ?? renderFailedMessage);
-        throw error;
-      }
-    },
-    [buildRenderRequest, refetchSource, renderFailedMessage],
+  const executeRender = useCallback(
+    (decision: KeyDecision, signal: AbortSignal) =>
+      api.modelExport.renderModelExport(buildRenderRequest(decision), signal),
+    [buildRenderRequest],
   );
-
-  const clearResult = useCallback(() => setRenderResult(null), []);
-  const closeKeyDialog = useCallback(() => setKeyDialogOpen(false), []);
-  const openKeyDialog = useCallback(() => {
-    setRenderError(null);
-    setRenderStale(false);
-    setKeyDialogOpen(true);
-  }, []);
+  const session = useExportRenderSession({
+    render: executeRender,
+    refetchSource,
+    renderFailedMessage,
+  });
 
   return {
+    ...session,
     blockReason,
-    clearResult,
-    closeKeyDialog,
     gatewayOrigin,
     gatewayOriginInvalid,
-    handleGenerate,
-    keyDialogOpen,
     openKeyDialogDisabled,
-    openKeyDialog,
     providerId,
     providerIdInvalid,
     renderableSelectedIds,
-    renderError,
-    renderResult,
-    renderStale,
     setGatewayOrigin,
     setProviderId,
     unboundSelectedCount,

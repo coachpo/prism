@@ -1,6 +1,7 @@
 // Package modelexport is the HTTP-neutral domain for exporting Prism-managed
-// model configuration into Pi 0.84.3 models.json. It owns the clock-free
-// source digest, the full-ID + Pi-API candidate matching contract, the
+// model configuration into Pi 0.84.3 models.json or OpenCode 1.18.27 provider
+// configuration. Each target owns an independent clock-free fact digest.
+// Pi owns the full-ID + Pi-API candidate matching contract, the
 // safe metadata projection (name/reasoning/input/contextWindow/maxTokens/
 // thinkingLevelMap/compat), the fail-closed price gates, and the deterministic
 // Pi renderer.
@@ -23,6 +24,12 @@
 //     the Pi tier shape is representable losslessly.
 //   - Unknown values are never disguised: absent cost or metadata stays
 //     visible warnings, explicit zeros stay "0".
+//   - OpenCode reads persisted models.dev metadata only, never Pi bindings or
+//     live catalog state. A valid limit group gates model selection; unsafe
+//     optional leaves remain visible as issues and do not render.
+//   - OpenCode uses model-level SDK and gateway addresses under a custom Prism
+//     provider. Only standard flat rates are representable. Explicit credentials
+//     are caller-supplied final values; otherwise the client uses PRISM_API_KEY.
 package modelexport
 
 import "github.com/coachpo/prism/backend/internal/domain/pidev"

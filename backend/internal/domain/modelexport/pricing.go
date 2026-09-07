@@ -210,3 +210,18 @@ func sortWarningCodes(codes []string) []string {
 	sort.Strings(unique)
 	return unique
 }
+
+func targetPriceSnapshots(facts []TargetFact) []TargetPriceSnapshot {
+	targets := make([]TargetPriceSnapshot, 0, len(facts))
+	for _, target := range facts {
+		if target.Pricing == nil {
+			targets = append(targets, TargetPriceSnapshot{TerminalTargetID: target.TerminalTargetID})
+			continue
+		}
+		snapshot := *target.Pricing
+		snapshot.TerminalTargetID = target.TerminalTargetID
+		targets = append(targets, snapshot)
+	}
+	sort.SliceStable(targets, func(i, j int) bool { return targets[i].TerminalTargetID < targets[j].TerminalTargetID })
+	return targets
+}

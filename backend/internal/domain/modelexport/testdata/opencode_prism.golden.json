@@ -1,0 +1,78 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "prism": {
+      "env": [
+        "PRISM_API_KEY"
+      ],
+      "models": {
+        "claude-opus-4-8": {
+          "limit": {
+            "context": 200000,
+            "output": 8192
+          },
+          "name": "Catalog claude-opus-4-8",
+          "provider": {
+            "api": "https://prism.example/v1",
+            "npm": "@ai-sdk/anthropic"
+          },
+          "reasoning": true,
+          "tool_call": true
+        },
+        "gemini-4-pro": {
+          "limit": {
+            "context": 200000,
+            "output": 8192
+          },
+          "name": "Catalog gemini-4-pro",
+          "provider": {
+            "api": "https://prism.example/v1beta",
+            "npm": "@ai-sdk/google"
+          },
+          "reasoning": true,
+          "tool_call": true
+        },
+        "glm-5.2": {
+          "limit": {
+            "context": 200000,
+            "output": 8192
+          },
+          "name": "Catalog glm-5.2",
+          "provider": {
+            "api": "https://prism.example/v1",
+            "npm": "@ai-sdk/openai-compatible"
+          },
+          "reasoning": true,
+          "tool_call": true
+        },
+        "organization/gpt-5.6-sol": {
+          "cost": {
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "input": 3,
+            "output": 15
+          },
+          "limit": {
+            "context": 200000,
+            "input": 0,
+            "output": 8192
+          },
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ]
+          },
+          "name": "Prism Chat",
+          "provider": {
+            "api": "https://prism.example/v1",
+            "npm": "@ai-sdk/openai"
+          },
+          "reasoning": false,
+          "tool_call": true
+        }
+      },
+      "name": "Prism"
+    }
+  }
+}

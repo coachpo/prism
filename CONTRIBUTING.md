@@ -47,6 +47,21 @@ pnpm run test:e2e
 
 `.github/workflows/ci.yml` also runs blocking `govulncheck ./...` (with govulncheck 1.1.4) and `pnpm audit --prod --audit-level=high`, plus non-blocking single-image Trivy evidence collection. These scanner jobs do not replace the affected behavior checks.
 
+
+### Real OpenCode Export Acceptance
+
+The export has a separate real-client boundary in `backend/tests/runtime/opencode_*_test.go`. With OpenCode **1.18.27** installed and the ordinary backend disposable PostgreSQL harness available, run from `backend/`:
+
+```bash
+PRISM_OPENCODE_BINARY=/absolute/path/to/opencode \
+PRISM_OPENCODE_EVIDENCE_DIR=/absolute/path/to/evidence \
+go test -timeout 10m ./tests/runtime -run '^TestOpenCodeProviderRoundTrip$' -count=1 -v
+```
+
+`PRISM_OPENCODE_BINARY` is required for this check. Ordinary Go test discovery skips it when the external binary is unspecified; that skip proves no client compatibility. The runner invokes the actual binary with isolated temporary configuration, environment and data directories, uses a production local Prism handler and controlled loopback SSE upstreams, and requires successful registration and text/tool/result continuation for Chat Completions, Responses, dual-native Responses, Anthropic and Gemini with both credential modes. Existing `rg` must be available to the client. It creates no product dependency and sends no real vendor requests.
+
+Evidence includes the actual client version, generated configurations with synthetic credentials, loaded model registry, CLI events and observed HTTP exchanges. Generated gateway URLs use temporary ports and are examples rather than reusable running endpoints. Configuration parsing, model registration and completed requests are distinct assertions. The frontend mock journey and domain golden files do not replace this check.
+
 ## Development Workflow
 
 - Prism is one repository: backend, frontend, launcher, release helper, and CI are versioned together. Read the owning AGENTS hierarchy before editing a surface.
