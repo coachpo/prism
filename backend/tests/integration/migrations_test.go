@@ -52,6 +52,7 @@ var expectedPrismMigrationVersions = []string{
 	"000031_terminal_target_upstream_model_identity",
 	"000032_model_direct_request_enabled",
 	"000033_retained_history_index_slimming",
+	"000034_retention_coverage_statement_trigger",
 }
 
 func TestSingleBaselineAppliesToFreshDatabase(t *testing.T) {
