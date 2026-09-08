@@ -2,7 +2,7 @@
 
 ## Lifecycle
 
-Active development at version 1.1.11. The operator's day-to-day use of the running home-LAN instances drives priorities. Upgrade work prefers clean architecture and the best current implementation; legacy shapes are preserved only when explicitly requested.
+Active development at version 1.1.12. The operator's day-to-day use of the running home-LAN instances drives priorities. Upgrade work prefers clean architecture and the best current implementation; legacy shapes are preserved only when explicitly requested.
 
 Development Tier: MVP
 
@@ -12,14 +12,14 @@ The existing tier remains the development default. The retained-data and authori
 
 Prism is a personal home-LAN deployment, not a public internet service. Development and deployment convenience takes priority over security hardening; optional operator login and proxy keys, plaintext bootstrap ownership, and operator-managed network exposure remain the established posture. This does not relax the retained-data policy.
 
-The deployment was reviewed read-only on 2026-09-07 at 18:11 UTC through the `capy` SSH adapter, selected Docker/Compose fields, PostgreSQL metadata, and the health and Requests APIs:
+The deployment was reviewed read-only on 2026-09-08 at 01:35 UTC through the `capy` SSH adapter, selected Docker/Compose fields, PostgreSQL metadata, and the health, Requests, and OpenCode export APIs:
 
 | Instance | Dashboard | App / PostgreSQL health | App version | Latest migration |
 | --- | --- | --- | --- | --- |
-| `prism-a` | [Observe A](http://192.168.1.222:8087/observe?tab=overview&metric=requests&scope=ingress&group_by=none&interval=auto) | healthy / healthy | 1.1.11 | `000034_retention_coverage_statement_trigger` |
-| `prism-b` | [Observe B](http://192.168.1.222:8088/observe?tab=overview&metric=requests&scope=ingress&group_by=none&interval=auto) | healthy / healthy | 1.1.11 | `000034_retention_coverage_statement_trigger` |
+| `prism-a` | [Observe A](http://192.168.1.222:8087/observe?tab=overview&metric=requests&scope=ingress&group_by=none&interval=auto) | healthy / healthy | 1.1.12 | `000034_retention_coverage_statement_trigger` |
+| `prism-b` | [Observe B](http://192.168.1.222:8088/observe?tab=overview&metric=requests&scope=ingress&group_by=none&interval=auto) | healthy / healthy | 1.1.12 | `000034_retention_coverage_statement_trigger` |
 
-Both run PostgreSQL 16.15 and the same app image, `ghcr.io/coachpo/prism:v1.1.11@sha256:7c479eacd343af2d55646fdd40e7154ed22c4aaa503f9cf2d545ef9bad2dfcef`, with independent databases and bind-mounted plaintext bootstrap files. Both app restart counters were zero at observation. These are observation-time facts, not continuous health guarantees.
+Both run PostgreSQL 16.15 and the same app image, `ghcr.io/coachpo/prism:v1.1.12@sha256:00fb111a484fcf348227375fcfaddf8eb85e29e5b3c9bf8b3519580d2196e6a3`, with independent databases and bind-mounted plaintext bootstrap files. Both app restart counters were zero at observation. These are observation-time facts, not continuous health guarantees.
 
 The repository supports the root Compose app-plus-PostgreSQL bundle, the single app image with an external PostgreSQL, and the local `start.sh` launcher. [README.md](README.md#quick-start) owns ordinary startup; [architecture.md](docs/architecture.md#23-local-tooling-and-build-workflow) owns the packaging model.
 
