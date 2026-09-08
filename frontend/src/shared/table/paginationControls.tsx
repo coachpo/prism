@@ -1,6 +1,7 @@
 import { ChevronDown, ChevronLeft, ChevronRight, Loader2, RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import {
       Select,
       SelectContent,
@@ -13,12 +14,13 @@ import { cn } from "@/lib/utils";
 
 /**
  * Polite live region for async pagination progress. The message is Chinese UI
- * copy supplied by the caller through messages; it is announced without any
- * visual footprint so a replace/append read is perceivable without eyes on it.
+ * copy supplied by the caller through messages. Pending reads are also visible;
+ * completion announcements keep their place in the live region without chrome.
  */
-export function PaginationLiveStatus({ message }: { message: string | null }) {
+export function PaginationLiveStatus({ message, pending = false }: { message: string | null; pending?: boolean }) {
       return (
-            <span aria-live="polite" role="status" className="sr-only">
+            <span aria-live="polite" role="status" className={cn(pending && message ? "flex items-center gap-2 text-xs text-muted-foreground" : "sr-only")}>
+                  {pending && message ? <Spinner aria-hidden="true" /> : null}
                   {message ?? ""}
             </span>
       );
@@ -107,6 +109,9 @@ export function LoadMoreControl({
 
 type OperationalTablePaginationProps = {
       className?: string;
+      /** A remote page read is in flight; all page controls stay disabled. */
+      pending?: boolean;
+      loadingLabel?: string;
       currentPageIndex: number;
       endIndex: number;
       formatNumber: (value: number) => string;
@@ -174,6 +179,8 @@ export function OperationalTablePagination({
       pageCount,
       pageLabel,
       pageSize,
+      pending = false,
+      loadingLabel,
       previousLabel,
       resultsLabel,
       startIndex,
@@ -187,6 +194,7 @@ export function OperationalTablePagination({
 
       return (
             <div
+                  aria-busy={pending}
                   className={cn(
                         "flex flex-col gap-3 border-t border-border bg-inset px-[var(--density-card-pad-x)] py-2 sm:flex-row sm:items-center sm:justify-between",
                         className,
@@ -200,8 +208,10 @@ export function OperationalTablePagination({
                               : zeroLabel}
                   </span>
                   <div className="flex items-center gap-2">
+                        <PaginationLiveStatus message={pending ? loadingLabel ?? null : null} pending={pending} />
                         {pageSize ? (
                               <Select
+                                    disabled={pending}
                                     value={String(pageSize.value)}
                                     onValueChange={(value) => pageSize.onChange(Number(value))}
                               >
@@ -225,7 +235,7 @@ export function OperationalTablePagination({
                                     variant="outline"
                                     size="icon"
                                     className="size-7 rounded-md"
-                                    disabled={!hasPreviousPage}
+                                    disabled={pending || !hasPreviousPage}
                                     aria-label={previousLabel}
                                     onClick={onPreviousPage}
                               >
@@ -246,6 +256,7 @@ export function OperationalTablePagination({
                                                 size="icon"
                                                 className="size-7 rounded-md font-mono text-xs tabular-nums"
                                                 aria-current={page === currentPageIndex ? "page" : undefined}
+                                                disabled={pending}
                                                 aria-label={pageLabel?.(formatNumber(page + 1))}
                                                 onClick={() => onGoToPage?.(page)}
                                           >
@@ -258,7 +269,7 @@ export function OperationalTablePagination({
                                     variant="outline"
                                     size="icon"
                                     className="size-7 rounded-md"
-                                    disabled={!hasNextPage}
+                                    disabled={pending || !hasNextPage}
                                     aria-label={nextLabel}
                                     onClick={onNextPage}
                               >

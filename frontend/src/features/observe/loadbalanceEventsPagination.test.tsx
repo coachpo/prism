@@ -97,13 +97,9 @@ describe("loadbalance events cursor pagination (C1)", () => {
 
   it("issues a real read of the target page when 下一页 is clicked", async () => {
     const user = userEvent.setup();
-    let call = 0;
-    mocks.listEvents.mockImplementation(async () => {
-      call += 1;
-      return call === 1
-        ? eventsPage([eventItem("e1")], "cursor-2")
-        : eventsPage([eventItem("e2")], null);
-    });
+    let resolvePage!: (value: ReturnType<typeof eventsPage>) => void;
+    mocks.listEvents.mockResolvedValueOnce(eventsPage([eventItem("e1")], "cursor-2"));
+    mocks.listEvents.mockImplementationOnce(() => new Promise((resolve) => { resolvePage = resolve; }));
 
     render(<StatefulHarness initialSearch={{}} />);
     await waitFor(() =>
@@ -120,12 +116,18 @@ describe("loadbalance events cursor pagination (C1)", () => {
         expect.objectContaining({ cursor: "cursor-2" }),
       ),
     );
-    // The new page commits atomically: the old rows never masquerade as the
-    // new cursor's cohort.
+    const status = screen.getByText("正在加载第 2 页…");
+    expect(status).not.toHaveClass("sr-only");
+    expect(status.querySelector(".animate-spin")).not.toBeNull();
+    expect(screen.getByRole("button", { name: "下一页" })).toBeDisabled();
+    expect(screen.getByRole("combobox", { name: "每页条数" })).toBeDisabled();
+    resolvePage(eventsPage([eventItem("e2")], null));
     await waitFor(() =>
       expect(screen.getByTestId("event-row-e2")).toBeInTheDocument(),
     );
     expect(screen.queryByTestId("event-row-e1")).not.toBeInTheDocument();
+    expect(screen.queryByText("正在加载第 2 页…")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "上一页" })).toBeEnabled();
   });
 
   it("deep-links straight to the cursor's page instead of resetting to page one", async () => {

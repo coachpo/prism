@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { useLocale } from "@/i18n/useLocale"
 import { OperatorCallout, OperatorDestructiveDialog } from "@/shared/design-system"
+import { LoadMoreControl } from "@/shared/table/paginationControls"
 import type { DeleteDialogState } from "@/features/endpoints/useEndpointDeletion"
 import type { EndpointReferenceItem } from "@/lib/types"
 
@@ -37,11 +38,13 @@ function reasonLabel(copy: Record<string, unknown>, reason: string): string {
 
 function BlockerList({
   detail,
+  loadingMore,
   endpoint,
   onLoadMore,
   onOrphanCleanup,
 }: {
   detail: NonNullable<Extract<DeleteDialogState, { phase: "blocked" }>["detail"]>
+  loadingMore: boolean
   endpoint: { id: number; name: string; base_url: string }
   onLoadMore: (endpointId: number) => void
   onOrphanCleanup: (endpoint: { id: number; name: string; base_url: string }, item: EndpointReferenceItem) => void
@@ -72,11 +75,17 @@ function BlockerList({
         </Table>
       </div>
       <p className="text-xs text-muted-foreground">{copy.loadedItemsOfTotal(String(loaded), String(total))}</p>
-      {detail.reference_page.next_cursor ? (
-        <Button type="button" variant="outline" size="sm" onClick={() => onLoadMore(detail.endpoint_id)}>
-          {copy.loadMore}
-        </Button>
-      ) : null}
+      <LoadMoreControl
+        pending={loadingMore}
+        error={null}
+        hasMore={Boolean(detail.reference_page.next_cursor)}
+        labels={{
+          loadMore: copy.loadMore,
+          loading: messages.operationalTable.loadingMore,
+          retry: copy.deleteRetry,
+        }}
+        onLoadMore={() => onLoadMore(detail.endpoint_id)}
+      />
     </div>
   )
 }
@@ -188,7 +197,7 @@ export function DeleteEndpointDialog({
           >
             {copy.deleteBlockedHeading}
           </h3>
-          <BlockerList detail={state.detail} endpoint={state.endpoint} onLoadMore={onLoadMore} onOrphanCleanup={onOrphanCleanup} />
+          <BlockerList detail={state.detail} loadingMore={state.loadingMore ?? false} endpoint={state.endpoint} onLoadMore={onLoadMore} onOrphanCleanup={onOrphanCleanup} />
         </div>
       ) : null}
 

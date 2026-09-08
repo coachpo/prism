@@ -339,17 +339,6 @@ export function ObserveActivityTable({
 
   return (
     <div className="flex flex-col gap-2">
-      <PaginationLiveStatus
-        message={
-          !fragment.reading
-            ? null
-            : fragment.data === null
-              ? tableCopy.loadingFirstPage
-              : deepLinkedPage
-                ? tableCopy.loadingTargetPage
-                : tableCopy.loadingPage(cursorStack.length + 1)
-        }
-      />
       {fragment.stale ? (
         <OperatorStalenessBadge
           className="mx-[var(--density-card-pad-x)] self-start"
@@ -417,6 +406,18 @@ export function ObserveActivityTable({
               )}
             </span>
             <div className="flex items-center gap-1">
+              <PaginationLiveStatus
+                pending={fragment.reading}
+                message={
+                  !fragment.reading
+                    ? null
+                    : fragment.data === null
+                      ? tableCopy.loadingFirstPage
+                      : deepLinkedPage
+                        ? tableCopy.loadingTargetPage
+                        : tableCopy.loadingPage(cursorStack.length + 1)
+                }
+              />
               <Button
                 type="button"
                 variant="outline"

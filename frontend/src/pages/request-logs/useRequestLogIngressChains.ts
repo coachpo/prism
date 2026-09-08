@@ -45,6 +45,9 @@ export function useRequestLogIngressChains({
   const [items, setItems] = useState<RequestLogListItem[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(enabled);
+  const [settledRead, setSettledRead] = useState<{ signature: string; revision: number } | null>(null);
+  const currentSignature = JSON.stringify(buildRequestLogQueryParams(state));
+  const awaitingRead = settledRead?.signature !== currentSignature || settledRead?.revision !== revision;
   const [failure, setFailure] = useState<RequestLogsLoadFailure | null>(null);
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
   const [filterOptions, setFilterOptions] = useState<RequestLogFilterOptions>(
@@ -71,6 +74,8 @@ export function useRequestLogIngressChains({
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastRevisionRef = useRef<number | null>(null);
   const loadedSignatureRef = useRef<string | null>(null);
+  // Cursor history belongs to the filter cohort; pending and stale rows belong to an exact page.
+  const loadedPageSignatureRef = useRef<string | null>(null);
   const chainSignatureRef = useRef<string | null>(null);
   const chainQueryParamsRef = useRef<ReturnType<typeof buildRequestLogQueryParams> | null>(
     null,
@@ -96,10 +101,11 @@ export function useRequestLogIngressChains({
     const params = buildRequestLogQueryParams(state);
     const signature = requestLogQuerySignature(state, params);
     const previousSignature = loadedSignatureRef.current;
+    const pageSignature = JSON.stringify(params);
     setReadKind(
-      previousSignature === null
+      loadedPageSignatureRef.current === null
         ? "initial"
-        : previousSignature === signature
+        : loadedPageSignatureRef.current === pageSignature
           ? "refresh"
           : "replace",
     );
@@ -155,11 +161,12 @@ export function useRequestLogIngressChains({
         });
         setFilterOptionsLoaded(true);
         loadedSignatureRef.current = signature;
+        loadedPageSignatureRef.current = pageSignature;
         setLastLoadedAt(new Date().toISOString());
       })
       .catch((error: unknown) => {
         if (id !== fetchIdRef.current) return;
-        const stale = loadedSignatureRef.current === signature;
+        const stale = loadedPageSignatureRef.current === pageSignature;
         if (!stale) {
           setItems([]);
           setChains([]);
@@ -170,6 +177,7 @@ export function useRequestLogIngressChains({
           setCoverage(null);
           chainQueryParamsRef.current = null;
           loadedSignatureRef.current = null;
+          loadedPageSignatureRef.current = null;
           setLastLoadedAt(null);
         }
         setFailure({
@@ -181,10 +189,14 @@ export function useRequestLogIngressChains({
         });
       })
       .finally(() => {
-        if (id === fetchIdRef.current) setLoading(false);
+        if (id === fetchIdRef.current) {
+          setLoading(false);
+          setSettledRead({ signature: JSON.stringify(params), revision });
+        }
       });
   }, [
     messages.requestLogs.loadFailed,
+    revision,
     state,
   ]);
 
@@ -195,7 +207,7 @@ export function useRequestLogIngressChains({
     return () => {
       if (debounceRef.current !== null) clearTimeout(debounceRef.current);
     };
-  }, [enabled, fetchChains, revision]);
+  }, [enabled, fetchChains, revision, state]);
 
   useEffect(() => {
     if (enabled) return;
@@ -311,12 +323,14 @@ export function useRequestLogIngressChains({
     hasMoreRows: false,
     items: enabled ? items : [],
     lastLoadedAt,
-    loading: enabled ? loading : false,
+    loading: enabled && (loading || awaitingRead),
     loadMoreChainRows,
     nextChainCursor: enabled ? nextChainCursor : null,
     previousChainCursor,
     chainPageStart,
-    readKind: enabled ? readKind : "initial",
+    readKind: !enabled || lastLoadedAt === null ? "initial" : awaitingRead
+      ? settledRead?.signature === currentSignature ? "refresh" : "replace"
+      : readKind,
     refresh,
     stale: enabled ? (failure?.stale ?? false) : false,
     total: enabled ? total : 0,

@@ -124,7 +124,6 @@ export function LoadbalanceEventsPresentation({
       contentClassName="flex flex-col gap-4"
       actions={
         <div className="flex items-center gap-2">
-          <PaginationLiveStatus message={liveMessage} />
           {fragment.stale && fragment.lastSuccessfulAt ? (
             <OperatorStalenessBadge
               label={messages.honesty.lastSuccessful(
@@ -480,7 +479,9 @@ export function LoadbalanceEventsPresentation({
               : null}
           </span>
           <div className="flex items-center gap-2">
+            <PaginationLiveStatus message={liveMessage} pending={fragment.reading} />
             <Select
+              disabled={fragment.reading}
               value={String(pageSize)}
               onValueChange={(value) => setPageSize(Number(value))}
             >

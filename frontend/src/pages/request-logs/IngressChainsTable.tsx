@@ -155,6 +155,7 @@ export function IngressChainsTable({
 			aria-labelledby={headingId}
 			className="operator-table-shell overflow-hidden rounded-lg border border-border bg-panel"
 			data-testid="ingress-chains-table"
+			aria-busy={loading || undefined}
 		>
 			<PaginationLiveStatus
 				message={showPendingRows ? tableCopy.loadingTargetPage : null}
@@ -309,6 +310,8 @@ export function IngressChainsTable({
 			{/* 分页行走共享实现：「共 N 条」在左、页控件与页大小在右，
 			    与 models / pricing / 代理密钥三页同一套几何。 */}
 			<OperationalTablePagination
+				pending={loading}
+				loadingLabel={tableCopy.loadingTargetPage}
 				currentPageIndex={
 					chainPageStart === null ? 0 : Math.floor(chainPageStart / pageSize)
 				}
@@ -316,8 +319,8 @@ export function IngressChainsTable({
 				endIndex={chainPageEnd}
 				totalRows={total}
 				formatNumber={formatNumber}
-				hasPreviousPage={!loading && hasPreviousChains}
-				hasNextPage={!loading && hasMoreChains}
+				hasPreviousPage={hasPreviousChains}
+				hasNextPage={hasMoreChains}
 				onPreviousPage={onLoadPreviousChains}
 				onNextPage={onLoadNextChains}
 				previousLabel={tableCopy.previousPage}

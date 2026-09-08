@@ -156,6 +156,31 @@ describe("request-log page metadata handoff", () => {
     expect(result.current.filterOptions.models[0]?.ingress_model_id).toBe("attempt");
   });
 
+  it.each(["attempts", "ingress_chains"])("marks %s page changes pending through debounce and response", async (view) => {
+    const request = view === "attempts" ? mocks.requests : mocks.chains;
+    const response = view === "attempts" ? attemptResponse("page") : chainResponse("page");
+    request.mockResolvedValueOnce(response);
+    let rejectPage!: (error: Error) => void;
+    request.mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectPage = reject; }));
+    const state = parsePageSearch({ view });
+    const { result, rerender } = renderHook(
+      ({ pageState }) => useRequestLogsPageData({ revision: 0, state: pageState, enabled: true }),
+      { initialProps: { pageState: state } },
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    rerender({ pageState: { ...state, offset: 100, chain_cursor: "next-page" } });
+    expect(result.current.loading).toBe(true);
+    expect(result.current.readKind).toBe("replace");
+    expect(request).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(request).toHaveBeenCalledTimes(2));
+    expect(result.current.loading).toBe(true);
+    expect(result.current.readKind).toBe("replace");
+    await act(async () => { rejectPage(new Error("page failed")); });
+    expect(result.current.loading).toBe(false);
+    expect(result.current.stale).toBe(false);
+    expect(result.current.error).toBe("page failed");
+  });
+
   it("masks all public read metadata when the page lane is disabled", async () => {
     mocks.requests.mockResolvedValueOnce(attemptResponse("attempt"));
     const state = parsePageSearch({ view: "attempts" });

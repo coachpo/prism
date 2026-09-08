@@ -153,7 +153,6 @@ export function GlobalCurrentStatePresentation({
       contentClassName="flex flex-col gap-3"
       actions={
         <div className="flex items-center gap-2">
-          <PaginationLiveStatus message={liveMessage} />
           {fragment.stale && fragment.lastSuccessfulAt ? (
             <OperatorStalenessBadge
               label={messages.honesty.lastSuccessful(
@@ -425,6 +424,7 @@ export function GlobalCurrentStatePresentation({
 
       {cursorStack.length > 0 || fragment.data?.has_more || fragment.reading ? (
         <div className="flex items-center justify-end gap-1">
+          <PaginationLiveStatus message={liveMessage} pending={fragment.reading} />
           <Button
             type="button"
             variant="outline"

@@ -35,6 +35,9 @@ export function useRequestLogAttempts({
   const [items, setItems] = useState<RequestLogListItem[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(enabled);
+  const [settledRead, setSettledRead] = useState<{ signature: string; revision: number } | null>(null);
+  const currentSignature = JSON.stringify(buildRequestLogQueryParams(state));
+  const awaitingRead = settledRead?.signature !== currentSignature || settledRead?.revision !== revision;
   const [failure, setFailure] = useState<RequestLogsLoadFailure | null>(null);
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
   const [filterOptions, setFilterOptions] = useState<RequestLogFilterOptions>(
@@ -116,10 +119,14 @@ export function useRequestLogAttempts({
         });
       })
       .finally(() => {
-        if (id === fetchIdRef.current) setLoading(false);
+        if (id === fetchIdRef.current) {
+          setLoading(false);
+          setSettledRead({ signature: JSON.stringify(params), revision });
+        }
       });
   }, [
     messages.requestLogs.loadFailed,
+    revision,
     state,
   ]);
 
@@ -130,7 +137,7 @@ export function useRequestLogAttempts({
     return () => {
       if (debounceRef.current !== null) clearTimeout(debounceRef.current);
     };
-  }, [enabled, fetchAttempts, revision]);
+  }, [enabled, fetchAttempts, revision, state]);
 
   useEffect(() => {
     if (enabled) return;
@@ -156,8 +163,10 @@ export function useRequestLogAttempts({
     hasMoreRows: enabled ? hasMoreRows : false,
     items: enabled ? items : [],
     lastLoadedAt,
-    loading: enabled ? loading : false,
-    readKind: enabled ? readKind : "initial",
+    loading: enabled && (loading || awaitingRead),
+    readKind: !enabled || lastLoadedAt === null ? "initial" : awaitingRead
+      ? settledRead?.signature === currentSignature ? "refresh" : "replace"
+      : readKind,
     refresh,
     stale: enabled ? (failure?.stale ?? false) : false,
     total: enabled ? total : 0,

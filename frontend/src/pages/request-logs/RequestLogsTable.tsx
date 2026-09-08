@@ -215,7 +215,7 @@ export function RequestLogsTable({
       {/* 等待期不播报的话，「还在读」与「没有数据」在读屏用户那里完全一样。 */}
       <PaginationLiveStatus
         message={
-          loading && (items.length === 0 || replacing)
+          loading && items.length === 0 && !replacing
             ? tableCopy.loadingFirstPage
             : null
         }
@@ -414,6 +414,8 @@ export function RequestLogsTable({
       {/* 分页行走共享实现：「共 N 条」在左、页控件与页大小在右。
           总数不精确时换用「共超过 N 条」，不把估计值写成确数。 */}
       <OperationalTablePagination
+        pending={loading}
+        loadingLabel={tableCopy.loadingTargetPage}
         currentPageIndex={Math.floor(offset / Math.max(limit, 1))}
         startIndex={offset}
         endIndex={pageEnd}

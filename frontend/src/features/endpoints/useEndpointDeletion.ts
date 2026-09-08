@@ -30,6 +30,7 @@ export type DeleteDialogState =
       phase: "blocked";
       endpoint: Endpoint;
       detail: EndpointReferenceDetail;
+      loadingMore?: boolean;
       generation: number;
     }
   | {
@@ -67,6 +68,7 @@ export function useEndpointDeletion({
     phase: "closed",
   });
   const deleteGeneration = useRef(0);
+  const blockerLoadGeneration = useRef<number | null>(null);
 
   const issueDeleteGeneration = useCallback(() => {
     deleteGeneration.current += 1;
@@ -308,23 +310,41 @@ export function useEndpointDeletion({
       const current = deleteDialog;
       if (
         current.phase !== "blocked" ||
-        current.endpoint.id !== endpointId
+        current.endpoint.id !== endpointId ||
+        blockerLoadGeneration.current === current.generation
       ) {
         return;
       }
       const requestGeneration = current.generation;
-      const detail = await loadMore(endpointId);
-      if (!detail) return;
-      setDeleteDialog((next) => {
-        if (
-          next.phase !== "blocked" ||
-          next.endpoint.id !== endpointId ||
-          next.generation !== requestGeneration
-        ) {
-          return next;
+      blockerLoadGeneration.current = requestGeneration;
+      setDeleteDialog((next) =>
+        next.phase === "blocked" && next.generation === requestGeneration
+          ? { ...next, loadingMore: true }
+          : next,
+      );
+      try {
+        const detail = await loadMore(endpointId);
+        if (!detail) return;
+        setDeleteDialog((next) => {
+          if (
+            next.phase !== "blocked" ||
+            next.endpoint.id !== endpointId ||
+            next.generation !== requestGeneration
+          ) {
+            return next;
+          }
+          return { ...next, detail };
+        });
+      } finally {
+        if (blockerLoadGeneration.current === requestGeneration) {
+          blockerLoadGeneration.current = null;
         }
-        return { ...next, detail };
-      });
+        setDeleteDialog((next) =>
+          next.phase === "blocked" && next.generation === requestGeneration
+            ? { ...next, loadingMore: false }
+            : next,
+        );
+      }
     },
     [deleteDialog, loadMore],
   );
