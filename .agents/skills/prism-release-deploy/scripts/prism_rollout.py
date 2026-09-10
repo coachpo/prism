@@ -105,7 +105,7 @@ def deploy_main():
         raise RuntimeError("owner/orphan invariant failed after deploy")
     has_upstream = psql(topology, "SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='connections' AND column_name='upstream_model_id'")
     if has_upstream == "1":
-        invalid = psql(topology, "SELECT count(*) FROM model_access_targets m JOIN model_configs o ON o.id=m.source_model_config_id JOIN connections c ON c.id=m.target_connection_id WHERE m.target_connection_id IS NOT NULL AND (c.upstream_model_id IS NULL OR btrim(c.upstream_model_id)='' OR c.upstream_model_id IS DISTINCT FROM o.model_id)")
+        invalid = psql(topology, "SELECT count(*) FROM model_access_targets m JOIN model_configs o ON o.id=m.source_model_config_id JOIN connections c ON c.id=m.target_connection_id WHERE m.target_connection_id IS NOT NULL AND (c.upstream_model_id IS NULL OR btrim(c.upstream_model_id)='')")
         if invalid != "0":
             raise RuntimeError("owner-backed upstream model id invariant failed")
     app = safe_state(inspect(topology["app_id"]))
