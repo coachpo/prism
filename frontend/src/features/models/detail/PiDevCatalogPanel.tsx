@@ -1,3 +1,4 @@
+import { CatalogReadFeedback } from "../export/CatalogReadFeedback";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -203,6 +204,7 @@ export function PiDevCatalogPanel({
 
   return (
     <div className="flex flex-col gap-2">
+      <CatalogReadFeedback catalog={catalog} pending={readRefreshing} onRetry={onRetry} />
       {readRefreshing ? (
         <OperatorCallout
           data-testid="pi-detail-read-refreshing"

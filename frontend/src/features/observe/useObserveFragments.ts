@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { useObserveReadCycle } from "./observeReadCycleContext";
 import { ApiError } from "@/lib/api/request";
 import {
   observe,
@@ -55,6 +56,7 @@ export function fragmentErrorFrom(err: unknown): {
  * produces synthetic zeros (per O-P0-1).
  */
 export function useObserveFragments(preset: string) {
+  const { track } = useObserveReadCycle();
   const [queryContextSnapshot, setQueryContextSnapshot] = useState<{
     key: string;
     fragment: FragmentState<QueryContextResponse>;
@@ -82,16 +84,19 @@ export function useObserveFragments(preset: string) {
     const controller = new AbortController();
     abortRef.current = controller;
     const signal = controller.signal;
-    void observe
-      .queryContext({ preset, scope: "ingress" }, signal)
+    setQueryContextSnapshot(previous => beginFragmentRead(previous, preset));
+    setSummarySnapshot(previous => beginFragmentRead(previous, preset));
+    setNowSnapshot(previous => beginFragmentRead(previous, preset));
+    void track(observe
+      .queryContext({ preset, scope: "ingress" }, signal))
       .then((context) => {
         if (generationRef.current !== generation || signal.aborted) return;
         setQueryContextSnapshot({
           key: preset,
           fragment: readyFragment(context),
         });
-        void observe
-          .usageSummary(context.query_context, signal)
+        void track(observe
+          .usageSummary(context.query_context, signal))
           .then((summaryData) => {
             if (generationRef.current !== generation || signal.aborted) return;
             setSummarySnapshot({
@@ -111,9 +116,10 @@ export function useObserveFragments(preset: string) {
         setQueryContextSnapshot((previous) =>
           failFragmentRead(previous, preset, error),
         );
+        setSummarySnapshot(previous => failFragmentRead(previous, preset, error));
       });
-    void observe
-      .dashboardNow(signal)
+    void track(observe
+      .dashboardNow(signal))
       .then((nowData) => {
         if (generationRef.current !== generation || signal.aborted) return;
         setNowSnapshot({
@@ -127,11 +133,12 @@ export function useObserveFragments(preset: string) {
           failFragmentRead(previous, preset, error),
         );
       });
-  }, [preset]);
+  }, [preset, track]);
 
   useEffect(() => {
-    refresh();
-    return () => abortRef.current?.abort();
+    let active = true;
+    queueMicrotask(() => { if (active) refresh(); });
+    return () => { active = false; abortRef.current?.abort(); };
   }, [refresh]);
 
   return { queryContext, summary, now, refresh };
@@ -147,6 +154,11 @@ function visibleFragment<T>(
   key: string,
 ): FragmentState<T> {
   return snapshot.key === key ? snapshot.fragment : initialFragment<T>();
+}
+
+function beginFragmentRead<T>(snapshot: FragmentSnapshot<T>, key: string): FragmentSnapshot<T> {
+  const previous = snapshot.key === key ? snapshot.fragment : initialFragment<T>();
+  return { key, fragment: { ...previous, phase: "loading", error: null } };
 }
 
 function readyFragment<T>(data: T): FragmentState<T> {
@@ -185,68 +197,30 @@ export function useObserveAnalysisContext(
   preset: string,
   scope: ObserveScope,
 ): FragmentState<QueryContextResponse> & { refresh: () => void } {
+  const { track } = useObserveReadCycle();
   const [reloadToken, setReloadToken] = useState(0);
-  const key = `${preset}:${scope}:${reloadToken}`;
-  const [snapshot, setSnapshot] = useState<{
-    key: string;
-    fragment: FragmentState<QueryContextResponse>;
-  }>(() => ({ key, fragment: initialFragment() }));
-  const fragment =
-    snapshot.key === key
-      ? snapshot.fragment
-      : initialFragment<QueryContextResponse>();
+  const key = `${preset}:${scope}`;
+  const [snapshot, setSnapshot] = useState<FragmentSnapshot<QueryContextResponse> & { token: number }>(
+    () => ({ key, token: reloadToken, fragment: initialFragment() }),
+  );
+  const current = visibleFragment(snapshot, key);
+  const fragment = snapshot.token === reloadToken ? current : { ...current, phase: "loading" as const };
   useEffect(() => {
-    let active = true;
     const controller = new AbortController();
-    void observe
-      .queryContext({ preset, scope }, controller.signal)
-      .then((data) => {
-        if (active && !controller.signal.aborted) {
-          if (data.scope !== scope || data.caliber?.scope !== scope) {
-            setSnapshot({
-              key,
-              fragment: {
-                phase: "error",
-                data: null,
-                stale: false,
-                error: getStaticMessages().observe.queryContextUnavailable,
-                retryAfterMs: null,
-              },
-            });
-            return;
-          }
-          setSnapshot({
-            key,
-            fragment: {
-              phase: "ready",
-              data,
-              stale: false,
-              error: null,
-              retryAfterMs: null,
-            },
-          });
+    void track(observe.queryContext({ preset, scope }, controller.signal))
+      .then(data => {
+        if (controller.signal.aborted) return;
+        if (data.scope !== scope || data.caliber?.scope !== scope) {
+          throw new Error(getStaticMessages().observe.queryContextUnavailable);
         }
+        setSnapshot({ key, token: reloadToken, fragment: readyFragment(data) });
       })
       .catch((error: unknown) => {
-        if (!active || controller.signal.aborted) return;
-        const mapped = fragmentErrorFrom(error);
-        setSnapshot({
-          key,
-          fragment: {
-            phase: "error",
-            data: null,
-            stale: false,
-            error: mapped.error,
-            retryAfterMs: mapped.retryAfterMs,
-          },
-        });
+        if (!controller.signal.aborted) setSnapshot(previous => ({ ...failFragmentRead(previous, key, error), token: reloadToken }));
       });
-    return () => {
-      active = false;
-      controller.abort();
-    };
-  }, [preset, reloadToken, scope, key]);
-  const refresh = useCallback(() => setReloadToken((value) => value + 1), []);
+    return () => controller.abort();
+  }, [preset, reloadToken, scope, key, track]);
+  const refresh = useCallback(() => setReloadToken(value => value + 1), []);
   return { ...fragment, refresh };
 }
 

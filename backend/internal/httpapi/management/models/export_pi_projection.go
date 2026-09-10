@@ -81,6 +81,7 @@ func assemblePiSourceResponse(facts modelexport.SourceFacts, templates map[int]m
 			bindingDroppedFields = normalizePiDroppedFields(binding.DroppedFields)
 		}
 		row := piSourceModelRow{
+			Readiness:             piReadiness(fact),
 			ModelConfigID:         fact.ModelConfigID,
 			ModelID:               fact.ModelID,
 			APIFamily:             fact.APIFamily,

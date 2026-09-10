@@ -1,3 +1,4 @@
+import { catalogFailureMessage } from "@/features/models/catalog/catalogFailureMessage";
 import { useEffect, useState } from "react";
 import { RefreshCw } from "lucide-react";
 
@@ -74,7 +75,7 @@ export function CatalogRefreshDialog({
         if (!cancelled) {
           setSettled({
             preview: null,
-            error: cause instanceof Error ? cause.message : String(cause),
+            error: catalogFailureMessage(cause),
           });
         }
       }

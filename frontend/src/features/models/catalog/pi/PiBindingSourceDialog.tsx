@@ -1,3 +1,4 @@
+import { catalogFailureMessage } from "@/features/models/catalog/catalogFailureMessage";
 import { useLayoutEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -192,7 +193,7 @@ export function PiBindingSourceDialog({
       });
       onClose();
     } catch (cause) {
-      setActionError(cause instanceof Error ? cause.message : String(cause));
+      setActionError(catalogFailureMessage(cause));
     }
   }
 

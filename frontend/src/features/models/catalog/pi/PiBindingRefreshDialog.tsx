@@ -1,3 +1,4 @@
+import { catalogFailureMessage } from "@/features/models/catalog/catalogFailureMessage";
 import { useCallback, useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -53,7 +54,7 @@ export function PiBindingRefreshDialog({
     try {
       setPreview(await controller.openRefreshPreview(modelConfigId));
     } catch (cause) {
-      setPreviewError(cause instanceof Error ? cause.message : String(cause));
+      setPreviewError(catalogFailureMessage(cause));
     } finally {
       setPreviewPending(false);
     }
@@ -71,7 +72,7 @@ export function PiBindingRefreshDialog({
         if (active) setPreview(result);
       } catch (cause) {
         if (active)
-          setPreviewError(cause instanceof Error ? cause.message : String(cause));
+          setPreviewError(catalogFailureMessage(cause));
       } finally {
         if (active) setPreviewPending(false);
       }
@@ -101,7 +102,7 @@ export function PiBindingRefreshDialog({
       });
       onClose();
     } catch (cause) {
-      setCommitError(cause instanceof Error ? cause.message : String(cause));
+      setCommitError(catalogFailureMessage(cause));
     }
   }
 

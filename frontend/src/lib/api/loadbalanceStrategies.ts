@@ -179,8 +179,8 @@ function normalizeLoadbalanceStrategy(
 }
 
 export const loadbalanceStrategies = {
-  list: () =>
-    request<RawLoadbalanceStrategy[]>("/api/loadbalance/strategies").then(
+  list: (signal?: AbortSignal) =>
+    request<RawLoadbalanceStrategy[]>("/api/loadbalance/strategies", { signal }).then(
       (strategies) => strategies.map(normalizeLoadbalanceStrategy),
     ),
   createDefaults: () =>

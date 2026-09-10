@@ -1,3 +1,5 @@
+import { ObserveFragmentStamp } from "./ObserveFragmentStamp";
+import { useObserveReadCycle } from "./observeReadCycleContext";
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 
@@ -29,13 +31,14 @@ import {
   OperatorRetryButton,
   OperatorStatusBadge,
   OperatorTypeBadge,
+  OperatorStalenessBadge,
 } from "@/shared/design-system";
 import {
   fragmentErrorFrom,
   type FragmentState,
 } from "@/features/observe/useObserveFragments";
 import { ObserveErrorPanel } from "@/features/observe/ObserveErrorPanel";
-import type { ObserveErrorSelection } from "@/features/observe/observeErrorSelection";
+import { resolveErrorSelection, type ObserveErrorSelection } from "@/features/observe/observeErrorSelection";
 import type {
   ObserveGroupBy,
   ObserveScope,
@@ -58,24 +61,30 @@ export function ObserveErrorWorkbench({
   queryContext,
   scope,
   groupBy,
+  basisKey,
+  contextError,
 }: {
   groupBy: ObserveGroupBy;
+  basisKey?: string;
+  contextError?: string | null;
   queryContext: string | null;
   scope: ObserveScope;
 }) {
   const { messages } = useLocale();
   const copy = messages.observe;
   const contextKey = `${queryContext ?? ""}:${scope}:${groupBy}`;
+  const selectionKey = `${basisKey ?? queryContext ?? ""}:${scope}:${groupBy}`;
   const [selectionSnapshot, setSelectionSnapshot] = useState<{
     key: string;
     value: ObserveErrorSelection | null;
-  }>(() => ({ key: contextKey, value: null }));
+    removed: boolean;
+  }>(() => ({ key: selectionKey, value: null, removed: false }));
   const [requestsContextSnapshot, setRequestsContextSnapshot] = useState<{
     key: string;
     value: UsageErrorsResponse["requests_context"] | null;
   }>(() => ({ key: contextKey, value: null }));
   const selection =
-    selectionSnapshot.key === contextKey ? selectionSnapshot.value : null;
+    selectionSnapshot.key === selectionKey ? selectionSnapshot.value : null;
   const requestsContext =
     requestsContextSnapshot.key === contextKey
       ? requestsContextSnapshot.value
@@ -83,21 +92,28 @@ export function ObserveErrorWorkbench({
 
   const handleSelection = useCallback(
     (next: ObserveErrorSelection | null) => {
-      setSelectionSnapshot({ key: contextKey, value: next });
+      setSelectionSnapshot({ key: selectionKey, value: next, removed: false });
     },
-    [contextKey],
+    [selectionKey],
   );
 
   const handleContextResolved = useCallback(
-    (context: UsageErrorsResponse["requests_context"]) => {
+    (context: UsageErrorsResponse["requests_context"], data: UsageErrorsResponse) => {
       setRequestsContextSnapshot({ key: contextKey, value: context });
+      setSelectionSnapshot(previous => {
+        if (previous.key !== selectionKey || !previous.value) return previous;
+        const next = resolveErrorSelection(previous.value, data);
+        return { key: selectionKey, value: next, removed: !next };
+      });
     },
-    [contextKey],
+    [contextKey, selectionKey],
   );
 
   return (
     <div className="grid min-w-0 gap-[var(--density-card-gap)] xl:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
       <ObserveErrorPanel
+        basisKey={basisKey ? `${basisKey}:${scope}` : undefined}
+        contextError={contextError}
         groupBy={groupBy}
         queryContext={queryContext}
         onContextResolved={handleContextResolved}
@@ -120,7 +136,7 @@ export function ObserveErrorWorkbench({
               >
                 {copy.workbenchClearSelection}
               </Button>
-              <Button asChild type="button" variant="outline" size="sm">
+              {requestsContext ? <Button asChild type="button" variant="outline" size="sm">
                 <Link
                   to="/observe/requests"
                   search={buildRequestsSearch(
@@ -132,13 +148,14 @@ export function ObserveErrorWorkbench({
                 >
                   {copy.workbenchOpenInRequests}
                 </Link>
-              </Button>
+              </Button> : <Button variant="outline" size="sm" disabled>{copy.workbenchOpenInRequests}</Button>}
             </div>
           ) : null
         }
       >
+        {selectionSnapshot.key === selectionKey && selectionSnapshot.removed && <OperatorCallout intent="muted" description={copy.workbenchSelectionExpired} />}
         {selection && scope === "ingress" ? (
-          <MatchingStream queryContext={queryContext} selection={selection} />
+          <MatchingStream queryContext={queryContext} selection={selection} contextError={contextError} />
         ) : selection ? (
           <OperatorCallout intent="info">
             {copy.scopedErrorsOpenRequestsHint}
@@ -156,10 +173,13 @@ export function ObserveErrorWorkbench({
 function MatchingStream({
   queryContext,
   selection,
+  contextError,
 }: {
+  contextError?: string | null;
   queryContext: string | null;
   selection: ObserveErrorSelection;
 }) {
+  const { track } = useObserveReadCycle();
   const { formatNumber, messages } = useLocale();
   const { format: formatTime } = useTimezone();
   const copy = messages.observe;
@@ -176,9 +196,10 @@ function MatchingStream({
 
   useEffect(() => {
     if (!queryContext) return;
+    const controller = new AbortController();
     let cancelled = false;
-    void observe
-      .observeActivity(queryContext, { limit: STREAM_PAGE_SIZE })
+    void track(observe
+      .observeActivity(queryContext, { limit: STREAM_PAGE_SIZE }, controller.signal))
       .then((data) => {
         if (!cancelled)
           setFragment({
@@ -202,8 +223,9 @@ function MatchingStream({
       });
     return () => {
       cancelled = true;
+      controller.abort();
     };
-  }, [attempt, queryContext]);
+  }, [attempt, queryContext, track]);
 
   if (fragment.phase === "loading")
     return <Skeleton className="h-40 rounded-md" />;
@@ -233,6 +255,8 @@ function MatchingStream({
 
   return (
     <div className="flex min-w-0 flex-col gap-2">
+      <ObserveFragmentStamp generatedAt={fragment.data.generated_at} from={fragment.data.coverage.from_time} to={fragment.data.coverage.to_time} />
+      {(fragment.stale || contextError) && <OperatorStalenessBadge label={copy.staleDataNote} reason={fragment.error ?? contextError ?? undefined} />}
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         <OperatorTypeBadge
           intent="accent"

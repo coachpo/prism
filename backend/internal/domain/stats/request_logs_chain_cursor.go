@@ -28,6 +28,8 @@ var errChainCursorVersionRetired = errors.New("chain cursor version retired")
 var cursorDomainBytes = []byte{'p', 'r', 'i', 's', 'm', '-', 'c', 'h', 'a', 'i', 'n', '-', 'c', 'u', 'r', 's', 'o', 'r', '-', 'v', '1'}
 
 type chainCursorPayload struct {
+	RankValue           *int64 `json:"rv,omitempty"`
+	RankGroup           string `json:"rg,omitempty"`
 	Version             int    `json:"v"`
 	ProfileID           int    `json:"p"`
 	OrderAt             string `json:"o"`

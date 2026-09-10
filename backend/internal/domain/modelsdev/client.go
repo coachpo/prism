@@ -169,7 +169,7 @@ func (c *Client) fetchOnce(ctx context.Context) (*Catalog, error) {
 	}
 	response, err := c.http.Do(request)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrCatalogUnavailable, err)
+		return nil, fmt.Errorf("%w: %w", ErrCatalogUnavailable, err)
 	}
 	defer func() {
 		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 1<<16))
@@ -192,14 +192,14 @@ func (c *Client) fetchOnce(ctx context.Context) (*Catalog, error) {
 	}
 	body, err := io.ReadAll(io.LimitReader(response.Body, MaxCatalogBytes+1))
 	if err != nil {
-		return nil, fmt.Errorf("%w: read body: %v", ErrCatalogUnavailable, err)
+		return nil, fmt.Errorf("%w: read body: %w", ErrCatalogUnavailable, err)
 	}
 	if len(body) > MaxCatalogBytes {
-		return nil, fmt.Errorf("%w: body exceeds the %d byte budget", ErrCatalogUnavailable, int64(MaxCatalogBytes))
+		return nil, fmt.Errorf("%w: %w: body exceeds the %d byte budget", ErrCatalogUnavailable, ErrCatalogTooLarge, int64(MaxCatalogBytes))
 	}
 	providers, err := parseCatalog(body)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrCatalogUnavailable, err)
+		return nil, fmt.Errorf("%w: %w: %v", ErrCatalogUnavailable, ErrCatalogFormat, err)
 	}
 	etag := strings.TrimSpace(response.Header.Get("ETag"))
 	catalog := &Catalog{ETag: etag, FetchedAt: c.now().UTC(), Providers: providers}

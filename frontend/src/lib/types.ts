@@ -13,3 +13,7 @@ export * from "./types/routing-diagnostics";
 export * from "./types/setup";
 
 export * from "./types/opencode-export";
+
+export * from "./types/batch-maintenance";
+
+export type { RouteExplanation } from "./types/route-explanation";

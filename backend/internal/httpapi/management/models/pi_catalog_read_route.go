@@ -28,7 +28,7 @@ func (s *Service) handleGetModelPi(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	catalog, catalogStatus := s.piCatalogForRead(r.Context())
+	catalog, catalogStatus, catalogFailure := s.piCatalogForRead(r.Context())
 	// Model identity and binding truth must come from one stable PostgreSQL
 	// snapshot. READ COMMITTED could observe a rename/rebind between these two
 	// statements and manufacture a model/binding pair that never coexisted.
@@ -55,5 +55,6 @@ func (s *Service) handleGetModelPi(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
+	response.Catalog.FailureCode = catalogFailure
 	responseutil.WriteJSON(w, http.StatusOK, response)
 }

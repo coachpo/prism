@@ -186,6 +186,7 @@ func (resources *productionResources) configureDatabaseBackedServices(ctx contex
 	if err != nil {
 		return err
 	}
+	management.models.SetRouteExplainer(runtimeService)
 	if err := registerDatabaseBackgroundWorkers(backgroundServices, planning, auth, runtimeService); err != nil {
 		return err
 	}

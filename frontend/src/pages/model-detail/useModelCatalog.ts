@@ -1,3 +1,4 @@
+import { catalogFailureMessage } from "@/features/models/catalog/catalogFailureMessage";
 import { useCallback, useEffect, useState } from "react";
 import { models as modelsApi } from "@/lib/api/models";
 import type { ModelCatalogResponse } from "@/lib/types";
@@ -31,7 +32,7 @@ export interface ModelCatalogView {
 }
 
 function failureMessage(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
+  return catalogFailureMessage(cause);
 }
 
 /**

@@ -103,7 +103,7 @@ describe("ObserveActivityTable ingress attribution", () => {
     expect(mocks.observeActivity).toHaveBeenCalledWith("ingress-context", {
       limit: 20,
       before: undefined,
-    });
+    }, expect.any(AbortSignal));
   });
 
   it("opens the retained ingress chain for the finalized request", async () => {
@@ -126,4 +126,14 @@ describe("ObserveActivityTable ingress attribution", () => {
       }),
     );
   });
+  it("labels last-good empty activity when its context cannot refresh", async () => {
+    mocks.observeActivity.mockResolvedValue({ ...response, items: [] });
+    const { rerender } = render(<LocaleProvider><ObserveActivityTable preset="24h" queryContext="first" /></LocaleProvider>);
+    await screen.findByText("所选窗口内没有数据");
+    rerender(<LocaleProvider><ObserveActivityTable preset="24h" queryContext="first" contextError="context unavailable" /></LocaleProvider>);
+    expect(screen.getByText("context unavailable")).toBeInTheDocument();
+    expect(screen.getByText(/2026-08-08T00:00:00Z/)).toBeInTheDocument();
+    expect(mocks.observeActivity).toHaveBeenCalledTimes(1);
+  });
+
 });

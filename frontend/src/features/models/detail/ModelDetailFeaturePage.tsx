@@ -1,3 +1,4 @@
+import { RouteExplanationPanel } from "@/pages/model-detail/RouteExplanationPanel";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Plus } from "lucide-react";
 import { usePublishBreadcrumbEntity } from "@/components/layout/app-layout/breadcrumbEntity";
@@ -566,6 +567,8 @@ export function ModelDetailFeaturePage({
         onRetryDiagnostics={refreshDiagnostics}
         model={model}
       />
+
+      <RouteExplanationPanel key={model.id} modelId={model.id} apiFamily={model.api_family} />
 
       <AccessTargetsEditor
         onGeneratePricing={setPricingTarget}

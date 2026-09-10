@@ -30,7 +30,8 @@ export const VIEW_OPTIONS = ["attempts", "ingress_chains"] as const;
 export type RequestLogView = (typeof VIEW_OPTIONS)[number];
 
 export const SORT_BY_OPTIONS = ["created_at", "display_status", "ttft_ms", "total_tokens", "total_cost_user_currency_micros"] as const;
-export type RequestLogSortBy = (typeof SORT_BY_OPTIONS)[number];
+export const CHAIN_SORT_BY_OPTIONS = ["created_at", "elapsed_ms", "total_cost_user_currency_micros"] as const;
+export type RequestLogSortBy = (typeof SORT_BY_OPTIONS)[number] | (typeof CHAIN_SORT_BY_OPTIONS)[number];
 
 export const PAGE_SIZE_OPTIONS = [100, 300, 500] as const;
 
@@ -161,7 +162,7 @@ export function requestLogStateForView(
   view: RequestLogView,
 ): RequestLogPageState {
   if (view === "attempts") {
-    return { ...state, view, chain_cursor: "", offset: DEFAULTS.offset };
+    return { ...state, view, sort_by: state.sort_by === "elapsed_ms" ? "created_at" : state.sort_by, chain_cursor: "", offset: DEFAULTS.offset };
   }
   return {
     ...chainCompatibleState(state),
@@ -169,7 +170,7 @@ export function requestLogStateForView(
     limit: DEFAULTS.limit,
     offset: DEFAULTS.offset,
     chain_cursor: "",
-    sort_by: "created_at",
+    sort_by: (CHAIN_SORT_BY_OPTIONS as readonly string[]).includes(state.sort_by) ? state.sort_by : "created_at",
   };
 }
 
@@ -263,8 +264,8 @@ export function parsePageSearch(search: Record<string, unknown>): RequestLogPage
   const sortOrder = parseEnum(search.sort_order, ["asc", "desc"], DEFAULTS.sort_order);
   const sortBy =
     view === "ingress_chains"
-      ? "created_at"
-      : parseEnum(search.sort_by, SORT_BY_OPTIONS, DEFAULTS.sort_by);
+      ? parseEnum(search.sort_by, CHAIN_SORT_BY_OPTIONS, "created_at")
+      : parseEnum(search.sort_by, SORT_BY_OPTIONS, "created_at");
 
   const state: RequestLogPageState = {
     ingress_request_id: normalizeSearchString(search.ingress_request_id),
@@ -410,7 +411,7 @@ export function stateToSearch(state: RequestLogPageState): Record<string, string
   // default ingress-chain view. This prevents a copied request-log URL from
   // silently changing scope when the page default evolves.
   search.view = state.view;
-  if (state.view === "attempts" && state.sort_by !== DEFAULTS.sort_by)
+  if (state.sort_by !== DEFAULTS.sort_by)
     search.sort_by = state.sort_by;
   if (state.sort_order !== DEFAULTS.sort_order) search.sort_order = state.sort_order;
   if (state.view === "ingress_chains" && state.chain_cursor)

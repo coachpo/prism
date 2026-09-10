@@ -1,3 +1,9 @@
+import { ObserveFragmentStamp } from "./ObserveFragmentStamp";
+import { useAuth } from "@/context/useAuth";
+import { useObserveReadCycle } from "./observeReadCycleContext";
+import { ObserveReadCycleProvider } from "./ObserveReadCycleProvider";
+import { useObserveAutoRefresh, type ObserveRefreshInterval } from "./useObserveAutoRefresh";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -69,6 +75,13 @@ function resolveView(tab: string): ObserveView {
 }
 
 export function ObservePage() {
+  const { phase } = useAuth();
+  return <ObserveReadCycleProvider key={phase.session_epoch}><ObservePageContent /></ObserveReadCycleProvider>;
+}
+
+function ObservePageContent() {
+  const cycle = useObserveReadCycle();
+  const [refreshInterval, setRefreshInterval] = useState<ObserveRefreshInterval>(0);
   const { messages } = useLocale();
   const navigate = useNavigate();
   const search = useSearch({ from: observeRoute.id });
@@ -182,18 +195,28 @@ export function ObservePage() {
     [metric, groupBy, scope, search.interval],
   );
   const seriesFragment = useUsageSeriesFragment(
-    analysisContext.phase === "ready"
-      ? (analysisContext.data?.query_context ?? null)
-      : null,
+    analysisContext.data?.query_context ?? null,
     chartState,
     analysisContext.phase,
+    preset,
   );
 
   const refreshing =
+    cycle.busy ||
     fragments.now.phase === "loading" ||
     fragments.summary.phase === "loading" ||
     analysisContext.phase === "loading" ||
+    seriesFragment.phase === "loading" ||
     setup.loading;
+
+  const refresh = useCallback(() => {
+    if (cycle.isBusy()) return;
+    fragments.refresh();
+    analysisContext.refresh();
+    setup.refresh();
+    cycle.advance();
+  }, [cycle, fragments, analysisContext, setup]);
+  const visible = useObserveAutoRefresh(refreshInterval, refresh, cycle.isBusy);
 
   /** The bucket width the server actually applied, not the requested `auto`. */
   const effectiveInterval = seriesFragment.data?.interval ?? null;
@@ -228,16 +251,23 @@ export function ObservePage() {
         )}
         nowFragment={fragments.now}
         summaryFragment={fragments.summary}
-        onRefresh={() => {
-          // Every read that feeds this page, not a third of them: the setup
-          // block shares the page's observation timestamp, so leaving it on the
-          // previous read would repaint stale readiness facts as fresh.
-          fragments.refresh();
-          analysisContext.refresh();
-          setup.refresh();
-        }}
+        onRefresh={refresh}
         refreshing={refreshing}
       />
+
+      <div className="flex flex-wrap items-center gap-2">
+        <span id="observe-refresh-label" className="text-xs text-muted-foreground">{messages.observe.autoRefreshLabel}</span>
+        <Select value={String(refreshInterval)} onValueChange={value => setRefreshInterval(Number(value) as ObserveRefreshInterval)}>
+          <SelectTrigger aria-labelledby="observe-refresh-label" className="w-32"><SelectValue /></SelectTrigger>
+          <SelectContent><SelectGroup>
+            <SelectItem value="0">{messages.observe.autoRefreshOff}</SelectItem>
+            <SelectItem value="30">{messages.observe.autoRefresh30}</SelectItem>
+            <SelectItem value="60">{messages.observe.autoRefresh60}</SelectItem>
+          </SelectGroup></SelectContent>
+        </Select>
+        {refreshInterval > 0 && <span role="status" className="text-xs text-muted-foreground">{visible ? messages.observe.autoRefreshWaiting : messages.observe.autoRefreshPaused}</span>}
+        <button type="button" className="text-sm text-primary underline-offset-4 hover:underline" onClick={() => setView("activity")}>{messages.observe.recentActivityEntry}</button>
+      </div>
 
       <SetupCard
         state={setup.state}
@@ -252,6 +282,7 @@ export function ObservePage() {
         title={messages.observe.nowLabel}
         description={messages.observe.nowBasis}
       >
+        <ObserveFragmentStamp generatedAt={fragments.now.data?.generated_at} />
         <NowStrip fragment={fragments.now} onRetry={fragments.refresh} />
       </OperatorSectionCard>
 
@@ -392,6 +423,7 @@ export function ObservePage() {
               ) : null}
             </OperatorCallout>
           ) : null}
+          <ObserveFragmentStamp generatedAt={seriesFragment.data?.generated_at} from={seriesFragment.data?.coverage.from_time} to={seriesFragment.data?.coverage.to_time} />
           <ObserveMainChart
             fragment={seriesFragment}
             metric={metric}
@@ -433,11 +465,11 @@ export function ObservePage() {
           description={messages.observe.errorPanelDescription}
         >
           <ObserveErrorWorkbench
+            basisKey={preset}
+            contextError={analysisContext.error}
             groupBy={groupBy}
             queryContext={
-              analysisContext.phase === "ready"
-                ? (analysisContext.data?.query_context ?? null)
-                : null
+              analysisContext.data?.query_context ?? null
             }
             scope={scope}
           />
@@ -455,6 +487,8 @@ export function ObservePage() {
             preset={preset}
             onPresetChange={setPreset}
             queryContext={fragments.queryContext.data?.query_context ?? null}
+            contextError={fragments.queryContext.error}
+            onContextRetry={refresh}
           />
         </OperatorSectionCard>
       ) : null}
@@ -479,6 +513,7 @@ export function ObservePage() {
         </OperatorSectionCard>
       ) : null}
 
+      <ObserveFragmentStamp generatedAt={fragments.summary.data?.generated_at} from={fragments.summary.data?.coverage.from_time} to={fragments.summary.data?.coverage.to_time} />
       <WindowKpiGrid fragment={fragments.summary} onRetry={fragments.refresh} />
 
       <RoutingHealthEntryCard />

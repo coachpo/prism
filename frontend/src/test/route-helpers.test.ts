@@ -34,6 +34,12 @@ describe("rewrite route helpers", () => {
     )
   })
 
+  it("retains ingress ranking and currency segment when validating portable request routes", () => {
+    for (const sort_by of ["elapsed_ms", "total_cost_user_currency_micros"]) {
+      expect(requestLogSearchSchema.parse({ view: "ingress_chains", sort_by, sort_order: "asc", cost_segment_key: "e.1", ingress_model_id: "joint-chat", endpoint: "1" })).toMatchObject({ view: "ingress_chains", sort_by, sort_order: "asc", cost_segment_key: "e.1", ingress_model_id: "joint-chat", endpoint: "1" })
+    }
+  })
+
   it("validates and normalizes target route search params", () => {
     expect(observeSearchSchema.parse({ tab: "routing" })).toMatchObject({ tab: "overview" })
     expect(observeSearchSchema.parse({ tab: "unknown" })).toMatchObject({ tab: "overview" })

@@ -1,3 +1,5 @@
+import { ObserveFragmentStamp } from "./ObserveFragmentStamp";
+import { useObserveReadCycle } from "./observeReadCycleContext";
 import { useEffect, useState } from "react";
 import { useLocale } from "@/i18n/useLocale";
 import { observe, type UsageErrorsResponse } from "@/lib/api/observability";
@@ -7,6 +9,7 @@ import { RetryAfterCallout } from "@/features/observe/RetryAfterCallout";
 import {
   OperatorErrorState,
   OperatorRetryButton,
+  OperatorStalenessBadge,
 } from "@/shared/design-system";
 import {
   httpStatusSelection,
@@ -27,19 +30,24 @@ export function ObserveErrorPanel({
   onSelect,
   onContextResolved,
   selectedKey,
+  basisKey,
+  contextError,
 }: {
   groupBy: ObserveGroupBy;
+  basisKey?: string;
+  contextError?: string | null;
   queryContext: string | null;
   /** Selecting a leaf filters the adjacent stream instead of navigating away. */
   onSelect: (selection: ObserveErrorSelection) => void;
-  onContextResolved: (requestsContext: UsageErrorsResponse["requests_context"]) => void;
+  onContextResolved: (requestsContext: UsageErrorsResponse["requests_context"], data: UsageErrorsResponse) => void;
   selectedKey: string | null;
 }) {
+  const { track } = useObserveReadCycle();
   const { messages } = useLocale();
   // A failed read is recovered here, next to the failure. The page's freshness
   // bar can also revive it, but it sits a screen above this block.
   const [attempt, setAttempt] = useState(0);
-  const requestKey = `${queryContext ?? ""}:${groupBy}:${attempt}`;
+  const requestKey = `${basisKey ?? queryContext ?? ""}:${groupBy}`;
   const [snapshot, setSnapshot] = useState<{
     key: string;
     fragment: FragmentState<UsageErrorsResponse>;
@@ -53,9 +61,11 @@ export function ObserveErrorPanel({
     if (!queryContext) {
       return;
     }
+    setSnapshot(previous => ({ key: requestKey, fragment: { ...(previous.key === requestKey ? previous.fragment : loadingErrorsFragment()), phase: "loading" } }));
+    const controller = new AbortController();
     let cancelled = false;
-    void observe
-      .usageErrors(queryContext, { group_by: groupBy, limit: 10 })
+    void track(observe
+      .usageErrors(queryContext, { group_by: groupBy, limit: 10 }, controller.signal))
       .then((data) => {
         if (cancelled) return;
         setSnapshot({
@@ -68,7 +78,7 @@ export function ObserveErrorPanel({
             retryAfterMs: null,
           },
         });
-        onContextResolved(data.requests_context);
+        onContextResolved(data.requests_context, data);
       })
       .catch((err: unknown) => {
         if (!cancelled) {
@@ -93,14 +103,15 @@ export function ObserveErrorPanel({
       });
     return () => {
       cancelled = true;
+      controller.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groupBy, queryContext, requestKey]);
+  }, [groupBy, queryContext, requestKey, attempt, track]);
 
   if (!queryContext) {
     return <section role="status" className="rounded-lg border border-border bg-inset p-4 text-sm text-muted-foreground">{messages.observe.windowUnavailable}</section>;
   }
-  if (fragment.phase === "loading") {
+  if (fragment.phase === "loading" && !fragment.data) {
     return <section aria-busy="true" className="rounded-lg border border-border bg-inset p-4" />;
   }
   if (fragment.phase === "error" && fragment.data === null) {
@@ -137,11 +148,8 @@ export function ObserveErrorPanel({
   const data = fragment.data;
   return (
     <section className="flex flex-col gap-4" data-testid="observe-error-panel">
-      {fragment.stale ? (
-        <div role="status" className="rounded-lg border border-degraded/40 bg-degraded/10 p-3 text-sm text-foreground">
-          {messages.observe.staleDataNote}{fragment.error ? ` · ${fragment.error}` : ""}
-        </div>
-      ) : null}
+      <ObserveFragmentStamp generatedAt={data.generated_at} from={data.coverage.from_time} to={data.coverage.to_time} />
+      {(fragment.stale || contextError) && <OperatorStalenessBadge label={messages.observe.staleDataNote} reason={fragment.error ?? contextError ?? undefined} />}
       <div className="flex flex-wrap gap-2 text-sm">
         <span className="rounded-md bg-inset px-2 py-1 tabular-nums" data-testid="error-http-count">
           {messages.observe.httpFailedShort}: {data.summary.http_error_count}

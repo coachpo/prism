@@ -238,6 +238,7 @@ export const requestLogSearchSchema = z.object({
       "created_at",
       "display_status",
       "ttft_ms",
+      "elapsed_ms",
       "total_tokens",
       "total_cost_user_currency_micros",
     ])

@@ -18,6 +18,7 @@ import (
 	"github.com/coachpo/prism/backend/internal/domain/pidev"
 	"github.com/coachpo/prism/backend/internal/httpapi/management/connections"
 	"github.com/coachpo/prism/backend/internal/httpapi/management/responseutil"
+	"github.com/coachpo/prism/backend/internal/httpapi/runtime"
 	"github.com/coachpo/prism/backend/internal/platform/config"
 	platformcors "github.com/coachpo/prism/backend/internal/platform/cors"
 	profiledomain "github.com/coachpo/prism/backend/internal/profiledomain"
@@ -41,6 +42,9 @@ type Options struct {
 }
 
 type Service struct {
+	routeExplainer interface {
+		ExplainRoute(context.Context, int, string) (runtime.RouteExplanation, error)
+	}
 	pool                    *pgxpool.Pool
 	ownsPool                bool
 	now                     func() time.Time
@@ -117,6 +121,7 @@ func (s *Service) corsSnapshot() platformcors.Snapshot {
 // /models/{model_config_id}/catalog*. Catalog routes never invalidate runtime
 // planning; their admission specs declare none explicitly.
 func (s *Service) MountManagementRoutes(api chi.Router) {
+	s.mountBatchRoutes(api)
 	api.Post("/models/by-endpoints", s.handleModelsByEndpoints)
 	api.Get("/models/{model_config_id}/targets", s.handleListModelTargets)
 	api.Post("/models/{model_config_id}/targets", s.handleCreateModelTarget)
@@ -150,6 +155,7 @@ func (s *Service) MountManagementRoutes(api chi.Router) {
 	api.Put("/models/{model_config_id}", s.handleUpdateModel)
 	api.Delete("/models/{model_config_id}", s.handleDeleteModel)
 	api.Get("/models/by-endpoint/{endpoint_id}", s.handleModelsByEndpoint)
+	api.Get("/models/{model_config_id}/route-explanation", privateNoStore(s.handleRouteExplanation))
 	api.Get("/models/{model_config_id}/routing-diagnostics", s.handleGetRoutingDiagnostics)
 	api.Get("/models", s.handleListModels)
 	api.Get("/models/route-witnesses", s.handleGetRouteWitnesses)

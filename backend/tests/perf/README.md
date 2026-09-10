@@ -27,6 +27,11 @@ header of `bench.sh`. A quick smoke run:
 BENCH_DAYS=3 BENCH_PER_DAY=2000 ./bench.sh all
 ```
 
+For concurrent or independent runs, set `BENCH_CONTAINER`, `BENCH_WORK_DIR`,
+`BENCH_PORT`, and `BENCH_API_PORT` to names/paths/ports owned by that run.
+`up` replaces its named container and `down` removes its work directory; do not
+point these knobs at someone else’s resources.
+
 Requirements: `docker`, `go`, `python3`, `curl`.
 
 ## What it builds

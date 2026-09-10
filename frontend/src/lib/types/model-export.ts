@@ -9,7 +9,16 @@
 // `lib/types/model-catalog.ts`; the two sources are never merged into one
 // weak union.
 
+export interface ClientReadiness {
+ status: "ready" | "blocked";
+ blocking_reasons: string[];
+ repair_path: string;
+}
+
 export interface PiCatalogWire {
+ failure_code?: string;
+ fetched_at?: string;
+ checked_at?: string;
  revision?: string;
  status: "fresh" | "stale" | "unavailable";
  minimum_version?: string;
@@ -125,6 +134,7 @@ export interface ExportPriceRisk {
 }
 
 export interface ExportSourceModelRow {
+ readiness: ClientReadiness;
  model_config_id: number;
  model_id: string;
  api_family: string;
@@ -299,6 +309,7 @@ export interface PiModelReadIdentityWire {
 }
 
 export interface PiCatalogReadWire {
+ failure_code?: string;
  status: "fresh" | "stale" | "unavailable";
  revision?: string;
  minimum_version?: string;

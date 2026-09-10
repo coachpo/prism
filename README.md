@@ -22,7 +22,7 @@ A single Go binary, a React dashboard, and PostgreSQL are all it needs.
 
 Open **路由配置 → 模型配置 → 导出客户端配置**. Pi remains the default; choose **OpenCode** for OpenCode **1.18.27**. Enter the Prism gateway origin and a provider key (`prism`, or `prism-` followed by a lowercase letter or digit and then lowercase letters, digits, `_` or `-`). Select the eligible text entries and inspect **查看最终值与来源** before generating `opencode-prism.json`.
 
-OpenCode requires valid positive context and output limits. Missing or invalid limits block that model; follow the row's link to the existing models.dev metadata panel to bind or correct its saved values. Export never fetches a catalog or borrows Pi metadata. Prices are included only when every reachable target has the same complete standard USD price per million tokens. Tiered, peak/valley, missing or conflicting prices omit the whole cost group; OpenCode's possible zero estimate does not mean the model is free.
+OpenCode requires valid positive context and output limits. Missing or invalid limits block that model; open **修复元数据** in that row to bind or correct its saved values, then return to export after the source refreshes. Enter only limits supported by reliable model facts. Export never fetches a catalog or borrows Pi metadata. Prices are included only when every reachable target has the same complete standard USD price per million tokens. Tiered, peak/valley, missing or conflicting prices omit the whole cost group; OpenCode's possible zero estimate does not mean the model is free.
 
 **不嵌入密钥** writes `env: ["PRISM_API_KEY"]` and omits `apiKey`. Set the environment variable in the terminal that launches OpenCode, then load the downloaded file:
 
@@ -33,9 +33,19 @@ OPENCODE_CONFIG=/absolute/path/opencode-prism.json opencode
 
 Alternatively, enter a final key in the export dialog; the downloaded file then carries it explicitly. In OpenCode select `prism/<complete Prism model ID>` (for example `prism/codex/gpt-x` when that exact entry exists). A custom provider key replaces only the initial `prism` segment. Chat Completions, Responses (including `dual_native`), Anthropic Messages and Gemini use model-specific SDKs and URLs inside the same provider.
 
-To merge into an existing `opencode.json`, copy **provider 合并片段** into its singular `provider` object, preserving other provider keys. Pi's corresponding fragment belongs under plural `providers`. `OPENCODE_CONFIG` participates in OpenCode's normal configuration merge; it does not isolate existing user/project settings. Use a distinct provider key and check that existing settings do not override its models, credentials or URLs. Prism never edits client files or sets a default model automatically.
+To merge into an existing `opencode.json`, copy **provider 合并片段** into its singular `provider` object, preserving other provider keys. Pi's corresponding fragment belongs under plural `providers`. In Pi, repair an unready row's binding first, then explicitly select it once backend readiness is confirmed. `OPENCODE_CONFIG` participates in OpenCode's normal configuration merge; it does not isolate existing user/project settings. Use a distinct provider key and check that existing settings do not override its models, credentials or URLs. Prism never edits client files or sets a default model automatically.
 
 The [OpenCode format example](backend/internal/domain/modelexport/testdata/opencode_prism.golden.json) contains synthetic model metadata and no real key. Generate from your own Prism models for use. Gemini IDs that cannot survive its URL path grammar are explicitly unavailable for export; complete IDs containing `/` are retained for the body-based OpenAI and Anthropic protocols. Client inference defaults are not authored reasoning adaptations: custom variants, SDK options and interleaved reasoning are outside this export.
+
+## Personal workflow
+
+In model detail, open **采样时路由解释 → 采样 / 刷新** to inspect current published paths and exclusion reasons. The sample does not send a request and does not promise the next target. In **请求日志**, choose ingress duration or cost ordering, open the complete chain, and select two requests for metadata and explicitly loaded capture comparison. Cost groups remain separate; absent usage or price is never treated as free.
+
+The Models page offers bounded batch limit overrides, strategy assignment and target price-template assignment. Select objects, review every difference, explicitly confirm manual replacements, and apply. A conflict requires a new preview and leaves the whole batch unchanged.
+
+Save client export combinations or request views by name and use their JSON file import/export to move to another browser. Reconcile stale or instance-specific references before restoring. These files exclude credentials and request bodies; if browser storage fails, download the file to retain the preference.
+
+On a phone, start with the request summary and enter the full investigation. Observe's **最近活动** lists retained finalized ingress requests. Automatic refresh is off by default; choose 30 or 60 seconds when needed. Background tabs pause, outstanding reads prevent overlapping refreshes, and each fragment shows its own sampling time and stale state.
 
 ## Data attribution
 

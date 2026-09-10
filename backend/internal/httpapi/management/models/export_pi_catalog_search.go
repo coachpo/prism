@@ -77,9 +77,9 @@ func (s *Service) handleSearchPiCatalog(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	catalog, catalogStatus := s.piCatalogForRead(r.Context())
+	catalog, catalogStatus, catalogFailure := s.piCatalogForRead(r.Context())
 	if catalog == nil {
-		writeDomainError(w, r, s.corsSnapshot(), newPiDomainError(http.StatusServiceUnavailable, "pi_catalog_unavailable: no fetched or last-known-good pi.dev catalog is available to search", nil))
+		writeDomainError(w, r, s.corsSnapshot(), newPiDomainError(http.StatusServiceUnavailable, "pi_catalog_unavailable: "+catalogFailure, nil))
 		return
 	}
 	page, total := catalog.SearchModelIDs(query, expectedAPI, limit, requestBody.Offset)
@@ -93,6 +93,7 @@ func (s *Service) handleSearchPiCatalog(w http.ResponseWriter, r *http.Request) 
 		Truncated: requestBody.Offset+len(page) < total,
 		Selected:  false,
 		Catalog: piCatalogWire{
+			FailureCode:    catalogFailure,
 			Revision:       catalog.Revision,
 			Status:         catalogStatus,
 			MinimumVersion: catalog.MinimumVersion,

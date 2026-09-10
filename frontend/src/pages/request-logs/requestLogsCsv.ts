@@ -47,6 +47,8 @@ export function buildExportParams(
     ...buildRequestLogTimeParams(state),
     ...buildRequestLogFilterParams(state),
     view: state.view,
+    sort_by: state.sort_by,
+    sort_order: state.sort_order,
   } as StatsRequestParams;
 }
 

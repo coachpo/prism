@@ -1,3 +1,4 @@
+import { useObserveReadCycle } from "./observeReadCycleContext"
 import { useCallback, useEffect, useRef, useState, type FocusEvent, type RefObject } from "react"
 import { useAuth } from "@/context/useAuth"
 import {
@@ -50,6 +51,8 @@ function authModeForPhase(phase: { kind: string }): "enabled" | "disabled" | "un
 }
 
 export function useSetupCoordinator(options: SetupReadinessOptions = {}): SetupCoordinatorController {
+  const { track } = useObserveReadCycle()
+  const abortRef = useRef<AbortController | null>(null)
   const { phase } = useAuth()
   const [state, setState] = useState<SetupReadinessSnapshot>(createInitialSetupState)
   const [collapsed, setCollapsed] = useState(false)
@@ -66,10 +69,13 @@ export function useSetupCoordinator(options: SetupReadinessOptions = {}): SetupC
 
   const refresh = useCallback(() => {
     if (phase.kind !== "AUTHENTICATED" && phase.kind !== "AUTH_DISABLED") return
+    abortRef.current?.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
     const sequence = ++sequenceRef.current
     setState((previous) => ({ ...previous, phase: "loading", error: null }))
-    void fetchSetupReadiness(authModeForPhase(phase), optionsRef.current).then((next) => {
-      if (sequenceRef.current !== sequence) return
+    void track(fetchSetupReadiness(authModeForPhase(phase), { ...optionsRef.current, signal: controller.signal })).then((next) => {
+      if (controller.signal.aborted || sequenceRef.current !== sequence) return
       const ready = next.phase === "fresh" && next.route_configured_count === 4
       const cycleKey = next.route_witness_generation ?? "fresh-without-generation"
       if (!ready) {
@@ -100,9 +106,19 @@ export function useSetupCoordinator(options: SetupReadinessOptions = {}): SetupC
           if (decision === "collapse") setCollapsed(true)
         }
       }
-      setState(next)
+      setState(previous => next.phase !== "fresh" && previous.last_success_at
+        ? { ...previous, phase: "degraded", error: next.error, facts: previous.facts.map(fact => ({ ...fact, fetch_quality: "stale" })) }
+        : next)
+    }).catch((error: unknown) => {
+      if (controller.signal.aborted || sequenceRef.current !== sequence) return
+      setState(previous => ({
+        ...previous,
+        phase: previous.last_success_at ? "degraded" : "error",
+        error: error instanceof Error ? error.message : String(error),
+        facts: previous.facts.map(fact => ({ ...fact, fetch_quality: previous.last_success_at ? "stale" : "error" })),
+      }))
     })
-  }, [phase])
+  }, [phase, track])
 
   useEffect(() => {
     let active = true
@@ -123,6 +139,7 @@ export function useSetupCoordinator(options: SetupReadinessOptions = {}): SetupC
     })
     return () => {
       active = false
+      abortRef.current?.abort()
     }
   }, [phase.kind, phase.session_epoch, refresh])
 

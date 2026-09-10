@@ -57,6 +57,7 @@ export function useRequestLogIngressChains({
   const [nextChainCursor, setNextChainCursor] = useState<string | null>(null);
   const [hasMoreChains, setHasMoreChains] = useState(false);
   const [chains, setChains] = useState<ChainIngressItem[]>([]);
+  const [ranking, setRanking] = useState<ChainResponse["ranking"] | null>(null);
   const [chainPageCounts, setChainPageCounts] = useState<ChainPageCounts>({
     ingress: 0,
     attempts: 0,
@@ -139,6 +140,7 @@ export function useRequestLogIngressChains({
         }
         setItems(flattenChainItems(chain));
         setChains(chain.items);
+        setRanking(chain.ranking ?? null);
         setTotal(chain.retained_ingress_total);
         setNextChainCursor(chain.next_chain_cursor);
         setHasMoreChains(chain.has_more_chains);
@@ -170,6 +172,7 @@ export function useRequestLogIngressChains({
         if (!stale) {
           setItems([]);
           setChains([]);
+          setRanking(null);
           setTotal(0);
           setNextChainCursor(null);
           setHasMoreChains(false);
@@ -308,6 +311,7 @@ export function useRequestLogIngressChains({
     : null;
 
   return {
+    ranking: enabled && loadedPageSignatureRef.current === currentSignature ? ranking : null,
     chainPageCounts: enabled
       ? chainPageCounts
       : { ingress: 0, attempts: 0, rows: 0 },

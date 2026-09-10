@@ -40,6 +40,7 @@ func assembleOpenCodeSourceResponse(facts modelexport.OpenCodeSourceFacts, diges
 		prices := exportPricingSnapshots(fact.Targets)
 		decision := modelexport.DecideOpenCodePriceExport(prices)
 		response.Models = append(response.Models, openCodeSourceModelRow{
+			Readiness:     openCodeReadiness(fact),
 			ModelConfigID: fact.ModelConfigID, ModelID: fact.ModelID, APIFamily: fact.APIFamily,
 			DisplayName: fact.DisplayName, IsEnabled: fact.IsEnabled, DirectRequestEnabled: true,
 			Selectable: fact.Selectable, UnselectableReason: fact.UnselectableReason,

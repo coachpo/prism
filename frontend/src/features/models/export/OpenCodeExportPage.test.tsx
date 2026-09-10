@@ -1,5 +1,6 @@
+import { api } from "@/lib/api";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, render, screen, within } from "@testing-library/react";
+import { act, render, screen, within, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, it, vi } from "vitest";
 import { LocaleProvider } from "@/i18n/LocaleProvider";
@@ -16,6 +17,7 @@ vi.mock("@tanstack/react-router", () => ({ useNavigate: () => vi.fn(), useSearch
 
 function sourceFixture(): OpenCodeExportSourceResponse {
   return { target_version: "1.18.27", source_digest: "a".repeat(64), models: [{
+    readiness: { status: "ready", blocking_reasons: [], repair_path: "/route/models/9" },
     model_config_id: 9, model_id: "team/model", display_name: "演示模型", api_family: "openai", is_enabled: true, direct_request_enabled: true, selectable: true,
     npm: "@ai-sdk/openai", api_path: "/v1", source_metadata: { reasoning: true, limit_context: 64000, limit_output: 8000 }, override_metadata: { reasoning: false, limit_input: 0 },
     merged_metadata: { name: "演示模型", reasoning: false, limit_context: 64000, limit_input: 0, limit_output: 8000 }, metadata_provenance: { name: "prism_display_name", reasoning: "models_dev_override", limit_context: "models_dev_source", limit_input: "models_dev_override" },
@@ -69,7 +71,7 @@ it("isolates delayed source reads across target switches and adopts only the new
   expect(fetchOpenCodeExportSource).toHaveBeenCalledTimes(2);
 });
 
-it("shows explicit false, zero, missing evidence and a link to the existing metadata editor", async () => {
+it("shows explicit false, zero, missing evidence and an action to the existing metadata editor", async () => {
   const user = userEvent.setup();
   const fixture = sourceFixture();
   fixture.models[0].selectable = false;
@@ -83,7 +85,7 @@ it("shows explicit false, zero, missing evidence and a link to the existing meta
   expect(within(reasoning).getByText("models.dev 人工覆盖")).toBeVisible();
   expect(within(row).getAllByText("0")).toHaveLength(2);
   expect(within(row).getByText(/无有效来源/)).toBeVisible();
-  expect(within(row).getByRole("link", { name: /补全 models.dev 元数据/ })).toHaveAttribute("href", "/route/models/9");
+  expect(within(row).getByRole("button", { name: /补全 models.dev 元数据/ })).toBeEnabled();
   expect(within(row).getByRole("checkbox")).toBeDisabled();
   expect(screen.getByRole("button", { name: /生成配置文件/ })).toBeDisabled();
 });
@@ -160,4 +162,27 @@ it("keeps failed source reads distinct from empty state and retains labeled last
   await user.click(screen.getByRole("button", { name: "刷新导出源" }));
   expect(screen.queryByText(/上次成功刷新/)).toBeNull();
   expect(screen.getByRole("button", { name: /生成配置文件/ })).toBeEnabled();
+});
+
+
+it("keeps selection when repairing in place and reconciles a concurrent invalidation on return", async () => {
+  const user = userEvent.setup();
+  const catalog = vi.spyOn(api.models.catalog, "get").mockResolvedValue({ bound: false, source: null, override: null, effective: null });
+  mount();
+  const row = await chooseOpenCode(user);
+  expect(within(row).getByRole("checkbox")).toBeChecked();
+  await user.click(within(row).getByRole("button", { name: "修复元数据" }));
+  expect(await screen.findByText("修复客户端接入资料")).toBeVisible();
+  expect(screen.getByRole("button", { name: /生成配置文件/ })).toBeDisabled();
+  expect(within(row).getByRole("checkbox")).toBeChecked();
+  const changed = sourceFixture();
+  changed.source_digest = "c".repeat(64);
+  changed.models[0].selectable = false;
+  changed.models[0].unselectable_reason = "invalid_metadata_limits";
+  vi.mocked(fetchOpenCodeExportSource).mockResolvedValue(changed);
+  await user.click(screen.getByRole("button", { name: "返回导出" }));
+  await waitFor(() => expect(within(screen.getByTestId("opencode-export-row-9")).getByRole("checkbox")).toBeDisabled());
+  expect(within(screen.getByTestId("opencode-export-row-9")).getByRole("checkbox")).not.toBeChecked();
+  expect(screen.getByRole("button", { name: /生成配置文件/ })).toBeDisabled();
+  catalog.mockRestore();
 });

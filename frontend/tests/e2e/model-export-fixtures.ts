@@ -2,7 +2,7 @@ import type { Page } from "@playwright/test";
 import { openCodeRenderPayload, openCodeSource } from "./opencode-export-fixtures";
 
 function sourceModel(overrides: Record<string, unknown> = {}) {
-  return {
+  const row = {
     model_config_id: 3,
     model_id: "gpt-x",
     api_family: "openai",
@@ -55,6 +55,7 @@ function sourceModel(overrides: Record<string, unknown> = {}) {
     pi_binding_renderable: false,
     ...overrides,
   };
+  return { ...row, readiness: { status: row.selectable && row.pi_binding_renderable ? "ready" : "blocked", blocking_reasons: row.pi_binding_renderable ? [] : ["pi_binding_required"], repair_path: `/route/models/${row.model_config_id}` } };
 }
 
 const catalogWire = {
@@ -126,8 +127,8 @@ export const renderPayload = {
   warnings: [],
 };
 
-export async function installExportRoutes(page: Page) {
-  let bound = false;
+export async function installExportRoutes(page: Page, options: { initiallyBound?: boolean } = {}) {
+  let bound = options.initiallyBound ?? false;
   const outbound: string[] = [];
   const unexpectedApi: string[] = [];
   const pageErrors: string[] = [];

@@ -387,6 +387,12 @@ export interface FinalizedSummary {
 }
 
 export interface ChainIngressItem {
+  ranking?: {
+    metric: "elapsed_ms" | "total_cost_user_currency_micros";
+    value: number | null;
+    group: string;
+    state: "ranked" | "missing_elapsed" | "missing_finalized" | "untrusted_cost" | "unknown_currency";
+  };
   ingress_request_id: string;
   started_at: string | null;
   completed_at: string | null;
@@ -413,7 +419,15 @@ export interface ChainIngressItem {
   order_evidence_state?: string;
 }
 
+export interface ChainRankingCoverage {
+  metric: "elapsed_ms" | "total_cost_user_currency_micros";
+  rankable_ingress_count: number;
+  unrankable_ingress_count: number;
+  unrankable_reasons: Record<"missing_finalized" | "missing_elapsed" | "untrusted_cost" | "unknown_currency", number>;
+}
+
 export interface ChainResponse {
+  ranking?: ChainRankingCoverage;
   view: "ingress_chains";
   query_context: string | null;
   source_ingress_total: number | null;

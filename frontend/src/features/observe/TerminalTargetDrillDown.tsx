@@ -1,4 +1,6 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useId } from "react";
+import { useTerminalTargetDetails, type TerminalTargetScope } from "./useTerminalTargetDetails";
+import { useTimezone } from "@/hooks/useTimezone";
 import { Link } from "@tanstack/react-router";
 import { ChevronDown, ChevronRight, RefreshCw } from "lucide-react";
 import { useLocale } from "@/i18n/useLocale";
@@ -12,26 +14,16 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { api } from "@/lib/api";
-import { ApiError } from "@/lib/api/request";
 import type { TerminalTargetStatistic, TerminalTargetStatisticsResponse } from "@/lib/api/observability";
-import type { Endpoint } from "@/lib/types";
 import type { ObservePreset } from "@/features/observe/observeSearch";
 import {
   OperatorClippedBadge,
   OperatorMissingValue,
   OperatorValueBadge,
+  OperatorStalenessBadge,
 } from "@/shared/design-system";
 import { useReportingCurrencyContext } from "@/context/ReportingCurrencyContext";
 import { formatMoneyMicros } from "@/lib/costing";
-
-type TerminalTargetScope = "final_execution" | "route_attempt";
-
-type EndpointDetail = {
-  phase: "loading" | "ready" | "error";
-  error: string | null;
-  response: TerminalTargetStatisticsResponse | null;
-};
 
 /**
  * Bounded Terminal Target drill-down (OB-28..33): expanding an Endpoint row
@@ -61,92 +53,9 @@ export function TerminalTargetDrillDown({
 }) {
   const { messages } = useLocale();
   const scopeLabelId = useId();
-  const [endpoints, setEndpoints] = useState<Endpoint[]>([]);
-  const [expanded, setExpanded] = useState<ReadonlySet<number>>(
-    () => new Set(),
-  );
-  const [details, setDetails] = useState<ReadonlyMap<number, EndpointDetail>>(
-    () => new Map(),
-  );
-  // Every detail belongs to one attribution basis. A scope change invalidates
-  // the whole set, so in-flight reads from the previous basis are discarded.
-  const scopeGenerationRef = useRef(0);
-  // A failed endpoint read is not "there are no endpoints". Collapsing the two
-  // told the operator a fact about their deployment that was never established.
-  const [endpointsFailed, setEndpointsFailed] = useState(false);
-  const [endpointsReloadKey, setEndpointsReloadKey] = useState(0);
-
-  useEffect(() => {
-    let cancelled = false;
-    void api.endpoints
-      .list()
-      .then((items) => {
-        if (!cancelled) {
-          setEndpoints(items);
-          setEndpointsFailed(false);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setEndpoints([]);
-          setEndpointsFailed(true);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [endpointsReloadKey]);
-
-  const putDetail = (endpointId: number, detail: EndpointDetail) => {
-    setDetails((current) => new Map(current).set(endpointId, detail));
-  };
-
-  const load = (endpointId: number, requestedScope: TerminalTargetScope) => {
-    const generation = scopeGenerationRef.current;
-    putDetail(endpointId, { phase: "loading", error: null, response: null });
-    void api.stats
-      .endpointTerminalTargets(endpointId, { preset, scope: requestedScope })
-      .then((data) => {
-        if (generation !== scopeGenerationRef.current) return;
-        putDetail(endpointId, {
-          phase: "ready",
-          error: null,
-          response: data,
-        });
-      })
-      .catch((err: unknown) => {
-        if (generation !== scopeGenerationRef.current) return;
-        const retryAfter = err instanceof ApiError ? err.retryAfterMs : null;
-        putDetail(endpointId, {
-          phase: "error",
-          error: err instanceof Error ? err.message : String(err),
-          response: null,
-        });
-        void retryAfter;
-      });
-  };
-
-  const changeScope = (nextScope: TerminalTargetScope) => {
-    if (nextScope === scope) return;
-    scopeGenerationRef.current += 1;
-    onScopeChange(nextScope);
-    setDetails(new Map());
-    for (const endpointId of expanded) load(endpointId, nextScope);
-  };
-
-  const toggleEndpoint = (endpointId: number) => {
-    const nextExpanded = new Set(expanded);
-    if (nextExpanded.has(endpointId)) {
-      nextExpanded.delete(endpointId);
-      setExpanded(nextExpanded);
-      return;
-    }
-    nextExpanded.add(endpointId);
-    setExpanded(nextExpanded);
-    const detail = details.get(endpointId);
-    // A row already read under this basis re-opens without another read.
-    if (!detail || detail.phase === "error") load(endpointId, scope);
-  };
+  const { endpoints, endpointsFailed, retryEndpoints, expanded, details, load, toggleEndpoint } = useTerminalTargetDetails(preset, scope);
+  const { format } = useTimezone();
+  const changeScope = (nextScope: TerminalTargetScope) => { if (nextScope !== scope) onScopeChange(nextScope); };
 
   return (
     <section
@@ -194,11 +103,7 @@ export function TerminalTargetDrillDown({
             <Button
               variant="outline"
               size="sm"
-              onClick={() => {
-                setEndpointsFailed(false);
-                setEndpoints([]);
-                setEndpointsReloadKey((key) => key + 1);
-              }}
+              onClick={retryEndpoints}
             >
               <RefreshCw className="mr-1 h-3 w-3" />
               {messages.observe.retry}
@@ -236,7 +141,11 @@ export function TerminalTargetDrillDown({
                   {endpointLabel}
                 </span>
                 {detail?.response ? (
-                  <EndpointSummary response={detail.response} scope={scope} />
+                  <span className="flex flex-col items-end gap-1">
+                    <EndpointSummary response={detail.response} scope={scope} />
+                    <span className="text-xs text-muted-foreground">{messages.observe.fragmentSampled}：<span className="font-mono tabular-nums">{format(detail.response.generated_at)}</span></span>
+                    {detail.phase === "error" && <OperatorStalenessBadge label={messages.observe.staleDataNote} reason={detail.error ?? undefined} />}
+                  </span>
                 ) : null}
                 <span className="font-mono text-xs text-muted-foreground">
                   {endpoint.base_url}
@@ -249,14 +158,16 @@ export function TerminalTargetDrillDown({
                   aria-labelledby={panelLabelId}
                   className="border-t border-border px-3 py-2"
                 >
-                  {!detail || detail.phase === "loading" ? (
+                  {detail?.response && <p className="text-xs text-muted-foreground">{messages.observe.fragmentSampled}：{format(detail.response.generated_at)}；{format(detail.response.coverage.effective_from_time)} — {format(detail.response.coverage.effective_to_time)}</p>}
+                  {detail?.phase === "error" && detail.response && <OperatorStalenessBadge label={messages.observe.staleDataNote} reason={detail.error ?? undefined} />}
+                  {!detail || (detail.phase === "loading" && !detail.response) ? (
                     <p
                       className="text-xs text-muted-foreground"
                       aria-busy="true"
                     >
                       {messages.observe.ttDrillDownLoading}
                     </p>
-                  ) : detail.phase === "error" ? (
+                  ) : detail.phase === "error" && !detail.response ? (
                     <div
                       className="flex items-center gap-2"
                       data-testid="tt-drilldown-error"
@@ -266,7 +177,7 @@ export function TerminalTargetDrillDown({
                         variant="outline"
                         size="sm"
                         className="h-7 text-xs"
-                        onClick={() => load(endpoint.id, scope)}
+                        onClick={() => load(endpoint.id)}
                       >
                         <RefreshCw className="size-3" />
                         {messages.observe.retry}

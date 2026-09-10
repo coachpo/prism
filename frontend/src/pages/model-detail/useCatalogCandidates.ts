@@ -1,3 +1,4 @@
+import { catalogFailureMessage } from "@/features/models/catalog/catalogFailureMessage";
 import { useCallback, useEffect, useState } from "react";
 
 import { api } from "@/lib/api";
@@ -110,8 +111,8 @@ export function useCatalogCandidates(
     phase: pager.phase,
     replacing: pager.replacing,
     appending: pager.appending,
-    error: pager.error,
-    appendError: pager.appendError,
+    error: pager.error ? catalogFailureMessage(pager.error) : null,
+    appendError: pager.appendError ? catalogFailureMessage(pager.appendError) : null,
     hasMore: pager.hasMore,
     revision: pager.revision,
     revisionRolledOver: pager.revisionRolledOver,

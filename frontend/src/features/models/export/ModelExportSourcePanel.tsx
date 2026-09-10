@@ -1,3 +1,4 @@
+import { CatalogReadFeedback } from "./CatalogReadFeedback";
 import { useLocale } from "@/i18n/useLocale";
 import {
   OperatorErrorState,
@@ -55,6 +56,7 @@ export function ModelExportSourcePanel({
           reason={String(sourceQuery.error)}
         />
       ) : null}
+      {source ? <CatalogReadFeedback catalog={source.catalog} pending={sourceQuery.isFetching} onRetry={() => void sourceQuery.refetch()} /> : null}
       {source && (
         <ModelExportModelTable
           controller={controller}

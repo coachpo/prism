@@ -155,7 +155,7 @@ func (c *Client) fetchOnce(ctx context.Context) (*Catalog, error) {
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrCatalogUnavailable, err)
+		return nil, fmt.Errorf("%w: %w", ErrCatalogUnavailable, err)
 	}
 	defer func() {
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<16))
@@ -183,23 +183,23 @@ func (c *Client) fetchOnce(ctx context.Context) (*Catalog, error) {
 	contentType := strings.TrimSpace(resp.Header.Get("Content-Type"))
 	mediaType, _, err := mime.ParseMediaType(contentType)
 	if err != nil || !strings.EqualFold(mediaType, "application/json") {
-		return nil, fmt.Errorf("%w: unexpected content-type %q; application/json is required", ErrCatalogUnavailable, contentType)
+		return nil, fmt.Errorf("%w: %w: unexpected content-type %q; application/json is required", ErrCatalogUnavailable, ErrCatalogFormat, contentType)
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, MaxCatalogBytes+1))
 	if err != nil {
-		return nil, fmt.Errorf("%w: read body: %v", ErrCatalogUnavailable, err)
+		return nil, fmt.Errorf("%w: read body: %w", ErrCatalogUnavailable, err)
 	}
 	if len(body) > MaxCatalogBytes {
-		return nil, fmt.Errorf("%w: body exceeds %d byte budget", ErrCatalogUnavailable, int64(MaxCatalogBytes))
+		return nil, fmt.Errorf("%w: %w: body exceeds %d byte budget", ErrCatalogUnavailable, ErrCatalogTooLarge, int64(MaxCatalogBytes))
 	}
 	// Quick HTML detection even if content-type lied
 	trimmed := strings.TrimSpace(string(body))
 	if strings.HasPrefix(strings.ToLower(trimmed), "<!doctype html") || strings.HasPrefix(strings.ToLower(trimmed), "<html") {
-		return nil, fmt.Errorf("%w: body looks like HTML, not JSON", ErrCatalogUnavailable)
+		return nil, fmt.Errorf("%w: %w: body looks like HTML, not JSON", ErrCatalogUnavailable, ErrCatalogFormat)
 	}
 	providers, err := parseCatalog(body)
 	if err != nil {
-		return nil, fmt.Errorf("%w: schema violation: %v", ErrCatalogUnavailable, err)
+		return nil, fmt.Errorf("%w: %w: schema violation: %v", ErrCatalogUnavailable, ErrCatalogFormat, err)
 	}
 	etag := strings.TrimSpace(resp.Header.Get("ETag"))
 	revision := strings.TrimSpace(resp.Header.Get("X-Pi-Model-Catalog-Revision"))
@@ -213,7 +213,7 @@ func (c *Client) fetchOnce(ctx context.Context) (*Catalog, error) {
 	bodySum := sha256.Sum256(body)
 	expectedRevision := "sha256-" + hex.EncodeToString(bodySum[:])
 	if revision == "" || revision != expectedRevision {
-		return nil, fmt.Errorf("%w: catalog revision header %q does not match the response body's SHA-256 %q", ErrCatalogUnavailable, revision, expectedRevision)
+		return nil, fmt.Errorf("%w: %w: catalog revision header %q does not match the response body's SHA-256 %q", ErrCatalogUnavailable, ErrCatalogChecksum, revision, expectedRevision)
 	}
 	if minVersion != "" {
 		if err := validateMinimumVersion(minVersion); err != nil {

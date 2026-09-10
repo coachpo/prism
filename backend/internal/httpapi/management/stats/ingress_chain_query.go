@@ -153,8 +153,8 @@ func parseChainQueryParams(r *http.Request, profileID int) (statsdomain.ChainQue
 	if params.SortBy == "" {
 		params.SortBy = "created_at"
 	}
-	if params.SortBy != "created_at" {
-		return statsdomain.ChainQueryParams{}, &statsdomain.HTTPError{StatusCode: http.StatusUnprocessableEntity, Code: "chain_sort_unsupported", Detail: "Ingress chain view only supports created_at sorting."}
+	if params.SortBy != "created_at" && params.SortBy != "elapsed_ms" && params.SortBy != "total_cost_user_currency_micros" {
+		return statsdomain.ChainQueryParams{}, &statsdomain.HTTPError{StatusCode: http.StatusUnprocessableEntity, Code: "chain_sort_unsupported", Detail: "Ingress chains support created_at, elapsed_ms and total_cost_user_currency_micros."}
 	}
 	params.SortOrder = strings.ToLower(strings.TrimSpace(r.URL.Query().Get("sort_order")))
 	params.ChainLimit, err = parsePositiveIntWithDefault(r, "chain_limit", 20)

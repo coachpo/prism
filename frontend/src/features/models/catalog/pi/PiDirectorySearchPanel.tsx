@@ -1,3 +1,4 @@
+import { catalogFailureMessage } from "../catalogFailureMessage";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -107,7 +108,7 @@ export function PiDirectorySearchPanel({
       ) : null}
       {ownsModel && search.activeQuery !== "" ? (
         <CatalogCandidatePicker
-          pager={pager}
+          pager={{ ...pager, error: pager.error ? catalogFailureMessage(pager.error) : null, appendError: pager.appendError ? catalogFailureMessage(pager.appendError) : null }}
           testIdPrefix="pi-directory"
           itemKey={piBindingCoordinateKey}
           renderCandidate={(candidate: PiCandidateWire) => (

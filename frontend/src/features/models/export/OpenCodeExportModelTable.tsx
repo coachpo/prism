@@ -1,3 +1,4 @@
+import { Button } from "@/components/ui/button";
 import { useLocale } from "@/i18n/useLocale";
 import { formatApiFamily } from "@/components/apiFamilyPresentation";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -16,8 +17,10 @@ import { exportWarningLabel } from "./exportWarningLabel";
 
 export function OpenCodeExportModelTable({
   source,
+  onRepair,
 }: {
   source: OpenCodeExportSourceState;
+  onRepair: (id: number) => void;
 }) {
   const { messages } = useLocale();
   const copy = messages.modelExportPage;
@@ -66,7 +69,7 @@ export function OpenCodeExportModelTable({
                 />
               </TableCell>
               <TableCell className="sticky left-12 z-10 bg-panel">
-                <span className="font-mono">{model.model_id}</span>
+                <a id={`opencode-model-${model.model_config_id}`} className="font-mono text-primary underline underline-offset-4" href={model.readiness?.repair_path ?? `/route/models/${model.model_config_id}`} target="_blank" rel="noreferrer">{model.model_id}</a>
                 {!model.selectable ? (
                   <p
                     className="whitespace-normal text-xs text-muted-foreground"
@@ -84,7 +87,9 @@ export function OpenCodeExportModelTable({
                 </p>
               </TableCell>
               <TableCell className="min-w-72 whitespace-normal">
-                <OpenCodeMetadataDetails model={model} />
+                <p>{model.readiness?.status === "ready" ? messages.clientReadiness.ready : model.readiness?.status === "blocked" ? messages.clientReadiness.blocked : null}</p>
+                <OpenCodeMetadataDetails model={model} onRepair={() => onRepair(model.model_config_id)} />
+                <Button variant="outline" size="sm" disabled={source.sourceActionsBlocked} onClick={() => onRepair(model.model_config_id)}>{messages.clientReadiness.repair}</Button>
               </TableCell>
               <TableCell className="max-w-80 whitespace-normal">
                 <p>
@@ -102,6 +107,7 @@ export function OpenCodeExportModelTable({
                     {exportWarningLabel(copy, warning)}
                   </p>
                 ))}
+                {!model.price_risk.exportable ? <a className="text-primary underline underline-offset-4" href={`/route/models/${model.model_config_id}`} target="_blank" rel="noreferrer">{messages.clientReadiness.priceRepair}</a> : null}
               </TableCell>
             </TableRow>
           ))}

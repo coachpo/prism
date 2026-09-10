@@ -37,11 +37,12 @@ test("export journey: bind Pi, inspect OpenCode metadata, and deliver isolated c
     "路由配置导出客户端配置",
   );
 
-  // Backend defaults preselect every selectable model.
+  // A structural entry with no ready binding stays visible but cannot be selected.
   const checkbox = page.getByRole("checkbox", { name: "codex/gpt-x" });
-  await expect(checkbox).toBeChecked();
+  await expect(checkbox).toBeDisabled();
+  await expect(checkbox).not.toBeChecked();
 
-  // Generation is blocked until the sole selected model is bound.
+  // Binding does not require selection; generation needs a ready selected model.
   const generateButton = page.getByRole("button", { name: /生成配置文件/ });
   await expect(generateButton).toBeDisabled();
 
@@ -107,6 +108,10 @@ test("export journey: bind Pi, inspect OpenCode metadata, and deliver isolated c
       new URL(response.url()).pathname === "/api/models/exports/pi/source",
   );
   await sourceRefetch;
+  await expect(checkbox).toBeEnabled();
+  await expect(checkbox).not.toBeChecked();
+  await expect(generateButton).toBeDisabled();
+  await checkbox.check();
   await expect(generateButton).toBeEnabled();
 
   // Generate through the final credential dialog without embedding keys.
@@ -162,8 +167,14 @@ test("export journey: bind Pi, inspect OpenCode metadata, and deliver isolated c
   await openCodeRow.getByText("查看最终值与来源", { exact: true }).click();
   await expect(openCodeRow.getByText("Catalog GPT X", { exact: true })).toBeVisible();
   await expect(openCodeRow.getByText("models.dev 人工覆盖").first()).toBeVisible();
-  await expect(openCodeRow.getByRole("link", { name: "到模型详情补全 models.dev 元数据" }))
-    .toHaveAttribute("href", "/route/models/3");
+  await page.route("**/api/models/3/catalog", async (route) => route.fulfill({ json: { bound: false, source: null, override: null, effective: null } }));
+  await openCodeRow.getByRole("button", { name: "到模型详情补全 models.dev 元数据" }).click();
+  await expect(page.getByText("修复客户端接入资料", { exact: true })).toBeVisible();
+  await expect(generateButton).toBeDisabled();
+  await expect(openCodeRow.getByRole("checkbox")).toBeChecked();
+  await page.getByRole("button", { name: "返回导出", exact: true }).click();
+  await expect(generateButton).toBeEnabled();
+  await expect(page).toHaveURL(/\/route\/models\/export/);
   await expect(page.getByText(/OpenCode 可能显示零估算，这不等于免费/)).toBeVisible();
   await page.locator("#export-model-search").fill("codex/");
   await expect(missingLimits).toHaveCount(0);

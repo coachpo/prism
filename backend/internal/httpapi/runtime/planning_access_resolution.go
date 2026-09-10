@@ -443,6 +443,7 @@ func (s *Service) resolveTerminalTargetFromRoutingPlan(profileID int, routingPla
 		SelectedTerminalTargetID: intPtr(resolvedConnection.ID),
 		Connections:              []runtimeConnection{resolvedConnection},
 		TerminalAttempts: []runtimeTerminalAttempt{{
+			ModelPath:                 cloneRuntimeModelPath(ctx.ConsideredModelPath),
 			TargetModel:               sourceModel,
 			Connection:                resolvedConnection,
 			Strategy:                  strategy,

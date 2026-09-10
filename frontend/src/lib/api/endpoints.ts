@@ -12,7 +12,7 @@ import type {
 import { request } from "./request";
 
 export const endpoints = {
-  list: () => request<Endpoint[]>("/api/endpoints"),
+  list: (signal?: AbortSignal) => request<Endpoint[]>("/api/endpoints", { signal }),
   connections: () =>
     request<ConnectionDropdownResponse>("/api/endpoints/connections"),
   create: (data: EndpointCreate) =>

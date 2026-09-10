@@ -1,3 +1,4 @@
+import { ExportPresetsPanel } from "./ExportPresetsPanel";
 import { useState, type ReactNode } from "react";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
@@ -103,6 +104,7 @@ function PiExportPage({ targetControl }: { targetControl: ReactNode }) {
           />
         ) : null}
 
+        <ExportPresetsPanel client="pi" models={source.sourceQuery.data?.models ?? []} selectedIds={source.selectedIds} gatewayOrigin={render.gatewayOrigin} providerId={render.providerId} blocked={source.sourceActionsBlocked} onApply={(ids, destination) => { source.replaceSelection(ids); render.setGatewayOrigin(destination.gatewayOrigin); render.setProviderId(destination.providerId); }} />
         <ModelExportDestinationPanel
           gatewayOrigin={render.gatewayOrigin}
           gatewayOriginInvalid={render.gatewayOriginInvalid}
@@ -112,6 +114,7 @@ function PiExportPage({ targetControl }: { targetControl: ReactNode }) {
           providerIdInvalid={render.providerIdInvalid}
         />
 
+        <OperatorCallout intent="muted" description={messages.clientReadiness.piSelectionHint} />
         <ModelExportSelectionPanel sourceState={source} />
         <ModelExportSourcePanel
           controller={piController}

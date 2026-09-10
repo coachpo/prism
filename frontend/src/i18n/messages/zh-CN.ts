@@ -1,6 +1,29 @@
+import { routeExplanationMessages } from "./routeExplanation";
+import { chainRankingMessages } from "./chainRanking";
+import { preferenceMessages } from "./preferences";
 type MessageArg = string | number | null | undefined;
 
 export const zhCNMessages = {
+  routeExplanation: routeExplanationMessages,
+  chainRanking: chainRankingMessages,
+  requestComparison: {
+    captureComplete: "采集已完整结束", captureIncomplete: "采集未完整结束或结束证据缺失", runtimeBytes: "来源：运行时原始字节", legacyBytes: "来源：历史或未知采集方式", filters: "展开筛选条件", loading: "正在读取请求证据…", title: "比较两次请求", open: "打开请求比较", close: "关闭比较", left: "基准请求 A", right: "对照请求 B",
+    select: "选择已保留请求", capture: "选择捕获记录与层", load: "读取所选捕获", cancel: "取消正文读取",
+    request: "请求方向", response: "响应方向", direction: "比较方向", noSelection: "先选择两个不同的请求，再按需读取各自捕获。",
+    scope: "只比较所选记录的保留文本。读取捕获会取得该记录的双向正文，但仅展示所选方向；不会发送复现请求。",
+    retainedScope: "SSE 按保留事件原文比较；工具参数可能只是片段，不代表完整调用。图片引用和编码文本仅比较文本，不比较图像或二进制语义。",
+    missing: "没有可比较的保留正文；可能未捕获、已过保留期或被预算省略。", binary: "二进制、无效编码或非文本内容：不能进行文本比较。",
+    truncated: "已截断：仅比较保留前缀", complete: "保留内容（完整度仍以捕获记录为准）", empty: "正文已存储但为空",
+    same: "所选方向的保留文本相同（不代表完整请求相同）", different: "所选方向的保留文本不同", incomplete: "两边均取得可读正文后才显示差异；单边内容仍可调查。",
+    unavailable: "请求或捕获证据不可用，请重试或选择其他记录。", coverage: "审计窗口覆盖不完整，缺失记录不能视为从未捕获。",
+    more: "下一页捕获", first: "返回首批捕获", metadata: "请求元数据", model: "入口模型", target: "尝试目标", status: "结果状态码", duration: "本行耗时", time: "请求时间",
+    upstream: "上游尝试", gateway: "网关处理", legacy: "历史记录", record: (id: MessageArg) => `捕获 #${id}`,
+    diffScope: "逐行对齐原文；− 为 A，+ 为 B。长内容仅显示前 200 行，每行最多 2,000 字符；不推断省略部分。", diff: "保留文本差异",
+    mobileTitle: "入口请求摘要", investigate: "进入完整调查", audit: "查看审计", attempts: (count: MessageArg) => `已保留 ${count} 次尝试`,
+    missingDuration: "缺少权威入口起止时间", missingCost: "没有可信的已知成本或币种证据", missingFinal: "最终结果证据缺失", unknownModel: "入口模型证据缺失",
+    cost: "已知成本", elapsed: "入口耗时", completeChain: "展开完整链表", previous: "上一页入口", next: "下一页入口",
+  },
+  preferences: preferenceMessages,
   auth: {
     authenticating: "认证中...",
     keepSignedInFor: "保持登录时长",
@@ -4352,6 +4375,17 @@ export const zhCNMessages = {
     system: "跟随系统",
   },
   observe: {
+    autoRefreshLabel: "主动刷新",
+    autoRefreshOff: "关闭（默认）",
+    autoRefresh30: "每 30 秒",
+    autoRefresh60: "每 60 秒",
+    autoRefreshWaiting: "读取未完成时等待，不叠加刷新",
+    autoRefreshPaused: "后台已暂停",
+    recentActivityEntry: "最近活动",
+    fragmentSampled: "采样时间",
+    fragmentRange: "数据范围",
+    setupReadCompleted: "配置读取完成",
+
     ttDrillDownDescription:
       "展开端点行才加载终端目标明细；未展开不发起高基数查询。",
     ttDrillDownTitle: "终端目标明细",
@@ -4742,6 +4776,7 @@ export const zhCNMessages = {
 
     // 异常工作台：排名与流水并置。
     workbenchStreamTitle: "匹配的请求流水",
+    workbenchSelectionExpired: "上次选择的错误已不在本轮排行中，请重新选择；这不代表保留范围之外没有该错误。",
     workbenchNoSelection:
       "尚未选择条目。选择左侧任一 HTTP 状态或流结果即可过滤。",
     workbenchSelectionHttp: (status: MessageArg) => `HTTP ${status}`,
@@ -4823,6 +4858,33 @@ export const zhCNMessages = {
     sseNoMessages: "没有可重组的消息。",
   },
 
+  clientReadiness: {
+    ready: "可导出",
+    blocked: "需要修复",
+    piNeedsRepair: "尚不可导出，请先修复 Pi 绑定或元数据",
+    missingEvidence: "就绪证据缺失，请刷新导出源",
+    piSelectionHint: "只有后端确认可导出的模型才能勾选。待修复模型可直接使用行内绑定操作；修复成功后请显式勾选。",
+    repair: "修复元数据",
+    repairTitle: "修复客户端接入资料",
+    modelRemoved: "该模型已删除或不再是入口模型。请返回导出重新选择。",
+    repairHint: "依据目录或已核实资料编辑限额；未知值请保留缺失。保存后重新读取导出资格，原有选择保留。",
+    back: "返回导出",
+    priceRepair: "检查目标价格",
+    rechecking: "正在重新读取导出资格",
+    recovered: "当前导出资格已通过后端校验；可返回表格选择该模型。",
+    failures: {
+      timeout: "目录读取超时。请重试。",
+      format: "目录格式或字段校验失败。请在目录恢复后重试。",
+      version: "目录版本不兼容当前 Pi 版本。请在兼容目录可用后重试。",
+      checksum: "目录内容校验失败，未接受该响应。请重试。",
+      too_large: "目录响应超过大小上限，未接受该响应。",
+      cancelled: "目录读取已取消，可重新读取。",
+      unavailable: "目录暂时不可用，请检查连接后重试。",
+    },
+    lastGood: "正在使用上次成功目录；旧绑定的导出资格独立校验。",
+    noCatalog: "尚无成功目录；已保存绑定仍可独立用于导出。",
+    catalogRecovered: "目录已成功读取并通过校验。",
+  },
   opencodeExport: {
     sourceActionsBlocked: "导出源读取失败，当前数据可能已陈旧；刷新成功后才能生成 OpenCode 配置。",
     targetLabel: "导出客户端",

@@ -1,3 +1,5 @@
+import { ObserveFragmentStamp } from "./ObserveFragmentStamp";
+import { useObserveReadCycle } from "./observeReadCycleContext";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
@@ -123,11 +125,17 @@ export function ObserveActivityTable({
   onPresetChange,
   preset,
   queryContext,
+  contextError,
+  onContextRetry,
 }: {
   onPresetChange?: (preset: ObservePreset) => void;
   preset: ObservePreset;
   queryContext: string | null;
+  contextError?: string | null;
+  onContextRetry?: () => void;
 }) {
+  const { track } = useObserveReadCycle();
+  const abortRef = useRef<AbortController | null>(null);
   const { formatNumber, messages } = useLocale();
   // 空态里唯一能给的下一步：预设表里紧挨着的下一档更宽窗口。
   const widerPreset = OBSERVE_PRESETS[OBSERVE_PRESETS.indexOf(preset) + 1];
@@ -138,27 +146,22 @@ export function ObserveActivityTable({
   // Server-reported 503 backoff, kept beside the paged state: it belongs to
   // this read's failure surface, not to the shared pagination contract.
   const [retryAfterMs, setRetryAfterMs] = useState<number | null>(null);
-  const [cursorStack, setCursorStack] = useState<string[]>([]);
+  const [cursorSnapshot, setCursorSnapshot] = useState<{ context: string | null; stack: string[] }>({ context: queryContext, stack: [] });
+  const cursorStack = cursorSnapshot.context === queryContext ? cursorSnapshot.stack : [];
+  const setCursorStack = (update: (stack: string[]) => string[]) => setCursorSnapshot(previous => ({ context: queryContext, stack: update(previous.context === queryContext ? previous.stack : []) }));
   // The last successfully loaded scope decides whether the next read replaces
   // committed rows or starts the list over.
   const loadedKeyRef = useRef<string | null>(null);
   const generationRef = useRef(0);
 
   const before = cursorStack.at(-1);
-  const scopeKey = `${queryContext ?? ""}:${before ?? ""}`;
-
-  // A new window invalidates every outstanding cursor: they were issued by a
-  // different signed context and do not address this window's rows.
-  const previousQueryContextRef = useRef(queryContext);
-  useEffect(() => {
-    if (previousQueryContextRef.current !== queryContext) {
-      previousQueryContextRef.current = queryContext;
-      setCursorStack([]);
-    }
-  }, [queryContext]);
+  const scopeKey = `${preset}:${before ?? ""}`;
 
   useEffect(() => {
     if (!queryContext) return;
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
     const generation = ++generationRef.current;
     const kind: PageReadKind =
       fragment.data === null || loadedKeyRef.current === null
@@ -168,8 +171,8 @@ export function ObserveActivityTable({
           : "replace";
     setFragment((current) => beginPagedRead(current, kind));
     let cancelled = false;
-    void observe
-      .observeActivity(queryContext, { limit: ACTIVITY_PAGE_SIZE, before })
+    void track(observe
+      .observeActivity(queryContext, { limit: ACTIVITY_PAGE_SIZE, before }, controller.signal))
       .then((data) => {
         if (cancelled || generation !== generationRef.current) return;
         loadedKeyRef.current = scopeKey;
@@ -190,13 +193,17 @@ export function ObserveActivityTable({
       });
     return () => {
       cancelled = true;
+      abortRef.current?.abort();
     };
     // fragment.data intentionally excluded: the read kind is decided first.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scopeKey, queryContext]);
+  }, [scopeKey, queryContext, track]);
 
   const retryRead = useCallback(() => {
     if (!queryContext) return;
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
     const generation = ++generationRef.current;
     setFragment((current) =>
       beginPagedRead(
@@ -204,10 +211,10 @@ export function ObserveActivityTable({
         current.readKind === "replace" ? "replace" : "refresh",
       ),
     );
-    void observe
-      .observeActivity(queryContext, { limit: ACTIVITY_PAGE_SIZE, before })
+    void track(observe
+      .observeActivity(queryContext, { limit: ACTIVITY_PAGE_SIZE, before }, controller.signal))
       .then((data) => {
-        if (generation !== generationRef.current) return;
+        if (controller.signal.aborted || generation !== generationRef.current) return;
         loadedKeyRef.current = scopeKey;
         setRetryAfterMs(null);
         setFragment((current) =>
@@ -219,12 +226,12 @@ export function ObserveActivityTable({
         );
       })
       .catch((err: unknown) => {
-        if (generation !== generationRef.current) return;
+        if (controller.signal.aborted || generation !== generationRef.current) return;
         const mapped = fragmentErrorFrom(err);
         setRetryAfterMs(mapped.retryAfterMs);
         setFragment((current) => failPagedRead(current, mapped.error));
       });
-  }, [before, queryContext, scopeKey]);
+  }, [before, queryContext, scopeKey, track]);
 
   const openRequests = useCallback(
     (item: ObserveActivityItem) => {
@@ -246,6 +253,7 @@ export function ObserveActivityTable({
   // non-table block carries the gutter itself.
   // 读失败后 phase 仍停在 idle：不排除 error 的话，错误分支永远轮不到，
   // 后端挂掉会被渲染成一块永远转不完的骨架。
+  if (!queryContext && contextError) return <OperatorErrorState title={messages.observe.windowUnavailable} details={contextError} action={<Button onClick={onContextRetry}>{messages.common.retry}</Button>} />;
   if (
     !queryContext ||
     (fragment.phase === "idle" && !fragment.reading && fragment.error === null)
@@ -303,6 +311,8 @@ export function ObserveActivityTable({
   if (items.length === 0 && fragment.phase === "empty" && !fragment.reading) {
     return (
       <div className="flex flex-col gap-2 px-[var(--density-card-pad-x)]">
+        <ObserveFragmentStamp generatedAt={fragment.data.generated_at} from={fragment.data.coverage.from_time} to={fragment.data.coverage.to_time} />
+        {contextError && <OperatorStalenessBadge label={messages.observe.staleDataNote} reason={contextError} />}
         {fragment.stale ? (
           <OperatorStalenessBadge
             label={messages.observe.staleDataNote}
@@ -339,6 +349,8 @@ export function ObserveActivityTable({
 
   return (
     <div className="flex flex-col gap-2">
+      <ObserveFragmentStamp generatedAt={fragment.data.generated_at} from={fragment.data.coverage.from_time} to={fragment.data.coverage.to_time} />
+      {contextError && <OperatorStalenessBadge label={messages.observe.staleDataNote} reason={contextError} />}
       {fragment.stale ? (
         <OperatorStalenessBadge
           className="mx-[var(--density-card-pad-x)] self-start"

@@ -14,7 +14,7 @@ import (
 // One consistent DB snapshot plus one best-effort pi.dev fetch outside the transaction.
 func (s *Service) handleGetPiExportSource(w http.ResponseWriter, r *http.Request) {
 	responseutil.SetPrivateNoStoreHeaders(w)
-	catalog, catalogStatus := s.piCatalogForRead(r.Context())
+	catalog, catalogStatus, catalogFailure := s.piCatalogForRead(r.Context())
 	response, err := pgxutil.InRepeatableReadTxValue(r.Context(), s.pool, "pi export source", func(tx pgx.Tx) (*piSourceResponse, error) {
 		profile, err := resolveEffectiveProfile(r.Context(), tx, r)
 		if err != nil {
@@ -49,6 +49,11 @@ func (s *Service) handleGetPiExportSource(w http.ResponseWriter, r *http.Request
 			return nil, err
 		}
 		resp.SourceDigest = digest
+		resp.Catalog.FailureCode = catalogFailure
+		if catalog != nil {
+			resp.Catalog.FetchedAt = &catalog.FetchedAt
+			resp.Catalog.CheckedAt = &catalog.CheckedAt
+		}
 		return resp, nil
 	})
 	if err != nil {

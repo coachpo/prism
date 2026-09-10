@@ -60,6 +60,7 @@ export function useRequestLogsPageData({
     chainPageStart: chains.chainPageStart,
     hasMoreChains: chains.hasMoreChains,
     chains: chains.chains,
+    ranking: chains.ranking,
     chainPageCounts: chains.chainPageCounts,
     coverage,
     readKind: active.readKind,

@@ -298,9 +298,10 @@ export const models = {
     request<RawModelConfigListItem[]>("/api/models").then((models) =>
       models.map(normalizeModelConfigListItem),
     ),
-  routeReadiness: () =>
+  routeReadiness: (signal?: AbortSignal) =>
     request<ModelRouteReadinessEnvelope<RawModelConfigListReadinessItem>>(
       "/api/models?include=route_readiness",
+      { signal },
     ).then((response) => ({
       items: response.items.map((model) => ({
         ...normalizeModelConfigListItem(model),

@@ -1,4 +1,5 @@
 import type {
+  ClientReadiness,
   ExportPriceRisk,
   ExportRenderResponse,
   ExportSourceTargetRow,
@@ -21,6 +22,7 @@ export interface OpenCodeExportMetadata {
 }
 
 export interface OpenCodeExportModelRow {
+  readiness: ClientReadiness;
   model_config_id: number;
   model_id: string;
   api_family: string;

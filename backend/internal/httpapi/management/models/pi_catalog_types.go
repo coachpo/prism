@@ -8,10 +8,13 @@ import (
 // search, and single-model management read. They carry discovery evidence
 // only; persisted binding and render authority remain separate.
 type piCatalogWire struct {
-	Revision       string `json:"revision,omitempty"`
-	Status         string `json:"status"` // fresh|stale|unavailable
-	MinimumVersion string `json:"minimum_version,omitempty"`
-	ETag           string `json:"etag,omitempty"`
+	FailureCode    string     `json:"failure_code,omitempty"`
+	FetchedAt      *time.Time `json:"fetched_at,omitempty"`
+	CheckedAt      *time.Time `json:"checked_at,omitempty"`
+	Revision       string     `json:"revision,omitempty"`
+	Status         string     `json:"status"` // fresh|stale|unavailable
+	MinimumVersion string     `json:"minimum_version,omitempty"`
+	ETag           string     `json:"etag,omitempty"`
 }
 
 type piCandidateWire struct {
@@ -63,6 +66,7 @@ type piCatalogSearchResponse struct {
 // revision was last revalidated (a 304 refreshes checked_at, not fetched_at).
 // When the catalog is unavailable the revision and timestamps stay absent.
 type piCatalogReadWire struct {
+	FailureCode    string     `json:"failure_code,omitempty"`
 	Status         string     `json:"status"` // fresh|stale|unavailable
 	Revision       string     `json:"revision,omitempty"`
 	MinimumVersion string     `json:"minimum_version,omitempty"`

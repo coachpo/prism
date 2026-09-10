@@ -16,6 +16,7 @@ const metadata = {
 };
 
 const pricedModel: OpenCodeExportModelRow = {
+  readiness: { status: "ready", blocking_reasons: [], repair_path: "/route/models/3" },
   model_config_id: 3,
   model_id: "codex/gpt-x",
   api_family: "openai",
@@ -76,6 +77,7 @@ export const openCodeSource: OpenCodeExportSourceResponse = {
   source_digest: "d".repeat(64),
   models: [pricedModel, {
     ...pricedModel,
+    readiness: { status: "blocked", blocking_reasons: ["invalid_metadata_limits"], repair_path: "/route/models/4" },
     model_config_id: 4,
     model_id: "limits-missing",
     display_name: "Limits Missing",

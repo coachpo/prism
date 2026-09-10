@@ -70,6 +70,7 @@ type ChainQueryParams struct {
 
 // ChainIngressItem is one outer-page item.
 type ChainIngressItem struct {
+	Ranking                      *ChainRanking     `json:"ranking,omitempty"`
 	IngressRequestID             string            `json:"ingress_request_id"`
 	StartedAt                    *time.Time        `json:"started_at"`
 	CompletedAt                  *time.Time        `json:"completed_at"`
@@ -225,6 +226,7 @@ type ChainRowItem struct {
 
 // ChainResponse is the outer-page envelope.
 type ChainResponse struct {
+	Ranking *ChainRankingCoverage `json:"ranking,omitempty"`
 	// View is the fixed view discriminator of the ingress-chain envelope.
 	View                         string                      `json:"view"`
 	QueryContext                 *string                     `json:"query_context"`
@@ -296,12 +298,16 @@ func ListIngressChains(ctx context.Context, exec queryExecutor, params ChainQuer
 	if params.ChainRowLimit > maxChainRowLimit {
 		params.ChainRowLimit = maxChainRowLimit
 	}
+	params.SortBy, err = normalizeChainSortBy(params.SortBy)
+	if err != nil {
+		return ChainResponse{}, err
+	}
 	sortOrder := strings.ToLower(strings.TrimSpace(params.SortOrder))
 	if sortOrder == "" {
 		sortOrder = "desc"
 	}
 	if sortOrder != "desc" && sortOrder != "asc" {
-		return ChainResponse{}, &HTTPError{StatusCode: 422, Code: "chain_sort_unsupported", Detail: "Ingress chain view only supports created_at asc|desc."}
+		return ChainResponse{}, &HTTPError{StatusCode: 422, Code: "chain_sort_unsupported", Detail: "Ingress chain sort_order must be asc or desc."}
 	}
 	params.SortOrder = sortOrder
 	cohortHash, err := chainCohortFingerprint(params)
@@ -383,7 +389,13 @@ func ListIngressChains(ctx context.Context, exec queryExecutor, params ChainQuer
 	}
 
 	// Build the ingest set from usage events with retained coverage.
-	ingresses, err := selectChainIngressSet(ctx, exec, params, cursor, hasCursor, sortOrder)
+	var ingresses []chainIngressRef
+	var rankingTotals *chainRankingTotals
+	if isChainRanking(params.SortBy) {
+		ingresses, rankingTotals, err = selectRankedChainIngressPage(ctx, exec, params, cursor, hasCursor, sortOrder)
+	} else {
+		ingresses, err = selectChainIngressSet(ctx, exec, params, cursor, hasCursor, sortOrder)
+	}
 	if err != nil {
 		return ChainResponse{}, err
 	}
@@ -475,6 +487,8 @@ func ListIngressChains(ctx context.Context, exec queryExecutor, params ChainQuer
 			OrderAt:             last.OrderAt.UTC().Format(time.RFC3339Nano),
 			IngressID:           last.IngressRequestID,
 			UsageEventID:        last.UsageEventID,
+			RankValue:           chainRankValue(last),
+			RankGroup:           chainRankGroup(last),
 			Limit:               params.ChainLimit,
 			SortOrder:           sortOrder,
 			CohortHash:          cohortHash,
@@ -491,14 +505,23 @@ func ListIngressChains(ctx context.Context, exec queryExecutor, params ChainQuer
 	if err := populateChainCoverage(ctx, exec, params, referenceNow, requestSource, requestActual, &response); err != nil {
 		return ChainResponse{}, err
 	}
-	// Full-cohort totals.
-	if err := fillChainTotals(ctx, exec, params, &response); err != nil {
+	// Metric ranking already scans the complete retained cohort. Its totals
+	// must come from that same materialization, before the cursor/page bound.
+	if rankingTotals != nil {
+		totals := rankingTotals
+		response.Ranking = totals.coverage(params.SortBy)
+		response.RetainedIngressTotal = totals.Ingresses
+		response.RetainedRequestLogRowTotal = totals.Rows
+		response.RetainedUpstreamAttemptTotal = totals.Upstream
+		response.LegacyUnknownRowTotal = totals.Legacy
+	} else if err := fillChainTotals(ctx, exec, params, &response); err != nil {
 		return ChainResponse{}, err
 	}
 	return response, nil
 }
 
 type chainIngressRef struct {
+	Ranking          *ChainRanking
 	IngressRequestID string
 	UsageEventID     int64
 	OrderAt          time.Time
@@ -520,7 +543,7 @@ func loadExactChainIngressItem(
 ) (ChainIngressItem, error) {
 	ids := []string{ingress.IngressRequestID}
 	// One chain, so the page span is this chain's own start plus the slack.
-	rowsFrom, rowsTo := chainPageRowBounds([]chainIngressRef{ingress})
+	rowsFrom, rowsTo := chainItemRowBounds(params, []chainIngressRef{ingress})
 	summaries, err := loadFinalizedSummaries(ctx, exec, params.ProfileID, ids, rowsFrom, rowsTo)
 	if err != nil {
 		return ChainIngressItem{}, err
@@ -558,7 +581,7 @@ func loadChainIngressItemsBatch(
 	// All three statements are bounded by the span this page actually covers
 	// instead of the whole retained history: the ingress IDs alone cannot
 	// prune partitions, and at retention scale planning dominates them.
-	rowsFrom, rowsTo := chainPageRowBounds(ingresses)
+	rowsFrom, rowsTo := chainItemRowBounds(params, ingresses)
 	summaries, err := loadFinalizedSummaries(ctx, exec, params.ProfileID, ids, rowsFrom, rowsTo)
 	if err != nil {
 		return nil, err
@@ -596,12 +619,13 @@ func assembleChainIngressItem(
 ) (ChainIngressItem, error) {
 	item := ChainIngressItem{
 		IngressRequestID:       ingress.IngressRequestID,
+		Ranking:                ingress.Ranking,
 		ElapsedEvidenceState:   "authoritative",
 		FinalizedEvidenceState: "authoritative",
 	}
 	if summary != nil {
 		item.FinalizedSummary = summary
-		if summary.IngressStartedAt != nil && summary.IngressCompletedAt != nil {
+		if summary.IngressStartedAt != nil && summary.IngressCompletedAt != nil && !summary.IngressCompletedAt.Before(*summary.IngressStartedAt) {
 			item.StartedAt = summary.IngressStartedAt
 			item.CompletedAt = summary.IngressCompletedAt
 			elapsed := summary.IngressCompletedAt.Sub(*summary.IngressStartedAt).Milliseconds()

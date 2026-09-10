@@ -25,9 +25,10 @@ export const pricingTemplates = {
     );
     return request<PricingTemplateListPage>(`/api/pricing-templates?${query}`);
   },
-  setupReadiness: (generation: string) =>
+  setupReadiness: (generation: string, signal?: AbortSignal) =>
     request<PricingSetupReadiness>(
       `/api/pricing-templates?limit=1&include=setup_readiness&expected_route_witness_generation=${encodeURIComponent(generation)}`,
+          { signal },
     ),
   get: (id: number) => request<PricingTemplate>(`/api/pricing-templates/${id}`),
   create: (data: PricingTemplateCreate) =>

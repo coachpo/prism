@@ -36,7 +36,7 @@ func (s *Service) requirePiCatalogClient(w http.ResponseWriter, r *http.Request)
 func piCatalogFetchFailed(err error) error {
 	return &domainError{
 		StatusCode: http.StatusBadGateway,
-		Detail:     fmt.Sprintf("pi_catalog_unavailable: %v", err),
+		Detail:     fmt.Sprintf("pi_catalog_unavailable: %s", pidev.FailureCode(err)),
 	}
 }
 

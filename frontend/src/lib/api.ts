@@ -1,6 +1,7 @@
 import { ApiError, getApiProfileId } from "./api/request";
 import { auth, settings } from "./api/authSettings";
 import { audit } from "./api/audit";
+import { batchMaintenance } from "./api/batchMaintenance";
 import { config } from "./api/configRules";
 import { connections } from "./api/connections";
 import { endpoints } from "./api/endpoints";
@@ -19,6 +20,7 @@ export { ApiError, getApiProfileId };
 export { stats } from "./api/observability";
 
 export const api = {
+  batchMaintenance,
   audit,
   auth,
   config,
@@ -40,3 +42,5 @@ export const api = {
   },
   stats,
 };
+
+export { routeExplanation } from "./api/routeExplanation";

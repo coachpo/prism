@@ -27,7 +27,7 @@ export function useOpenCodeExportSource() {
             (model) =>
               model.direct_request_enabled === true &&
               model.is_enabled &&
-              model.selectable,
+              model.selectable && model.readiness?.status !== "blocked",
           )
           .map((model) => model.model_config_id),
       ),
@@ -111,6 +111,7 @@ export function useOpenCodeExportSource() {
   };
 
   return {
+    replaceSelection: (ids: Set<number>) => setSelectedIds(new Set([...ids].filter((id) => selectableIds.has(id)))),
     sourceQuery,
     visibleModels,
     selectedIds,

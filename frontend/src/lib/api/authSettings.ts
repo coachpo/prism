@@ -45,9 +45,10 @@ export const settings = {
 		request<AuthOperationResult>(`/api/settings/auth/operations/${operationId}`),
     proxyKeys: {
       list: () => request<ProxyApiKeyListResponse>("/api/settings/auth/proxy-keys"),
-      setupReadiness: (generation: string) =>
+      setupReadiness: (generation: string, signal?: AbortSignal) =>
         request<ProxySetupReadiness>(
           `/api/settings/auth/proxy-keys?include=setup_readiness&expected_route_witness_generation=${encodeURIComponent(generation)}`,
+          { signal },
         ),
       create: (data: { name: string; notes?: string | null; expires_at?: string | null }) =>
         // no-store: the create response carries the one-time raw key and must

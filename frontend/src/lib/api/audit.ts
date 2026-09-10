@@ -17,5 +17,5 @@ export const audit = {
     const query = buildQuery({ ...params, request_log_id: requestLogId } as Record<string, string | number | boolean | null | undefined>);
     return request<AuditLogListResponse>(`/api/audit/logs${query ? `?${query}` : ""}`);
   },
-  get: (id: number) => request<AuditLogDetail>(`/api/audit/logs/${id}`),
+  get: (id: number, options?: { signal?: AbortSignal }) => request<AuditLogDetail>(`/api/audit/logs/${id}`, { signal: options?.signal }),
 };

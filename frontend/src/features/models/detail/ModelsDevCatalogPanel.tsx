@@ -1,3 +1,4 @@
+import { catalogFailureMessage } from "@/features/models/catalog/catalogFailureMessage";
 import { useCallback, useState } from "react";
 import { MoreHorizontal, RefreshCw } from "lucide-react";
 
@@ -81,7 +82,7 @@ export function ModelsDevCatalogPanel({
         done?.();
       } catch (cause) {
         onChanged();
-        onError?.(cause instanceof Error ? cause.message : String(cause));
+        onError?.(catalogFailureMessage(cause));
       } finally {
         setBusy(false);
       }

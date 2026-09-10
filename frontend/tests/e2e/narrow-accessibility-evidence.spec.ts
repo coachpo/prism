@@ -517,6 +517,9 @@ test("narrow ingress attempt chain scrolls inside its inset without widening the
 }) => {
   await page.setViewportSize(NARROW_VIEWPORT);
   await page.goto("/observe/requests?view=ingress_chains");
+  await expect(page.getByTestId("request-mobile-summary")).toBeVisible();
+  // Narrow browsing starts with summaries; the complete chain table remains explicit.
+  await page.getByRole("button", { name: "展开完整链表", exact: true }).click();
   const summary = page.getByTestId("chain-summary-ingress-101");
   await expect(summary).toBeVisible();
   await summary.getByRole("button", { expanded: false }).click();
@@ -538,6 +541,8 @@ test("narrow ingress attempt chain scrolls inside its inset without widening the
         document.documentElement.clientWidth + 1,
     ),
   ).toBe(true);
+  await page.getByTestId("chain-open-detail-ingress-101").click();
+  await expect(page.getByRole("dialog")).toBeVisible();
 });
 
 test("reduced motion preference does not break observe page rendering", async ({

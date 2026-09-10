@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
-import type { ExportSourceModelRow } from "@/lib/types";
+import type { ExportSourceModelRow, ExportSourceResponse } from "@/lib/types";
 import {
   piViewFromExportRow,
   type PiCatalogModelView,
@@ -61,7 +61,7 @@ export function useModelExportSource() {
     () =>
       new Set(
         models
-          .filter((m: ExportSourceModelRow) => m.direct_request_enabled === true && m.selectable)
+          .filter((m: ExportSourceModelRow) => m.direct_request_enabled === true && m.selectable && m.readiness?.status === "ready")
           .map((m: ExportSourceModelRow) => m.model_config_id),
       ),
     [models],
@@ -69,20 +69,15 @@ export function useModelExportSource() {
 
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
-  // Sync default selection on source load: adopt every selectable model,
-  // then keep the selection intersected with what stays selectable.
-  const sourceDigest = sourceQuery.data?.source_digest ?? null;
-  const [prevDigest, setPrevDigest] = useState<string | null>(null);
-  if (sourceDigest && prevDigest !== sourceDigest) {
-    setPrevDigest(sourceDigest);
-    if (prevDigest === null) {
-      setSelectedIds(new Set(selectableIds));
-    } else {
-      setSelectedIds(
-        (prev: Set<number>) =>
-          new Set([...prev].filter((id: number) => selectableIds.has(id))),
-      );
-    }
+  // Reconcile every authoritative response, even if a malformed response keeps
+  // the old digest but withdraws readiness. Repair never auto-selects new rows.
+  const [previousSource, setPreviousSource] = useState<ExportSourceResponse | null>(null);
+  const currentSource = sourceQuery.data;
+  if (currentSource && previousSource !== currentSource) {
+    setPreviousSource(currentSource);
+    setSelectedIds((current) => previousSource === null
+      ? new Set(selectableIds)
+      : new Set([...current].filter((id) => selectableIds.has(id))));
   }
 
   const updateSelectedIds = useCallback(
@@ -139,12 +134,12 @@ export function useModelExportSource() {
     (id: number, checked: boolean) => {
       updateSelectedIds((current) => {
         const next = new Set(current);
-        if (checked) next.add(id);
+        if (checked && selectableIds.has(id)) next.add(id);
         else next.delete(id);
         return next;
       });
     },
-    [updateSelectedIds],
+    [selectableIds, updateSelectedIds],
   );
 
   const batchSelectVisible = useCallback(() => {
@@ -152,14 +147,14 @@ export function useModelExportSource() {
       const next = new Set(current);
       for (const model of visibleModels) {
         if (
-          model.selectable &&
+          selectableIds.has(model.model_config_id) &&
           (!priceCompleteOnly || model.price_risk.exportable)
         )
           next.add(model.model_config_id);
       }
       return next;
     });
-  }, [priceCompleteOnly, updateSelectedIds, visibleModels]);
+  }, [priceCompleteOnly, selectableIds, updateSelectedIds, visibleModels]);
 
   const batchClearVisible = useCallback(() => {
     updateSelectedIds((current) => {
@@ -174,10 +169,10 @@ export function useModelExportSource() {
   const retainSelection = useCallback(
     (keep: ReadonlySet<number>) => {
       updateSelectedIds(
-        (current) => new Set([...current].filter((id: number) => keep.has(id))),
+        (current) => new Set([...current].filter((id: number) => keep.has(id) && selectableIds.has(id))),
       );
     },
-    [updateSelectedIds],
+    [selectableIds, updateSelectedIds],
   );
 
   const refetchSource = sourceQuery.refetch;
@@ -212,6 +207,7 @@ export function useModelExportSource() {
   );
 
   return {
+    replaceSelection: (ids: Set<number>) => setSelectedIds(new Set([...ids].filter((id) => selectableIds.has(id)))),
     batchClearVisible,
     batchSelectVisible,
     catalog,
@@ -221,6 +217,7 @@ export function useModelExportSource() {
     piViewFor,
     priceCompleteOnly,
     retainSelection,
+    selectableIds,
     selectedCount: selectedIds.size,
     selectedIds,
     selectedModels,

@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -14,6 +14,8 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/lib/api/observability", () => ({
   observe: { usageErrors: mocks.usageErrors },
 }));
+
+vi.mock("@/hooks/useTimezone", () => ({ useTimezone: () => ({ format: (value: string) => value }) }));
 
 vi.mock("@tanstack/react-router", () => ({
   Link: ({
@@ -129,4 +131,19 @@ describe("ObserveErrorWorkbench request binding", () => {
       screen.queryByRole("link", { name: "在请求日志中查看全部" }),
     ).not.toBeInTheDocument();
   });
+  it("keeps a selected error across refresh while replacing its signed query context", async () => {
+    mocks.usageErrors.mockImplementation((token: string) => Promise.resolve(errorsResponse(token)));
+    const user = userEvent.setup();
+    const view = (token: string) => <LocaleProvider><ObserveErrorWorkbench basisKey="24h" groupBy="attempt_result" queryContext={token} scope="route_attempt" /></LocaleProvider>;
+    const { rerender } = render(view("first"));
+    await user.click(await screen.findByTestId("error-status-503"));
+    rerender(view("second"));
+    await waitFor(() => expect(screen.getByRole("link", { name: "在请求日志中查看全部" })).toHaveAttribute("data-search", expect.stringContaining('"query_context":"second"')));
+    expect(screen.getByTestId("error-status-503")).toHaveAttribute("aria-pressed", "true");
+    mocks.usageErrors.mockResolvedValue({ ...errorsResponse("third"), http_statuses: [] });
+    rerender(view("third"));
+    await screen.findByText(/上次选择的错误已不在本轮排行/);
+    expect(screen.queryByRole("link", { name: "在请求日志中查看全部" })).not.toBeInTheDocument();
+  });
+
 });

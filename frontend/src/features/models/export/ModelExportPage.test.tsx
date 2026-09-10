@@ -47,6 +47,7 @@ const sourceFixture = (
   source_digest: "a".repeat(64),
   models: [
     {
+      readiness: { status: "ready", blocking_reasons: [], repair_path: "/route/models/3" },
       model_config_id: 3,
       model_id: "gpt-x",
       api_family: "openai",
@@ -127,6 +128,7 @@ const sourceFixture = (
       },
     },
     {
+      readiness: { status: "blocked", blocking_reasons: ["pi_binding_required"], repair_path: "/route/models/5" },
       model_config_id: 5,
       model_id: "glm-5.2",
       api_family: "openai",
@@ -254,37 +256,49 @@ describe("ModelExportPage Pi-only", () => {
     expect(screen.getByRole("checkbox", { name: "gpt-x" })).toBeChecked();
   });
 
-  it("names why the primary action is disabled and offers a way out", async () => {
+  it("excludes unready rows while keeping their binding repair action available", async () => {
     const user = userEvent.setup();
     renderPage();
-    await screen.findByTestId("export-row-3");
+    const blocked = await screen.findByTestId("export-row-5");
+    expect(within(blocked).getByRole("checkbox")).toBeDisabled();
+    expect(within(blocked).getByRole("checkbox")).not.toBeChecked();
+    expect(within(blocked).getByText("尚不可导出，请先修复 Pi 绑定或元数据")).toBeVisible();
+    expect(within(blocked).getByRole("button", { name: "绑定来源" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "全选当前可见" }));
+    expect(within(blocked).getByRole("checkbox")).not.toBeChecked();
+    expect(screen.getByRole("button", { name: /生成配置文件 \(1\)/ })).toBeEnabled();
+  });
 
-    const generate = screen.getByRole("button", { name: /生成配置文件/ });
-    expect(generate).toBeDisabled();
-    expect(generate).toHaveAttribute(
-      "aria-describedby",
-      "model-export-blocked-notice",
-    );
-    expect(
-      screen.getByText(/已选模型里有 1 个缺少可渲染的 Pi 绑定/),
-    ).toBeVisible();
-
-    await user.click(
-      screen.getByRole("button", { name: "只保留可渲染的 1 个" }),
-    );
-    expect(
-      screen.getByRole("button", { name: /生成配置文件 \(1\)/ }),
-    ).toBeEnabled();
-    expect(
-      screen.queryByText(/缺少可渲染的 Pi 绑定/),
-    ).not.toBeInTheDocument();
+  it("withdraws missing readiness on refresh even with the same digest and requires explicit re-selection after recovery", async () => {
+    const user = userEvent.setup();
+    const ready = sourceFixture({ models: [sourceFixture().models[0]] });
+    vi.mocked(fetchModelExportSource).mockResolvedValue(ready);
+    renderPage();
+    const row = await screen.findByTestId("export-row-3");
+    expect(within(row).getByRole("checkbox")).toBeChecked();
+    const missing = structuredClone(ready);
+    // An incomplete wire response must fail closed, even if its digest is unchanged.
+    Reflect.deleteProperty(missing.models[0], "readiness");
+    vi.mocked(fetchModelExportSource).mockResolvedValue(missing);
+    await user.click(screen.getByRole("button", { name: "刷新导出源" }));
+    await waitFor(() => expect(within(row).getByRole("checkbox")).toBeDisabled());
+    expect(within(row).getByRole("checkbox")).not.toBeChecked();
+    expect(within(row).getByText("就绪证据缺失，请刷新导出源")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "全选当前可见" }));
+    expect(within(row).getByRole("checkbox")).not.toBeChecked();
+    vi.mocked(fetchModelExportSource).mockResolvedValue(ready);
+    await user.click(screen.getByRole("button", { name: "刷新导出源" }));
+    await waitFor(() => expect(within(row).getByRole("checkbox")).toBeEnabled());
+    expect(within(row).getByRole("checkbox")).not.toBeChecked();
+    await user.click(within(row).getByRole("checkbox"));
+    expect(screen.getByRole("button", { name: /生成配置文件 \(1\)/ })).toBeEnabled();
   });
 
   it("does not treat an optional missing thinking map as incomplete metadata", async () => {
     renderPage();
     await screen.findByTestId("export-row-3");
     expect(screen.getByTestId("export-risk-metadata-count")).toHaveTextContent(
-      "1",
+      "0",
     );
   });
 
@@ -320,6 +334,7 @@ describe("ModelExportPage Pi-only", () => {
         pi_selected: null,
         pi_binding_status: "unbound",
         pi_binding_renderable: false,
+        readiness: { status: "blocked", blocking_reasons: ["pi_binding_required"], repair_path: "/route/models/3" },
         pi_binding_source: null,
         pi_binding_override: null,
         pi_binding_effective: null,
@@ -375,6 +390,7 @@ describe("ModelExportPage Pi-only", () => {
         pi_selected: null,
         pi_binding_status: "unbound",
         pi_binding_renderable: false,
+        readiness: { status: "blocked", blocking_reasons: ["pi_binding_required"], repair_path: "/route/models/3" },
         pi_binding_source: null,
         pi_binding_override: null,
         pi_binding_effective: null,
@@ -498,6 +514,7 @@ describe("ModelExportPage Pi-only", () => {
         pi_selected: null,
         pi_binding_status: "unbound",
         pi_binding_renderable: false,
+        readiness: { status: "blocked", blocking_reasons: ["pi_binding_required"], repair_path: "/route/models/3" },
         pi_binding_source: null,
         pi_binding_override: null,
         pi_binding_effective: null,
@@ -572,6 +589,7 @@ describe("ModelExportPage Pi-only", () => {
         pi_selected: null,
         pi_binding_status: "unbound",
         pi_binding_renderable: false,
+        readiness: { status: "blocked", blocking_reasons: ["pi_binding_required"], repair_path: "/route/models/3" },
         pi_binding_source: null,
         pi_binding_override: null,
         pi_binding_effective: null,
@@ -589,6 +607,7 @@ describe("ModelExportPage Pi-only", () => {
         pi_binding_prism_model_id: "bound-without-pi-api",
         pi_binding_status: "bound_drifted",
         pi_binding_renderable: false,
+        readiness: { status: "blocked", blocking_reasons: ["pi_binding_required"], repair_path: "/route/models/3" },
       },
     ];
     vi.mocked(fetchModelExportSource).mockResolvedValue(fixture);
@@ -635,6 +654,7 @@ describe("ModelExportPage Pi-only", () => {
         pi_selected: null,
         pi_binding_status: "unbound",
         pi_binding_renderable: false,
+        readiness: { status: "blocked", blocking_reasons: ["pi_binding_required"], repair_path: "/route/models/3" },
         pi_binding_source: null,
         pi_binding_override: null,
         pi_binding_effective: null,
@@ -920,6 +940,7 @@ describe("ModelExportPage Pi-only", () => {
         ...fixture.models[0],
         pi_binding_status: "bound_drifted",
         pi_binding_renderable: false,
+        readiness: { status: "blocked", blocking_reasons: ["pi_binding_required"], repair_path: "/route/models/3" },
         pi_binding_prism_model_id: "renamed-away-gpt-x",
       },
     ];

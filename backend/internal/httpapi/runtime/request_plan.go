@@ -215,6 +215,8 @@ type plannedUpstreamRequest struct {
 }
 
 type runtimeTerminalAttempt struct {
+	// ModelPath is the frozen logical path used by planner observation.
+	ModelPath                 []string
 	TargetModel               runtimeModelRecord
 	Connection                runtimeConnection
 	Strategy                  loadbalance.RuntimeStrategy

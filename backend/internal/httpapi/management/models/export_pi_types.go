@@ -16,16 +16,17 @@ type piSelectedWire struct {
 }
 
 type piSourceModelRow struct {
-	ModelConfigID         int     `json:"model_config_id"`
-	ModelID               string  `json:"model_id"`
-	APIFamily             string  `json:"api_family"`
-	DisplayName           *string `json:"display_name"`
-	IsEnabled             bool    `json:"is_enabled"`
-	DirectRequestEnabled  bool    `json:"direct_request_enabled"`
-	Selectable            bool    `json:"selectable"`
-	UnselectableReason    *string `json:"unselectable_reason,omitempty"`
-	OpenAIAcceptedFormat  *string `json:"openai_accepted_format,omitempty"`
-	OpenAIImageOperations *string `json:"openai_image_operations,omitempty"`
+	Readiness             clientReadinessWire `json:"readiness"`
+	ModelConfigID         int                 `json:"model_config_id"`
+	ModelID               string              `json:"model_id"`
+	APIFamily             string              `json:"api_family"`
+	DisplayName           *string             `json:"display_name"`
+	IsEnabled             bool                `json:"is_enabled"`
+	DirectRequestEnabled  bool                `json:"direct_request_enabled"`
+	Selectable            bool                `json:"selectable"`
+	UnselectableReason    *string             `json:"unselectable_reason,omitempty"`
+	OpenAIAcceptedFormat  *string             `json:"openai_accepted_format,omitempty"`
+	OpenAIImageOperations *string             `json:"openai_image_operations,omitempty"`
 	// PiAPI is the final Pi API Prism maps this model to, or empty when the
 	// family/accepted-format pair has no Pi text API. Directory search and bind
 	// are offered only for a model whose PiAPI is determinable, and every

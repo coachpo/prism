@@ -1,3 +1,4 @@
+import { ChainRankingValue } from "./ChainRankingValue";
 import { Fragment, useId, useMemo, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import {
@@ -56,8 +57,7 @@ import {
 import type { ChainRowReadState } from "./useRequestLogIngressChains";
 import { UpstreamModelIdValue } from "./UpstreamModelIdValue";
 
-/** 后端只接受 created_at 排序（其它值 422），所以链视图只有时间这一列可排。 */
-type ChainSortColumn = "time";
+type ChainSortColumn = "time" | "elapsed_ms" | "total_cost_user_currency_micros";
 
 /**
  * Ingress-chain view (SPEC: `view=ingress_chains`): outer pages of retained
@@ -96,6 +96,7 @@ export function IngressChainsTable({
 	pageSize,
 	onPageSizeChange,
 	sortOrder,
+	sortBy = "created_at",
 	onSortOrderChange,
 }: {
 	chains: ChainIngressItem[];
@@ -121,6 +122,7 @@ export function IngressChainsTable({
 	pageSize: number;
 	onPageSizeChange: (value: number) => void;
 	sortOrder: "asc" | "desc";
+	sortBy?: string;
 	onSortOrderChange: (order: "asc" | "desc") => void;
 }) {
 	const { formatNumber, messages } = useLocale();
@@ -130,9 +132,10 @@ export function IngressChainsTable({
 	const [expanded, setExpanded] = useState<Set<string>>(new Set());
 	const visible = useMemo(() => new Set(visibleColumns), [visibleColumns]);
 	// 展开箭头与行操作永远在，不参与列显示偏好。
-	const renderedColumnCount = visible.size + 2;
+	const ranked = sortBy !== "created_at";
+	const renderedColumnCount = visible.size + 2 + (ranked ? 1 : 0);
 	const sort: OperationalSortState<ChainSortColumn> = {
-		column: "time",
+		column: ranked ? sortBy as ChainSortColumn : "time",
 		direction: sortOrder,
 	};
 	const showPendingRows = replacing && chains.length > 0;
@@ -219,6 +222,7 @@ export function IngressChainsTable({
 						<TableHeader>
 							<TableRow>
 								<TableHead className="w-8" />
+								{ranked ? <TableHead>{messages.chainRanking.column}</TableHead> : null}
 								{visible.has("time") ? (
 									<SortableTableHead
 										sortKey="time"
@@ -277,6 +281,7 @@ export function IngressChainsTable({
 										<Fragment key={chain.ingress_request_id}>
 											<ChainSummaryRow
 												chain={chain}
+												ranked={ranked}
 												expanded={expanded.has(chain.ingress_request_id)}
 												onToggle={() => toggle(chain.ingress_request_id)}
 												onSelectRow={onSelectRow}
@@ -461,12 +466,14 @@ function endpointRepeatsTerminalTarget(
 
 function ChainSummaryRow({
 	chain,
+	ranked,
 	expanded,
 	onToggle,
 	onSelectRow,
 	visible,
 }: {
 	chain: ChainIngressItem;
+	ranked: boolean;
 	expanded: boolean;
 	onToggle: () => void;
 	onSelectRow: (requestLogId: string) => void;
@@ -533,6 +540,8 @@ function ChainSummaryRow({
 					)}
 				</button>
 			</TableCell>
+
+			{ranked ? <TableCell className="font-mono tabular-nums"><ChainRankingValue ranking={chain.ranking} /></TableCell> : null}
 
 			{visible.has("time") ? (
 				<TableCell className="whitespace-nowrap font-mono tabular-nums">
@@ -726,7 +735,7 @@ function ChainSummaryRow({
 				{summary?.total_cost_user_currency_micros == null ? (
 					<OperatorMissingValue reason={missingReason} />
 				) : (
-					`${summary.report_currency_symbol ?? "$"}${(
+					`${summary.report_currency_symbol ?? summary.report_currency_code ?? ""}${(
 						summary.total_cost_user_currency_micros / 1_000_000
 					).toFixed(4)}`
 				)}

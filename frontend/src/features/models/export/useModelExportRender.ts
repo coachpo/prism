@@ -61,7 +61,7 @@ export function useModelExportRender({
     if (!source) return renderable;
     for (const id of selectedIds) {
       const model = source.models.find((m) => m.model_config_id === id);
-      if (model?.pi_selected && model.pi_binding_renderable) renderable.add(id);
+      if (model?.pi_selected && model.pi_binding_renderable && model.readiness?.status === "ready") renderable.add(id);
     }
     return renderable;
   }, [selectedIds, source]);
@@ -99,7 +99,7 @@ export function useModelExportRender({
       for (const id of ids) {
         const model = source?.models.find((m) => m.model_config_id === id);
         const bound = model?.pi_selected ?? null;
-        if (!bound || !model?.pi_binding_renderable) {
+        if (!bound || !model?.pi_binding_renderable || model.readiness?.status !== "ready") {
           throw new Error(renderFailedMessage);
         }
         selections[id] = {

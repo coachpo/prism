@@ -122,3 +122,12 @@ const chainStatementWorkMem = "32MB"
 func applyChainStatementWorkMem(ctx context.Context, exec queryExecutor) {
 	_, _ = exec.Exec(ctx, "SET LOCAL work_mem = '"+chainStatementWorkMem+"'")
 }
+
+// Ranked pages and their finalized facts use the identical retained reach as
+// the cohort/totals/export, even when finalization crosses a window edge.
+func chainItemRowBounds(params ChainQueryParams, ingresses []chainIngressRef) (*time.Time, *time.Time) {
+	if isChainRanking(params.SortBy) {
+		return chainCohortRowBounds(params)
+	}
+	return chainPageRowBounds(ingresses)
+}

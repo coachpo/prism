@@ -46,6 +46,7 @@ export interface SetupReadinessSources {
 }
 
 export interface SetupReadinessOptions {
+  signal?: AbortSignal
   sources?: SetupReadinessSources
   maxGenerationRetries?: number
 }
@@ -60,12 +61,14 @@ type SourceRead = {
   error: unknown | null
 }
 
-const DEFAULT_SOURCES: SetupReadinessSources = {
-  endpoints: () => api.endpoints.list(),
-  pricing: (generation) => api.pricingTemplates.setupReadiness(generation),
-  routing: () => api.loadbalanceStrategies.list(),
-  models: () => api.models.routeReadiness(),
-  proxyKeys: (generation) => api.settings.auth.proxyKeys.setupReadiness(generation),
+function defaultSources(signal?: AbortSignal): SetupReadinessSources {
+  return {
+    endpoints: () => api.endpoints.list(signal),
+    pricing: generation => api.pricingTemplates.setupReadiness(generation, signal),
+    routing: () => api.loadbalanceStrategies.list(signal),
+    models: () => api.models.routeReadiness(signal),
+    proxyKeys: generation => api.settings.auth.proxyKeys.setupReadiness(generation, signal),
+  }
 }
 
 /**
@@ -461,17 +464,19 @@ export async function fetchSetupReadiness(
   authMode: "enabled" | "disabled" | "unknown",
   options: SetupReadinessOptions = {},
 ): Promise<SetupReadinessSnapshot> {
-  const sources = options.sources ?? DEFAULT_SOURCES
+  const sources = options.sources ?? defaultSources(options.signal)
   const maxRetries = options.maxGenerationRetries ?? SETUP_GENERATION_RETRY_LIMIT
   let attempt = 0
   let lastSnapshot: SetupReadinessSnapshot | null = null
 
   while (attempt <= maxRetries) {
+    options.signal?.throwIfAborted()
     const [endpointsRead, routingRead, modelsRead] = await Promise.all([
       read(sources.endpoints),
       read(sources.routing),
       read(sources.models),
     ])
+    options.signal?.throwIfAborted()
     const modelFacts = buildModelFacts(modelsRead)
     const generation = modelFacts.readiness?.route_witness_generation ?? null
     let pricingRead: SourceRead = { value: null, error: null }

@@ -14,6 +14,7 @@
 #   ./bench.sh down        remove the container and the work directory
 #
 # Environment knobs:
+#   BENCH_CONTAINER isolated container name                   (default prism-chain-bench)
 #   BENCH_DAYS      history days to generate                  (default 30)
 #   BENCH_PER_DAY   ingresses per day                         (default 35000)
 #   BENCH_END_DATE  last generated day, YYYY-MM-DD            (default today)
@@ -35,7 +36,7 @@ BENCH_PORT="${BENCH_PORT:-15433}"
 BENCH_API_PORT="${BENCH_API_PORT:-18000}"
 BENCH_JOBS="${BENCH_JOBS:-4}"
 
-CONTAINER=prism-chain-bench
+CONTAINER="${BENCH_CONTAINER:-prism-chain-bench}"
 DB_URL="postgres://bench:bench@127.0.0.1:${BENCH_PORT}/bench?sslmode=disable"
 API_BASE="http://127.0.0.1:${BENCH_API_PORT}"
 PSQL=(docker exec -i -e PGPASSWORD=bench "$CONTAINER" psql -U bench -d bench -X -q -v ON_ERROR_STOP=1)

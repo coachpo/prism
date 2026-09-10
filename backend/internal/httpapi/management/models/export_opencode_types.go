@@ -7,18 +7,19 @@ import (
 )
 
 type openCodeSourceModelRow struct {
-	ModelConfigID         int     `json:"model_config_id"`
-	ModelID               string  `json:"model_id"`
-	APIFamily             string  `json:"api_family"`
-	DisplayName           *string `json:"display_name"`
-	IsEnabled             bool    `json:"is_enabled"`
-	DirectRequestEnabled  bool    `json:"direct_request_enabled"`
-	Selectable            bool    `json:"selectable"`
-	UnselectableReason    *string `json:"unselectable_reason,omitempty"`
-	OpenAIAcceptedFormat  *string `json:"openai_accepted_format,omitempty"`
-	OpenAIImageOperations *string `json:"openai_image_operations,omitempty"`
-	NPM                   string  `json:"npm"`
-	APIPath               string  `json:"api_path"`
+	Readiness             clientReadinessWire `json:"readiness"`
+	ModelConfigID         int                 `json:"model_config_id"`
+	ModelID               string              `json:"model_id"`
+	APIFamily             string              `json:"api_family"`
+	DisplayName           *string             `json:"display_name"`
+	IsEnabled             bool                `json:"is_enabled"`
+	DirectRequestEnabled  bool                `json:"direct_request_enabled"`
+	Selectable            bool                `json:"selectable"`
+	UnselectableReason    *string             `json:"unselectable_reason,omitempty"`
+	OpenAIAcceptedFormat  *string             `json:"openai_accepted_format,omitempty"`
+	OpenAIImageOperations *string             `json:"openai_image_operations,omitempty"`
+	NPM                   string              `json:"npm"`
+	APIPath               string              `json:"api_path"`
 
 	Targets          []exportSourceTargetRow             `json:"targets"`
 	PriceRisk        exportPriceRiskWire                 `json:"price_risk"`

@@ -104,6 +104,7 @@ function ModelExportModelRow({
     selected: boolean;
     sourceState: ModelExportSourceState;
 }) {
+    const { messages } = useLocale();
     const warningCodes = Array.from(
         new Set([
             ...(model.price_risk.warning_codes ?? []),
@@ -119,7 +120,8 @@ function ModelExportModelRow({
             <TableCell className="sticky left-0 z-10 w-12 min-w-12 bg-panel">
                 <Checkbox
                     checked={selected}
-                    disabled={!model.selectable}
+                    disabled={!sourceState.selectableIds.has(model.model_config_id) || sourceState.sourceActionsBlocked}
+                    aria-describedby={!sourceState.selectableIds.has(model.model_config_id) ? `pi-readiness-${model.model_config_id}` : undefined}
                     onCheckedChange={(c) => onToggle(c === true)}
                     aria-label={model.model_id}
                 />
@@ -129,7 +131,7 @@ function ModelExportModelRow({
                 {!model.selectable && (
                     <Badge variant="outline" className="ml-2">
                         {copy.unselectablePrefix}{" "}
-                        {model.unselectable_reason ?? ""}
+                        {(messages.opencodeExport.unselectableReasons as Record<string, string>)[model.unselectable_reason ?? ""] ?? messages.opencodeExport.unknownReason}
                     </Badge>
                 )}
             </TableCell>
@@ -138,6 +140,7 @@ function ModelExportModelRow({
             {/* 这一格装的是整句说明（无法绑定 / 绑定不可渲染），
                 必须放开 TableCell 默认的 nowrap，否则一行撑穿整张表。 */}
             <TableCell className="whitespace-normal">
+                <p id={`pi-readiness-${model.model_config_id}`}>{model.readiness?.status === "ready" ? messages.clientReadiness.ready : model.readiness?.status === "blocked" ? messages.clientReadiness.piNeedsRepair : messages.clientReadiness.missingEvidence}</p>
                 <PiBindingCell
                     controller={controller}
                     model={model}
@@ -148,6 +151,7 @@ function ModelExportModelRow({
                 {model.price_risk.exportable
                     ? copy.priceExportable
                     : copy.priceOmitted}
+                {!model.price_risk.exportable ? <a className="block text-primary underline underline-offset-4" href={`/route/models/${model.model_config_id}`} target="_blank" rel="noreferrer">{messages.clientReadiness.priceRepair}</a> : null}
             </TableCell>
             <TableCell>
                 <div className="flex flex-wrap gap-1">

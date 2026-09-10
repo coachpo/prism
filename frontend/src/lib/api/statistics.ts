@@ -89,12 +89,14 @@ export const statistics = {
       cost_segment_key?: string;
       scope?: "final_execution" | "route_attempt";
     },
+    signal?: AbortSignal,
   ) => {
     const query = buildQuery(
       params as Record<string, string | number | null | undefined> | undefined,
     );
     return request<TerminalTargetStatisticsResponse>(
       `/api/stats/endpoints/${endpointId}/terminal-targets${query ? `?${query}` : ""}`,
+      { signal },
     );
   },
   usageSnapshot: (params?: {

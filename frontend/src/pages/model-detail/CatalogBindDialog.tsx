@@ -1,3 +1,4 @@
+import { catalogFailureMessage } from "@/features/models/catalog/catalogFailureMessage";
 import { useCallback, useEffect, useState } from "react";
 import { RefreshCw } from "lucide-react";
 
@@ -102,7 +103,7 @@ export function CatalogBindDialog({
       const result = await modelsApi.catalog.matchPreview(modelConfigId);
       setPreview(result);
     } catch (cause) {
-      setPreviewError(cause instanceof Error ? cause.message : String(cause));
+      setPreviewError(catalogFailureMessage(cause));
     } finally {
       setLoading(false);
     }

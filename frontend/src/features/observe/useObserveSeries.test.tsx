@@ -232,4 +232,44 @@ describe("Observe scope-bound series", () => {
     expect(result.current.now.phase).toBe("loading");
     expect(result.current.now.data).toBeNull();
   });
+  it("retains sampled data when a refresh fails and aborts pending reads on leave", async () => {
+    const context = contextResponse("ingress", "last-good");
+    mocks.queryContext.mockResolvedValue(context);
+    const summary = { generated_at: "2026-08-09T00:00:00Z" } as UsageSummaryResponse;
+    mocks.usageSummary.mockResolvedValue(summary);
+    mocks.dashboardNow.mockResolvedValue({ generated_at: summary.generated_at } as DashboardNowResponse);
+    const { result, unmount } = renderHook(() => useObserveFragments("24h"));
+    await waitFor(() => expect(result.current.summary.phase).toBe("ready"));
+    mocks.queryContext.mockRejectedValue(new Error("context timeout"));
+    act(() => result.current.refresh());
+    await waitFor(() => expect(result.current.queryContext.phase).toBe("error"));
+    expect(result.current.summary).toMatchObject({ phase: "error", data: summary, stale: true, error: "context timeout" });
+    expect(result.current.now.stale).toBe(false);
+    const slowContext = deferred<QueryContextResponse>();
+    mocks.queryContext.mockReturnValue(slowContext.promise);
+    act(() => result.current.refresh());
+    const signal = mocks.queryContext.mock.calls.at(-1)?.[1] as AbortSignal;
+    unmount();
+    expect(signal.aborted).toBe(true);
+    await act(async () => { slowContext.resolve(context); await slowContext.promise; });
+    expect(mocks.usageSummary).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps last-good series for the same basis, but never across a scope change", async () => {
+    const series = seriesResponse("ingress", "requests");
+    mocks.usageSeries.mockResolvedValue(series);
+    const { result, rerender } = renderHook(({ token, scope }: { token: string; scope: ObserveScope }) =>
+      useUsageSeriesFragment(token, { metric: "requests", groupBy: "none", interval: "auto", scope }, "ready", "24h"),
+      { initialProps: { token: "first", scope: "ingress" } });
+    await waitFor(() => expect(result.current.phase).toBe("ready"));
+    mocks.usageSeries.mockRejectedValue(new Error("series timeout"));
+    rerender({ token: "refresh", scope: "ingress" });
+    await waitFor(() => expect(result.current.phase).toBe("error"));
+    expect(result.current).toMatchObject({ data: series, stale: true });
+    rerender({ token: "other", scope: "final_execution" });
+    expect(result.current.data).toBeNull();
+    await waitFor(() => expect(result.current.phase).toBe("error"));
+    expect(result.current.stale).toBe(false);
+  });
+
 });

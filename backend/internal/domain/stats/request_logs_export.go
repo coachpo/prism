@@ -98,6 +98,11 @@ func ExportCSV(ctx context.Context, tx pgx.Tx, params ExportParams) (ExportResul
 		}
 		params.SortBy = params.ChainQueryParams.SortBy
 		params.SortOrder = params.ChainQueryParams.SortOrder
+		if isChainRanking(params.SortBy) {
+			if err := prepareChainRankingRead(ctx, tx); err != nil {
+				return ExportResult{}, err
+			}
+		}
 		if params.ChainQueryParams.ClientRuleID != nil {
 			rule, found, ruleErr := loadCompiledUserAgentRuleByID(ctx, tx, params.ChainQueryParams.ProfileID, *params.ChainQueryParams.ClientRuleID)
 			if ruleErr != nil {
@@ -213,8 +218,16 @@ func buildExportRowQuery(params ExportParams) (string, []any) {
 		pricing_selector_threshold_tokens, pricing_selector_basis_tokens,
 		pricing_schedule_decided_at, pricing_schedule_timezone,
 		pricing_schedule_local_weekday, pricing_schedule_local_minute, pricing_schedule_digest
-		FROM request_logs WHERE ` + whereClause + ` ` + requestLogOrderBy(params.SortBy, params.SortOrder)
-	return query, args
+		FROM request_logs WHERE ` + whereClause
+	if params.ChainQueryParams != nil && isChainRanking(params.SortBy) {
+		ranked, rankArgs := buildChainRankingQuery(*params.ChainQueryParams)
+		// Both statements start with the same cohort owner and placeholder
+		// sequence; the ranking query adds only its finalized read bounds.
+		query = `SELECT export_rows.* FROM (` + query + `) export_rows JOIN (` + ranked + `) ranked
+			ON ranked.ingress_request_id = export_rows.ingress_request_id ` + chainRankingOrderBy("ranked", params.SortOrder) + `, export_rows.created_at ASC, export_rows.id ASC`
+		return query, rankArgs
+	}
+	return query + ` ` + requestLogOrderBy(params.SortBy, params.SortOrder), args
 }
 
 // exportHeader is the fixed CSV column allowlist (Requests SPEC §6.8).

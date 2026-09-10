@@ -16,7 +16,7 @@ func isCatalogUnavailable(err error) bool {
 func catalogFetchFailed(err error) error {
 	return &domainError{
 		StatusCode: http.StatusBadGateway,
-		Detail:     fmt.Sprintf("models_dev_catalog_unavailable: %v", err),
+		Detail:     fmt.Sprintf("models_dev_catalog_unavailable: %s", modelsdev.FailureCode(err)),
 	}
 }
 

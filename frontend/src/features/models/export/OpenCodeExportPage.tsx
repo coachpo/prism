@@ -1,4 +1,5 @@
-import type { ReactNode } from "react";
+import { ExportPresetsPanel } from "./ExportPresetsPanel";
+import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { useLocale } from "@/i18n/useLocale";
 import { useTimezone } from "@/hooks/useTimezone";
@@ -12,6 +13,7 @@ import {
   OperatorRetryButton,
   OperatorStalenessBadge,
 } from "@/shared/design-system";
+import { OpenCodeRepairPanel } from "./OpenCodeRepairPanel";
 import { ExportKeyDialog } from "./ExportKeyDialog";
 import { ExportResultSheet } from "./ExportResultSheet";
 import { ModelExportDestinationPanel } from "./ModelExportDestinationPanel";
@@ -31,11 +33,13 @@ export function OpenCodeExportPage({
   const copy = messages.modelExportPage;
   const oc = messages.opencodeExport;
   const source = useOpenCodeExportSource();
+  const [repairId, setRepairId] = useState<number | null>(null);
   const query = source.sourceQuery;
+  const repairModel = query.data?.models.find((model) => model.model_config_id === repairId);
   const render = useOpenCodeExportRender({
     source: query.data,
     selectedIds: source.selectedIds,
-    sourceActionsBlocked: source.sourceActionsBlocked,
+    sourceActionsBlocked: source.sourceActionsBlocked || repairId !== null,
     refetchSource: query.refetch,
     renderFailedMessage: copy.renderFailed,
   });
@@ -70,6 +74,7 @@ export function OpenCodeExportPage({
             description={blocked}
           />
         ) : null}
+        <ExportPresetsPanel client="opencode" models={source.sourceQuery.data?.models ?? []} selectedIds={source.selectedIds} gatewayOrigin={render.gatewayOrigin} providerId={render.providerId} blocked={source.sourceActionsBlocked} onApply={(ids, destination) => { source.replaceSelection(ids); render.setGatewayOrigin(destination.gatewayOrigin); render.setProviderId(destination.providerId); }} />
         <ModelExportDestinationPanel
           target="opencode"
           gatewayOrigin={render.gatewayOrigin}
@@ -104,7 +109,9 @@ export function OpenCodeExportPage({
         ) : null}
         {query.data ? (
           <>
-            <OpenCodeExportModelTable source={source} />
+            {repairId !== null && !repairModel ? <OperatorCallout intent="warning" description={messages.clientReadiness.modelRemoved} action={<Button variant="outline" onClick={() => setRepairId(null)}>{messages.clientReadiness.back}</Button>} /> : null}
+            {repairModel ? <OpenCodeRepairPanel key={repairId} model={repairModel} pending={query.isFetching} failed={query.isError} onRefresh={() => void query.refetch()} onClose={() => { document.getElementById(`opencode-model-${repairId}`)?.focus(); setRepairId(null); void query.refetch(); }} /> : null}
+            <OpenCodeExportModelTable source={source} onRepair={(id) => { render.clearResult(); setRepairId(id); }} />
             <OperatorCallout intent="warning" description={oc.costZeroDisclaimer} />
             <OperatorInsetPanel title={copy.sourceEvidenceTitle}>
               <dl className="grid gap-2 text-xs sm:grid-cols-[auto_1fr]">

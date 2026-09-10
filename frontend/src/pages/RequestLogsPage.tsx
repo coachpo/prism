@@ -1,3 +1,4 @@
+import { ChainRankingControls } from "./request-logs/ChainRankingControls";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { useTimezone } from "@/hooks/useTimezone";
@@ -20,6 +21,9 @@ import { RequestFocusBanner } from "./request-logs/RequestFocusBanner";
 import { FiltersBar } from "./request-logs/FiltersBar";
 import { RequestLogsTable } from "./request-logs/RequestLogsTable";
 import { ColumnToggleMenu } from "./request-logs/ColumnToggleMenu";
+import { RequestResponsiveFilters } from "./request-logs/RequestResponsiveFilters";
+import { RequestComparisonPanel } from "./request-logs/RequestComparisonPanel";
+import { RequestMobileSummary } from "./request-logs/RequestMobileSummary";
 import { IngressChainsTable } from "./request-logs/IngressChainsTable";
 import { RequestLogDetailSheet } from "./request-logs/RequestLogDetailSheet";
 import { Download, ListFilter, SearchX } from "lucide-react";
@@ -122,6 +126,7 @@ export function RequestLogsPage() {
     hasMoreChains,
     chains,
     chainPageCounts,
+    ranking,
     coverage,
     readKind,
     chainRowReads,
@@ -311,15 +316,18 @@ export function RequestLogsPage() {
         />
       ) : null}
 
-      <FiltersBar
-        actions={actions}
-        filterOptions={filterOptions}
-        filterOptionsLoaded={filterOptionsLoaded}
-        onRefresh={refresh}
-        isRefreshing={loading}
-      />
-
+      <RequestResponsiveFilters>
+        <FiltersBar
+          actions={actions}
+          filterOptions={filterOptions}
+          filterOptionsLoaded={filterOptionsLoaded}
+          onRefresh={refresh}
+          isRefreshing={loading}
+        />
+      </RequestResponsiveFilters>
       <ActiveFilterChips actions={actions} />
+      <ChainRankingControls actions={actions} ranking={ranking} pending={loading} />
+      <RequestComparisonPanel items={items} />
 
       {detailError && (
         <OperatorCallout intent="danger" description={detailError} />
@@ -422,6 +430,10 @@ export function RequestLogsPage() {
               }
             />
           ) : state.view === "ingress_chains" ? (
+            <RequestMobileSummary chains={chains} onSelect={handleSelectRequest} loading={replacingRows}
+              hasPrevious={previousChainCursor !== null} hasNext={hasMoreChains}
+              onPrevious={() => actions.setChainCursor(previousChainCursor ?? "")}
+              onNext={() => { if (nextChainCursor) actions.setChainCursor(nextChainCursor); }}>
             <IngressChainsTable
               chains={chains}
               total={total}
@@ -445,11 +457,13 @@ export function RequestLogsPage() {
               visibleColumns={chainColumnPreferences.visibleKeys}
               pageSize={state.chain_limit}
               onPageSizeChange={actions.setChainLimit}
+              sortBy={state.sort_by}
               sortOrder={state.sort_order}
               onSortOrderChange={(order) =>
                 actions.setSort("created_at", order)
               }
             />
+            </RequestMobileSummary>
           ) : (
             <RequestLogsTable
               items={items}

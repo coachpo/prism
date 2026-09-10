@@ -1,3 +1,4 @@
+import { Button } from "@/components/ui/button";
 import { useLocale } from "@/i18n/useLocale";
 import type { OpenCodeExportModelRow, OpenCodeExportMetadata } from "@/lib/types";
 import {
@@ -27,8 +28,10 @@ const FIELDS: Array<keyof OpenCodeExportMetadata> = [
 /** The safe catalog projection, including omitted fields and their evidence. */
 export function OpenCodeMetadataDetails({
   model,
+  onRepair,
 }: {
   model: OpenCodeExportModelRow;
+  onRepair?: () => void;
 }) {
   const { messages } = useLocale();
   const copy = messages.opencodeExport;
@@ -116,12 +119,7 @@ export function OpenCodeMetadataDetails({
             ))}
           </TableBody>
         </Table>
-        <a
-          className="text-primary underline underline-offset-4"
-          href={`/route/models/${model.model_config_id}`}
-        >
-          {copy.completeMetadata}
-        </a>
+        {onRepair ? <Button variant="link" onClick={onRepair}>{copy.completeMetadata}</Button> : <a className="text-primary underline underline-offset-4" href={`/route/models/${model.model_config_id}`}>{copy.completeMetadata}</a>}
         <p className="text-xs text-muted-foreground">
           {copy.automaticReasoningHint}
         </p>

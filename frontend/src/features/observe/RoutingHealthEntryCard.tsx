@@ -1,3 +1,5 @@
+import { useObserveReadCycle } from "./observeReadCycleContext";
+import { ObserveFragmentStamp } from "./ObserveFragmentStamp";
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { ArrowRight } from "lucide-react";
@@ -12,12 +14,14 @@ import {
   OperatorRetryButton,
   OperatorSectionCard,
   OperatorStatusBadge,
+  OperatorStalenessBadge,
 } from "@/shared/design-system";
 
 type CompletenessState = {
   phase: "loading" | "ready" | "error";
   data: GlobalCurrentStateCompleteness | null;
   error: string | null;
+  generatedAt?: string;
 };
 
 const LOADING_STATE: CompletenessState = {
@@ -37,44 +41,41 @@ const LOADING_STATE: CompletenessState = {
  * never the rows: this card ranks the deployment, it does not list it.
  */
 export function RoutingHealthEntryCard() {
+  const { track, revision } = useObserveReadCycle();
   const { formatNumber, messages } = useLocale();
   const copy = messages.observe;
   const [reloadToken, setReloadToken] = useState(0);
+  const key = `${reloadToken}:${revision}`;
   const [snapshot, setSnapshot] = useState<{
-    key: number;
+    key: string;
     state: CompletenessState;
-  }>(() => ({ key: 0, state: LOADING_STATE }));
+  }>(() => ({ key, state: LOADING_STATE }));
   // The visible state is bound to the read it belongs to, so a retry shows the
   // pending state without a synchronous setState inside the effect.
-  const state = snapshot.key === reloadToken ? snapshot.state : LOADING_STATE;
+  const state = snapshot.key === key ? snapshot.state : { ...snapshot.state, phase: "loading" as const };
   const load = useCallback(() => setReloadToken((token) => token + 1), []);
 
   useEffect(() => {
+    const controller = new AbortController();
     let cancelled = false;
-    void api.loadbalance
-      .listCurrentState({ limit: 1 })
+    void track(api.loadbalance
+      .listCurrentState({ limit: 1 }, controller.signal))
       .then((response) => {
         if (cancelled) return;
         setSnapshot({
-          key: reloadToken,
-          state: { phase: "ready", data: response.completeness, error: null },
+          key,
+          state: { phase: "ready", data: response.completeness, error: null, generatedAt: response.generated_at },
         });
       })
       .catch((error: unknown) => {
         if (cancelled) return;
-        setSnapshot({
-          key: reloadToken,
-          state: {
-            phase: "error",
-            data: null,
-            error: error instanceof Error ? error.message : String(error),
-          },
-        });
+        setSnapshot(previous => ({ key, state: { ...previous.state, phase: "error", error: error instanceof Error ? error.message : String(error) } }));
       });
     return () => {
       cancelled = true;
+      controller.abort();
     };
-  }, [reloadToken]);
+  }, [key, track]);
 
   const completeness = state.data;
   // The observed subset counts are cohort-wide and the backend withholds them
@@ -109,7 +110,9 @@ export function RoutingHealthEntryCard() {
         </Button>
       }
     >
-      {state.phase === "error" ? (
+      <ObserveFragmentStamp generatedAt={state.generatedAt} />
+      {state.phase === "error" && state.data && <OperatorStalenessBadge label={copy.staleDataNote} reason={state.error ?? undefined} />}
+      {state.phase === "error" && !state.data ? (
         <OperatorErrorState
           testId="routing-health-entry-error"
           title={copy.routingHealthStateUnavailable}
@@ -125,7 +128,7 @@ export function RoutingHealthEntryCard() {
       ) : (
         <div className="flex flex-col gap-2">
           <div className="flex flex-wrap items-center gap-1.5">
-            {state.phase === "loading" || !completeness ? (
+            {!completeness ? (
               <span className="text-xs text-muted-foreground">
                 {copy.routingHealthChecking}
               </span>

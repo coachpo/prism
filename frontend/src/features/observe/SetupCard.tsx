@@ -1,3 +1,4 @@
+import { useTimezone } from "@/hooks/useTimezone"
 import { CheckCircle2, ChevronDown, ChevronRight, CircleAlert, Loader2, MinusCircle } from "lucide-react"
 import type { FocusEvent, RefObject } from "react"
 import type { SetupCoordinatorState, SetupFact } from "@/lib/types"
@@ -7,6 +8,7 @@ import {
   OperatorErrorState,
   OperatorLoadingState,
   OperatorSectionCard,
+  OperatorStalenessBadge,
 } from "@/shared/design-system"
 import { useLocale } from "@/i18n/useLocale"
 
@@ -90,6 +92,7 @@ function FactGroup({ facts, label }: { facts: readonly SetupFact[]; label: strin
 export function SetupCard({ state, collapsed, cardRef, onBlurCapture, onRetry, onToggle }: SetupCardProps) {
   const { messages } = useLocale()
   const copy = messages.setup
+  const { format } = useTimezone()
   const coreFacts = state.facts.filter((fact) => fact.kind === "required")
   const otherFacts = state.facts.filter((fact) => fact.kind !== "required")
   const count = state.route_configured_count
@@ -112,18 +115,20 @@ export function SetupCard({ state, collapsed, cardRef, onBlurCapture, onRetry, o
           </Button>
         }
       >
+        {state.last_success_at && <p className="text-xs text-muted-foreground">{messages.observe.setupReadCompleted}：<span className="font-mono tabular-nums">{format(state.last_success_at)}</span></p>}
+        {state.last_success_at && state.phase === "degraded" && <OperatorStalenessBadge label={messages.observe.staleDataNote} reason={state.error ?? undefined} />}
         <div className="flex flex-wrap items-center justify-between gap-3 pb-3" aria-live="polite">
           <div>
             <p className="text-sm font-semibold">{headline}</p>
             <p className="text-xs text-muted-foreground">{copy.fourHardItems}</p>
           </div>
-          {state.phase === "degraded" || state.phase === "unknown" ? (
+          {state.phase === "degraded" || state.phase === "unknown" || state.phase === "error" ? (
             <Button type="button" variant="outline" size="sm" onClick={onRetry}>{copy.retry}</Button>
           ) : null}
         </div>
         {!collapsed ? (
           <div id="prism-setup-facts">
-            {state.phase === "degraded" && state.error ? (
+            {(state.phase === "degraded" || state.phase === "error") && state.error ? (
               <OperatorErrorState title={copy.degradedTitle} description={state.error} action={<Button type="button" variant="outline" size="sm" onClick={onRetry}>{copy.retry}</Button>} className="mb-3" />
             ) : null}
             {state.phase === "unknown" ? (

@@ -34,8 +34,7 @@ export function ObserveFreshnessBar({
 
   const generatedAt = nowFragment.data?.generated_at ?? summaryFragment.data?.generated_at ?? null;
   const health = nowFragment.data?.health;
-  const stale = nowFragment.stale || summaryFragment.stale;
-  const staleReason = nowFragment.error ?? summaryFragment.error ?? undefined;
+
   const coverageIncomplete = summaryFragment.data?.coverage.complete === false;
 
   return (
@@ -43,7 +42,7 @@ export function ObserveFreshnessBar({
       data-testid="observe-freshness-bar"
       updatedAt={
         generatedAt ? (
-          copy.updatedAt(format(generatedAt, { hour: "2-digit", minute: "2-digit", second: "2-digit" }))
+          `${nowFragment.data ? messages.observe.nowLabel : messages.observe.windowLabel} · ${copy.updatedAt(format(generatedAt, { hour: "2-digit", minute: "2-digit", second: "2-digit" }))}`
         ) : (
           <OperatorMissingValue reason={copy.neverLoaded} />
         )
@@ -52,14 +51,12 @@ export function ObserveFreshnessBar({
       refresh={{ label: copy.refresh, onRefresh, pending: refreshing }}
       badges={
         <>
-          {stale && generatedAt ? (
-            <OperatorStalenessBadge
-              label={messages.honesty.lastSuccessful(
-                format(generatedAt, { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
-              )}
-              reason={staleReason}
+          {[nowFragment, summaryFragment].map((fragment, index) => fragment.stale && fragment.data?.generated_at ? (
+            <OperatorStalenessBadge key={index}
+              label={`${index === 0 ? messages.observe.nowLabel : messages.observe.windowLabel} · ${messages.honesty.lastSuccessful(format(fragment.data.generated_at, { hour: "2-digit", minute: "2-digit", second: "2-digit" }))}`}
+              reason={fragment.error ?? undefined}
             />
-          ) : null}
+          ) : null)}
           {health?.cache_lag_ms != null && health.cache_lag_ms > 0 ? (
             <OperatorTypeBadge
               data-testid="cache-lag-badge"

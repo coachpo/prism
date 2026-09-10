@@ -62,6 +62,19 @@ go test -timeout 10m ./tests/runtime -run '^TestOpenCodeProviderRoundTrip$' -cou
 
 Evidence includes the actual client version, generated configurations with synthetic credentials, loaded model registry, CLI events and observed HTTP exchanges. Generated gateway URLs use temporary ports and are examples rather than reusable running endpoints. Configuration parsing, model registration and completed requests are distinct assertions. The frontend mock journey and domain golden files do not replace this check.
 
+### Real Pi Export Acceptance
+
+The independent Pi boundary uses the actual **0.84.3** package, CLI model listing and `ModelRuntime` registration. Install that exact `@earendil-works/pi-coding-agent` version in an isolated tool directory, then run from `backend/`:
+
+```bash
+PRISM_PI_PACKAGE_DIR=/absolute/path/to/node_modules/@earendil-works/pi-coding-agent \
+PRISM_PI_EVIDENCE_DIR=/absolute/path/to/evidence \
+go test -timeout 10m ./tests/runtime -run '^TestPiClientRegistration$' -count=1 -v
+```
+
+This check loads Prism-rendered files with omitted and synthetic manually entered credentials, checks all five native model shapes, and blocks network access in the client. It proves actual loading and registration; it does not claim a Pi vendor round trip. Missing package configuration skips the ordinary suite and is not acceptance evidence. Keep fixed clients and artifacts outside product dependencies. The OpenCode check above separately owns streamed text/tool continuation.
+
+
 ## Development Workflow
 
 - Prism is one repository: backend, frontend, launcher, release helper, and CI are versioned together. Read the owning AGENTS hierarchy before editing a surface.

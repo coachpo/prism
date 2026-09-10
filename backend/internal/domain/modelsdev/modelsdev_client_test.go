@@ -202,3 +202,16 @@ func TestSnapshotHasNoNetworkIO(t *testing.T) {
 		t.Fatal("snapshot must be populated after fetch; fixture carries no etag so revision stays empty")
 	}
 }
+
+func TestFailureCodePreservesSchemaAndTimeoutEvidence(t *testing.T) {
+	client, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("<html>private body</html>")) }))
+	if _, err := client.Fetch(t.Context()); FailureCode(err) != "format" {
+		t.Fatalf("schema category: %v", err)
+	}
+	client, _ = newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-r.Context().Done() }))
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
+	defer cancel()
+	if _, err := client.Fetch(ctx); FailureCode(err) != "timeout" {
+		t.Fatalf("timeout category: %v", err)
+	}
+}

@@ -1,4 +1,4 @@
-import type { ObserveActivityItem } from "@/lib/api/observability"
+import type { ObserveActivityItem, UsageErrorsResponse } from "@/lib/api/observability"
 
 /**
  * What the operator picked in the error ranking.
@@ -44,4 +44,18 @@ export function streamErrorKindSelection(
     requestFilters,
     match: (item) => item.stream_outcome === outcome && item.stream_error_kind === kind,
   }
+}
+
+/** Keeps the operator's category, but refreshes its server-authored filter conjunction. */
+export function resolveErrorSelection(previous: ObserveErrorSelection, data: UsageErrorsResponse): ObserveErrorSelection | null {
+  for (const status of data.http_statuses) {
+    if (previous.key === `http:${status.status_code}`) return { ...previous, requestFilters: status.request_filters };
+  }
+  for (const outcome of data.stream_outcomes) {
+    if (previous.key === `stream:${outcome.stream_outcome}`) return { ...previous, requestFilters: outcome.request_filters };
+    for (const kind of outcome.error_kinds) {
+      if (previous.key === `kind:${outcome.stream_outcome}:${kind.stream_error_kind ?? "__null__"}`) return { ...previous, requestFilters: kind.request_filters };
+    }
+  }
+  return null;
 }

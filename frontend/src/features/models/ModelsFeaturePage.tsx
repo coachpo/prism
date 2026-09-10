@@ -31,6 +31,7 @@ import {
   OperatorStalenessBadge,
   OperatorStatusBadge,
 } from "@/shared/design-system";
+import { BatchMaintenanceDialog } from "@/pages/models/BatchMaintenanceDialog";
 import { CreateModelDialog } from "@/pages/models/CreateModelDialog";
 import { DeleteModelDialog } from "@/pages/models/DeleteModelDialog";
 import { ModelDialog } from "@/pages/models/ModelDialog";
@@ -61,6 +62,7 @@ export function ModelsFeaturePage() {
   );
   const copy = messages.modelsPage;
   const navigate = useNavigate();
+  const [batchOpen, setBatchOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
   const searchText = search.search ?? "";
@@ -290,6 +292,7 @@ export function ModelsFeaturePage() {
       data-query-key={JSON.stringify(queryKey)}
     >
       <OperatorPageHeader title={copy.title}>
+        <Button variant="outline" onClick={() => setBatchOpen(true)}>批量维护</Button>
         {/* Export entry: the standalone client-config export page. */}
         <Button
           variant="outline"
@@ -623,6 +626,7 @@ export function ModelsFeaturePage() {
         </CardContent>
       </Card>
 
+      <BatchMaintenanceDialog open={batchOpen} onOpenChange={setBatchOpen} onApplied={async () => { await data.refreshModels(); setSelectedIds(new Set()); }} />
       <CreateModelDialog
         isOpen={data.createDialogOpen}
         loadbalanceStrategies={data.loadbalanceStrategies}

@@ -393,3 +393,51 @@ func TestParsePositiveIntRejectsFractionalAndNegative(t *testing.T) {
 		t.Fatalf("parsePositiveInt(1<<20) = %d, %v", value, err)
 	}
 }
+
+func TestClientFailureCodesRetainLastGoodAndRecover(t *testing.T) {
+	for _, test := range []struct{ name, body, version, revision, code string }{
+		{name: "format", body: `{"secret":"do not publish"}`, code: "format"},
+		{name: "checksum", body: minimalCatalog, revision: "untrusted-private-header", code: "checksum"},
+		{name: "version", body: minimalCatalog, version: "999.0.0", code: "version"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var failure atomic.Bool
+			client, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+				if !failure.Load() {
+					servingHandler(minimalCatalog, nil)(w, r)
+					return
+				}
+				revision := test.revision
+				if revision == "" {
+					revision = revisionFor(test.body)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				w.Header().Set("X-Pi-Model-Catalog-Revision", revision)
+				w.Header().Set("X-Pi-Model-Catalog-Minimum-Version", test.version)
+				_, _ = w.Write([]byte(test.body))
+			})
+			good, err := client.Fetch(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			failure.Store(true)
+			_, err = client.Fetch(t.Context())
+			if FailureCode(err) != test.code {
+				t.Fatalf("code=%s err=%v", FailureCode(err), err)
+			}
+			if client.Snapshot().Revision != good.Revision {
+				t.Fatal("failure replaced last good")
+			}
+			failure.Store(false)
+			if _, err = client.Fetch(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+	client, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) { <-r.Context().Done() })
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
+	defer cancel()
+	if _, err := client.Fetch(ctx); FailureCode(err) != "timeout" {
+		t.Fatalf("timeout category: %v", err)
+	}
+}
