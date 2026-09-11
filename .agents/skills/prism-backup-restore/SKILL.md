@@ -16,7 +16,7 @@ Produce a verified, secret-safe Prism backup; enforce managed keep-three retenti
 - Plan, inventory, validation, and capacity checks are read-only.
 - Backup execution requires current authorization plus `--confirm-backup <service>`.
 - Restore and prune are separate destructive scopes requiring `--confirm-restore <service>:<manifest-sha-prefix>` or `--confirm-prune <service>:keep-3` respectively.
-- Never infer authorization from another operation or task. Restore does not authorize dropping the source database.
+- A current deployment request covers its necessary verified backup when within the stated scope; do not ask again for that covered step. Deployment or backup authorization does not authorize pruning or restore, and historical task authorization does not carry into a new task. Restore does not authorize dropping the source database.
 
 ## Backup
 
@@ -34,6 +34,8 @@ Produce a verified, secret-safe Prism backup; enforce managed keep-three retenti
 ## Retention
 
 Use `scripts/prism_prune_backups.py` with [references/retention.md](references/retention.md). Keep the newest three complete, byte-verified managed backups per service; exclude incomplete, legacy, unmanaged, malformed, symlinked, and protected paths.
+
+Without explicit prune authorization, retain existing backups and report retention as `not_requested`; this does not block completion of an otherwise verified deployment.
 
 For `capy`, read [../prism-ops-inspect/references/capy.md](../prism-ops-inspect/references/capy.md).
 

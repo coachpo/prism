@@ -166,7 +166,53 @@ class RolloutTests(unittest.TestCase):
         self.assertEqual(result, 0)
         value = json.loads(output.getvalue())
         self.assertEqual(value["services"], ["prism-a", "prism-b"])
+        self.assertEqual(value["optional_prune_confirmations"],
+                         ["prism-a:keep-3", "prism-b:keep-3"])
+        self.assertEqual(value["requested_prune_confirmations"], [])
         self.assertEqual(value["confirm_rollout"], "v1.2.3@abcdef123456")
+
+    def test_execute_prunes_only_explicitly_selected_services(self) -> None:
+        manifest = {"tag": "v1.2.3", "release_sha": "abcdef1234567890",
+                    "version": "1.2.3", "image": {"ref": "immutable"}}
+        for confirmations in ([], ["prism-a:keep-3"], ["prism-b:keep-3"]):
+            with self.subTest(confirmations=confirmations):
+                def command(argv, **kwargs):
+                    value = {"manifest": "/backup/current/manifest.json"}
+                    if "prism_prune_backups.py" in argv[1]:
+                        value = {"status": "pruned"}
+                    return subprocess.CompletedProcess(argv, 0, json.dumps(value))
+
+                with (patch.object(MODULE, "load_manifest", return_value=manifest),
+                      patch.object(MODULE, "inspect_remote_image", return_value={}),
+                      patch.object(MODULE.subprocess, "run", side_effect=command) as run,
+                      patch.object(MODULE, "ssh_python", return_value={
+                          "database": {}, "config_sha256": "hash"}),
+                      patch.object(MODULE, "write_new") as write,
+                      redirect_stdout(io.StringIO())):
+                    args = ["execute", "--manifest", "unused.json",
+                            "--confirm-rollout", "v1.2.3@abcdef123456"]
+                    for token in confirmations:
+                        args += ["--confirm-prune", token]
+                    self.assertEqual(MODULE.main(args), 0)
+                prunes = [call.args[0] for call in run.call_args_list
+                          if "prism_prune_backups.py" in call.args[0][1]]
+                self.assertEqual([argv[argv.index("--confirm-prune") + 1]
+                                  for argv in prunes], confirmations)
+                for service in write.call_args.args[1]["services"]:
+                    expected = ("pruned" if service["service"] + ":keep-3"
+                                in confirmations else "not_requested")
+                    self.assertEqual(service["retention"]["status"], expected)
+
+    def test_invalid_prune_confirmation_fails_before_remote_work(self) -> None:
+        manifest = {"tag": "v1.2.3", "release_sha": "abcdef1234567890"}
+        for token in ("prism-b:keep-3", "unknown:keep-3", "prism-a:keep-4"):
+            with (self.subTest(token=token),
+                  patch.object(MODULE, "load_manifest", return_value=manifest),
+                  patch.object(MODULE, "inspect_remote_image") as inspect,
+                  self.assertRaises(MODULE.RolloutError)):
+                MODULE.main(["execute", "--manifest", "unused.json",
+                             "--service", "prism-a", "--confirm-prune", token])
+            inspect.assert_not_called()
 
     def test_backup_manifest_reader_projects_secret_safe_deploy_evidence(self) -> None:
         manifest = {

@@ -627,7 +627,12 @@ def main(argv: list[str] | None = None) -> int:
         [validate_service(value) for value in (args.services or ["prism-a", "prism-b"])]
     )
     token = rollout_token(manifest)
-    required_prune = {f"{service}:keep-3" for service in services}
+    allowed_prune = {f"{service}:keep-3" for service in services}
+    requested_prune = set(args.confirm_prune)
+    if not requested_prune <= allowed_prune:
+        raise RolloutError(
+            f"invalid prune confirmations; allowed values: {sorted(allowed_prune)}"
+        )
     plan = {
         "action": args.action,
         "manifest": str(manifest_path),
@@ -636,7 +641,8 @@ def main(argv: list[str] | None = None) -> int:
         "image_ref": manifest["image"]["ref"],
         "services": services,
         "confirm_rollout": token,
-        "required_prune_confirmations": sorted(required_prune),
+        "optional_prune_confirmations": sorted(allowed_prune),
+        "requested_prune_confirmations": sorted(requested_prune),
         "provider_smoke": args.allow_provider_smoke,
         "observe_seconds": args.observe_seconds,
     }
@@ -645,10 +651,6 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.confirm_rollout != token:
         raise RolloutError(f"execute requires --confirm-rollout {token}")
-    if set(args.confirm_prune) != required_prune:
-        raise RolloutError(
-            f"execute requires prune confirmations: {sorted(required_prune)}"
-        )
     image_inspection = inspect_remote_image(args.host, manifest)
     backup_script = BACKUP_SCRIPTS / "prism_backup.py"
     prune_script = BACKUP_SCRIPTS / "prism_prune_backups.py"
@@ -745,35 +747,38 @@ def main(argv: list[str] | None = None) -> int:
                     file=sys.stderr,
                 )
             raise
-        prune_command = [
-            sys.executable,
-            str(prune_script),
-            "execute",
-            "--host",
-            args.host,
-            "--service",
-            service,
-            "--keep",
-            "3",
-            "--confirm-prune",
-            f"{service}:keep-3",
-            "--protect",
-            str(Path(str(remote_manifest_path)).parent),
-        ]
-        if args.backup_root:
-            prune_command += ["--backup-root", args.backup_root]
-        prune_result = subprocess.run(
-            prune_command, text=True, capture_output=True, check=False
-        )
-        if prune_result.returncode != 0:
-            raise RolloutError(f"{service}: post-rollout retention failed")
+        retention = {"status": "not_requested"}
+        if f"{service}:keep-3" in requested_prune:
+            prune_command = [
+                sys.executable,
+                str(prune_script),
+                "execute",
+                "--host",
+                args.host,
+                "--service",
+                service,
+                "--keep",
+                "3",
+                "--confirm-prune",
+                f"{service}:keep-3",
+                "--protect",
+                str(Path(str(remote_manifest_path)).parent),
+            ]
+            if args.backup_root:
+                prune_command += ["--backup-root", args.backup_root]
+            prune_result = subprocess.run(
+                prune_command, text=True, capture_output=True, check=False
+            )
+            if prune_result.returncode != 0:
+                raise RolloutError(f"{service}: post-rollout retention failed")
+            retention = json.loads(prune_result.stdout)
         result = {
             "service": service,
             "backup": backup,
             "post_deploy": post,
             "smoke": smoke,
             "observation": observation,
-            "retention": json.loads(prune_result.stdout),
+            "retention": retention,
         }
         completed.append(result)
         return result

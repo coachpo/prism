@@ -1,5 +1,13 @@
 # Release manifest
 
+## Acceptance and source identity
+
+Before publishing, record the accepted feature/integration SHA and applicable test evidence. After `release.sh`, compare that source with the release commit: accepted product files must still match; the expected release-only changes are `VERSION`, `backend/VERSION`, `frontend/VERSION`, and the version field in `frontend/package.json`. If product source changed, validate the affected changes before treating earlier acceptance as release evidence. Save this comparison separately, for example as `release-source-bridge.json`; it is not a new required field in the manifest schema.
+
+The v1.1.11 performance release and v1.1.12 OpenCode release used this sequence: acceptance, authorized integration on main, release helper, release-SHA CI, tag image workflow, immutable image verification, then deployment. Feature-specific tests and migration expectations differ per release. A later `STATUS.md` commit does not replace the release SHA or require retagging.
+
+## Published artifact
+
 `prism_release.py execute` writes schema version 1 JSON only after publishing succeeds.
 
 Required fields:
