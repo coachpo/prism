@@ -24,8 +24,8 @@ const jsonResponseHeaders = JSON.stringify([
   { name: "vary", value: "origin, access-control-request-method, access-control-request-headers" },
   { name: "x-client-credential", value: "live-client-credential" },
 ]);
-const requestBody = "original request body\nline two";
-const responseBody = "original response body\nline two";
+const requestBody = JSON.stringify({ messages: [{ role: "user", content: "original request body\nline two" }] });
+const responseBody = JSON.stringify({ choices: [{ message: { role: "assistant", content: "original response body\nline two" } }] });
 export const openAiStreamSseBody = [
   'data: {"choices":[{"delta":{"role":"assistant","content":"Hello"}}]}',
   "",
@@ -239,7 +239,7 @@ export function createRequestLogListItem(scenario: Scenario = "full") {
   };
 }
 
-function createRequestLogDetail(scenario: Scenario) {
+export function createRequestLogDetail(scenario: Scenario) {
   const config = scenarioConfig(scenario);
   const apiFamily = getScenarioApiFamily(scenario);
   const modelId = getScenarioModelId(scenario);
@@ -437,8 +437,8 @@ function createAuditListItem(id: number, scenario: Scenario) {
 
 function createAuditDetail(id: number, scenario: Scenario) {
   const config = scenarioConfig(scenario);
-  const requestBody = id === 202 ? "selected audit request body" : config.requestBody;
-  const responseBody = id === 202 ? "selected audit response body" : config.responseBody;
+  const requestBody = id === 202 ? JSON.stringify({ messages: [{ role: "user", content: "selected audit request body" }] }) : config.requestBody;
+  const responseBody = id === 202 ? JSON.stringify({ choices: [{ message: { role: "assistant", content: "selected audit response body" } }] }) : config.responseBody;
   const responseBodyStored = responseBody !== null;
   return {
     ...createAuditListItem(id, scenario),
@@ -649,21 +649,21 @@ export const documentBodyCases = [
     label: "OpenAI",
     scenario: "openai_document" as const,
     rawBodyPattern: /\{"model":"gpt-4o-mini","messages"/,
-    requestLabels: ["消息记录", "系统", "You are concise.", "Reply with exactly ok."],
-    responseLabels: ["响应候选", "助手", "ok", "令牌用量"],
+    requestLabels: ["系统", "You are concise.", "Reply with exactly ok."],
+    responseLabels: ["助手", "ok"],
   },
   {
     label: "Gemini",
     scenario: "gemini_document" as const,
     rawBodyPattern: /\{"systemInstruction":\{"parts"/,
-    requestLabels: ["系统指令", "内容时间线", "Summarize the route.", "生成参数"],
-    responseLabels: ["候选响应", "模型", "Route summary.", "令牌用量"],
+    requestLabels: ["Be brief.", "Summarize the route."],
+    responseLabels: ["模型", "Route summary."],
   },
   {
     label: "Anthropic",
     scenario: "anthropic_document" as const,
     rawBodyPattern: /\{"model":"claude-3-5-sonnet-latest","system"/,
-    requestLabels: ["系统提示", "消息往来", "Explain the audit."],
-    responseLabels: ["助手内容", "Audit explained.", "结束原因", "令牌用量"],
+    requestLabels: ["You are precise.", "Explain the audit."],
+    responseLabels: ["助手", "Audit explained."],
   },
 ];

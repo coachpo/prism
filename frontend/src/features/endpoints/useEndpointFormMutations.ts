@@ -1,5 +1,4 @@
 import { useCallback, useState } from "react";
-import { toast } from "sonner";
 
 import { getStaticMessages } from "@/i18n/staticMessages";
 import { api } from "@/lib/api";
@@ -32,13 +31,11 @@ type EndpointFormReferences = Pick<
 type EndpointFormMutationOptions = {
   commitEndpoints: (updater: (current: Endpoint[]) => Endpoint[]) => void;
   references: EndpointFormReferences;
-  onEndpointCreated: (endpoint: Endpoint) => void;
 };
 
 export function useEndpointFormMutations({
   commitEndpoints,
   references,
-  onEndpointCreated,
 }: EndpointFormMutationOptions) {
   const { addEndpoint, invalidateEndpoint } = references;
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -111,15 +108,14 @@ export function useEndpointFormMutations({
   const handleCreate = useCallback(
     async (values: EndpointFormValues, verifyFamily?: string) => {
       const messages = getStaticMessages();
+      setEndpointDialogError(null);
+      setEndpointFieldErrors(null);
       try {
         const created = await api.endpoints.create(
           buildEndpointCreatePayload(values),
         );
-        toast.success(messages.endpointsData.created);
-        if (!verifyFamily) setIsCreateOpen(false);
         commitEndpoints((current) => [...current, created]);
         addEndpoint(created.id);
-        onEndpointCreated(created);
         if (verifyFamily) {
           const verification = await handleVerify(
             created.id,
@@ -138,19 +134,13 @@ export function useEndpointFormMutations({
       } catch (error) {
         const fieldErrors = extractEndpointFieldErrors(error);
         if (fieldErrors) setEndpointFieldErrors(fieldErrors);
-        const validation = extractServerValidation(
-          error,
-          messages.endpointsData.createFailed,
-        );
-        setEndpointDialogError(validation.summary);
-        toast.error(validation.summary);
+        setEndpointDialogError(extractServerValidation(error, messages.endpointsData.createFailed).summary);
         return null;
       }
     },
     [
       commitEndpoints,
       handleVerify,
-      onEndpointCreated,
       addEndpoint,
     ],
   );
@@ -159,19 +149,13 @@ export function useEndpointFormMutations({
     async (values: EndpointFormValues, verifyFamily?: string) => {
       const messages = getStaticMessages();
       if (!editingEndpoint) return null;
+      setEndpointDialogError(null);
+      setEndpointFieldErrors(null);
       try {
         const updated = await api.endpoints.update(
           editingEndpoint.id,
           buildEndpointUpdatePayload(values, editingEndpoint.updated_at),
         );
-        const keyRotated =
-          updated.api_key_updated_at !== editingEndpoint.api_key_updated_at;
-        toast.success(
-          keyRotated && updated.api_key_fingerprint
-            ? messages.endpointsData.keyRotated(updated.api_key_fingerprint)
-            : messages.endpointsData.keyUnchanged,
-        );
-        if (!verifyFamily) setEditingEndpoint(null);
         replaceEndpoint(updated);
         invalidateEndpoint(updated.id);
         if (verifyFamily) {
@@ -195,20 +179,13 @@ export function useEndpointFormMutations({
           const current = stale?.endpoint;
           if (current) {
             replaceEndpoint(current);
-            setEditingEndpoint(current);
           }
           setEndpointDialogError(messages.endpointsData.endpointStale);
-          toast.error(messages.endpointsData.endpointStale);
           return null;
         }
         const fieldErrors = extractEndpointFieldErrors(error);
         if (fieldErrors) setEndpointFieldErrors(fieldErrors);
-        const validation = extractServerValidation(
-          error,
-          messages.endpointsData.updateFailed,
-        );
-        setEndpointDialogError(validation.summary);
-        toast.error(validation.summary);
+        setEndpointDialogError(extractServerValidation(error, messages.endpointsData.updateFailed).summary);
         return null;
       }
     },
@@ -217,7 +194,6 @@ export function useEndpointFormMutations({
       handleVerify,
       invalidateEndpoint,
       replaceEndpoint,
-      setEditingEndpoint,
     ],
   );
 

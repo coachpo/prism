@@ -97,7 +97,7 @@ function BlockerRow({ item, endpoint, onOrphanCleanup }: { item: EndpointReferen
     <TableRow data-testid={`delete-blocker-${item.connection_id}`}>
       <TableCell>
         {item.kind === "orphan_connection" ? (
-          <span className="text-xs text-muted-foreground">{copy.orphanRowLabel(String(item.connection_id))}</span>
+          <span className="text-xs text-muted-foreground">{copy.orphanRowLabel}</span>
         ) : item.owner_model ? (
           <span className="flex flex-col gap-0.5 text-xs">
             <span className="font-medium text-foreground">{item.owner_model.display_name ?? item.owner_model.model_id}</span>
@@ -107,8 +107,7 @@ function BlockerRow({ item, endpoint, onOrphanCleanup }: { item: EndpointReferen
       </TableCell>
       <TableCell>
         <span className="flex flex-col gap-0.5 text-xs">
-          <span className="text-foreground">{item.terminal_target_name ?? `#${item.terminal_target_id}`}</span>
-          <code className="font-mono text-[11px] text-muted-foreground">#{item.terminal_target_id}</code>
+          <span className="text-foreground">{item.terminal_target_name ?? copy.unnamedConnection}</span>
         </span>
       </TableCell>
       <TableCell>
@@ -169,7 +168,7 @@ export function DeleteEndpointDialog({
       showConfirmButton={state.phase === "eligible" || state.phase === "deleting"}
       showCloseButton={state.phase !== "deleting"}
       confirmTestId="delete-endpoint-confirm"
-      contentClassName="sm:max-w-2xl"
+      size="lg"
       bodyClassName="flex min-h-0 flex-col gap-4 overflow-y-auto"
       onConfirm={() => {
         if (endpoint) onConfirm({ id: endpoint.id })
@@ -202,7 +201,7 @@ export function DeleteEndpointDialog({
       ) : null}
 
       {state.phase === "check_error" ? (
-        <OperatorCallout intent="danger" role="alert" title={copy.deleteCheckError} description={state.error.message} action={<Button type="button" variant="outline" size="sm" onClick={onRetry}><RefreshCw />{copy.deleteRetry}</Button>} />
+        <OperatorCallout intent="danger" role="alert" description={copy.deleteCheckError} action={<Button type="button" variant="outline" size="sm" onClick={onRetry}><RefreshCw />{copy.deleteRetry}</Button>} />
       ) : null}
 
       {state.phase === "integrity_error" ? (
@@ -211,7 +210,7 @@ export function DeleteEndpointDialog({
             <AlertCircle className="mr-1 inline size-4" />
             {copy.deleteIntegrityError}
           </h3>
-          <OperatorCallout intent="danger" role="alert" description={state.error.message} action={<Button type="button" variant="outline" size="sm" onClick={onRetry}><RefreshCw />{copy.deleteRetry}</Button>} />
+          <OperatorCallout intent="danger" role="alert" description={copy.deleteCheckError} action={<Button type="button" variant="outline" size="sm" onClick={onRetry}><RefreshCw />{copy.deleteRetry}</Button>} />
         </div>
       ) : null}
     </OperatorDestructiveDialog>

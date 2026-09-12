@@ -71,11 +71,7 @@ function defaultSources(signal?: AbortSignal): SetupReadinessSources {
   }
 }
 
-/**
- * 清单标签走 messages：这是非 hook 模块，用共享的 staticMessages 读同一份
- * 字典。其中「模型配置」不能写成「模型」——这两个词在路由术语里指不同的东西，
- * 而这一行的链接指向的正是侧栏那个「模型配置」。
- */
+/** Setup labels share the localized task-card catalog. */
 function factLabel(id: SetupFactId): string {
   return getStaticMessages().setup.factLabels[id]
 }
@@ -387,7 +383,7 @@ function buildModelFacts(read: SourceRead): { models: SetupFact; terminalTargets
       parsed.route_readiness.application,
       "fresh",
       parsed.route_readiness.route_schedule.schedule_limited
-        ? "已就绪的路由仅在配置时段内可用"
+        ? getStaticMessages().setup.scheduleLimited
         : null,
     ),
     readiness: parsed.route_readiness,

@@ -346,7 +346,7 @@ describe("catalog offering discovery", () => {
     await userEvent.click(await screen.findByText(/gpt-five-part/));
 
     expect(await screen.findByText("候选条目读取失败")).toBeInTheDocument();
-    expect(screen.getByText("candidate_down")).toBeInTheDocument();
+    expect(screen.queryByText("candidate_down")).not.toBeInTheDocument();
     expect(
       screen.queryByText("没有匹配的候选条目，请调整关键词。"),
     ).not.toBeInTheDocument();
@@ -474,7 +474,7 @@ describe("catalog pricing preview display", () => {
     );
   });
 
-  it("names both ends of the mapping plus revision, fetch stamp and unit", async () => {
+  it("names both model identities, fetch time and readable price units", async () => {
     await renderPreview(previewResponse());
     // The offering display name doubles as the panel heading and the Prism
     // model label, so both occurrences are expected.
@@ -485,10 +485,10 @@ describe("catalog pricing preview display", () => {
       0,
     );
     expect(screen.getByText("gpt-five-part")).toBeInTheDocument();
-    expect(screen.getByText('"catalog-rev-9"')).toBeInTheDocument();
+    expect(screen.queryByText('"catalog-rev-9"')).not.toBeInTheDocument();
     // The unit appears both in the currency row and in the explicit note.
     expect(
-      screen.getAllByText(/USD\/PER_1M|· USD\/PER_1M/).length,
+      screen.getAllByText(/USD.*每 100 万令牌/).length,
     ).toBeGreaterThan(0);
     expect(screen.getByText(/按原值写入，不做汇率换算/)).toBeInTheDocument();
     expect(screen.getByText("2026-08-25T12:00:00Z")).toBeInTheDocument();
@@ -545,10 +545,10 @@ describe("catalog pricing preview display", () => {
       screen.getByText("目录条目含音频计价，Prism 无对应价格种类"),
     ).toBeInTheDocument();
     expect(
-      screen.getByText("目录条目含多个阶梯，无法映射为单一阈值"),
+      screen.getByText("该模型有多个计价阈值，当前只支持一个阈值"),
     ).toBeInTheDocument();
-    // The field path stays visible as evidence, the reason code does not.
-    expect(screen.getByText("cost.input_audio")).toBeInTheDocument();
+    // Neither internal field paths nor reason codes belong in the product.
+    expect(screen.queryByText("cost.input_audio")).not.toBeInTheDocument();
     expect(screen.queryByText("audio_cost_present")).not.toBeInTheDocument();
   });
 });
@@ -617,7 +617,7 @@ describe("catalog pricing dialog commit gates", () => {
     // No target is preselected on the pricing surface, and committing is still
     // allowed: it creates the template and assigns nothing.
     expect(submit).not.toBeDisabled();
-    expect(submit).toHaveTextContent("生成或刷新模板");
+    expect(submit).toHaveTextContent("保存价格模板");
     await userEvent.click(submit);
     await waitFor(() => expect(catalogCommitMock).toHaveBeenCalled());
     expect(catalogCommitMock.mock.calls[0][0]).toMatchObject({
@@ -702,7 +702,8 @@ describe("catalog pricing dialog commit gates", () => {
     await renderDialog();
 
     const submit = await screen.findByTestId("catalog-pricing-submit");
-    expect(await screen.findByText("catalog_preview_down")).toBeInTheDocument();
+    expect(await screen.findByText("价格模板暂时无法加载，请重试")).toBeInTheDocument();
+    expect(screen.queryByText("catalog_preview_down")).not.toBeInTheDocument();
     expect(submit).toBeDisabled();
     expect(screen.getByTestId("catalog-pricing-blockers")).toHaveTextContent(
       "尚未取得有效预览，无法提交",
@@ -735,7 +736,7 @@ describe("catalog pricing dialog commit gates", () => {
     await waitFor(() => expect(submit).toBeDisabled());
     expect(
       await screen.findByTestId("catalog-pricing-blockers"),
-    ).toHaveTextContent("价格不可无损表达，提交已禁用且零写入");
+    ).toHaveTextContent("暂时无法准确保存此价格，请先处理上述计价限制");
     expect(catalogCommitMock).not.toHaveBeenCalled();
   });
 
@@ -837,8 +838,9 @@ describe("catalog pricing dialog commit gates", () => {
 
     expect(await screen.findByText("读取目录价格失败")).toBeInTheDocument();
     expect(
-      screen.getByText("models_dev_pricing_preview_stale"),
+      screen.getByText("价格模板未能保存。填写内容已保留，请重试；也可以取消本次修改。"),
     ).toBeInTheDocument();
+    expect(screen.queryByText("models_dev_pricing_preview_stale")).not.toBeInTheDocument();
     expect(onCommitted).not.toHaveBeenCalled();
     // The stale preview was discarded and a fresh one fetched.
     await waitFor(() => expect(catalogPreviewMock).toHaveBeenCalledTimes(2));

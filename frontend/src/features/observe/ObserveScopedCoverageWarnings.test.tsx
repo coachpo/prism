@@ -73,10 +73,10 @@ describe("Observe scoped coverage warnings", () => {
 
     expect(screen.getByText("最终尝试延迟覆盖受限")).toBeInTheDocument();
     expect(
-      screen.getByText(/此缺口只限制最终尝试延迟样本/),
+      screen.getByText(/部分请求缺少最后一次服务调用的耗时/),
     ).toBeInTheDocument();
     expect(screen.queryByText("最终承载用量事件覆盖受限")).not.toBeInTheDocument();
-    expect(screen.getByText(/owner 尚无可用覆盖证据/)).toBeInTheDocument();
+    expect(screen.getByText(/该时段的数据完整性尚未确认/)).toBeInTheDocument();
   });
 
   it("renders two independently labelled warnings when both datasets have gaps", () => {

@@ -1,3 +1,4 @@
+import { requestServiceLabel, requestClientLabel } from "./requestFailurePresentation";
 import { ApiFamilyIcon } from "@/components/ApiFamilyIcon";
 import { formatApiFamily } from "@/components/apiFamilyPresentation";
 import { getCurrentLocale } from "@/i18n/format";
@@ -94,7 +95,7 @@ function rowDurationMs(row: RequestLogListItem): number | null {
 }
 
 function getSingleClientDisplay(row: RequestLogListItem): string {
-  return row.caller_client_display ?? row.upstream_client_display ?? "—";
+  return requestClientLabel(row.caller_client_display ?? row.upstream_client_display);
 }
 
 function resolveRequestLogSpendTrust(row: RequestLogListItem) {
@@ -363,10 +364,7 @@ export function getColumns(): ColumnDef[] {
       grow: 2,
       render: (row) => {
         const label =
-          row.terminal_target_label ??
-          (row.terminal_target_id === null
-            ? null
-            : messages.terminalTargetId(row.terminal_target_id));
+          row.terminal_target_id === null ? null : requestServiceLabel(row.terminal_target_label, row.endpoint_label);
         // 悬停要读得出全值：尾部省略砍掉的正是标识符的区分位。
         return (
           <span className="block truncate text-xs font-medium" title={label ?? undefined}>
@@ -424,7 +422,7 @@ export function getColumns(): ColumnDef[] {
       grow: 0,
       render: (row) => (
         <span className="block truncate text-xs text-muted-foreground">
-          {row.reasoning_effort ?? "—"}
+          {row.reasoning_effort ? messages.reasoningLevels[row.reasoning_effort as keyof typeof messages.reasoningLevels] ?? messages.unknown : "—"}
         </span>
       ),
     },

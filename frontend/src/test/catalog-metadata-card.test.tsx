@@ -1,3 +1,4 @@
+import { getStaticMessages } from "@/i18n/staticMessages";
 // Catalog metadata honesty: unbound/bound/stale/error states stay
 // distinguishable, override markers surface on merged fields, and the pricing
 // dialog refuses to commit incompatible plans or unconfirmed drift.
@@ -150,7 +151,7 @@ describe("useModelCatalog", () => {
     await waitFor(() => expect(result.current.failed).toBe(true));
     expect(result.current.catalog).toBe(catalog);
     expect(result.current.hasLastGood).toBe(true);
-    expect(result.current.error).toBe("refresh failed");
+    expect(result.current.error).toBe(getStaticMessages().common.requestErrors.unknown);
 
     act(() => result.current.refresh());
     await waitFor(() => expect(result.current.failed).toBe(false));
@@ -203,7 +204,7 @@ describe("ModelsDevCatalogPanel", () => {
       }),
     );
     expect(screen.getByText("未绑定")).toBeInTheDocument();
-    expect(screen.getByText(/尚未绑定 models\.dev 目录条目/)).toBeInTheDocument();
+    expect(screen.getByText(/尚未关联模型资料/)).toBeInTheDocument();
   });
 
   it("shows coordinates, timezone fetch stamp, and effective values when bound", () => {
@@ -231,9 +232,9 @@ describe("ModelsDevCatalogPanel", () => {
     renderCard(catalogView({ catalog: boundCatalog() }), onChanged);
 
     await user.click(
-      screen.getByRole("button", { name: "models.dev 绑定操作" }),
+      screen.getByRole("button", { name: "models.dev 资料操作" }),
     );
-    await user.click(screen.getByRole("menuitem", { name: "解绑目录" }));
+    await user.click(screen.getByRole("menuitem", { name: "移除资料关联" }));
     await user.click(screen.getByTestId("models-dev-unbind-confirm"));
 
     await waitFor(() =>
@@ -255,11 +256,11 @@ describe("ModelsDevCatalogPanel", () => {
     renderCard(catalogView({ catalog: boundCatalog() }), onChanged);
 
     await user.click(
-      screen.getByRole("button", { name: "models.dev 绑定操作" }),
+      screen.getByRole("button", { name: "models.dev 资料操作" }),
     );
-    await user.click(screen.getByRole("menuitem", { name: "编辑覆盖" }));
+    await user.click(screen.getByRole("menuitem", { name: "调整模型资料" }));
     await user.click(
-      screen.getByRole("button", { name: "清除全部覆盖" }),
+      screen.getByRole("button", { name: "恢复全部目录值" }),
     );
 
     await waitFor(() =>
@@ -280,16 +281,16 @@ describe("ModelsDevCatalogPanel", () => {
     );
     renderCard(catalogView({ catalog: boundCatalog() }), onChanged);
     await user.click(
-      screen.getByRole("button", { name: "models.dev 绑定操作" }),
+      screen.getByRole("button", { name: "models.dev 资料操作" }),
     );
-    await user.click(screen.getByRole("menuitem", { name: "解绑目录" }));
+    await user.click(screen.getByRole("menuitem", { name: "移除资料关联" }));
     await user.click(screen.getByTestId("models-dev-unbind-confirm"));
 
     const dialog = screen.getByRole("dialog", {
-      name: "解绑 models.dev 目录绑定",
+      name: "移除 models.dev 资料关联",
     });
     expect(
-      await within(dialog).findByText("models_dev_binding_stale"),
+      await within(dialog).findByText(getStaticMessages().common.requestErrors.unknown),
     ).toBeVisible();
     expect(dialog).toBeVisible();
     expect(onChanged).toHaveBeenCalledTimes(1);
@@ -301,7 +302,7 @@ describe("ModelsDevCatalogPanel", () => {
     );
     expect(screen.getByRole("status")).toBeInTheDocument();
     expect(
-      screen.getByText("正在读取 models.dev 目录绑定…"),
+      screen.getByText("正在读取 models.dev 模型资料…"),
     ).toBeInTheDocument();
     expect(screen.queryByText("未绑定")).not.toBeInTheDocument();
   });
@@ -347,7 +348,7 @@ describe("ModelsDevCatalogPanel", () => {
     // 这里要断言的是那个可见的抓取时间，不是徽章的说明文本。
     const stamps = screen.getAllByText(/UTC:2026-08-25T12:00:00Z/);
     expect(stamps.some((node) => !node.classList.contains("sr-only"))).toBe(true);
-    expect(screen.getByRole("button", { name: "重新绑定" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "更换来源" })).toBeDisabled();
     await user.click(screen.getByRole("button", { name: "重试读取" }));
     expect(refresh).toHaveBeenCalledTimes(1);
   });
@@ -377,10 +378,10 @@ describe("ModelsDevCatalogPanel", () => {
     });
     catalog.effective = { ...catalog.source!, name: "Operator Name" };
     renderCard(catalogView({ catalog }));
-    expect(screen.getByText("存在人工覆盖")).toBeInTheDocument();
+    expect(screen.getByText("有手动调整")).toBeInTheDocument();
     // The override marker rides on the field label of the overridden key.
     const nameLabel = screen.getByText(/名称/);
-    expect(nameLabel.textContent).toContain("已覆盖");
+    expect(nameLabel.textContent).toContain("已调整");
   });
 
   it("does not offer bound-only actions for an unbound model", () => {
@@ -446,7 +447,7 @@ describe("CatalogOverrideDialog binding snapshot", () => {
       </LocaleProvider>,
     );
     await user.click(
-      screen.getByRole("button", { name: "清除全部覆盖" }),
+      screen.getByRole("button", { name: "恢复全部目录值" }),
     );
 
     await waitFor(() =>
@@ -591,7 +592,7 @@ describe("catalog pricing commit gating", () => {
         screen.getByText("目录条目含音频计价，Prism 无对应价格种类"),
       ).toBeInTheDocument(),
     );
-    expect(screen.getByText("cost.input_audio")).toBeInTheDocument();
+    expect(screen.queryByText("cost.input_audio")).not.toBeInTheDocument();
     expect(screen.queryByText("audio_cost_present")).not.toBeInTheDocument();
     expect(screen.getByTestId("catalog-pricing-submit")).toBeDisabled();
   });

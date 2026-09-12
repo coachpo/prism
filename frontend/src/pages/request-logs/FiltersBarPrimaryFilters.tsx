@@ -21,8 +21,7 @@ import { useRequestLogProxyApiKeyOptions } from "./useRequestLogProxyApiKeyOptio
 interface FiltersBarPrimaryFiltersProps {
   actions: Pick<
     RequestLogPageActions,
-    | "setIngressRequestId"
-    | "setRequestId"
+    | "findRequest"
     | "setEndpointId"
     | "setTerminalTargetId"
     | "setModelId"
@@ -117,13 +116,12 @@ export function FiltersBarPrimaryFilters({
   state,
 }: FiltersBarPrimaryFiltersProps) {
   const { messages } = useLocale();
-  // URL 里带着 request_id 时输入框却是空的，操作者看不出是什么条件造成了
-  // 当前这一屏。定位值以 URL 为准，回显进来。
-  const [requestLookupValue, setRequestLookupValue] = useState(state.request_id);
-  const [echoedRequestId, setEchoedRequestId] = useState(state.request_id);
-  if (echoedRequestId !== state.request_id) {
-    setEchoedRequestId(state.request_id);
-    setRequestLookupValue(state.request_id);
+  const activeLookupValue = state.request_id || state.ingress_request_id;
+  const [requestLookupValue, setRequestLookupValue] = useState(activeLookupValue);
+  const [echoedLookup, setEchoedLookup] = useState(activeLookupValue);
+  if (echoedLookup !== activeLookupValue) {
+    setEchoedLookup(activeLookupValue);
+    setRequestLookupValue(activeLookupValue);
   }
   const {
     options: proxyKeyOptions,
@@ -137,7 +135,7 @@ export function FiltersBarPrimaryFilters({
       return;
     }
 
-    actions.setRequestId(normalized);
+    actions.findRequest(normalized);
   };
 
   // Compact layout (Requests SPEC §10.5/AC 20): the visible row stays to
@@ -152,7 +150,7 @@ export function FiltersBarPrimaryFilters({
         {/* Explicit submit: typing an id no longer silently swaps the page into
             a different mode, and the filters stay adjustable afterwards. */}
         <FilterField
-          label={messages.requestLogs.requestId}
+          label={messages.requestLogs.findRequest}
           className="min-w-[17rem] flex-[2]"
         >
           {({ controlId }) => (
@@ -184,23 +182,6 @@ export function FiltersBarPrimaryFilters({
                 {messages.requestLogs.locateRequest}
               </Button>
             </div>
-          )}
-        </FilterField>
-
-        <FilterField
-          label={messages.requestLogs.ingressRequestId}
-          className="min-w-[13rem] flex-1"
-        >
-          {({ controlId }) => (
-            <Input
-              id={controlId}
-              name="ingress_request_id"
-              autoComplete="off"
-              className="h-9 rounded-lg border-border bg-panel font-mono text-sm"
-              placeholder={messages.requestLogs.ingressRequestId}
-              value={state.ingress_request_id}
-              onChange={(event) => actions.setIngressRequestId(event.target.value)}
-            />
           )}
         </FilterField>
 

@@ -670,11 +670,11 @@ test("model catalog binds via unique match and renders metadata", async ({
 
   // Unbound state stays visible and honest. The hint paragraph is the
   // unambiguous anchor: the badge text is a substring of it.
-  await expect(page.getByText(/尚未绑定 models\.dev 目录条目/)).toBeVisible();
+  await expect(page.getByText(/尚未关联模型资料/)).toBeVisible();
   await expect(page.getByText("未绑定").first()).toBeVisible();
 
   // Bind flow: unique exact match enters a committable preview.
-  await page.getByRole("button", { name: "绑定目录" }).click();
+  await page.getByRole("button", { name: "选择模型资料" }).click();
   const bindDialog = page.getByRole("dialog");
   await expect(bindDialog.getByText("发现唯一精确匹配")).toBeVisible();
   await expect(bindDialog.getByText("openai / gpt-long")).toBeVisible();
@@ -687,8 +687,8 @@ test("model catalog binds via unique match and renders metadata", async ({
   // Unbind carries the exact displayed snapshot and then authoritatively
   // re-reads instead of optimistically fabricating an unbound card.
   const readsBeforeUnbind = state.catalogReads;
-  await page.getByRole("button", { name: "models.dev 绑定操作" }).click();
-  await page.getByRole("menuitem", { name: "解绑目录" }).click();
+  await page.getByRole("button", { name: "models.dev 资料操作" }).click();
+  await page.getByRole("menuitem", { name: "移除资料关联" }).click();
   await page.getByTestId("models-dev-unbind-confirm").click();
   expect(state.unbindRequests).toEqual([
     {
@@ -698,7 +698,7 @@ test("model catalog binds via unique match and renders metadata", async ({
     },
   ]);
   await expect.poll(() => state.catalogReads).toBeGreaterThan(readsBeforeUnbind);
-  await expect(page.getByText(/尚未绑定 models\.dev 目录条目/)).toBeVisible();
+  await expect(page.getByText(/尚未关联模型资料/)).toBeVisible();
 });
 
 test("catalog candidate pager appends all pages and selects a later candidate", async ({
@@ -715,7 +715,7 @@ test("catalog candidate pager appends all pages and selects a later candidate", 
     .getByTestId("model-detail-feature-page")
     .waitFor({ timeout: 15000 });
   await expandExternalCatalogSection(page);
-  await page.getByRole("button", { name: "绑定目录" }).click();
+  await page.getByRole("button", { name: "选择模型资料" }).click();
 
   const dialog = page.getByRole("dialog");
   const loadMore = dialog.getByTestId("catalog-candidate-load-more");
@@ -737,13 +737,13 @@ test("catalog candidate pager appends all pages and selects a later candidate", 
   await expect(loadMore).toHaveCount(0);
 
   await dialog.getByRole("option", { name: /openai\/paged-46/ }).click();
-  await expect(dialog.getByRole("textbox", { name: "models.dev 目录 Provider" })).toHaveValue(
+  await expect(dialog.getByRole("textbox", { name: "目录中的提供方" })).toHaveValue(
     "openai",
   );
   // 手动坐标字段的可见标签在术语统一后是「models.dev 目录模型 ID」：
   // DESIGN.md 的 Copy 约定界面用简体中文术语（模型 ID），不直接暴露后端字段名。
   await expect(
-    dialog.getByRole("textbox", { name: "models.dev 目录模型 ID" }),
+    dialog.getByRole("textbox", { name: "目录中的模型名称" }),
   ).toHaveValue("paged-46");
 });
 
@@ -812,7 +812,7 @@ test("catalog candidate pager isolates stale reads and retries failures", async 
     .getByTestId("model-detail-feature-page")
     .waitFor({ timeout: 15000 });
   await expandExternalCatalogSection(page);
-  await page.getByRole("button", { name: "绑定目录" }).click();
+  await page.getByRole("button", { name: "选择模型资料" }).click();
 
   const dialog = page.getByRole("dialog");
   const loadMore = dialog.getByTestId("catalog-candidate-load-more");
@@ -919,7 +919,7 @@ test("terminal target generates catalog prices atomically", async ({
   await dialog.getByTestId("catalog-pricing-submit").click();
   await expect(dialog).not.toBeVisible();
   await expect(
-    page.getByText(/已生成价格模板「openai\/gpt-long」并赋给 1 个终端目标/),
+    page.getByText(/已保存价格模板「openai\/gpt-long」并用于 1 个服务连接/),
   ).toBeVisible();
 
   expect(state.commitRequests).toHaveLength(1);
@@ -1002,10 +1002,10 @@ test("pricing page imports a unique match as a template with no target", async (
   ).toBeVisible();
   await expect(dialog.getByTestId("catalog-pricing-preview")).toBeVisible();
 
-  // The preview carries the full source evidence, not just two prices.
+  // The preview names the source and readable units without its internal token.
   const previewPanel = dialog.getByTestId("catalog-pricing-preview");
-  await expect(previewPanel.getByText('"catalog-e2e-1"')).toBeVisible();
-  await expect(previewPanel.getByText(/USD\/PER_1M/).first()).toBeVisible();
+  await expect(previewPanel.getByText('"catalog-e2e-1"')).toHaveCount(0);
+  await expect(previewPanel.getByText(/USD.*每 100 万令牌/).first()).toBeVisible();
   await expect(
     previewPanel.getByText(/输入超过 272000 令牌时整单切换/),
   ).toBeVisible();
@@ -1020,13 +1020,13 @@ test("pricing page imports a unique match as a template with no target", async (
   ).not.toBeChecked();
 
   await expect(page.getByTestId("catalog-pricing-submit")).toHaveText(
-    "生成或刷新模板",
+    "保存价格模板",
   );
   await page.getByTestId("catalog-pricing-submit").click();
   await expect(dialog).not.toBeVisible();
   await expect(
     page.getByText(
-      /已生成价格模板「openai\/gpt-long」，本次未赋值任何终端目标/,
+      /已保存价格模板「openai\/gpt-long」，尚未用于服务连接/,
     ),
   ).toBeVisible();
 
@@ -1066,7 +1066,7 @@ test("pricing page requires a human pick when nothing matches exactly", async ({
 
   // Candidate discovery never selects on the operator's behalf, and the
   // desired offering may live beyond the first bounded page.
-  await expect(dialog.getByText(/没有找到精确匹配的模型 ID/)).toBeVisible();
+  await expect(dialog.getByText(/没有找到名称完全一致的模型/)).toBeVisible();
   await expect(dialog.getByTestId("catalog-pricing-preview")).toHaveCount(0);
   await expect(page.getByTestId("catalog-pricing-submit")).toBeDisabled();
 
@@ -1090,7 +1090,7 @@ test("pricing page requires a human pick when nothing matches exactly", async ({
   await expect(dialog).not.toBeVisible();
   await expect(
     page.getByText(
-      /已生成价格模板「openai\/pricing-24」，本次未赋值任何终端目标/,
+      /已保存价格模板「openai\/pricing-24」，尚未用于服务连接/,
     ),
   ).toBeVisible();
   expect(state.commitRequests).toHaveLength(1);
@@ -1127,7 +1127,7 @@ test("pricing page re-previews when the operator changes the target set", async 
   await expect(dialog).not.toBeVisible();
   expect(state.commitRequests[0]).toMatchObject({ connection_ids: [15] });
   await expect(
-    page.getByText(/已生成价格模板「openai\/gpt-long」并赋给 1 个终端目标/),
+    page.getByText(/已保存价格模板「openai\/gpt-long」并用于 1 个服务连接/),
   ).toBeVisible();
 });
 

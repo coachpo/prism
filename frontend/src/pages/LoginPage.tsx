@@ -129,9 +129,6 @@ export function LoginPage() {
         {messages.auth.instanceStatusLabel}: {authStateLabel(publicStatus.state, messages)}
       </span>
       <span>
-        {messages.auth.generationLabel}: {publicStatus.effective_generation}
-      </span>
-      <span>
         {messages.auth.loginAvailableLabel}:{" "}
         {publicStatus.login_available ? messages.auth.loginAvailableYes : messages.auth.loginAvailableNo}
       </span>

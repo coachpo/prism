@@ -1,3 +1,5 @@
+import { extractServerValidation } from "@/shared/forms/serverValidation";
+import { getStaticMessages } from "@/i18n/staticMessages";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "@/lib/api";
@@ -166,7 +168,7 @@ export function useCatalogPricingImport({
           sourceKey,
           targetsKey,
           preview: null,
-          error: cause instanceof Error ? cause.message : String(cause),
+          error: extractServerValidation(cause, getStaticMessages().pricingTemplatesData.loadFailed).summary,
         });
       }
     })();

@@ -14,6 +14,7 @@ const {
   DEFAULTS,
   TOKEN_BOUND_REQUEST_FILTER_DEFAULTS,
   applyRequestLogStatePatch,
+  requestLookupPatch,
   parsePageState,
   requestLogStateForView,
   stateToParams,
@@ -250,4 +251,21 @@ test("request-log filter state omits empty browse filters but keeps exact anchor
   assert.equal(params.has("attempt_target_model_id"), false);
   assert.equal(params.get("request_id"), "303");
   assert.equal(params.get("selected_request_id"), "404");
+});
+
+test("one request lookup accepts copied numeric and ingress identifiers without mixing filters", () => {
+  const prior = parsePageState(new URLSearchParams("request_id=12&ingress_request_id=old-request&selected_request_id=13&offset=50"));
+  const byNumber = applyRequestLogStatePatch(prior, requestLookupPatch(" #9007199254740997 "));
+  assert.equal(byNumber.request_id, "9007199254740997");
+  assert.equal(byNumber.ingress_request_id, "");
+  assert.equal(byNumber.selected_request_id, "");
+  const byIngress = applyRequestLogStatePatch(byNumber, requestLookupPatch(" 9e65bfea-a81e-48ac-bd47-c67f4f2885ee "));
+  assert.equal(byIngress.request_id, "");
+  assert.equal(byIngress.ingress_request_id, "9e65bfea-a81e-48ac-bd47-c67f4f2885ee");
+  assert.equal(byIngress.offset, 0);
+  assert.equal(requestLookupPatch(" "), null);
+  for (const value of ["0", "-1", "12.5", "9223372036854775808"]) {
+    assert.equal(requestLookupPatch(value).request_id, "");
+    assert.equal(requestLookupPatch(value).ingress_request_id, value);
+  }
 });

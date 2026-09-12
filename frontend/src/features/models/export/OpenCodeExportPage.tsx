@@ -1,4 +1,5 @@
 import { ExportPresetsPanel } from "./ExportPresetsPanel";
+import { catalogFailureMessage } from "../catalog/catalogFailureMessage";
 import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { useLocale } from "@/i18n/useLocale";
@@ -91,7 +92,7 @@ export function OpenCodeExportPage({
         {query.isError && !query.data ? (
           <OperatorErrorState
             title={copy.loadFailed}
-            description={String(query.error)}
+            description={catalogFailureMessage(query.error)}
             action={
               <OperatorRetryButton onClick={() => void query.refetch()}>
                 {copy.retry}
@@ -104,7 +105,7 @@ export function OpenCodeExportPage({
             label={messages.honesty.lastSuccessful(
               format(new Date(query.dataUpdatedAt).toISOString()),
             )}
-            reason={String(query.error)}
+            reason={catalogFailureMessage(query.error)}
           />
         ) : null}
         {query.data ? (
@@ -120,10 +121,6 @@ export function OpenCodeExportPage({
                 <dt>{copy.sourceReadAtLabel}</dt>
                 <dd className="font-mono">
                   {format(new Date(query.dataUpdatedAt).toISOString())}
-                </dd>
-                <dt>{copy.digestLabel}</dt>
-                <dd className="min-w-0 break-all font-mono">
-                  {query.data.source_digest}
                 </dd>
               </dl>
             </OperatorInsetPanel>

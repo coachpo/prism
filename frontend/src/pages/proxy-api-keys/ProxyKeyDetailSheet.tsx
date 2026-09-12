@@ -1,3 +1,4 @@
+import { OperatorCallout } from "@/shared/design-system";
 import type { ComponentProps } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -24,6 +25,7 @@ import { ProxyKeyExpiryField, type ResolvedExpiryInput } from "./ProxyKeyExpiryF
 type FormSubmitHandler = NonNullable<ComponentProps<"form">["onSubmit"]>;
 
 interface ProxyKeyDetailSheetProps {
+  error?: string | null;
   open: boolean;
   proxyKeyActive: boolean;
   proxyKeyExpiresAt: string;
@@ -41,6 +43,7 @@ interface ProxyKeyDetailSheetProps {
 }
 
 export function ProxyKeyDetailSheet({
+  error,
   open,
   proxyKeyActive,
   proxyKeyExpiresAt,
@@ -69,11 +72,13 @@ export function ProxyKeyDetailSheet({
         </SheetHeader>
 
         <form onSubmit={onSubmit} className="flex min-h-0 flex-1 flex-col gap-5 px-4">
+          {error ? <OperatorCallout intent="danger" description={error} /> : null}
           <FieldGroup className="gap-4">
             <Field data-disabled={saving || undefined}>
               <FieldLabel htmlFor="proxy-key-edit-name">{copy.name}</FieldLabel>
               <Input
                 id="proxy-key-edit-name"
+                required
                 name="proxy-key-name"
                 autoComplete="off"
                 value={proxyKeyName}
@@ -115,7 +120,7 @@ export function ProxyKeyDetailSheet({
           </FieldGroup>
 
           <OperatorSwitchField
-            label={copy.active}
+            label={copy.enableKey}
             description={copy.retireDescription}
             checked={proxyKeyActive}
             onCheckedChange={setProxyKeyActive}

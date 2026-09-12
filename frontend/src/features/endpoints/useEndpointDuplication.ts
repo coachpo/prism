@@ -37,11 +37,9 @@ export function useEndpointDuplication({
         commitEndpoints((current) => [...current, duplicate]);
         addEndpoint(duplicate.id);
         onEndpointDuplicated(duplicate);
-      } catch (error) {
+      } catch {
         toast.error(
-          error instanceof Error
-            ? error.message
-            : messages.endpointsData.duplicateFailed,
+          messages.endpointsData.duplicateFailed,
         );
       } finally {
         setDuplicatingEndpointId(null);

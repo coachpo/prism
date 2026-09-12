@@ -24,7 +24,7 @@ import {
  *
  * It renders both ends of the mapping (the Prism model and the models.dev
  * offering), the fixed USD/PER_1M unit, all five price components per card, the
- * tier threshold, the catalog revision and fetch stamp, and every stable
+ * tier threshold, the fetch stamp, and every stable
  * incompatibility reason. An explicit `0` renders as `0`; only an absent
  * component renders the shared missing marker.
  */
@@ -39,6 +39,8 @@ export function CatalogPricingPreviewPanel({
   const { messages } = useLocale();
   const { format: formatInOperatorTimezone } = useTimezone();
   const copy = messages.modelCatalog;
+  const pricingCopy = messages.pricingTemplatesUi;
+  const priceUnit = preview.pricing_unit === "PER_1M" ? pricingCopy.rateUnitPerMillion : pricingCopy.unknownUnit;
 
   const actionBadge =
     preview.action === "create"
@@ -92,19 +94,6 @@ export function CatalogPricingPreviewPanel({
           </div>
           <div className="flex min-w-0 flex-col">
             <dt className="text-xs text-muted-foreground">
-              {copy.pricingCatalogRevisionLabel}
-            </dt>
-            <dd
-              className="truncate font-mono text-xs"
-              title={preview.catalog_revision}
-            >
-              {preview.catalog_revision || (
-                <OperatorMissingValue className="text-sm" />
-              )}
-            </dd>
-          </div>
-          <div className="flex min-w-0 flex-col">
-            <dt className="text-xs text-muted-foreground">
               {copy.fetchedAtLabel}
             </dt>
             <dd className="truncate text-xs">{fetchedAt}</dd>
@@ -124,8 +113,7 @@ export function CatalogPricingPreviewPanel({
               {copy.pricingUnitLabel}
             </dt>
             <dd className="truncate text-xs">
-              {preview.reporting_currency_code} · {preview.catalog_currency}/
-              {preview.pricing_unit}
+              {pricingCopy.catalogCurrencyNote(preview.catalog_currency, preview.reporting_currency_code, priceUnit)}
             </dd>
           </div>
         </dl>
@@ -145,7 +133,7 @@ export function CatalogPricingPreviewPanel({
         <p className="text-xs text-muted-foreground">
           {copy.pricingCatalogUnitNote(
             preview.catalog_currency,
-            preview.pricing_unit,
+            priceUnit,
           )}
         </p>
       </OperatorInsetPanel>
@@ -207,8 +195,7 @@ export function CatalogPricingPreviewPanel({
             <ul className="list-inside list-disc">
               {preview.plan.incompatibilities.map((item) => (
                 <li key={`${item.field}:${item.reason}`}>
-                  <span className="font-mono text-xs">{item.field}</span>
-                  <span className="ml-1">
+                  <span>
                     {catalogIncompatibilityLabel(copy, item)}
                   </span>
                 </li>
@@ -230,9 +217,6 @@ export function CatalogPricingPreviewPanel({
                   {target.name ??
                     target.endpoint_name ??
                     copy.pricingTargetNameFallback(target.connection_id)}
-                </span>
-                <span className="font-mono text-xs text-muted-foreground">
-                  {target.pricing_template_id ?? copy.valueAbsent}
                 </span>
               </li>
             ))}

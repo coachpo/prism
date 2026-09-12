@@ -5,6 +5,7 @@
 export type SelfTestDirectState =
   | "succeeded"
   | "http_error"
+  | "response_interrupted"
   | "network_error"
   | "cancelled";
 export type SelfTestAttributionState =
@@ -33,17 +34,20 @@ export type SelfTestTelemetryState =
   | "pending"
   | "ready"
   | "timed_out"
+  | "cancelled"
   | "unavailable";
 
 export const INGRESS_REQUEST_ID_HEADER = "X-Prism-Ingress-Request-Id";
 
+export interface SelfTestDirectResponse {
+  ingressRequestId: string | null;
+  statusCode: number | null;
+  state: SelfTestDirectState;
+}
+
 export interface RuntimeSelfTestResult {
   ingressRequestId: string | null;
-  direct: {
-    state: SelfTestDirectState;
-    statusCode: number | null;
-    safeSummary: string | null;
-  };
+  direct: Omit<SelfTestDirectResponse, "ingressRequestId">;
   credential: {
     authEnforced: boolean | null;
     attributionState: SelfTestAttributionState;

@@ -29,6 +29,8 @@ import {
   CATALOG_FIELD_KINDS,
   CATALOG_FIELD_ORDER,
   catalogFieldLabel,
+  catalogStatusLabel,
+  catalogModalityLabel,
   renderCatalogFieldValue,
   type CatalogFieldKey,
 } from "./catalogMetadataPresentation";
@@ -227,12 +229,19 @@ export function CatalogOverrideDialog({
                         </SelectTrigger>
                         <SelectContent>
                           <SelectGroup>
-                            <SelectItem value="alpha">alpha</SelectItem>
-                            <SelectItem value="beta">beta</SelectItem>
-                            <SelectItem value="deprecated">deprecated</SelectItem>
+                            <SelectItem value="alpha">{catalogStatusLabel("alpha")}</SelectItem>
+                            <SelectItem value="beta">{catalogStatusLabel("beta")}</SelectItem>
+                            <SelectItem value="deprecated">{catalogStatusLabel("deprecated")}</SelectItem>
                           </SelectGroup>
                         </SelectContent>
                       </Select>
+                    ) : kind === "string_list" ? (
+                      <div role="group" aria-label={catalogFieldLabel(copy, key)} className="flex flex-wrap gap-2">
+                        {["text", "image", "audio", "video", "pdf"].map((format) => {
+                          const selected = raw ? raw.split(",").map((value) => value.trim()) : [];
+                          return <label key={format} className="flex items-center gap-1 text-sm"><Checkbox checked={selected.includes(format)} onCheckedChange={(checked) => setValue(key, (checked ? [...selected, format] : selected.filter((value) => value !== format)).join(","))} />{catalogModalityLabel(format)}</label>;
+                        })}
+                      </div>
                     ) : (
                       <Input
                         aria-label={catalogFieldLabel(copy, key)}
@@ -240,14 +249,7 @@ export function CatalogOverrideDialog({
                         maxLength={
                           kind === "string" || kind === "date" ? 500 : undefined
                         }
-                        placeholder={
-                          kind === "string_list"
-                            ? copy.overrideListPlaceholder
-                            : renderCatalogFieldValue(
-                                catalog?.effective ?? null,
-                                key,
-                              ) ?? ""
-                        }
+                        placeholder={renderCatalogFieldValue(catalog?.effective ?? null, key) ?? ""}
                         value={raw}
                         onChange={(event) => setValue(key, event.target.value)}
                       />

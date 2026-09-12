@@ -57,10 +57,10 @@ export function AuditCaptureLedger({
           <span className="ml-1 font-mono tabular-nums text-degraded">{formatNumber(dropped)}</span>
         </span>
       ) : null}
-      {dropped !== null && dropped > 0 ? (
+      {truncated ? (
         <OperatorClippedBadge
           label={copy.payloadTruncated}
-          reason={copy.payloadTruncatedReason(formatNumber(dropped))}
+          reason={dropped !== null && dropped > 0 ? copy.payloadTruncatedReason(formatNumber(dropped)) : copy.streamIncompleteNote}
         />
       ) : null}
       {omittedByBudget ? (

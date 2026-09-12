@@ -1,9 +1,9 @@
 import type { SessionResponse } from "../types";
-import { getStaticMessages } from "@/i18n/staticMessages";
 import { isProfileScopedManagementRoute } from "./profileScope";
 import { authSessionCoordinator } from "@/context/auth/coordinatorInstance";
 import { isAuthExemptPath } from "@/context/auth/authExempt";
 import { AuthPhaseChangedError, StaleSessionEpochError } from "@/context/auth/sessionCoordinator";
+import { managementErrorMessage } from "./errorMessage";
 
 const rawApiBase = import.meta.env.VITE_API_BASE;
 const API_BASE =
@@ -54,26 +54,6 @@ export function parseRetryAfter(value: string | null, now: Date = new Date()): n
     return null;
   }
   return Math.max(0, parsed.getTime() - now.getTime());
-}
-
-function extractErrorMessage(body: unknown): string {
-  if (!body || typeof body !== "object") {
-    return getStaticMessages().common.requestFailed;
-  }
-  const detail = (body as { detail?: unknown }).detail;
-  if (typeof detail === "string" && detail.trim().length > 0) {
-    return detail;
-  }
-  if (Array.isArray(detail) && detail.length > 0) {
-    return detail.map((item) => JSON.stringify(item)).join(", ");
-  }
-  if (detail && typeof detail === "object") {
-    const maybeMessage = (detail as { message?: unknown }).message;
-    if (typeof maybeMessage === "string" && maybeMessage.trim().length > 0) {
-      return maybeMessage;
-    }
-  }
-  return getStaticMessages().common.requestFailed;
 }
 
 function shouldAttachProfileHeader(path: string): boolean {
@@ -187,7 +167,8 @@ export async function request<T>(
     if (epochSignal?.aborted) {
       throw new StaleSessionEpochError()
     }
-    throw error
+    if (mergedSignal?.aborted) throw error
+    throw new ApiError(managementErrorMessage(0), 0, null)
   }
 
   try {
@@ -239,7 +220,8 @@ export async function request<T>(
     if (epochSignal?.aborted) {
       throw new StaleSessionEpochError();
     }
-    throw error;
+    if (error instanceof ApiError || mergedSignal?.aborted) throw error;
+    throw new ApiError(managementErrorMessage(0), 0, null);
   }
 }
 
@@ -311,7 +293,7 @@ async function buildError<T>(res: Response): Promise<T> {
     }
     const envelope = extractProblemEnvelope(body);
     throw new ApiError(
-      envelope?.detail ?? extractErrorMessage(body),
+      managementErrorMessage(res.status),
       res.status,
       body,
       parseRetryAfter(res.headers.get("Retry-After")),
@@ -329,7 +311,11 @@ async function buildError<T>(res: Response): Promise<T> {
     return undefined as T;
   }
 
-  return JSON.parse(text) as T;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new ApiError(managementErrorMessage(502), 502, null);
+  }
 }
 
 function extractProblemEnvelope(body: unknown): { code?: string; detail?: string; details?: unknown } | null {

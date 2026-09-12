@@ -1,3 +1,4 @@
+import { extractServerValidation } from "@/shared/forms/serverValidation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { CatalogCandidatePicker } from "@/features/models/catalog/CatalogCandidatePicker";
@@ -117,13 +118,13 @@ export function CatalogOfferingDiscovery({
         }
       } catch (cause) {
         if (generation !== matchGeneration.current) return;
-        setMatchError(cause instanceof Error ? cause.message : String(cause));
+        setMatchError(extractServerValidation(cause, messages.pricingTemplatesData.loadFailed).summary);
         onResolved(null);
       } finally {
         if (generation === matchGeneration.current) setMatching(false);
       }
     },
-    [onResolved],
+    [messages.pricingTemplatesData.loadFailed, onResolved],
   );
 
   useEffect(() => {

@@ -114,7 +114,7 @@ describe("ObserveErrorWorkbench request binding", () => {
 
     await user.click(await screen.findByTestId("error-status-503"));
     expect(
-      screen.getByRole("link", { name: "在请求日志中查看全部" }),
+      screen.getByRole("link", { name: "在请求记录中查看全部" }),
     ).toBeInTheDocument();
 
     rerender(
@@ -128,7 +128,7 @@ describe("ObserveErrorWorkbench request binding", () => {
     );
     expect(screen.queryByTestId("error-status-503")).not.toBeInTheDocument();
     expect(
-      screen.queryByRole("link", { name: "在请求日志中查看全部" }),
+      screen.queryByRole("link", { name: "在请求记录中查看全部" }),
     ).not.toBeInTheDocument();
   });
   it("keeps a selected error across refresh while replacing its signed query context", async () => {
@@ -138,12 +138,31 @@ describe("ObserveErrorWorkbench request binding", () => {
     const { rerender } = render(view("first"));
     await user.click(await screen.findByTestId("error-status-503"));
     rerender(view("second"));
-    await waitFor(() => expect(screen.getByRole("link", { name: "在请求日志中查看全部" })).toHaveAttribute("data-search", expect.stringContaining('"query_context":"second"')));
+    await waitFor(() => expect(screen.getByRole("link", { name: "在请求记录中查看全部" })).toHaveAttribute("data-search", expect.stringContaining('"query_context":"second"')));
     expect(screen.getByTestId("error-status-503")).toHaveAttribute("aria-pressed", "true");
     mocks.usageErrors.mockResolvedValue({ ...errorsResponse("third"), http_statuses: [] });
     rerender(view("third"));
     await screen.findByText(/上次选择的错误已不在本轮排行/);
-    expect(screen.queryByRole("link", { name: "在请求日志中查看全部" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "在请求记录中查看全部" })).not.toBeInTheDocument();
+  });
+
+  it("describes stream failures without exposing provider enums and retains their request filters", async () => {
+    const response = errorsResponse("stream-context");
+    response.http_statuses = [];
+    response.stream_outcomes = [{
+      stream_outcome: "upstream_read_error", count: 1, denominator: 1, percentage: 100,
+      last_seen_at: "2026-08-08T01:00:00Z", request_filters: { stream_outcome: ["upstream_read_error"] },
+      error_kinds: [{ stream_error_kind: "upstream_read_failed", count: 1, denominator: 1, percentage: 100, request_filters: { stream_error_kind: ["upstream_read_failed"] } }],
+      other_error_kinds: { count: 0, denominator: 1, percentage: 0, request_filters: null },
+    }];
+    mocks.usageErrors.mockResolvedValue(response);
+    const user = userEvent.setup();
+    render(<LocaleProvider><ObserveErrorWorkbench groupBy="none" queryContext="stream-context" scope="route_attempt" /></LocaleProvider>);
+    const kind = await screen.findByTestId("error-kind-upstream_read_failed");
+    expect(kind).not.toHaveTextContent("upstream_read_failed");
+    expect(screen.getByTestId("error-stream-upstream_read_error")).not.toHaveTextContent("upstream_read_error");
+    await user.click(kind);
+    expect(screen.getByRole("link", { name: "在请求记录中查看全部" })).toHaveAttribute("data-search", expect.stringContaining('"stream_error_kind":"upstream_read_failed"'));
   });
 
 });

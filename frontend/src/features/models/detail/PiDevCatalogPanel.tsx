@@ -1,8 +1,8 @@
 import { CatalogReadFeedback } from "../export/CatalogReadFeedback";
+import { catalogFailureMessage } from "../catalog/catalogFailureMessage";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { CopyButton } from "@/components/CopyButton";
 import { MoreHorizontal, RefreshCw, Trash2 } from "lucide-react";
 
 import {
@@ -21,12 +21,9 @@ import {
   OperatorLoadingState,
   OperatorRetryButton,
   OperatorStalenessBadge,
-  OperatorStatusBadge,
   OperatorTypeBadge,
-  OperatorValueBadge,
 } from "@/shared/design-system";
 import type { PiModelReadResponse } from "@/lib/types";
-import { truncateIdentifier } from "@/lib/utils";
 import { PiBindingOverrideDialog } from "@/features/models/catalog/pi/PiBindingOverrideDialog";
 import { PiBindingRefreshDialog } from "@/features/models/catalog/pi/PiBindingRefreshDialog";
 import { PiBindingSourceDialog } from "@/features/models/catalog/pi/PiBindingSourceDialog";
@@ -164,7 +161,7 @@ export function PiDevCatalogPanel({
         <OperatorErrorState
           testId="pi-detail-read-error"
           title={piCopy.readFailedTitle}
-          description={readError ?? undefined}
+          description={readError ? catalogFailureMessage(readError) : undefined}
           action={
             <OperatorRetryButton onClick={onRetry}>
               {messages.common.retry}
@@ -198,7 +195,7 @@ export function PiDevCatalogPanel({
       await controller.unbind(view!.modelConfigId);
       setUnbindOpen(false);
     } catch (cause) {
-      setUnbindError(cause instanceof Error ? cause.message : String(cause));
+      setUnbindError(catalogFailureMessage(cause));
     }
   }
 
@@ -220,9 +217,9 @@ export function PiDevCatalogPanel({
             reason={
               lastSuccessfulAt
                 ? `${piCopy.readStaleLastSuccessLabel} ${formatTime(lastSuccessfulAt)}${
-                    readError ? ` · ${readError}` : ""
+                    readError ? ` · ${catalogFailureMessage(readError)}` : ""
                   }`
-                : (readError ?? undefined)
+                : (readError ? catalogFailureMessage(readError) : undefined)
             }
           />
           <OperatorRetryButton onClick={onRetry} disabled={readRefreshing}>
@@ -234,33 +231,23 @@ export function PiDevCatalogPanel({
         <OperatorTypeBadge
           intent="muted"
           label={copy[candidateKey] ?? copy.candidateStatusUnknown}
-          title={candidateKey ? undefined : read.candidate_status}
         />
         {read.binding.bound ? (
-          <OperatorStatusBadge
-            intent={read.binding_status === "bound" ? "healthy" : "degraded"}
+          <OperatorTypeBadge
+            intent={read.binding_status === "bound" ? "accent" : "degraded"}
             label={copy[bindingKey] ?? copy.bindingStatusUnknown}
-            title={bindingKey ? undefined : read.binding_status}
           />
         ) : (
           <OperatorTypeBadge intent="muted" label={copy.bindingStatusUnbound} />
-        )}
-        {catalog.revision ? (
-          <OperatorValueBadge
-            label={`${piCopy.catalogRevisionLabel}: ${truncateIdentifier(catalog.revision)}`}
-            title={catalog.revision}
-          />
-        ) : (
-          <OperatorValueBadge label={piCopy.catalogUnavailableBadge} />
         )}
       </div>
 
       <dl className="grid gap-x-3 gap-y-1 text-xs sm:grid-cols-[max-content_minmax(0,1fr)]">
         <dt className="text-muted-foreground">{piCopy.prismModelIdLabel}</dt>
         <dd className="break-all font-mono">{view.modelId}</dd>
-        <dt className="text-muted-foreground">{piCopy.finalPiApiLabel}</dt>
-        <dd className="break-all font-mono">
-          {view.piApi || piCopy.finalPiApiAbsent}
+        <dt className="text-muted-foreground">{piCopy.exportAvailabilityLabel}</dt>
+        <dd>
+          {read.binding_renderable ? piCopy.exportAvailable : !canBind ? piCopy.finalPiApiAbsent : read.binding.bound ? piCopy.exportNeedsRepair : piCopy.exportNeedsSource}
         </dd>
         {selected ? (
           <>
@@ -270,47 +257,6 @@ export function PiDevCatalogPanel({
             <dd className="break-all font-mono">
               {selected.provider_id}/{selected.model_id}
               {isCrossDirectory ? ` · ${copy.boundCrossDirectoryLabel}` : ""}
-            </dd>
-            <dt className="text-muted-foreground">{piCopy.piDirectoryApiLabel}</dt>
-            <dd className="break-all font-mono">{selected.api}</dd>
-            <dt className="text-muted-foreground">
-              {piCopy.bindIdentityLabel}
-            </dt>
-            <dd className="break-all font-mono">
-              {boundPrismModelId ?? piCopy.bindingIdentityAbsent}
-            </dd>
-            <dt className="text-muted-foreground">
-              {piCopy.bindingRevisionLabel}
-            </dt>
-            <dd className="flex min-w-0 items-center gap-1 font-mono">
-              {read.binding.catalog_revision ? (
-                <>
-                  {/* 64 位哈希完整铺开占三行还不可读：中间省略 + 可复制。 */}
-                  <span
-                    className="truncate"
-                    title={read.binding.catalog_revision}
-                  >
-                    {truncateIdentifier(read.binding.catalog_revision)}
-                  </span>
-                  <CopyButton
-                    label=""
-                    size="icon-xs"
-                    variant="ghost"
-                    className="text-muted-foreground hover:text-foreground"
-                    targetLabel={piCopy.bindingRevisionLabel}
-                    value={read.binding.catalog_revision}
-                    aria-label={piCopy.bindingRevisionLabel}
-                    errorMessage={messages.common.copyFailed(
-                      piCopy.bindingRevisionLabel,
-                    )}
-                    successMessage={messages.common.copiedToClipboard(
-                      piCopy.bindingRevisionLabel,
-                    )}
-                  />
-                </>
-              ) : (
-                "—"
-              )}
             </dd>
             <dt className="text-muted-foreground">{piCopy.fetchedAtLabel}</dt>
             <dd className="font-mono">
@@ -374,9 +320,6 @@ export function PiDevCatalogPanel({
         </div>
       ) : null}
 
-      {/* 这里要说的是「为什么没有绑定按钮」，不是某个字段缺值：上方
-          「最终 Pi API」行已经写了缺失本身，一个没有标签的破折号只会
-          让人以为还有第二处没读到。 */}
       {!canBind ? (
         <p className="text-xs text-muted-foreground">
           {copy.noPiApiCannotBind}
@@ -503,7 +446,6 @@ export function PiDevCatalogPanel({
             </span>
             <span className="truncate font-mono" title={view.modelId}>
               {view.modelId}
-              {view.piApi ? ` · ${view.piApi}` : ""}
             </span>
           </div>
           {view.bindingOverride ? (

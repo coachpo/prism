@@ -1,3 +1,4 @@
+import { OperatorCallout } from "@/shared/design-system";
 import { AlertTriangle } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -13,6 +14,7 @@ import {
 } from "./proxyKeyFormatting";
 
 interface ProxyKeyDeleteAlertDialogProps {
+  error?: string | null;
   authEnabled: boolean;
   deleteConfirm: ProxyApiKey | null;
   displayedDeleteConfirm?: ProxyApiKey | null;
@@ -24,6 +26,7 @@ interface ProxyKeyDeleteAlertDialogProps {
 }
 
 export function ProxyKeyDeleteAlertDialog({
+  error,
   authEnabled,
   deleteConfirm,
   displayedDeleteConfirm,
@@ -57,6 +60,7 @@ export function ProxyKeyDeleteAlertDialog({
       onCancel={onClose}
       onConfirm={onDelete}
     >
+      {error ? <OperatorCallout intent="danger" description={error} /> : null}
       {dialogKey ? (
         <div className="flex flex-col gap-4 rounded-lg border border-destructive/25 bg-destructive/5 p-4">
           <div className="flex flex-col gap-2">

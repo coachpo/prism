@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { Plug, Plus } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -10,6 +11,7 @@ import {
 } from "@/components/ui/select";
 import { useLocale } from "@/i18n/useLocale";
 import {
+  OperatorCallout,
   OperatorEmptyState,
   OperatorErrorState,
   OperatorLoadingState,
@@ -22,16 +24,33 @@ import {
 } from "@/shared/design-system";
 import { AttachToModelDialog } from "@/pages/endpoints/AttachToModelDialog";
 import { DeleteEndpointDialog } from "@/pages/endpoints/DeleteEndpointDialog";
+import { EndpointEditImpact } from "./EndpointEditImpact";
 import { EndpointDialog } from "./EndpointDialog";
 import { EndpointTable } from "./EndpointTable";
 import { OrphanCleanupDialog } from "@/pages/endpoints/OrphanCleanupDialog";
 import { useEndpointsFeatureData } from "./useEndpointsFeatureData";
 import type { ReviewFilter } from "./useEndpointList";
 
-export function EndpointsFeaturePage() {
+export function EndpointsFeaturePage({ requestedEndpointId, onLocateHandled }: { requestedEndpointId?: number; onLocateHandled?: () => void } = {}) {
   const { messages } = useLocale();
   const copy = messages.endpointsPage;
   const data = useEndpointsFeatureData();
+
+  const { endpoints, isLoading, endpointLoadError, setEditingEndpoint } = data;
+  const { loadDetail } = data.references;
+  const locatedEndpointRef = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    if (!requestedEndpointId) { locatedEndpointRef.current = undefined; return; }
+    if (locatedEndpointRef.current === requestedEndpointId || !requestedEndpointId || isLoading || endpointLoadError) return;
+    const endpoint = endpoints.find((item) => item.id === requestedEndpointId);
+    if (endpoint) {
+      locatedEndpointRef.current = requestedEndpointId;
+      setEditingEndpoint(endpoint);
+      void loadDetail(endpoint.id);
+      onLocateHandled?.();
+    }
+  }, [requestedEndpointId, isLoading, endpointLoadError, endpoints, setEditingEndpoint, loadDetail, onLocateHandled]);
+  const missingRequestedEndpoint = requestedEndpointId && !data.isLoading && !data.endpointLoadError && !data.endpoints.some((item) => item.id === requestedEndpointId);
 
   const filterOptions: Array<{ value: ReviewFilter; label: string }> = [
     { value: "all", label: copy.filterAll },
@@ -89,9 +108,12 @@ export function EndpointsFeaturePage() {
         </Button>
       </OperatorPageHeader>
 
+      {missingRequestedEndpoint ? <OperatorCallout intent="warning" role="alert" description={copy.requestedServiceMissing} action={<Button type="button" variant="outline" onClick={onLocateHandled}>{messages.endpointsUi.returnToServices}</Button>} /> : null}
+
       {/* 读失败但手里还有上次成功的数据时，不丢弃它：整块换成错误卡，
           「后端挂了」就被渲染成「这台网关没有端点」。 */}
       {data.endpointLoadError && data.endpoints.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-2">
         <OperatorStalenessBadge
           className="self-start"
           label={
@@ -103,6 +125,8 @@ export function EndpointsFeaturePage() {
           }
           reason={messages.endpointsData.loadFailed}
         />
+        <OperatorRetryButton onClick={data.retryEndpointLoad}>{messages.endpointsUi.deleteRetry}</OperatorRetryButton>
+        </div>
       ) : null}
 
       {data.isLoading ? (
@@ -142,7 +166,7 @@ export function EndpointsFeaturePage() {
                   onChange={(event) => data.setSearchQuery(event.target.value)}
                 />
                 <p className="text-xs text-muted-foreground">
-                  {copy.overviewSummary(
+                  {unknownCount > 0 ? copy.overviewIncomplete(String(data.endpoints.length), String(unknownCount)) : copy.overviewSummary(
                     String(data.endpoints.length),
                     String(referencedCount),
                     String(inactiveCount),
@@ -212,7 +236,7 @@ export function EndpointsFeaturePage() {
               onAttach={data.handleAttachNavigate}
               onDelete={data.handleDeleteRequest}
               onDuplicate={data.handleDuplicateEndpoint}
-              onEdit={data.setEditingEndpoint}
+              onEdit={(endpoint) => { data.setEditingEndpoint(endpoint); void data.references.loadDetail(endpoint.id); }}
               onLoadMore={data.handleLoadMoreBlockers}
               onOpenReferences={data.references.loadDetail}
               onOrphanCleanup={(endpoint, item) =>
@@ -233,7 +257,9 @@ export function EndpointsFeaturePage() {
       <EndpointDialog
         open={data.isCreateOpen}
         onOpenChange={data.setIsCreateOpen}
+        onVerify={data.handleVerify}
         onSubmit={data.handleCreate}
+        onContinue={data.handleAttachNavigate}
         mode="create"
         serverError={data.isCreateOpen ? data.endpointDialogError : null}
         fieldErrors={data.isCreateOpen ? data.endpointFieldErrors : null}
@@ -241,9 +267,11 @@ export function EndpointsFeaturePage() {
       <EndpointDialog
         open={Boolean(data.editingEndpoint)}
         onOpenChange={(open) => !open && data.setEditingEndpoint(null)}
+        onVerify={data.handleVerify}
         onSubmit={data.handleUpdate}
         mode="edit"
         initialValues={data.editingEndpoint || undefined}
+        impactContent={data.editingEndpoint ? <EndpointEditImpact state={data.references.details[data.editingEndpoint.id]} onRetry={() => { if (data.editingEndpoint) void data.references.loadDetail(data.editingEndpoint.id); }} onLoadMore={() => { if (data.editingEndpoint) void data.references.loadMore(data.editingEndpoint.id); }} /> : null}
         serverError={data.editingEndpoint ? data.endpointDialogError : null}
         fieldErrors={data.editingEndpoint ? data.endpointFieldErrors : null}
       />
@@ -266,6 +294,7 @@ export function EndpointsFeaturePage() {
         key={data.attachModelTarget?.id ?? "closed"}
         endpoint={data.attachModelTarget}
         onNavigate={data.handleAttachModelSelected}
+        onCreateModel={data.handleCreateModelForEndpoint}
         onOpenChange={(open) => !open && data.setAttachModelTarget(null)}
       />
     </OperatorPageShell>

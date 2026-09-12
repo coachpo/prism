@@ -1,3 +1,4 @@
+import { getStaticMessages } from "@/i18n/staticMessages";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -221,7 +222,7 @@ async function openBindingMenu(
   user: ReturnType<typeof userEvent.setup>,
   row: HTMLElement,
 ) {
-  await user.click(within(row).getByRole("button", { name: "绑定操作" }));
+  await user.click(within(row).getByRole("button", { name: "模型资料操作" }));
 }
 
 describe("ModelExportPage Pi-only", () => {
@@ -262,8 +263,8 @@ describe("ModelExportPage Pi-only", () => {
     const blocked = await screen.findByTestId("export-row-5");
     expect(within(blocked).getByRole("checkbox")).toBeDisabled();
     expect(within(blocked).getByRole("checkbox")).not.toBeChecked();
-    expect(within(blocked).getByText("尚不可导出，请先修复 Pi 绑定或元数据")).toBeVisible();
-    expect(within(blocked).getByRole("button", { name: "绑定来源" })).toBeEnabled();
+    expect(within(blocked).getByText("请先选择或补全 Pi 模型资料")).toBeVisible();
+    expect(within(blocked).getByRole("button", { name: "选择 Pi 资料" })).toBeEnabled();
     await user.click(screen.getByRole("button", { name: "全选当前可见" }));
     expect(within(blocked).getByRole("checkbox")).not.toBeChecked();
     expect(screen.getByRole("button", { name: /生成配置文件 \(1\)/ })).toBeEnabled();
@@ -280,14 +281,14 @@ describe("ModelExportPage Pi-only", () => {
     // An incomplete wire response must fail closed, even if its digest is unchanged.
     Reflect.deleteProperty(missing.models[0], "readiness");
     vi.mocked(fetchModelExportSource).mockResolvedValue(missing);
-    await user.click(screen.getByRole("button", { name: "刷新导出源" }));
+    await user.click(screen.getByRole("button", { name: "刷新模型资料" }));
     await waitFor(() => expect(within(row).getByRole("checkbox")).toBeDisabled());
     expect(within(row).getByRole("checkbox")).not.toBeChecked();
-    expect(within(row).getByText("就绪证据缺失，请刷新导出源")).toBeVisible();
+    expect(within(row).getByText("暂时无法确认能否导出，请刷新模型资料")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "全选当前可见" }));
     expect(within(row).getByRole("checkbox")).not.toBeChecked();
     vi.mocked(fetchModelExportSource).mockResolvedValue(ready);
-    await user.click(screen.getByRole("button", { name: "刷新导出源" }));
+    await user.click(screen.getByRole("button", { name: "刷新模型资料" }));
     await waitFor(() => expect(within(row).getByRole("checkbox")).toBeEnabled());
     expect(within(row).getByRole("checkbox")).not.toBeChecked();
     await user.click(within(row).getByRole("checkbox"));
@@ -306,12 +307,13 @@ describe("ModelExportPage Pi-only", () => {
     const user = userEvent.setup();
     renderPage();
     await screen.findByText(/目录状态/);
-    expect(screen.getAllByText("a".repeat(64)).length).toBeGreaterThan(0);
-    expect(screen.getByText("openai/gpt-x (openai-responses)")).toBeVisible();
-    expect(screen.getByText(/compat\.openRouterRouting/)).toBeVisible();
-    expect(screen.getByText(/绑定时的模型配置 ID/)).toBeVisible();
+    expect(screen.queryByText("a".repeat(64))).not.toBeInTheDocument();
+    expect(document.querySelector('[title="price_no_template"], [title="metadata_incomplete"]')).toBeNull();
+    expect(screen.getByText("openai/gpt-x")).toBeVisible();
+    expect(screen.getByText(/有 1 项不支持的目录设置未采用/)).toBeVisible();
+    expect(screen.getByText(/关联时的客户端模型名称/)).toBeVisible();
     expect(
-      screen.getByText(/pi\.dev 来源包含不安全或不受支持的字段/),
+      screen.getByText(/部分目录设置不受支持/),
     ).toBeVisible();
     const row = screen.getByTestId("export-row-3");
     await openBindingMenu(user, row);
@@ -320,7 +322,7 @@ describe("ModelExportPage Pi-only", () => {
       within(screen.getByRole("dialog")).getByText(
         (_, element) =>
           element?.tagName === "P" &&
-          element.textContent?.includes("当前绑定的模型配置 ID") === true,
+          element.textContent?.includes("关联的客户端模型名称") === true,
       ),
     ).toBeVisible();
   });
@@ -355,14 +357,14 @@ describe("ModelExportPage Pi-only", () => {
 
     renderPage();
     const row = await screen.findByTestId("export-row-3");
-    expect(within(row).getByText("单个默认候选")).toBeVisible();
-    await user.click(within(row).getByRole("button", { name: "绑定来源" }));
+    expect(within(row).getByText("找到一个同名模型")).toBeVisible();
+    await user.click(within(row).getByRole("button", { name: "选择 Pi 资料" }));
 
-    const apply = screen.getByRole("button", { name: "应用绑定" });
+    const apply = screen.getByRole("button", { name: "关联所选模型" });
     expect(apply).toBeEnabled();
     expect(
       within(screen.getByRole("dialog")).getByText(
-        (_, element) => element?.textContent === "已丢弃的不安全目录字段: 无",
+        (_, element) => element?.textContent === "未采用的目录设置: 无",
       ),
     ).toBeVisible();
     await user.click(apply);
@@ -442,14 +444,14 @@ describe("ModelExportPage Pi-only", () => {
 
     renderPage();
     const row = await screen.findByTestId("export-row-3");
-    await user.click(within(row).getByRole("button", { name: "绑定来源" }));
+    await user.click(within(row).getByRole("button", { name: "选择 Pi 资料" }));
 
-    expect(screen.getByRole("button", { name: "应用绑定" })).toBeDisabled();
-    expect(screen.getByText("最终导出身份（由 Prism 决定）")).toBeVisible();
+    expect(screen.getByRole("button", { name: "关联所选模型" })).toBeDisabled();
+    expect(screen.getByText("当前客户端模型")).toBeVisible();
     expect(screen.getAllByText("codex/gpt-x").length).toBeGreaterThan(0);
 
     const searchInput = screen.getByRole("textbox", {
-      name: "目录 model_id 片段",
+      name: "模型名称关键词",
     });
     await user.type(searchInput, "GPT-X");
     await user.click(screen.getByRole("button", { name: "搜索目录" }));
@@ -466,28 +468,29 @@ describe("ModelExportPage Pi-only", () => {
     );
     expect(searchInput).not.toHaveAttribute("aria-invalid", "true");
     expect(screen.getByText("目录搜索失败")).toBeVisible();
-    expect(screen.getByText("pi_catalog_unavailable")).toBeVisible();
+    expect(screen.getByText(getStaticMessages().common.requestErrors.unknown)).toBeVisible();
 
     await user.click(screen.getByRole("button", { name: "搜索目录" }));
     await waitFor(() => expect(searchModelPiCatalog).toHaveBeenCalledTimes(2));
 
-    expect(screen.getByRole("button", { name: "应用绑定" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "关联所选模型" })).toBeDisabled();
 
     const searchOption = await screen.findByRole("option", {
-      name: /openai\/gpt-x.*openai-responses/,
+      name: /openai\/gpt-x/,
     });
     expect(searchOption).toHaveTextContent("GPT X");
     await user.click(searchOption);
 
-    expect(screen.getByText("已选目录坐标")).toBeVisible();
+    expect(screen.getByText("已选模型来源")).toBeVisible();
     expect(
       within(screen.getByRole("dialog")).getAllByText("openai/gpt-x").length,
     ).toBeGreaterThan(0);
-    expect(screen.getByText(/跨目录绑定/)).toBeVisible();
+    expect(screen.getByText(/使用其他名称的模型资料|来源模型使用其他名称/)).toBeVisible();
     expect(screen.getAllByText(/200000/).length).toBeGreaterThan(0);
-    expect(screen.getByText(/headers/)).toBeVisible();
+    expect(screen.queryByText(/headers/)).not.toBeInTheDocument();
+    expect(screen.getByText(/不支持的目录设置未采用/)).toBeVisible();
 
-    const apply = screen.getByRole("button", { name: "应用绑定" });
+    const apply = screen.getByRole("button", { name: "关联所选模型" });
     expect(apply).toBeEnabled();
     await user.click(apply);
 
@@ -552,9 +555,9 @@ describe("ModelExportPage Pi-only", () => {
 
     renderPage();
     const row = await screen.findByTestId("export-row-3");
-    await user.click(within(row).getByRole("button", { name: "绑定来源" }));
+    await user.click(within(row).getByRole("button", { name: "选择 Pi 资料" }));
     await user.type(
-      screen.getByRole("textbox", { name: "目录 model_id 片段" }),
+      screen.getByRole("textbox", { name: "模型名称关键词" }),
       "gpt-x",
     );
     await user.click(screen.getByRole("button", { name: "搜索目录" }));
@@ -562,15 +565,15 @@ describe("ModelExportPage Pi-only", () => {
       await screen.findByRole("option", { name: /openai\/gpt-x/ }),
     );
     expect(
-      (await screen.findAllByText(/last-known-good 目录证据/)).length,
+      (await screen.findAllByText(/目录暂时无法更新/)).length,
     ).toBeGreaterThan(0);
-    expect(screen.getByRole("button", { name: "应用绑定" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "关联所选模型" })).toBeDisabled();
     expect(bindModelPi).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "取消" }));
     const secondRow = screen.getByTestId("export-row-5");
     await user.click(
-      within(secondRow).getByRole("button", { name: "绑定来源" }),
+      within(secondRow).getByRole("button", { name: "选择 Pi 资料" }),
     );
     expect(
       screen.queryByRole("combobox", { name: "选择目录搜索结果" }),
@@ -615,17 +618,17 @@ describe("ModelExportPage Pi-only", () => {
     renderPage();
     const row = await screen.findByTestId("export-row-3");
     expect(
-      within(row).getByText(/没有 Pi 文本 API 映射，无法绑定目录来源/),
+      within(row).getByText(/Pi 尚不支持此模型的连接方式/),
     ).toBeVisible();
-    expect(within(row).queryByRole("button", { name: "绑定来源" })).toBeNull();
+    expect(within(row).queryByRole("button", { name: "选择 Pi 资料" })).toBeNull();
     const boundRow = screen.getByTestId("export-row-4");
-    expect(within(boundRow).getByText(/跨目录绑定/)).toBeVisible();
+    expect(within(boundRow).getByText(/使用其他名称的模型资料|来源模型使用其他名称/)).toBeVisible();
     await openBindingMenu(user, boundRow);
     expect(screen.getByRole("menuitem", { name: "更换来源" })).toHaveAttribute(
       "data-disabled",
     );
     await user.keyboard("{Escape}");
-    expect(within(boundRow).getByText(/绑定时的模型配置 ID/)).toBeVisible();
+    expect(within(boundRow).getByText(/关联时的客户端模型名称/)).toBeVisible();
   });
 
   it("does not fabricate a missing bind-time identity from the current model id", async () => {
@@ -637,8 +640,8 @@ describe("ModelExportPage Pi-only", () => {
     renderPage();
 
     const row = await screen.findByTestId("export-row-3");
-    expect(within(row).getByText("（绑定身份快照缺失）")).toBeVisible();
-    expect(within(row).getByText(/不能用当前 model_id 代替/)).toBeVisible();
+    expect(within(row).getByText("关联信息不完整")).toBeVisible();
+    expect(within(row).getByText(/无法确认资料是否适用于当前模型/)).toBeVisible();
   });
 
   it("requires an explicit coordinate choice for identical multi-candidate templates", async () => {
@@ -683,16 +686,16 @@ describe("ModelExportPage Pi-only", () => {
 
     renderPage();
     const row = await screen.findByTestId("export-row-3");
-    expect(within(row).getByText("多个默认候选")).toBeVisible();
+    expect(within(row).getByText("找到多个同名模型")).toBeVisible();
     expect(screen.getByRole("button", { name: /生成配置文件/ })).toBeDisabled();
-    await user.click(within(row).getByRole("button", { name: "绑定来源" }));
+    await user.click(within(row).getByRole("button", { name: "选择 Pi 资料" }));
 
-    const apply = screen.getByRole("button", { name: "应用绑定" });
+    const apply = screen.getByRole("button", { name: "关联所选模型" });
     expect(apply).toBeDisabled();
     await user.selectOptions(
       screen.getByRole("combobox", { name: "选择候选来源" }),
       screen.getByRole("option", {
-        name: "qwen-token-plan-cn/qwen3.8-flash (openai-completions)",
+        name: /qwen-token-plan-cn\/qwen3\.8-flash/,
       }),
     );
     await waitFor(() => expect(apply).toBeEnabled());
@@ -715,18 +718,18 @@ describe("ModelExportPage Pi-only", () => {
     renderPage();
     const row = await screen.findByTestId("export-row-3");
     await openBindingMenu(user, row);
-    await user.click(screen.getByRole("menuitem", { name: "编辑覆盖" }));
+    await user.click(screen.getByRole("menuitem", { name: "调整资料" }));
 
-    expect(screen.getByText("输入模态")).toBeVisible();
-    expect(screen.getByText("思考等级映射")).toBeVisible();
-    expect(screen.getByText("Pi compat")).toBeVisible();
-    expect(screen.getAllByText(/绑定来源: GPT X/).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/绑定来源: 200000/).length).toBeGreaterThan(0);
-    const save = screen.getByRole("button", { name: "保存覆盖" });
+    expect(screen.getByText("接受的内容格式")).toBeVisible();
+    expect(screen.getByText("Pi 推理强度设置")).toBeVisible();
+    expect(screen.getByText("Pi 客户端兼容选项")).toBeVisible();
+    expect(screen.getAllByText(/目录值: GPT X/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/目录值: 200000/).length).toBeGreaterThan(0);
+    const save = screen.getByRole("button", { name: "保存资料" });
     expect(save).toBeDisabled();
 
     await user.click(screen.getByRole("combobox", { name: "名称 本次操作" }));
-    await user.click(screen.getByRole("option", { name: "写入手动值" }));
+    await user.click(screen.getByRole("option", { name: "填写手动值" }));
     const nameInput = screen.getByRole("textbox", { name: "名称" });
     await user.clear(nameInput);
     const nameError = screen.getByText("名称不能为空。");
@@ -761,9 +764,9 @@ describe("ModelExportPage Pi-only", () => {
     renderPage();
     const row = await screen.findByTestId("export-row-3");
     await openBindingMenu(user, row);
-    await user.click(screen.getByRole("menuitem", { name: "重读并冻结来源" }));
+    await user.click(screen.getByRole("menuitem", { name: "检查资料更新" }));
 
-    expect(await screen.findByText("preview transport failed")).toBeVisible();
+    expect(await screen.findByText(getStaticMessages().common.requestErrors.unknown)).toBeVisible();
     expect(screen.queryByText("正在获取最新目录数据...")).toBeNull();
     await user.click(screen.getByRole("button", { name: "重试刷新预览" }));
     expect(await screen.findByText("目录数据未发生变化。")).toBeVisible();
@@ -788,12 +791,12 @@ describe("ModelExportPage Pi-only", () => {
     renderPage();
     const row = await screen.findByTestId("export-row-3");
     await openBindingMenu(user, row);
-    await user.click(screen.getByRole("menuitem", { name: "重读并冻结来源" }));
+    await user.click(screen.getByRole("menuitem", { name: "检查资料更新" }));
     await screen.findByText("目录数据未发生变化。");
-    await user.click(screen.getByRole("button", { name: "应用重读结果" }));
+    await user.click(screen.getByRole("button", { name: "更新资料" }));
 
     expect(await screen.findByText("刷新提交失败")).toBeVisible();
-    expect(screen.getByText("pi_binding_stale")).toBeVisible();
+    expect(screen.getByText(getStaticMessages().common.requestErrors.unknown)).toBeVisible();
     expect(screen.queryByText("刷新预览读取失败")).toBeNull();
     expect(screen.getByText("目录数据未发生变化。")).toBeVisible();
   });
@@ -822,17 +825,17 @@ describe("ModelExportPage Pi-only", () => {
     await openBindingMenu(user, row);
     await user.click(screen.getByRole("menuitem", { name: "更换来源" }));
 
-    const apply = screen.getByRole("button", { name: "应用绑定" });
+    const apply = screen.getByRole("button", { name: "关联所选模型" });
     expect(apply).toBeDisabled();
     await user.selectOptions(
       screen.getByRole("combobox", { name: "选择候选来源" }),
       screen.getByRole("option", {
-        name: "openrouter/gpt-x (openai-responses)",
+        name: /openrouter\/gpt-x/,
       }),
     );
-    expect(screen.getByText(/永久清除这个模型的全部手动覆盖/)).toBeVisible();
+    expect(screen.getByText(/将清除旧来源的全部手动调整/)).toBeVisible();
     const destructiveApply = screen.getByRole("button", {
-      name: "重新绑定并清除覆盖",
+      name: "更换来源并清除手动调整",
     });
     expect(destructiveApply).toBeEnabled();
     await user.click(destructiveApply);
@@ -865,12 +868,12 @@ describe("ModelExportPage Pi-only", () => {
     const row = await screen.findByTestId("export-row-3");
     await openBindingMenu(user, row);
     await user.click(screen.getByRole("menuitem", { name: "解除 Pi 绑定" }));
-    expect(screen.getByText(/当前绑定含有手动覆盖/)).toBeVisible();
+    expect(screen.getByText(/当前资料含有手动调整/)).toBeVisible();
     await user.click(screen.getByTestId("pi-unbind-confirm"));
 
     const dialog = screen.getByRole("dialog", { name: "解除 Pi 绑定？" });
     expect(
-      await within(dialog).findByText(/变更已保存，但导出源刷新失败/),
+      await within(dialog).findByText(/变更已保存，但页面暂时无法读取最新结果/),
     ).toBeVisible();
     expect(screen.getByTestId("pi-unbind-confirm")).toBeDisabled();
     await user.click(within(dialog).getByRole("button", { name: "取消" }));
@@ -890,10 +893,10 @@ describe("ModelExportPage Pi-only", () => {
     renderPage();
     const row = await screen.findByTestId("export-row-3");
     await openBindingMenu(user, row);
-    await user.click(screen.getByRole("menuitem", { name: "编辑覆盖" }));
-    await user.click(screen.getByRole("button", { name: "清除全部覆盖" }));
+    await user.click(screen.getByRole("menuitem", { name: "调整资料" }));
+    await user.click(screen.getByRole("button", { name: "恢复全部目录值" }));
     expect(clearModelPiOverride).not.toHaveBeenCalled();
-    expect(screen.getByText("清除全部 Pi 手动覆盖？")).toBeVisible();
+    expect(screen.getByText("清除全部 Pi 手动调整？")).toBeVisible();
     await user.click(screen.getByTestId("pi-clear-overrides-confirm"));
     await waitFor(() => expect(clearModelPiOverride).toHaveBeenCalledWith(3));
   });
@@ -911,7 +914,7 @@ describe("ModelExportPage Pi-only", () => {
     await user.click(screen.getByRole("button", { name: /生成配置文件/ }));
     const dialog = screen.getByTestId("export-key-dialog");
     await user.click(within(dialog).getByRole("button", { name: "确认生成" }));
-    expect(await within(dialog).findByText(/源事实已漂移/)).toBeVisible();
+    expect(await within(dialog).findByText(/模型资料在生成前已更新/)).toBeVisible();
   });
 
   it("keeps a frozen binding renderable when only live catalog evidence drifted", async () => {
@@ -949,10 +952,10 @@ describe("ModelExportPage Pi-only", () => {
     renderPage();
     const row = await screen.findByTestId("export-row-3");
     await openBindingMenu(user, row);
-    expect(screen.getByRole("menuitem", { name: "重读并冻结来源" })).toHaveAttribute(
+    expect(screen.getByRole("menuitem", { name: "检查资料更新" })).toHaveAttribute(
       "data-disabled",
     );
-    expect(screen.getByRole("menuitem", { name: "编辑覆盖" })).toHaveAttribute(
+    expect(screen.getByRole("menuitem", { name: "调整资料" })).toHaveAttribute(
       "data-disabled",
     );
     expect(
@@ -985,13 +988,13 @@ describe("ExportKeyDialog Pi-only", () => {
     );
 
     // 最后一次能反悔的步骤要复述本次导出范围与已知代价。
-    expect(screen.getByText(/已选 1 个模型配置/)).toBeVisible();
-    expect(screen.getByText(/其中 2 个会省略 cost 组/)).toBeVisible();
+    expect(screen.getByText(/已选 1 个模型/)).toBeVisible();
+    expect(screen.getByText(/其中 2 个不包含价格信息/)).toBeVisible();
     expect(screen.queryByText(/元信息有缺失/)).toBeNull();
 
     await user.click(screen.getByRole("radio", { name: /手动输入统一密钥/ }));
     const confirm = screen.getByRole("button", { name: "确认生成" });
-    const input = screen.getByLabelText(/^Prism 代理密钥/);
+    const input = screen.getByLabelText(/^Prism 客户端密钥/);
     expect(confirm).toBeDisabled();
     await user.type(input, "   ");
     expect(confirm).toBeDisabled();
@@ -1026,7 +1029,7 @@ describe("ExportKeyDialog Pi-only", () => {
     );
 
     await user.click(screen.getByRole("radio", { name: /手动输入统一密钥/ }));
-    await user.type(screen.getByLabelText(/^Prism 代理密钥/), "proxy-key{Enter}");
+    await user.type(screen.getByLabelText(/^Prism 客户端密钥/), "proxy-key{Enter}");
 
     await waitFor(() =>
       expect(onConfirm).toHaveBeenCalledWith({
@@ -1067,7 +1070,7 @@ describe("ExportResultSheet Pi-only", () => {
       '{\n  "home": {\n    "name": "Prism",\n    "models": []\n  }\n}\n',
     );
     expect(
-      screen.getByText(/pi\.dev 来源包含不安全或不受支持的字段/),
+      screen.getByText(/部分目录设置不受支持/),
     ).toBeVisible();
     unmount();
   });
@@ -1222,7 +1225,7 @@ describe("ExportResultSheet Pi-only", () => {
     try {
       const view = render(renderSheet(result));
       await user.click(
-        screen.getByRole("button", { name: "在新标签页查看原始 JSON" }),
+        screen.getByRole("button", { name: "在新标签页查看配置文件" }),
       );
       view.rerender(renderSheet(null));
       await waitFor(() =>
@@ -1231,7 +1234,7 @@ describe("ExportResultSheet Pi-only", () => {
 
       view.rerender(renderSheet({ ...result, content_sha256: "e".repeat(64) }));
       await user.click(
-        screen.getByRole("button", { name: "在新标签页查看原始 JSON" }),
+        screen.getByRole("button", { name: "在新标签页查看配置文件" }),
       );
       view.unmount();
       expect(revokeObjectURL).toHaveBeenCalledWith("blob:pi-two");

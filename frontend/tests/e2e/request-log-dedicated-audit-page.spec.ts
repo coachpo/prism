@@ -3,13 +3,12 @@ import { readFile } from "node:fs/promises";
 
 import {
   copiedText,
+  createRequestLogDetail,
   documentBodyCases,
   expectAuditWindow,
   installCopyHarness,
   longRepeatedRequestToken,
   mockPrismRoutes,
-  openAiDocumentRequestBody,
-  redactedHeaders,
   usedDedicatedFallbackRoot,
 } from "./request-log-dedicated-audit-fixtures";
 
@@ -118,7 +117,7 @@ test.describe("dedicated request-log audit page", () => {
       const detail = page.getByTestId("dedicated-audit-detail");
       await expect(detail).toBeVisible({ timeout: 15000 });
       await expect(page.locator("header")).not.toContainText(removedScopeLabels);
-      await expect(detail.getByText("[REDACTED]").first()).toBeVisible();
+      await expect(detail.getByRole("region", { name: "请求头" })).toHaveCount(0);
       for (const label of bodyCase.requestLabels) {
         await expect(detail.getByText(label).first()).toBeVisible();
       }
@@ -130,67 +129,13 @@ test.describe("dedicated request-log audit page", () => {
     });
   }
 
-  test("renders JSON array headers as key-value rows with sensitive values masked", async ({ page }) => {
+  test("conversation excludes headers, internal fields and raw payload controls", async ({ page }) => {
     await mockPrismRoutes(page, "json_headers");
-
     await page.goto("/observe/requests/101/audit?audit_id=201");
-
     const detail = page.getByTestId("dedicated-audit-detail");
-    await expect(detail).toBeVisible({ timeout: 15000 });
-
-    const requestHeaders = detail.getByRole("region", { name: "请求头" });
-    await expect(requestHeaders.locator("dt", { hasText: "authorization" })).toBeVisible();
-    await expect(requestHeaders.locator("dd", { hasText: "[REDACTED]" }).first()).toBeVisible();
-    await expect(requestHeaders.locator("dt", { hasText: "content-type" })).toBeVisible();
-    await expect(requestHeaders.locator("dd", { hasText: "application/json" })).toBeVisible();
-    await expect(requestHeaders.locator("dt", { hasText: "user-agent" })).toBeVisible();
-    await expect(requestHeaders.locator("dd", { hasText: "prism-postdual-overflow-gpt55-deepseek-1781125557" })).toBeVisible();
-    await expect(requestHeaders.getByText("Bearer live-secret-token")).toHaveCount(0);
-    await expect(requestHeaders.getByText("session=live-cookie")).toHaveCount(0);
-
-    const responseHeaders = detail.getByRole("region", { name: "响应头" });
-    await expect(responseHeaders.locator("dt", { hasText: "access-control-allow-credentials" })).toBeVisible();
-    await expect(responseHeaders.locator("dd", { hasText: "true" })).toBeVisible();
-    await expect(responseHeaders.locator("dt", { hasText: "strict-transport-security" })).toBeVisible();
-    await expect(responseHeaders.locator("dd", { hasText: "max-age=31536000; includeSubDomains; preload" })).toBeVisible();
-    await expect(responseHeaders.locator("dt", { hasText: "set-cookie" })).toHaveCount(2);
-    await expect(responseHeaders.locator("dt", { hasText: "x-client-credential" })).toBeVisible();
-    await expect(responseHeaders.locator("dd", { hasText: "[REDACTED]" }).first()).toBeVisible();
-    await expect(responseHeaders.getByText("session=live-response-cookie")).toHaveCount(0);
-    await expect(responseHeaders.getByText("live-client-credential")).toHaveCount(0);
-
-    await requestHeaders.getByRole("button", { name: "原始 JSON" }).click();
-    await expect(requestHeaders.locator("pre")).toContainText('"name": "authorization"');
-    await expect(requestHeaders.locator("pre")).toContainText('"value": "[REDACTED]"');
-    await expect(requestHeaders.locator("pre")).toContainText('"value": "prism-postdual-overflow-gpt55-deepseek-1781125557"');
-    await expect(requestHeaders.locator("pre")).not.toContainText("Bearer live-secret-token");
-
-    await responseHeaders.getByRole("button", { name: "原始 JSON" }).click();
-    await expect(responseHeaders.locator("pre")).toContainText('"name": "access-control-allow-credentials"');
-    await expect(responseHeaders.locator("pre")).toContainText('"value": "true"');
-    await expect(responseHeaders.locator("pre")).toContainText('"name": "set-cookie"');
-    await expect(responseHeaders.locator("pre")).toContainText('"value": "[REDACTED]"');
-    await expect(responseHeaders.locator("pre")).toContainText('"name": "x-client-credential"');
-    await expect(responseHeaders.locator("pre")).toContainText('"name": "vary"');
-    await expect(responseHeaders.locator("pre")).toContainText('"value": "origin, access-control-request-method, access-control-request-headers"');
-    await expect(responseHeaders.locator("pre")).not.toContainText("session=live-response-cookie");
-    await expect(responseHeaders.locator("pre")).not.toContainText("live-client-credential");
-  });
-
-  test("local Raw JSON toggle pretty-prints parseable request bodies", async ({ page }) => {
-    await mockPrismRoutes(page, "openai_document");
-
-    await page.goto("/observe/requests/101/audit?audit_id=201");
-
-    const detail = page.getByTestId("dedicated-audit-detail");
-    await expect(detail).toBeVisible({ timeout: 15000 });
-    const requestSection = detail.getByRole("region", { name: "请求", exact: true });
-    await expect(requestSection.getByText("消息记录")).toBeVisible();
-    await requestSection.getByRole("button", { name: "原始 JSON" }).click();
-    await expect(requestSection.getByRole("button", { name: "原始 JSON" })).toHaveAttribute("aria-pressed", "true");
-    await expect(requestSection.locator("pre")).toContainText('"model": "gpt-4o-mini"');
-    await expect(requestSection.locator("pre")).toContainText('"messages": [');
-    await expect(requestSection.getByText("消息记录")).toHaveCount(0);
+    await expect(detail).toBeVisible();
+    await expect(detail.getByRole("region", { name: "请求头" })).toHaveCount(0);
+    await expect(detail).not.toContainText(/authorization|user-agent|prism-postdual|Bearer|原始 JSON|request_method/);
   });
 
   test("long repeated-token request bodies scroll inside the Request Body content area only", async ({ page }) => {
@@ -202,8 +147,6 @@ test.describe("dedicated request-log audit page", () => {
     await expect(detail).toBeVisible({ timeout: 15000 });
     const requestSection = detail.getByRole("region", { name: "请求", exact: true });
     const requestContent = requestSection.getByTestId("request-log-request-body-content");
-    await expect(requestSection.getByRole("button", { name: "渲染视图" })).toBeVisible();
-    await expect(requestSection.getByRole("button", { name: "原始 JSON" })).toBeVisible();
     await expect(requestSection.getByRole("button", { name: "复制" })).toBeVisible();
     await expect(requestSection.getByText(longRepeatedRequestToken.slice(0, 80))).toBeVisible();
     await expect(requestContent).toHaveCSS("overflow-y", "auto");
@@ -219,31 +162,17 @@ test.describe("dedicated request-log audit page", () => {
     expect(renderedMetrics.clientHeight).toBeLessThanOrEqual(Math.ceil(renderedMetrics.viewportHeight * 0.9) + 2);
     expect(renderedMetrics.scrollHeight).toBeGreaterThan(renderedMetrics.clientHeight);
 
-    await requestSection.getByRole("button", { name: "原始 JSON" }).click();
-    await expect(requestSection.getByRole("button", { name: "原始 JSON" })).toHaveAttribute("aria-pressed", "true");
-    await expect(requestContent.locator("pre")).toContainText('"input": "request-token');
-    const rawMetrics = await requestContent.evaluate((element) => ({
-      clientHeight: element.clientHeight,
-      scrollHeight: element.scrollHeight,
-    }));
-    expect(rawMetrics.scrollHeight).toBeGreaterThan(rawMetrics.clientHeight);
-
     const responseSection = detail.getByRole("region", { name: "响应（200）" });
     await expect(responseSection.getByTestId("request-log-request-body-content")).toHaveCount(0);
   });
 
-  test("raw-mode copy writes the pretty-printed JSON shown in that section", async ({ page, context }) => {
+  test("copy keeps the readable conversation and uses the page fallback scope", async ({ page, context }) => {
     await installCopyHarness(page, context);
     await mockPrismRoutes(page, "openai_document");
-
     await page.goto("/observe/requests/101/audit?audit_id=201");
-
-    const detail = page.getByTestId("dedicated-audit-detail");
-    await expect(detail).toBeVisible({ timeout: 15000 });
-    const requestSection = detail.getByRole("region", { name: "请求", exact: true });
-    await requestSection.getByRole("button", { name: "原始 JSON" }).click();
-    await requestSection.getByRole("button", { name: "复制" }).click();
-    await expect.poll(() => copiedText(page)).toBe(JSON.stringify(JSON.parse(openAiDocumentRequestBody), null, 2));
+    const request = page.getByTestId("dedicated-audit-detail").getByRole("region", { name: "请求", exact: true });
+    await request.getByRole("button", { name: "复制" }).click();
+    await expect.poll(() => copiedText(page)).toBe("系统\nYou are concise.\n\n用户\nReply with exactly ok.");
     await expect.poll(() => usedDedicatedFallbackRoot(page)).toBe(true);
   });
 
@@ -255,8 +184,8 @@ test.describe("dedicated request-log audit page", () => {
     await expect(page.getByTestId("dedicated-request-log-audit-page")).toBeVisible({ timeout: 15000 });
     // Breadcrumbs are fixed at group -> page -> entity, and the leaf is the
     // entity rather than a generic word.
-    await expect(page.getByTestId("shell-breadcrumb")).toContainText("可观测性");
-    await expect(page.getByTestId("shell-breadcrumb")).toContainText("请求审计");
+    await expect(page.getByTestId("shell-breadcrumb")).toContainText("使用情况");
+    await expect(page.getByTestId("shell-breadcrumb")).toContainText("请求内容");
     await expect(page.getByTestId("shell-breadcrumb-current")).toHaveText("#101");
     await expect(page.getByText("selected audit request body")).toBeVisible();
     await expect(page.getByText("selected audit response body")).toBeVisible();
@@ -274,7 +203,6 @@ test.describe("dedicated request-log audit page", () => {
     await expect(page.getByTestId("dedicated-audit-list")).toContainText("#201", { timeout: 15000 });
     await expect(page.getByRole("link", { name: "下一页" })).toHaveAttribute("href", "/observe/requests/101/audit?cursor=page-2");
     await page.getByRole("link", { name: "下一页" }).click();
-    console.log("AUDIT URL AFTER CLICK:", page.url());
 
     await expect(page).toHaveURL(/\/observe\/requests\/101\/audit\?cursor=page-2$/);
     await expect(page.getByTestId("dedicated-audit-list")).toContainText("#202");
@@ -289,32 +217,28 @@ test.describe("dedicated request-log audit page", () => {
 
     await page.goto("/observe/requests/101/audit");
 
-    await expect(page.getByText("请求开始时已禁用审计").first()).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText("这次请求未开启内容保存").first()).toBeVisible({ timeout: 15000 });
+    await expect(page.getByTestId("audit-request-result")).toContainText("完成");
+    const interrupted = createRequestLogDetail("disabled");
+    await page.route("**/api/stats/requests/101", route => route.fulfill({ json: {
+      ...interrupted,
+      summary: { ...interrupted.summary, is_stream: true, upstream_status_code: 200, stream_outcome: "upstream_read_error", stream_error_kind: "upstream_read_failed" },
+    } }));
+    await page.reload();
+    const result = page.getByTestId("audit-request-result");
+    await expect(result).toContainText("回复中断");
+    await expect(result).not.toContainText("完成");
+    await expect(result).not.toContainText("200");
     expect(counters.auditListSearchParams).toEqual([]);
     expect(counters.auditDetailRequests).toEqual([]);
   });
 
-  test("metadata-only audit shows no-body copy state and copies original redacted headers", async ({ page, context }) => {
-    await installCopyHarness(page, context);
+  test("metadata-only content states that conversation was not saved", async ({ page }) => {
     const counters = await mockPrismRoutes(page, "metadata_only");
-
     await page.goto("/observe/requests/101/audit");
-
-    await expect(page.getByText("仅元数据").first()).toBeVisible({ timeout: 15000 });
-    const requestHeaders = page.getByTestId("dedicated-audit-detail").getByRole("region", { name: "请求头" });
-    await expect(requestHeaders.locator("dd", { hasText: "[REDACTED]" }).first()).toBeVisible();
-    // 请求与响应两处共用同一条合并后的文案，因此断言出现两次而不是两条不同文案。
-    await expect(page.getByText("仅元数据审计不会存储正文。")).toHaveCount(2);
-    const copyButtons = page.getByTestId("dedicated-audit-detail").getByRole("button", { name: /^复制$/ });
-    await expect(copyButtons).toHaveCount(4);
-    await expect(copyButtons.nth(1)).toBeDisabled();
-    await expect(copyButtons.nth(3)).toBeDisabled();
-    await requestHeaders.locator("dd", { hasText: "[REDACTED]" }).first().evaluate((element) => {
-      element.textContent = "mutated header text";
-    });
-    await copyButtons.first().click();
-    await expect.poll(() => copiedText(page)).toBe(redactedHeaders);
-    await expect.poll(() => usedDedicatedFallbackRoot(page)).toBe(true);
+    await expect(page.getByText("仅保存概要").first()).toBeVisible();
+    await expect(page.getByText("仅保存概要审计不会存储正文。")).toHaveCount(2);
+    await expect(page.getByTestId("dedicated-audit-detail").getByRole("button", { name: "复制" })).toHaveCount(0);
     expect(counters.auditDetailRequests).toEqual([201]);
   });
 
@@ -333,7 +257,7 @@ test.describe("dedicated request-log audit page", () => {
 
     await page.goto("/observe/requests/101/audit");
 
-    await expect(page.getByText("此请求未找到审计记录。")).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText("此请求未找到内容记录。")).toBeVisible({ timeout: 15000 });
     expect(counters.auditListSearchParams).toHaveLength(1);
     expect(counters.auditDetailRequests).toEqual([]);
   });
@@ -343,8 +267,8 @@ test.describe("dedicated request-log audit page", () => {
 
     await page.goto("/observe/requests/101/audit?audit_id=999");
 
-    await expect(page.getByText("此请求未找到该审计记录")).toBeVisible({ timeout: 15000 });
-    await expect(page.getByRole("link", { name: "显示默认审计记录" })).toHaveAttribute("href", "/observe/requests/101/audit");
+    await expect(page.getByText("此请求未找到该内容记录")).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole("link", { name: "显示默认内容记录" })).toHaveAttribute("href", "/observe/requests/101/audit");
     expect(counters.auditDetailRequests).toEqual([]);
   });
 
@@ -353,7 +277,7 @@ test.describe("dedicated request-log audit page", () => {
 
     await page.goto("/observe/requests/101/audit");
 
-    await expect(page.getByText("审计记录加载失败")).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText("内容记录加载失败")).toBeVisible({ timeout: 15000 });
     expect(counters.auditListSearchParams).toHaveLength(1);
     expect(counters.auditDetailRequests).toEqual([]);
   });
@@ -363,7 +287,7 @@ test.describe("dedicated request-log audit page", () => {
 
     await page.goto("/observe/requests/101/audit?audit_id=201");
 
-    await expect(page.getByText("审计记录加载失败")).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText("内容记录加载失败")).toBeVisible({ timeout: 15000 });
     await expect(page.getByTestId("dedicated-audit-list")).toContainText("#201");
     expect(counters.auditDetailRequests).toEqual([201]);
   });
@@ -378,23 +302,60 @@ test.describe("dedicated request-log audit page", () => {
     expect(counters.auditDetailRequests).toEqual([]);
   });
 
-  test("request-log row clicks still open the overview drawer with a full audit page link", async ({ page }) => {
+  test("failed request explains recovery and preserves the list when returning from content", async ({ page }) => {
     const counters = await mockPrismRoutes(page, "full");
 
-    await page.goto("/observe/requests?view=attempts");
-    // 行现在带表格语义（role=row），可访问名就是它的可见内容。
-    const requestLogRow = page.getByTestId("request-logs-table").getByRole("row").filter({ hasText: "GPT-4o mini" });
-    await requestLogRow.click();
+    const detail = createRequestLogDetail("full");
+    await page.route("**/api/models", route => route.fulfill({ json: [{ id: 7, model_id: "gpt-4o-mini", api_family: "openai", direct_request_enabled: true, incoming_model_target_count: 0, access_targets: [], loadbalance_strategy: null, configuration_warnings: [] }] }));
+    await page.route("**/api/stats/requests/101", route => route.fulfill({ json: {
+      ...detail, summary: { ...detail.summary, upstream_status_code: 404 },
+      failure: { category: "upstream_http", detail: "upstream_http_404 SQL /private/debug", code: "upstream_http_404" },
+      terminal_target: { owner_model_config_id: "gpt-4o-mini", terminal_target_id: "9", configured: true },
+    } }));
+    await page.goto("/observe/requests?view=attempts&status_code=404");
+    const lookup = page.getByRole("textbox", { name: "查找请求", exact: true });
+    await expect(lookup).toHaveCount(1);
+    await page.route("**/api/stats/requests/999", route => route.fulfill({ status: 404, json: { detail: "Request not found" } }));
+    await lookup.fill("#999");
+    await page.getByRole("button", { name: "查找", exact: true }).click();
+    await expect(page.getByText("未找到请求", { exact: true })).toBeVisible();
+    await lookup.fill("ingress-101");
+    const ingressRead = page.waitForRequest(request => {
+      const url = new URL(request.url());
+      return url.pathname === "/api/stats/requests" && url.searchParams.get("ingress_request_id") === "ingress-101";
+    });
+    await lookup.press("Enter");
+    await ingressRead;
+    await expect(page).toHaveURL(/ingress_request_id=ingress-101/);
+    await expect(page.getByTestId("filter-chip-ingress_request_id")).toContainText("ingress-101");
+    await expect(page.getByText("未找到请求", { exact: true })).toHaveCount(0);
+    await lookup.fill("#101");
+    await page.getByRole("button", { name: "查找", exact: true }).click();
+    await expect(page).toHaveURL(/request_id=101/);
+    expect(new URL(page.url()).searchParams.has("ingress_request_id")).toBe(false);
 
     const drawer = page.getByTestId("request-log-detail-sheet");
     await expect(drawer).toBeVisible({ timeout: 15000 });
     await expect(drawer.getByRole("tab", { name: "审计" })).toHaveCount(0);
-    await expect(drawer.getByText("查看入口模型、本次尝试目标模型、规划首选与实际终端目标，以及路由、令牌、费用和请求时审计来源。")).toBeVisible();
-    await expect(drawer.getByTestId("request-log-overview-grid").getByText("/v1/responses")).toBeVisible();
-    await expect(drawer.getByRole("link", { name: "打开完整审计页" })).toHaveAttribute("href", "/observe/requests/101/audit");
-    await expect(page).toHaveURL(/\/observe\/requests\?selected_request_id=101&view=attempts$/);
+    await expect(drawer.getByText("查看这次请求的结果、费用和使用的服务；遇到失败时，可直接检查相关配置。")).toBeVisible();
+    await expect(drawer.getByText("/v1/responses")).toHaveCount(0);
+    await expect(drawer.getByRole("link", { name: "查看输入与回复" })).toHaveAttribute("href", /\/observe\/requests\/101\/audit\?return_to=/);
+    const recovery = drawer.getByTestId("request-failure-recovery");
+    await expect(recovery).toContainText("记录本身不能确定是哪一项有误");
+    await expect(recovery.getByRole("link", { name: "检查模型配置" })).toHaveAttribute("href", /\/route\/models\/7.*focus_connection_id=9/);
+    await expect(recovery.getByRole("link", { name: "检查服务地址与密钥" })).toHaveAttribute("href", "/route/endpoints?endpoint_id=1");
+    await expect(drawer).not.toContainText(/upstream_http_404|SQL|private\/debug|provider-corr/);
     expect(counters.auditListSearchParams).toEqual([]);
     expect(counters.auditDetailRequests).toEqual([]);
+    const listUrl = page.url();
+    await drawer.getByRole("link", { name: "查看输入与回复" }).click();
+    await expect(page.getByTestId("dedicated-request-log-audit-page").getByTestId("request-failure-recovery")).toBeVisible();
+    await page.getByRole("link", { name: "返回请求列表", exact: true }).click();
+    await expect(page).toHaveURL(listUrl);
+    await expect(page.getByTestId("request-log-detail-sheet")).toBeVisible();
+    await expect(page.getByTestId("filter-chip-status_code")).toContainText("404");
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("textbox", { name: "查找请求", exact: true })).toHaveValue("");
   });
 
   test("Requests exposes retained upstream identity and exports the same field", async ({
@@ -405,7 +366,7 @@ test.describe("dedicated request-log audit page", () => {
 
     await page.getByTestId("request-log-column-toggle-trigger").click();
     const upstreamColumn = page.getByRole("menuitemcheckbox", {
-      name: "上游模型 ID",
+      name: "服务要求的模型名称",
     });
     await expect(upstreamColumn).toHaveAttribute("aria-checked", "false");
     await upstreamColumn.click();

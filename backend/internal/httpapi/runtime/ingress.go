@@ -64,6 +64,7 @@ func (s *Service) handleStreamingProxy(w http.ResponseWriter, r *http.Request) {
 		ingress.callerRequestID = callerRequestID
 	}
 	r = r.WithContext(withRuntimeIngressContext(r.Context(), ingress))
+	bindRuntimeIngressResponseID(w, ingress.ingressRequestID)
 
 	requestBodyLimit := runtimeRequestBodyLimitBytes(operationMatch.Operation, r.Header.Get("Content-Type"))
 	if !limitRuntimeRequestBody(w, r, requestBodyLimit) {

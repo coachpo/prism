@@ -4,6 +4,7 @@ import { useTimezone } from "@/hooks/useTimezone";
 import { Link } from "@tanstack/react-router";
 import { ChevronDown, ChevronRight, RefreshCw } from "lucide-react";
 import { useLocale } from "@/i18n/useLocale";
+import { requestServiceLabel } from "@/pages/request-logs/requestFailurePresentation";
 import { Button } from "@/components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
@@ -359,12 +360,7 @@ function TerminalTargetRow({
       <TableCell>
         <div className="flex min-w-0 flex-wrap items-center gap-1.5">
           <span className="min-w-0 truncate font-medium">
-            {item.connection_label}
-          </span>
-          {/* 活动表的出口列也印这个 #id：两个视图各给半个身份时，
-              操作者没有任何公共字段能把「终端目标 #25」对上「B.ai」。 */}
-          <span className="shrink-0 font-mono text-xs text-muted-foreground">
-            #{item.connection_id}
+            {requestServiceLabel(item.connection_label, copy.unnamedModelService)}
           </span>
           {item.ban_event_count > 0 ? (
             <OperatorValueBadge

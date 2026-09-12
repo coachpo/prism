@@ -104,7 +104,7 @@ describe("ObserveSeriesTable scope labels", () => {
     );
 
     expect(
-      screen.getByRole("columnheader", { name: "窗口合计 · 尝试数" }),
+      screen.getByRole("columnheader", { name: "所选时段合计 · 尝试数" }),
     ).toBeInTheDocument();
   });
 });

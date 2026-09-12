@@ -166,8 +166,6 @@ export function ExportResultSheet(props: {
           <SheetTitle>{copy.resultTitle}</SheetTitle>
           <SheetDescription>
             {copy.resultFileName}: <code className="font-mono">{fileName}</code>
-            {" · "}
-            <code className="font-mono text-xs">{EXPORT_MIME_TYPE}</code>
           </SheetDescription>
         </SheetHeader>
 
@@ -193,10 +191,6 @@ export function ExportResultSheet(props: {
                 : `✓ ${copy.noWarnings}`
             }
           />
-          <span>
-            SHA-256:{" "}
-            <code className="font-mono">{props.result.content_sha256}</code>
-          </span>
         </div>
 
         {/* 缺失的 cost 组会让客户端把未配置价格显示成 0：这正是诚实契约要求

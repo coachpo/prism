@@ -2,6 +2,9 @@ import { ObserveFragmentStamp } from "./ObserveFragmentStamp";
 import { useObserveReadCycle } from "./observeReadCycleContext";
 import { useEffect, useState } from "react";
 import { useLocale } from "@/i18n/useLocale";
+import { describeRequestFailure } from "@/pages/request-logs/requestFailurePresentation";
+import { getStreamOutcomeLabel } from "@/pages/request-logs/streamTelemetry";
+import type { StreamOutcome } from "@/lib/types";
 import { observe, type UsageErrorsResponse } from "@/lib/api/observability";
 import { cn } from "@/lib/utils";
 import { fragmentErrorFrom, type FragmentState } from "@/features/observe/useObserveFragments";
@@ -128,8 +131,6 @@ export function ObserveErrorPanel({
             {messages.honesty.readFailedDescription}
           </>
         }
-        details={fragment.error}
-        detailsLabel={messages.honesty.viewDetails}
         action={
           <OperatorRetryButton
             onClick={() => setAttempt((current) => current + 1)}
@@ -226,14 +227,14 @@ export function ObserveErrorPanel({
                     onSelect(
                       streamOutcomeSelection(
                         outcome.stream_outcome,
-                        messages.observe.workbenchSelectionStream(outcome.stream_outcome),
+                        messages.observe.workbenchSelectionStream(getStreamOutcomeLabel(outcome.stream_outcome as StreamOutcome, messages.requestLogs) ?? messages.requestLogs.streamUnknown),
                         outcome.request_filters,
                       ),
                     )
                   }
                   data-testid={`error-stream-${outcome.stream_outcome}`}
                 >
-                  <span>{outcome.stream_outcome}</span>
+                  <span>{getStreamOutcomeLabel(outcome.stream_outcome as StreamOutcome, messages.requestLogs) ?? messages.requestLogs.streamUnknown}</span>
                   <span className="tabular-nums text-muted-foreground">
                     {outcome.count} · {outcome.percentage === null ? "—" : `${outcome.percentage.toFixed(1)}%`}
                   </span>
@@ -252,14 +253,14 @@ export function ObserveErrorPanel({
                         streamErrorKindSelection(
                           outcome.stream_outcome,
                           kind.stream_error_kind,
-                          messages.observe.workbenchSelectionKind(kind.stream_error_kind ?? "null"),
+                          messages.observe.workbenchSelectionKind(describeRequestFailure({ statusCode: null, streamOutcome: outcome.stream_outcome, streamErrorKind: kind.stream_error_kind, errorPresent: true })!.title),
                           kind.request_filters,
                         ),
                       )
                     }
                     data-testid={`error-kind-${kind.stream_error_kind ?? "null"}`}
                   >
-                    <span>{kind.stream_error_kind ?? "null"}</span>
+                    <span>{describeRequestFailure({ statusCode: null, streamOutcome: outcome.stream_outcome, streamErrorKind: kind.stream_error_kind, errorPresent: true })!.title}</span>
                     <span className="tabular-nums text-muted-foreground">{kind.count}</span>
                   </button>
                 ))}

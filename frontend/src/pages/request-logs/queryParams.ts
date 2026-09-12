@@ -246,6 +246,13 @@ export function normalizeRequestId(value: unknown): string {
   return isPositiveDecimalInt64(normalized) ? normalized : "";
 }
 
+export function requestLookupPatch(value: string): Partial<RequestLogPageState> | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const requestId = normalizeRequestId(trimmed);
+  return { request_id: requestId, ingress_request_id: requestId ? "" : trimmed, selected_request_id: "" };
+}
+
 export function isPositiveDecimalInt64(value: string): boolean {
   if (!/^\d+$/.test(value)) return false;
   const canonical = value.replace(/^0+/, "");

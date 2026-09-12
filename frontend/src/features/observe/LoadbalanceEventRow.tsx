@@ -1,3 +1,4 @@
+import { requestServiceLabel } from "@/pages/request-logs/requestFailurePresentation";
 import { Button } from "@/components/ui/button";
 import { TableCell, TableRow } from "@/components/ui/table";
 import { useLocale } from "@/i18n/useLocale";
@@ -52,11 +53,8 @@ export function LoadbalanceEventRow({
       ? admissionReasonLabel(item.admission_reason, copy.eventSummary)
       : null;
   const modelLabel = item.model.label || item.model.model_id || null;
-  const targetLabel =
-    item.terminal_target.label || `#${item.terminal_target.id ?? "?"}`;
-  const endpointLabel =
-    item.endpoint.label ||
-    (item.endpoint.id != null ? `#${item.endpoint.id}` : null);
+  const targetLabel = requestServiceLabel(item.terminal_target.label, "");
+  const endpointLabel = requestServiceLabel(item.endpoint.label, copy.unnamedService);
   // 「相关窗口」按事件类型换口径：已封禁看封禁截止，其余优先看下次重试，
   // 都没有才回落到上次成功。相邻两行的口径可以不同、相对事件时间的方向也会
   // 翻转，所以这里连口径标签一起给出，单元格不能只留一个裸时间戳。
@@ -108,9 +106,9 @@ export function LoadbalanceEventRow({
       </TableCell>
       <TableCell>
         <div className="flex flex-col">
-          <span>{targetLabel}</span>
+          <span>{endpointLabel}</span>
           <span className="text-xs text-muted-foreground">
-            {endpointLabel ?? <OperatorMissingValue />}
+            {targetLabel}
           </span>
         </div>
       </TableCell>

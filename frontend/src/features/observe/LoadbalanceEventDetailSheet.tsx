@@ -3,6 +3,7 @@ import { ExternalLink, RefreshCw } from "lucide-react"
 import { Link } from "@tanstack/react-router"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet"
+import { requestServiceLabel } from "@/pages/request-logs/requestFailurePresentation"
 import { useLocale } from "@/i18n/useLocale"
 import { useTimezone } from "@/hooks/useTimezone"
 import { api } from "@/lib/api"
@@ -15,7 +16,7 @@ type DetailState =
   | { phase: "idle" }
   | { phase: "loading" }
   | { phase: "ready"; data: LoadbalanceEventDetail }
-  | { phase: "error"; message: string; code: string | null }
+  | { phase: "error" }
 
 export function LoadbalanceEventDetailSheet({
   eventId,
@@ -46,15 +47,14 @@ export function LoadbalanceEventDetailSheet({
         const data = await api.loadbalance.getEvent(eventId, queryContext)
         if (cancelled) return
         setState({ phase: "ready", data })
-      } catch (error) {
+      } catch {
         if (cancelled) return
-        const apiError = error as { status?: number; message?: string }
-        setState({ phase: "error", message: apiError.message ?? copy.loadFailed, code: apiError.status != null ? String(apiError.status) : null })
+        setState({ phase: "error" })
       }
     }
     void load()
     return () => { cancelled = true }
-  }, [copy.loadFailed, eventId, queryContext])
+  }, [eventId, queryContext])
 
   // When the sheet closes the previous detail must not linger as "ready".
   const openEventId = eventId
@@ -95,7 +95,7 @@ export function LoadbalanceEventDetailSheet({
         {state.phase === "error" ? (
           <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-6">
             <OperatorCallout intent="danger" title={copy.detailFailed}>
-              {state.message}
+              {copy.detailFailedRecovery}
             </OperatorCallout>
             <div className="flex gap-2">
               <Button type="button" variant="outline" size="sm" onClick={onRetryContext}>
@@ -143,14 +143,19 @@ function EventDetailBody({ detail, summaryLabel, summaryReason, formatTime, copy
     preset: (sourceSearch.preset as ObserveReturnPayload["preset"]) || "24h",
     from_time: typeof sourceSearch.from_time === "string" ? sourceSearch.from_time : undefined,
     to_time: typeof sourceSearch.to_time === "string" ? sourceSearch.to_time : undefined,
-    event_type: typeof sourceSearch.event_type === "string" ? sourceSearch.event_type : undefined,
-    event_failure_kind: typeof sourceSearch.event_failure_kind === "string" ? sourceSearch.event_failure_kind : undefined,
-    event_admission_reason: typeof sourceSearch.event_admission_reason === "string" ? sourceSearch.event_admission_reason : undefined,
+    event_type: savedFilter(sourceSearch.event_type),
+    event_failure_kind: savedFilter(sourceSearch.event_failure_kind),
+    event_admission_reason: savedFilter(sourceSearch.event_admission_reason),
     event_model_id: typeof sourceSearch.event_model_id === "string" ? sourceSearch.event_model_id : undefined,
     event_endpoint_id: typeof sourceSearch.event_endpoint_id === "string" ? sourceSearch.event_endpoint_id : undefined,
     event_terminal_target_id: typeof sourceSearch.event_terminal_target_id === "string" ? sourceSearch.event_terminal_target_id : undefined,
     event_sort_order: sourceSearch.event_sort_order === "asc" ? "asc" : "desc",
     event_cursor: typeof sourceSearch.event_cursor === "string" ? sourceSearch.event_cursor : undefined,
+    runtime_model_id: typeof sourceSearch.runtime_model_id === "string" ? sourceSearch.runtime_model_id : undefined,
+    runtime_endpoint_id: typeof sourceSearch.runtime_endpoint_id === "string" ? sourceSearch.runtime_endpoint_id : undefined,
+    runtime_terminal_target_id: typeof sourceSearch.runtime_terminal_target_id === "string" ? sourceSearch.runtime_terminal_target_id : undefined,
+    runtime_cursor: typeof sourceSearch.runtime_cursor === "string" ? sourceSearch.runtime_cursor : undefined,
+    runtime_state: savedFilter(sourceSearch.runtime_state),
   }
   const observeReturn = encodeObserveReturn(observeReturnPayload)
 
@@ -183,11 +188,11 @@ function EventDetailBody({ detail, summaryLabel, summaryReason, formatTime, copy
             />
             <DetailField
               label={copy.endpointField}
-              value={detail.endpoint.label || (detail.endpoint.id != null ? `#${detail.endpoint.id}` : messages.routingHealth.unattributed)}
+              value={requestServiceLabel(detail.endpoint.label, copy.unnamedService)}
             />
             <DetailField
               label={copy.targetField}
-              value={detail.terminal_target.label || (detail.terminal_target.id != null ? `#${detail.terminal_target.id}` : messages.routingHealth.unattributed)}
+              value={requestServiceLabel(detail.terminal_target.label, copy.unnamedModelService)}
             />
           </dl>
           <div className="flex flex-wrap gap-2">
@@ -231,7 +236,7 @@ function EventDetailBody({ detail, summaryLabel, summaryReason, formatTime, copy
             <DetailField
               label={copy.policyBanThresholdField}
               numeric
-              value={detail.policy_ban_cumulative_retry_attempt_threshold != null ? String(detail.policy_ban_cumulative_retry_attempt_threshold) : <OperatorMissingValue reason={banDisabled ? copy.policyBanThresholdOffReason : copy.policyBanThresholdMissingReason} />}
+              value={banDisabled ? copy.banModeOff : detail.policy_ban_cumulative_retry_attempt_threshold != null ? String(detail.policy_ban_cumulative_retry_attempt_threshold) : <OperatorMissingValue reason={copy.policyBanThresholdMissingReason} />}
             />
           </dl>
         </section>
@@ -300,4 +305,9 @@ function ObjectLink({ enabled, label, to }: { enabled: boolean; label: string; t
       {label}
     </Link>
   )
+}
+
+function savedFilter(value: unknown): string | string[] | undefined {
+  if (typeof value === "string") return value
+  return Array.isArray(value) && value.every(item => typeof item === "string") ? value : undefined
 }

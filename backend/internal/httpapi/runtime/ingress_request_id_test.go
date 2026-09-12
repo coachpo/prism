@@ -148,3 +148,36 @@ func TestRuntimeIngressRequestIDUnwrap(t *testing.T) {
 	RuntimeIngressRequestIDMiddleware(next).ServeHTTP(base, request)
 	_ = context.Background()
 }
+
+func TestRuntimeIngressResponseUsesAcceptedIDBeforeFirstWrite(t *testing.T) {
+	const acceptedID = "b629ab41-27f3-45bf-b486-f7544d526fa0"
+	writes := map[string]func(http.ResponseWriter){
+		"status": func(w http.ResponseWriter) { w.WriteHeader(http.StatusOK) },
+		"body":   func(w http.ResponseWriter) { _, _ = w.Write([]byte("ok")) },
+		"flush":  func(w http.ResponseWriter) { _ = http.NewResponseController(w).Flush() },
+	}
+	for name, write := range writes {
+		t.Run(name, func(t *testing.T) {
+			next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				wrapped := &ingressTestUnwrapWriter{ResponseWriter: w}
+				bindRuntimeIngressResponseID(wrapped, acceptedID)
+				w.Header().Set(IngressRequestIDHeader, "provider-forged")
+				write(wrapped)
+			})
+			request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+			request.Header.Set(IngressRequestIDHeader, "caller-forged")
+			recorder := httptest.NewRecorder()
+			RuntimeIngressRequestIDMiddleware(next).ServeHTTP(&ingressTestUnwrapWriter{ResponseWriter: recorder}, request)
+			if got := recorder.Header().Get(IngressRequestIDHeader); got != acceptedID {
+				t.Fatalf("response ingress ID = %q, want accepted operation ID %q", got, acceptedID)
+			}
+			if name == "flush" && !recorder.Flushed {
+				t.Fatal("first flush must reach the underlying response writer through transparent wrappers")
+			}
+		})
+	}
+}
+
+type ingressTestUnwrapWriter struct{ http.ResponseWriter }
+
+func (w *ingressTestUnwrapWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }

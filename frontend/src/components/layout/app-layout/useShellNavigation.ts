@@ -96,8 +96,15 @@ export const SHELL_ROUTE_METADATA: readonly ShellRouteMetadata[] = [
     sidebarItem: { groupId: "observability", icon: Activity, id: "routing-health", labelKey: "routingHealth", to: "/observe/routing-health" },
     sidebarItemId: "routing-health",
   },
-  // Routing follows the real setup dependency order: endpoint -> pricing ->
-  // strategy -> model. Configuring top to bottom is itself the guided path.
+  // Put the model task first; its form also creates the service connection.
+  {
+    canonicalPath: "/route/models",
+    groupId: "routing",
+    id: "models",
+    pathPattern: "/route/models",
+    sidebarItem: { groupId: "routing", icon: Server, id: "models", labelKey: "models", to: "/route/models" },
+    sidebarItemId: "models",
+  },
   {
     canonicalPath: "/route/endpoints",
     groupId: "routing",
@@ -121,14 +128,6 @@ export const SHELL_ROUTE_METADATA: readonly ShellRouteMetadata[] = [
     pathPattern: "/route/ban-policies",
     sidebarItem: { groupId: "routing", icon: Scale, id: "loadbalance-strategies", labelKey: "loadbalanceStrategies", to: "/route/ban-policies" },
     sidebarItemId: "loadbalance-strategies",
-  },
-  {
-    canonicalPath: "/route/models",
-    groupId: "routing",
-    id: "models",
-    pathPattern: "/route/models",
-    sidebarItem: { groupId: "routing", icon: Server, id: "models", labelKey: "models", to: "/route/models" },
-    sidebarItemId: "models",
   },
   {
     breadcrumbLabelKey: "modelExport",
@@ -376,7 +375,7 @@ function resolveEntityLabel(
     case "model-detail":
       // Falls back to the id until the page publishes the display name, so the
       // leaf is never a generic word like "配置".
-      return { id: "entity", label: entity ?? `#${matchedRoute.params.modelId}` };
+      return { id: "entity", label: entity ?? messages.nav.models };
 
     case "request-log-audit":
       return { id: "entity", label: `#${matchedRoute.params.requestId}` };

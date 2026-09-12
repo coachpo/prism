@@ -60,10 +60,10 @@ export function OrphanCleanupDialog({ target, onConfirm, onOpenChange }: OrphanC
           {item ? (
             <div className="flex flex-col gap-3 rounded-lg border border-destructive/25 bg-destructive/5 p-4">
               <p className="text-sm font-medium text-foreground">
-                {copy.orphanRowLabel(String(item.connection_id))}
+                {copy.orphanRowLabel}
               </p>
               <p className="text-xs text-muted-foreground">
-                {copy.orphanCleanupConfirm(target?.endpoint.name ?? "", String(item.connection_id))}
+                {copy.orphanCleanupConfirm(target?.endpoint.name ?? "")}
               </p>
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <AlertTriangle className="size-3.5" />

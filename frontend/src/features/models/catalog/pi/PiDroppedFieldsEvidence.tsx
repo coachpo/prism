@@ -7,6 +7,7 @@ export function PiDroppedFieldsEvidence({
   fields: string[] | undefined;
   label: string;
 }) {
+  const { messages } = useLocale();
   if (!fields || fields.length === 0) {
     if (!emptyLabel) return null;
     return (
@@ -17,7 +18,8 @@ export function PiDroppedFieldsEvidence({
   }
   return (
     <p className="max-w-72 text-xs text-muted-foreground">
-      {label}: <span className="font-mono">{fields.join(", ")}</span>
+      {label}: <span>{messages.externalCatalog.omittedSettingsCount(fields.length)}</span>
     </p>
   );
 }
+import { useLocale } from "@/i18n/useLocale";

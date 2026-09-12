@@ -1,49 +1,28 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-
 import { LocaleProvider } from "@/i18n/LocaleProvider";
-import { getStaticMessages } from "@/i18n/staticMessages";
 import { RequestLogPayloadBlock } from "./RequestLogPayloadBlock";
 
-const messages = getStaticMessages().requestLogs;
-
-function renderHeaders(content: string) {
-  return render(
-    <LocaleProvider>
-      <RequestLogPayloadBlock title={messages.requestHeaders} content={content} contentKind="headers" />
-    </LocaleProvider>,
-  );
+function renderContent(content: string, contentKind: "headers" | "payload" = "payload") {
+  return render(<LocaleProvider><RequestLogPayloadBlock title="已保存的回复" content={content} contentKind={contentKind} bodyKind="response" apiFamily="openai" /></LocaleProvider>);
 }
 
-describe("RequestLogPayloadBlock header states", () => {
-  it("renders every array entry, including duplicate names, with masking", () => {
-    renderHeaders(JSON.stringify([
-      { name: "Set-Cookie", value: "session=live-component-secret" },
-      { name: "Set-Cookie", value: "session=live-component-secret-2" },
-      { name: "Content-Type", value: "application/json" },
-    ]));
-
-    expect(screen.getAllByText("set-cookie")).toHaveLength(2);
-    expect(screen.getAllByText("[REDACTED]")).toHaveLength(2);
-    expect(screen.getByText("application/json")).toBeInTheDocument();
-    expect(screen.queryByText("session=live-component-secret")).not.toBeInTheDocument();
-    expect(screen.queryByText("session=live-component-secret-2")).not.toBeInTheDocument();
+describe("request content", () => {
+  it("shows and copies readable replies without exposing transport fields or raw views", () => {
+    renderContent(JSON.stringify({ id: "internal-response-id", choices: [{ message: { role: "assistant", content: "你好，这是一条完整回复。" }, finish_reason: "stop" }], usage: { total_tokens: 42 } }));
+    expect(screen.getByText("你好，这是一条完整回复。")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "复制" })).toBeEnabled();
+    expect(screen.queryByText(/internal-response-id|total_tokens|原始|JSON/)).not.toBeInTheDocument();
   });
-
-  it("distinguishes zero entries and an absent capture", () => {
-    const { unmount } = renderHeaders("[]");
-    expect(screen.getByText(messages.headerEmpty(messages.requestHeaders))).toBeInTheDocument();
-
-    unmount();
-    renderHeaders("");
-    expect(screen.getByText(messages.noCaptured(messages.requestHeaders))).toBeInTheDocument();
+  it("does not present unknown error JSON as user conversation", () => {
+    renderContent('{"error":{"message":"SQL SELECT /internal/path"}}');
+    expect(screen.getByText(/没有可显示的对话内容/)).toBeInTheDocument();
+    expect(screen.queryByText(/SQL SELECT/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "复制" })).not.toBeInTheDocument();
   });
-
-  it("renders malformed headers as a degraded state instead of blank content", () => {
-    renderHeaders("authorization: Bearer live-component-secret");
-
-    const degraded = screen.getByTestId("request-log-headers-malformed");
-    expect(degraded).toHaveTextContent(messages.headerMalformed(messages.requestHeaders));
-    expect(degraded).toBeVisible();
+  it("keeps headers outside the conversation surface", () => {
+    renderContent('{"Authorization":"Bearer secret","Content-Type":"application/json"}', "headers");
+    expect(screen.getByText(/连接信息不属于对话内容/)).toBeInTheDocument();
+    expect(screen.queryByText(/Bearer secret|Content-Type/)).not.toBeInTheDocument();
   });
 });

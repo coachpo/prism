@@ -13,6 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useLocale } from "@/i18n/useLocale";
+import { useTimezone } from "@/hooks/useTimezone";
 import { models as modelsApi } from "@/lib/api/models";
 import type { ModelCatalogRefreshPreviewResponse } from "@/lib/types";
 import {
@@ -23,6 +24,7 @@ import {
 } from "@/shared/design-system";
 import {
   catalogFieldLabel,
+  renderCatalogPreviewValue,
   type CatalogFieldKey,
 } from "./catalogMetadataPresentation";
 
@@ -55,6 +57,7 @@ export function CatalogRefreshDialog({
 }) {
   const { messages } = useLocale();
   const copy = messages.modelCatalog;
+  const { format } = useTimezone();
   const [settled, setSettled] = useState<{
     preview: ModelCatalogRefreshPreviewResponse | null;
     error: string | null;
@@ -122,7 +125,7 @@ export function CatalogRefreshDialog({
             <>
               <p className="text-xs text-muted-foreground">
                 {copy.refreshRevisionLabel}:{" "}
-                <span className="font-mono">{preview.catalog_revision}</span>
+                <span className="font-mono">{preview.fetched_at ? format(preview.fetched_at) : copy.valueAbsent}</span>
               </p>
               {preview.changes.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
@@ -142,11 +145,11 @@ export function CatalogRefreshDialog({
                         )}
                       </span>
                       <span className="mx-2 line-through opacity-60">
-                        {change.current ?? copy.valueAbsent}
+                        {renderCatalogPreviewValue(change.current, change.field) ?? copy.valueAbsent}
                       </span>
                       <span aria-hidden>→</span>
                       <span className="ml-2">
-                        {change.next ?? copy.valueAbsent}
+                        {renderCatalogPreviewValue(change.next, change.field) ?? copy.valueAbsent}
                       </span>
                     </li>
                   ))}

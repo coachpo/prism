@@ -1,4 +1,6 @@
+import { modelStrategyLabel } from "./modelStrategyLabel";
 import { ApiFamilySelect } from "@/components/ApiFamilySelect";
+import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useLocale } from "@/i18n/useLocale";
 import { Loader2, Sparkles } from "lucide-react";
@@ -13,6 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { FieldError } from "@/components/ui/field";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { LoadbalanceStrategy, ModelConfig, ModelConfigListItem, OpenAIAcceptedFormat, OpenAIImageOperations } from "@/lib/types";
 import {
@@ -49,7 +52,7 @@ type Props = {
   setIsDialogOpen: (open: boolean) => void;
   setLoadbalanceStrategyId: (value: number | null) => void;
   onCreateLoadbalanceStrategyDefaults?: () => Promise<void>;
-  onSubmit: (event: SubmitEventLike) => void;
+  onSubmit: (event: SubmitEventLike) => void | Promise<void>;
 };
 
 
@@ -70,14 +73,18 @@ export function ModelDialog({
   onSubmit,
 }: Props) {
   const { messages } = useLocale();
+  const [submitting, setSubmitting] = useState(false);
+  const pendingRef = useRef(false);
   const strategyCopy = messages.loadbalanceStrategyCopy;
-  const fieldCopy = messages.common;
   const copy = messages.modelsUi;
   const detailCopy = messages.modelDetail;
   const loadbalanceTableCopy = messages.loadbalanceStrategiesTable;
 
   const getStrategyTypeLabel = (strategy: LoadbalanceStrategy) => getLoadbalanceStrategyTypeLabel(strategy, strategyCopy);
-  const getStrategyOptionText = (strategy: LoadbalanceStrategy) => `${strategy.name} (${getStrategyTypeLabel(strategy)})`;
+  const getStrategyOptionText = (strategy: LoadbalanceStrategy) => {
+    const label = modelStrategyLabel(strategy);
+    return label === strategy.name ? `${label} · ${getStrategyTypeLabel(strategy)}` : label;
+  };
   const defaultDialogDescription = editingModel ? detailCopy.modelSettingsDescription : copy.newModelDescription;
   const dialogDescription = dialogDescriptionOverride ?? defaultDialogDescription;
   // 同一个对话框在列表页与详情页必须自称同一个东西，否则操作者会怀疑
@@ -106,24 +113,32 @@ export function ModelDialog({
   const openAIImageOperationsValue = toSelectValue<OpenAIImageOperations>(formData.openai_image_operations);
 
   return (
-    <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-      <DialogContent size="lg">
+    <Dialog open={isDialogOpen} onOpenChange={(open) => { if (!pendingRef.current) setIsDialogOpen(open); }}>
+      <DialogContent size="lg" aria-busy={submitting}>
         <DialogHeader>
           <DialogTitle>{resolvedDialogTitle}</DialogTitle>
           <DialogDescription>{dialogDescription}</DialogDescription>
         </DialogHeader>
-        <form onSubmit={onSubmit} className="flex min-h-0 flex-1 flex-col gap-5" autoComplete="off" noValidate>
+        <form onSubmit={async (event) => {
+          event.preventDefault();
+          if (pendingRef.current) return;
+          if (!formData.model_id.trim()) document.getElementById("model-id")?.focus();
+          pendingRef.current = true;
+          setSubmitting(true);
+          try { await onSubmit(event); } finally { pendingRef.current = false; setSubmitting(false); }
+        }} className="flex min-h-0 flex-1 flex-col gap-5" autoComplete="off" noValidate>
           <input type="hidden" name="api_family" value={formData.api_family ?? ""} />
           <input type="hidden" name="loadbalance_strategy_id" value={loadbalanceStrategyValue} />
           <input type="hidden" name="is_enabled" value={String(formData.is_enabled)} />
           <DialogBody className="min-h-0 flex-1 overflow-y-auto pr-1">
+            <fieldset disabled={submitting} className="flex min-w-0 flex-col gap-4">
             {formError ? (
               <OperatorCallout intent="danger" description={formError} />
             ) : null}
             <OperatorInsetPanel>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="min-w-0 flex flex-col gap-2">
-                  <Label htmlFor="model-api-family">{fieldCopy.apiFamily}</Label>
+                  <Label htmlFor="model-api-family">{copy.apiFamilyLabel}</Label>
                   <ApiFamilySelect
                     id="model-api-family"
                     value={formData.api_family ?? ""}
@@ -205,10 +220,14 @@ export function ModelDialog({
                   onChange={(e) => setFormData((prev) => setModelIdOnForm(prev, e.target.value))}
                   placeholder={copy.modelIdPlaceholder}
                   required={modelIdEditable}
+                  aria-invalid={Boolean(formError && !formData.model_id.trim())}
+                  aria-describedby="model-id-help"
                   readOnly={!modelIdEditable}
                   aria-readonly={!modelIdEditable || undefined}
                   className={modelIdEditable ? undefined : "bg-inset font-mono"}
                 />
+                <p id="model-id-help" className="text-xs text-muted-foreground">{copy.clientModelNameHint}</p>
+                {formError && !formData.model_id.trim() ? <FieldError>{messages.modelsData.modelIdRequired}</FieldError> : null}
                 {modelIdEditable ? null : (
                   <p className="text-xs text-muted-foreground">
                     {copy.modelIdReadOnlyHere}
@@ -290,11 +309,12 @@ export function ModelDialog({
                 className="border-border bg-inset"
               />
             </OperatorInsetPanel>
+            </fieldset>
           </DialogBody>
 
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>{messages.settingsDialogs.cancel}</Button>
-            <Button type="submit" disabled={saveDisabled}>{resolvedSubmitLabel}</Button>
+            <Button type="button" variant="outline" disabled={submitting} onClick={() => setIsDialogOpen(false)}>{messages.settingsDialogs.cancel}</Button>
+            <Button type="submit" disabled={saveDisabled || submitting}>{submitting ? messages.common.saving : resolvedSubmitLabel}</Button>
           </DialogFooter>
         </form>
       </DialogContent>

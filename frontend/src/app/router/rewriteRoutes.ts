@@ -173,6 +173,11 @@ export const routingHealthSearchSchema = observeSearchSchema.pick({
   runtime_cursor: true,
 });
 
+export const proxyKeysSearchSchema = z.object({
+  action: z.enum(["verify"]).optional().catch(undefined),
+  model_id: optionalSearchStringSchema.catch(undefined),
+});
+
 export const authLoginSearchSchema = z.object({
   redirect: optionalSearchStringSchema.catch(undefined),
 });
@@ -264,6 +269,7 @@ export const requestLogSearchSchema = z.object({
 });
 
 export const requestAuditSearchSchema = z.object({
+  return_to: z.string().regex(/^\/observe\/requests(?:\?[^#]*)?$/).optional().catch(undefined),
   audit_id: optionalRequestIdSearchSchema,
   cursor: optionalSearchStringSchema.catch(undefined),
 });
@@ -310,6 +316,8 @@ export const SETTINGS_FALLBACK_SEARCH_KEYS = [
 // a filtered view is a shareable link. `/route/models` previously accepted no
 // parameters, so every key here is additive.
 export const modelsListSearchSchema = z.object({
+  action: z.literal("create").optional().catch(undefined),
+  endpoint_id: z.coerce.number().int().min(1).optional().catch(undefined),
   // Entry qualification view is URL-backed so operators can deep-link the
   // default client-entry list, Model Target-only list, or the full inventory.
   view: z.enum(["entries", "model_targets", "all"]).optional().catch(undefined),
@@ -374,6 +382,8 @@ export const MODELS_LIST_FALLBACK_SEARCH_KEYS = [
   "page_size",
 ] as const;
 
+export const endpointsSearchSchema = z.object({ endpoint_id: z.coerce.number().int().min(1).optional().catch(undefined) });
+
 export const emptySearchSchema = z.object({});
 
 export type ObserveSearch = z.input<typeof observeSearchSchema>;
@@ -391,6 +401,7 @@ interface StaticRouteDefinition {
   readonly searchSchema:
     | typeof authLoginSearchSchema
     | typeof emptySearchSchema
+    | typeof endpointsSearchSchema
     | typeof modelsListSearchSchema
     | typeof observeSearchSchema
     | typeof requestLogSearchSchema
@@ -433,7 +444,7 @@ export const prismRouteDefinitions = [
     id: "route-endpoints",
     path: "/route/endpoints",
     scope: "protected-selected-profile",
-    searchSchema: emptySearchSchema,
+    searchSchema: endpointsSearchSchema,
   },
   {
     id: "route-ban-policies",
@@ -451,7 +462,7 @@ export const prismRouteDefinitions = [
     id: "system-proxy-keys",
     path: "/system/proxy-keys",
     scope: "protected-global",
-    searchSchema: emptySearchSchema,
+    searchSchema: proxyKeysSearchSchema,
   },
   {
     id: "route-pricing",

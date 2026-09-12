@@ -148,4 +148,14 @@ describe("loadbalance events cursor pagination (C1)", () => {
     expect(mocks.listEvents).toHaveBeenCalledTimes(1);
     expect(mocks.issueContext).toHaveBeenCalledTimes(1);
   });
+  it("keeps unknown event codes out of the visible event summary", async () => {
+    const event = { ...eventItem("unknown"), summary: { version: 1, code: "loadbalance.private_future_event", params: {} } };
+    mocks.listEvents.mockResolvedValue(eventsPage([event], null));
+    render(<StatefulHarness initialSearch={{}} />);
+    const row = await screen.findByTestId("event-row-unknown");
+    expect(row).toHaveTextContent("记录了一次连接变化");
+    expect(row).toHaveTextContent("暂时无法确定它的类型");
+    expect(row).not.toHaveTextContent("loadbalance.private_future_event");
+  });
+
 });

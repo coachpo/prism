@@ -4,6 +4,7 @@ import {
 } from "@/shared/design-system";
 import type { PiCandidateWire } from "@/lib/types";
 import { PiDroppedFieldsEvidence } from "./PiDroppedFieldsEvidence";
+import { piMetadataValueLabel } from "./piCatalogPresentation";
 
 type Copy = Record<string, string>;
 
@@ -30,8 +31,8 @@ export function PiCandidateEvidence({
       candidate.input === undefined
         ? undefined
         : candidate.input.length > 0
-          ? candidate.input.join(", ")
-          : "[]",
+          ? piMetadataValueLabel(candidate.input, "input")
+          : copy.noOptions,
     ],
     [copy.overrideContextWindowLabel, candidate.context_window],
     [copy.overrideMaxTokensLabel, candidate.max_tokens],
@@ -39,13 +40,13 @@ export function PiCandidateEvidence({
       copy.overrideThinkingLevelMapLabel,
       candidate.thinking_level_map === undefined
         ? undefined
-        : JSON.stringify(candidate.thinking_level_map),
+        : piMetadataValueLabel(candidate.thinking_level_map, "thinking_level_map"),
     ],
     [
       copy.overrideCompatLabel,
       candidate.compat === undefined
         ? undefined
-        : JSON.stringify(candidate.compat),
+        : piMetadataValueLabel(candidate.compat, "compat"),
     ],
   ];
 

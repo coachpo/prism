@@ -48,6 +48,7 @@ export function usePricingTemplateMutations({
   const [pricingTemplateImpactError, setPricingTemplateImpactError] =
     useState<string | null>(null);
   const [pricingTemplateSaving, setPricingTemplateSaving] = useState(false);
+  const [createdPricingTemplateId, setCreatedPricingTemplateId] = useState<number | null>(null);
   const [pricingTemplateServerError, setPricingTemplateServerError] =
     useState<ServerValidationResult | null>(null);
   const [deletePricingTemplateConfirm, setDeletePricingTemplateConfirmState] =
@@ -67,13 +68,18 @@ export function usePricingTemplateMutations({
   };
 
   const closePricingTemplateDialog = () => {
+    editGeneration.current += 1;
     setPricingTemplateDialogOpen(false);
+    setPricingTemplatePreparingEditId(null);
+    setPricingTemplateImpactLoading(false);
     setPricingTemplateServerError(null);
   };
 
   const openCreatePricingTemplateDialog = () => {
+    editGeneration.current += 1;
     setEditingPricingTemplate(null);
     setPricingTemplateImpact(null);
+    setPricingTemplateImpactLoading(false);
     setPricingTemplateImpactError(null);
     setPricingTemplatePreparingEditId(null);
     setPricingTemplateServerError(null);
@@ -103,18 +109,14 @@ export function usePricingTemplateMutations({
       } catch (error) {
         if (generation === editGeneration.current) {
           setPricingTemplateImpactError(
-            error instanceof Error
-              ? error.message
-              : messages.pricingTemplatesData.impactLoadFailed,
+            extractServerValidation(error, messages.pricingTemplatesData.impactLoadFailed).summary,
           );
         }
       }
     } catch (error) {
       if (generation === editGeneration.current) {
         toast.error(
-          error instanceof Error
-            ? error.message
-            : messages.pricingTemplatesData.loadSingleFailed,
+          extractServerValidation(error, messages.pricingTemplatesData.loadSingleFailed).summary,
         );
       }
     } finally {
@@ -149,6 +151,7 @@ export function usePricingTemplateMutations({
           buildPricingTemplateCreatePayload(values),
         );
         commitPricingTemplates((current) => [created, ...current]);
+        setCreatedPricingTemplateId(created.id);
         closePricingTemplateDialog();
         toast.success(messages.pricingTemplatesData.created, {
           action: {
@@ -157,18 +160,20 @@ export function usePricingTemplateMutations({
           },
         });
       }
+      return true;
     } catch (error) {
       if (error instanceof ApiError && error.status === 409) {
         setPricingTemplateServerError({
           issues: [],
           summary: messages.pricingTemplatesData.changedWhileEditing,
         });
-        await fetchPricingTemplates();
-        return;
+        await fetchPricingTemplates(true);
+        return false;
       }
       setPricingTemplateServerError(
         extractServerValidation(error, messages.pricingTemplatesData.saveFailed),
       );
+      return false;
     } finally {
       setPricingTemplateSaving(false);
     }
@@ -207,9 +212,7 @@ export function usePricingTemplateMutations({
         toast.error(messages.pricingTemplatesData.inUseCannotDelete);
       } else {
         toast.error(
-          error instanceof Error
-            ? error.message
-            : messages.pricingTemplatesData.deleteFailed,
+          extractServerValidation(error, messages.pricingTemplatesData.deleteFailed).summary,
         );
       }
     } finally {
@@ -219,26 +222,27 @@ export function usePricingTemplateMutations({
 
   const retryPricingTemplateImpact = async () => {
     if (!editingPricingTemplate) return;
+    const generation = ++editGeneration.current;
     const messages = getStaticMessages();
     setPricingTemplateImpactLoading(true);
     setPricingTemplateImpactError(null);
     try {
-      setPricingTemplateImpact(
-        await api.pricingTemplates.impact(editingPricingTemplate.id),
-      );
+      const impact = await api.pricingTemplates.impact(editingPricingTemplate.id);
+      if (generation === editGeneration.current) setPricingTemplateImpact(impact);
     } catch (error) {
-      setPricingTemplateImpactError(
-        error instanceof Error
-          ? error.message
-          : messages.pricingTemplatesData.impactLoadFailed,
-      );
+      if (generation === editGeneration.current) {
+        setPricingTemplateImpactError(
+          extractServerValidation(error, messages.pricingTemplatesData.impactLoadFailed).summary,
+        );
+      }
     } finally {
-      setPricingTemplateImpactLoading(false);
+      if (generation === editGeneration.current) setPricingTemplateImpactLoading(false);
     }
   };
 
   return {
     closePricingTemplateDialog,
+    createdPricingTemplateId,
     deletePricingTemplateConflict,
     deletePricingTemplateConfirm,
     deletePricingTemplateDisplay,

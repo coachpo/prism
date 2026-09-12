@@ -1,3 +1,4 @@
+import { OperatorCallout } from "@/shared/design-system";
 import type { ComponentProps } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -25,6 +26,7 @@ import { ProxyKeyExpiryField, type ResolvedExpiryInput } from "./ProxyKeyExpiryF
 type FormSubmitHandler = NonNullable<ComponentProps<"form">["onSubmit"]>;
 
 interface ProxyKeyIssuePanelProps {
+  error?: string | null;
   authAvailable: boolean;
   capacity: ProxyKeyCapacity | null;
   createDisabled: boolean;
@@ -45,6 +47,7 @@ interface ProxyKeyIssuePanelProps {
 }
 
 export function ProxyKeyIssuePanel({
+  error,
   authAvailable,
   capacity,
   createDisabled,
@@ -96,11 +99,13 @@ export function ProxyKeyIssuePanel({
         </SheetHeader>
 
         <form onSubmit={handleCreateSubmit} className="flex min-h-0 flex-1 flex-col gap-5 px-4">
+          {error ? <OperatorCallout intent="danger" description={error} /> : null}
           <FieldGroup className="gap-4">
             <Field data-disabled={fieldsDisabled || undefined}>
               <FieldLabel htmlFor="proxy-key-name">{copy.name}</FieldLabel>
               <Input
                 id="proxy-key-name"
+                required
                 name="proxy-key-name"
                 autoComplete="off"
                 value={proxyKeyName}

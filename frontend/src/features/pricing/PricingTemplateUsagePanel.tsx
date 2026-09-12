@@ -11,7 +11,7 @@ export function PricingTemplateUsagePanel({ error, loading, onRetry, rows }: { e
   const copy = messages.pricingTemplatesUi;
   if (loading) return <Skeleton className="h-20 rounded-md" />;
   if (error) return <OperatorErrorState title={messages.pricingTemplatesData.loadUsageFailed} description={error} action={<OperatorRetryButton onClick={onRetry}>{messages.common.retry}</OperatorRetryButton>} />;
-  if (rows.length === 0) return <OperatorInsetPanel><p className="text-xs text-muted-foreground">{copy.templateUnused}</p></OperatorInsetPanel>;
+  if (rows.length === 0) return <OperatorInsetPanel><p className="text-xs text-muted-foreground">{copy.templateUnused}</p><Button asChild variant="outline" size="sm" className="mt-3"><Link to="/route/models">{copy.configureModelPricing}</Link></Button></OperatorInsetPanel>;
   return (
     <OperatorInsetPanel className="p-0">
       <Table>

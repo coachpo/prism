@@ -5,12 +5,12 @@ import { toast } from "sonner";
 import { getStaticMessages } from "@/i18n/staticMessages";
 import { api } from "@/lib/api";
 import type { ProxyApiKey } from "@/lib/types";
-import { showProxyKeyMutationError } from "./proxyKeyMutationErrors";
 import { reconcileProxyKeyLedgerAfterDelete } from "./proxyKeyMutationReconciliation";
 
 export function useProxyKeyDeleteMutation() {
   const queryClient = useQueryClient();
   const messages = getStaticMessages();
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<ProxyApiKey | null>(null);
   const [deleteProxyKeyAlertOpen, setDeleteProxyKeyAlertOpen] = useState(false);
   const [displayedDeleteConfirm, setDisplayedDeleteConfirm] =
@@ -20,6 +20,7 @@ export function useProxyKeyDeleteMutation() {
   });
 
   async function handleDeleteProxyKey() {
+    setDeleteError(null);
     if (!deleteConfirm) return;
     const deletingKey = deleteConfirm;
     try {
@@ -32,12 +33,13 @@ export function useProxyKeyDeleteMutation() {
       setDeleteProxyKeyAlertOpen(false);
       setDeleteConfirm(null);
       toast.success(messages.proxyApiKeysData.deleted);
-    } catch (error) {
-      showProxyKeyMutationError(error, messages.proxyApiKeysData.deleteFailed);
+    } catch {
+      setDeleteError(messages.proxyApiKeysData.deleteFailed);
     }
   }
 
   const setDeleteConfirmState = (item: ProxyApiKey | null) => {
+    setDeleteError(null);
     setDeleteConfirm(item);
     if (item) {
       setDisplayedDeleteConfirm(item);
@@ -48,7 +50,8 @@ export function useProxyKeyDeleteMutation() {
   };
 
   const handleDeleteDialogOpenChange = (open: boolean) => {
-    if (!open && !deleteMutation.isPending) {
+    if (deleteMutation.isPending) return;
+    if (!open) {
       setDeleteProxyKeyAlertOpen(false);
       setDeleteConfirm(null);
       return;
@@ -57,6 +60,7 @@ export function useProxyKeyDeleteMutation() {
   };
 
   return {
+    deleteError,
     deleteConfirm,
     deleteProxyKeyAlertOpen,
     deletingProxyKeyId: deleteMutation.isPending

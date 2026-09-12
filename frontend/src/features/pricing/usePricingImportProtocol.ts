@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { toast } from "sonner";
 
-import { ApiError, api } from "@/lib/api";
+import { api } from "@/lib/api";
+import { extractServerValidation } from "@/shared/forms/serverValidation";
 import { getStaticMessages } from "@/i18n/staticMessages";
 import type {
   PricingTemplateImportRequest,
@@ -24,6 +25,7 @@ export function usePricingImportProtocol({
     useState(false);
   const [pricingTemplateImporting, setPricingTemplateImporting] =
     useState(false);
+  const [pricingTemplateImportError, setPricingTemplateImportError] = useState<string | null>(null);
   const [importPreview, setImportPreview] =
     useState<PricingImportPreviewState | null>(null);
 
@@ -31,20 +33,18 @@ export function usePricingImportProtocol({
     request: PricingTemplateImportRequest,
   ) => {
     const messages = getStaticMessages();
+    setPricingTemplateImportError(null);
     setPricingTemplateImporting(true);
     try {
       const response = await api.pricingTemplates.importTemplates(request);
       setImportPreview({ request, response });
       setPricingTemplateImportDialogOpen(false);
       if (response.errors.length > 0 || !response.committable) {
-        toast.error(
-          response.errors[0]?.detail ?? messages.common.requestFailed,
-        );
         return false;
       }
       return true;
     } catch (error) {
-      toast.error(importErrorMessage(error, messages.common.requestFailed));
+      setPricingTemplateImportError(extractServerValidation(error, messages.pricing.importFailed).summary);
       return false;
     } finally {
       setPricingTemplateImporting(false);
@@ -82,7 +82,7 @@ export function usePricingImportProtocol({
       setImportPreview(null);
       return true;
     } catch (error) {
-      toast.error(importErrorMessage(error, messages.common.requestFailed));
+      toast.error(extractServerValidation(error, messages.pricing.importFailed).summary);
       return false;
     } finally {
       setPricingTemplateImporting(false);
@@ -95,19 +95,11 @@ export function usePricingImportProtocol({
     handleImportPricingTemplates,
     importPreview,
     pricingTemplateImportDialogOpen,
+    pricingTemplateImportError,
     pricingTemplateImporting,
-    setPricingTemplateImportDialogOpen,
+    setPricingTemplateImportDialogOpen: (open: boolean) => {
+      setPricingTemplateImportError(null);
+      setPricingTemplateImportDialogOpen(open);
+    },
   };
-}
-
-function importErrorMessage(error: unknown, fallback: string) {
-  if (
-    error instanceof ApiError &&
-    error.detail &&
-    typeof error.detail === "object"
-  ) {
-    const body = error.detail as { errors?: Array<{ detail?: string }> };
-    if (body.errors?.[0]?.detail) return body.errors[0].detail;
-  }
-  return error instanceof Error ? error.message : fallback;
 }

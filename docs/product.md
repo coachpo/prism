@@ -6,7 +6,7 @@ Prism is a lightweight, self-hosted application that acts as a unified proxy for
 
 ## 2. Problem Statement
 
-Developers and power users working with multiple LLM API families face:
+A person using models from multiple LLM API families faces:
 
 - Managing multiple API keys and base URLs across different tools
 - No unified endpoint for switching between API families
@@ -15,7 +15,7 @@ Developers and power users working with multiple LLM API families face:
 
 ## 3. Target User
 
-Single operator (developer/power user) running the application locally or on a local network. Prism supports optional operator authentication for management APIs and proxy API keys for runtime traffic. Management configuration is pinned to frozen Default profile id `1` while runtime traffic always resolves to frozen Default profile id `1`; `X-Profile-Id` and profile fields are compatibility/storage attribution only. This is not auth multi-tenancy.
+A single user running the application locally or on a local network, who wants to connect models, understand usage and cost, and recover from failed requests without learning Prism internals. Prism supports optional operator authentication for management APIs and proxy API keys for runtime traffic. Management configuration is pinned to frozen Default profile id `1` while runtime traffic always resolves to frozen Default profile id `1`; `X-Profile-Id` and profile fields are compatibility/storage attribution only. This is not auth multi-tenancy.
 
 Current deployments, retained-data commitments, and development tier are recorded in [Project Status](../STATUS.md). This specification describes the repository's product contract; UI design rules belong to [frontend/DESIGN.md](../frontend/DESIGN.md).
 
@@ -50,7 +50,7 @@ Current deployments, retained-data commitments, and development tier are recorde
 - A Terminal Target outside its routing window is skipped exactly like any other candidate-local miss: planning moves on to the next peer in effective order rather than failing the request
 - Each model owns its reusable load-balance strategy, so nested model targets evaluate strategy and Ban Policy at their own graph level
 - Model IDs are unique within frozen Default profile id `1`; retained profile attribution does not expose another selectable configuration namespace
-- Model create/edit labels this identity as “模型配置 ID”. When `direct_request_enabled=true` it is also the client-facing entry ID; otherwise it remains an internal logical identity. Renaming it never rewrites an existing Terminal Target's upstream identity
+- Model create/edit labels this identity as “客户端模型名称”, separately from “服务提供的模型名称” for the upstream identity. When `direct_request_enabled=true` it is also the client-facing entry ID; otherwise it remains an internal logical identity. Renaming it never rewrites an existing Terminal Target's upstream identity
 - Gateway resolves the access graph before Terminal Target planning: incoming request for a public model -> final target model and Terminal Target -> upstream request
 - The upstream request's provider model identity is the selected Terminal Target's frozen, non-empty `upstream_model_id` (the entry model ID the client addressed stays the logical attribution, capability, routing and pricing identity). Runtime snapshots include only active Terminal Targets with an owner; an owner-backed active row whose identity is missing or blank rejects the replacement snapshot so hot refresh retains the last-good generation, while an orphan connection is excluded from planning
 - For Gemini API paths (for example `/v1beta/models/{model}:generateContent`), each attempt rewrites the model ID segment to that Terminal Target's frozen `upstream_model_id`
@@ -99,7 +99,7 @@ Current deployments, retained-data commitments, and development tier are recorde
 - Add/edit/delete model configurations with ordered access targets. The form exposes the direct-entry switch; omission on create defaults to true and omission on update preserves the stored bit. The page's stats switch is a controlled single-select segmented control over the three named metric scopes (`ingress`/`final_execution`/`route_attempt`, URL-backed through `scope`) with a fixed attribution note per scope, and re-selecting the active scope never clears it. Identity filters (`flag`) cover `upstream_decoupled` (a direct Terminal Target's persisted upstream identity differs from its owning model configuration's `model_id` by exact, case-sensitive comparison), `has_model_target` (at least one direct Model Target row), plus the retained `needs_target` and `single_truncated` states.
 - Add/edit/delete profile-scoped endpoints
 - Model detail renders one mixed access-target list ordered by the shared `position`; Model and Terminal rows share a continuous "位置 N" numbering, adjacent rows of either type can be moved up/down with the same controls, and reloads never restore type grouping
-- Add/edit/delete Terminal Targets from model detail; the Terminal Target dialog includes an “高级请求设置” group with request limits, custom headers, and the custom request parameters JSON editor
+- Add/edit/delete Terminal Targets from model detail; the Terminal Target dialog includes request limits, custom headers, and structured “服务附加设置” fields for service-required values
 - Toggle enabled/disabled access targets per model
 - Select an explicit load-balance strategy with Ban Policy settings per model
 - Dedicated model-detail route (`/route/models/:id`) for ordered access-target and Terminal Target configuration; global current loadbalance state and event history live at `/observe/routing-health`, while `/route/ban-policies` owns strategy configuration
@@ -111,7 +111,7 @@ Current deployments, retained-data commitments, and development tier are recorde
 - models.dev Catalog overrides expose all backend-owned metadata fields and preserve three states per field: missing, explicit `null` restore, and explicit value (including an empty string). Refresh replaces source facts only; manual overrides survive.
 - Dashboard trends live under canonical `/observe?tab=trend`; the legacy `tab=analytics` value remains a compatibility alias for that same view
 - The protected shell renders sidebar navigation and breadcrumbs from local route metadata.
-- Settings uses canonical public URLs with **全局** (`scope=global`) and **实例** (`scope=instance`) scopes and a section allowlist; the legacy `tab` query value is dropped during canonicalization. `scope=global` contains billing/reporting currency, timezone, audit/privacy, and config rules; `scope=instance` contains authentication and operator account, automatic retention policy with owner actual coverage, manual cleanup, and the retention job center.
+- Settings uses canonical public URLs with **显示与记录** (`scope=global`) and **访问与数据** (`scope=instance`) groups and a section allowlist; the legacy `tab` query value is dropped during canonicalization. `scope=global` contains billing/reporting currency, timezone, audit/privacy, and config rules; `scope=instance` contains authentication and operator account, automatic retention policy with owner actual coverage, manual cleanup, and the retention job center.
 
 ### 4.8 Configuration Persistence
 
@@ -214,7 +214,7 @@ Audit policy does not change model selection, Terminal Target selection, or clie
 
 #### 4.10.5 Audit Inspection (Frontend)
 
-- Audit detail is opened from the request investigation flow on `/observe/requests/:requestId/audit` rather than a standalone `/audit` page
+- Saved conversation content opens as “请求内容” from request investigation at `/observe/requests/:requestId/audit`; this remains a request-scoped page rather than a standalone audit browser
 - Every successfully loaded request detail sheet provides an entry point to the dedicated audit page; the sheet itself remains overview-only and does not fetch audit payloads
 - The dedicated page first loads the request detail, then shows request-time audit state as disabled, metadata-only, or full capture and resolves audit rows with `request_log_id`
 
@@ -224,7 +224,7 @@ Audit policy does not change model selection, Terminal Target selection, or clie
 - Capture is bounded: per-body 4 MiB cap; per ingress request copies 12 MiB and final response 4 MiB; scrubbed header blocks 64 KiB with 1 MiB per direction (response reserves 64 KiB for the final winner). Allocation follows immutable launch order; budget exhaustion only stops extra audit storage, never proxy traffic.
 - Failure diagnostics are bounded independently of body capture and apply whether or not audit is enabled: the raw upstream error sample is capped at 32 KiB per attempt and stays in memory for diagnosis only — it never enters the outbox or any table — while the persisted `error_detail` and `stream_error_detail` are capped at 4 KiB each after scrubbing. These caps are code-fixed constants rather than settings; changing one requires syncing this document, the API metadata, and the runtime tests.
 - Each row records `ingress_audit_bytes_observed/stored/truncated`, per-direction header byte counters, and capture/header limit reasons (`none|body_cap|ingress_budget|both|handoff_budget|omitted_ingress_budget|omitted_handoff_budget|block_cap`); truncated rows keep a permanent prefix-only callout, never a fake empty.
-- Bodies persist as BYTEA stored prefixes; raw downloads (`GET /api/audit/logs/{id}/body/request` and `/body/response`) return the exact stored prefix as `attachment` / `application/octet-stream` / `nosniff` / `private, no-store` with a `.txt`/`.bin` filename by UTF-8 validity. Binary bodies show byte metadata only (no text preview), and valid-UTF-8 bodies provide message/structured/raw text views plus copy.
+- Bodies persist as BYTEA stored prefixes; raw downloads (`GET /api/audit/logs/{id}/body/request` and `/body/response`) return the exact stored prefix as `attachment` / `application/octet-stream` / `nosniff` / `private, no-store` with a safe attachment filename. The dashboard shows capture limits and readable conversation text for recognized valid-UTF-8 content; it does not expose headers, raw JSON/SSE views, or raw-body downloads. These byte-download endpoints remain backend API capabilities.
 - Audit list/detail/preview responses are `private, no-store`; the audit list also carries a non-null `known|legacy_unknown` coverage projection, and an anchored row outside the first page arrives exactly once as `anchor_item`.
 
 ### 4.11 Batch Data Deletion
@@ -248,7 +248,7 @@ Allow users to configure custom HTTP headers on individual Terminal Targets. The
 
 Allow operators to attach an optional static top-level JSON object (`custom_request_parameters`) to each Terminal Target. Prism applies the object as a top-level shallow overlay on the provider-native upstream request body of every actual attempt that selects that Connection, after the provider adapter completes model/path rewrite.
 
-- Configured during Terminal Target creation or editing under “高级请求设置 → 自定义请求参数（JSON）”, with a full-width JSON editor, format/clear actions, a top-level count summary, and field-level validation that mirrors the backend validator
+- Configured during Terminal Target creation or editing as “服务附加设置”: named text, number, switch, empty-value, group, and list fields preserve the existing typed values without requiring JSON authoring. The editor validates incomplete names and values before the unchanged backend validator; service-provided setting names stay exact.
 - Overlay rules: non-conflicting client top-level fields are preserved; matching top-level keys are replaced wholesale (nested objects are never recursively merged); configured `null` values are sent as literal JSON null; there is no delete-member syntax
 - The same Terminal Target configuration applies to all eleven provider-forwarded POST operations, including OpenAI image generations/edits; local `GET /v1/models` never applies it
 - `model`, `models`, `stream`, `messages`, `input`, `contents`, `instructions`, `system`, and `systemInstruction` are protected top-level fields and are rejected at save time; the management API returns 422 with a locatable `field`/`path`/`reason`/`limit` envelope
@@ -310,9 +310,9 @@ Database-backed header blocklist with CRUD API. Supports exact and prefix match 
 - Source-linked pricing is reachable from **both** surfaces and they share one protocol and one set of components: the per-Target action on the model detail page, and the **从目录导入** entry on `/route/pricing`. Automation only discovers and prefills; every write needs a fresh preview and an explicit operator confirmation, and no path ever auto-selects the first candidate, the lowest price, or silently prices every Target.
 - On `/route/pricing` the operator picks a Prism model. A unique exact ID match advances straight into the price preview. Zero or multiple matches stop at a bounded, paged, case-insensitive candidate search (optionally widened past the API family's own providers) where the operator must pick coordinates explicitly; the operator can load through the reported total instead of being limited to the first 20 results, and replace/append failures never masquerade as an empty list. The ambiguous `openai`/`anthropic`/`google` case still refuses to auto-bind. This surface defaults to creating or refreshing the source-linked template with **no** Terminal Target preselected, and assigning nothing unless the operator checks targets on purpose. Importing prices never binds the model.
 - The model detail action is the same dialog with one difference: the current Terminal Target is preselected and locked, and extra targets are an explicit opt-in. Changing the selected target set at any time invalidates the previous preview and re-reads it, because the preview hash covers every target's CAS state.
-- The preview shows both ends of the mapping and the whole price: the Prism model, the `provider/model` models.dev coordinate, the fixed `USD`/`PER_1M` unit, all five components (input, output, cache read, cache write, reasoning) per card, tier threshold, catalog revision, catalog fetch stamp, and every stable incompatibility reason in operator language. An explicit catalog `0` renders as `0` and never collapses into the unconfigured marker; an absent component renders as unconfigured. When a plan cannot be expressed losslessly the commit stays disabled with a stated reason and the server writes nothing.
+- The preview shows both ends of the mapping and the whole price: the Prism model, the `provider/model` models.dev coordinate, the fixed `USD`/`PER_1M` unit, all five components (input, output, cache read, cache write, reasoning) per card, tier threshold, catalog fetch time, and every stable incompatibility reason in operator language; revision hashes remain protocol data. An explicit catalog `0` renders as `0` and never collapses into the unconfigured marker; an absent component renders as unconfigured. When a plan cannot be expressed losslessly the commit stays disabled with a stated reason and the server writes nothing.
 - Committing creates or reuses the one **live** source-linked pricing template for that offering. Creating it records the first catalog revision; restoring confirmed manual price drift appends another immutable catalog revision, while unchanged template-only reuse leaves template and target state untouched instead of fabricating history. Selected Terminal Targets are assigned atomically through the existing double CAS, and any conflict rolls the template revision, mutation evidence, generation changes, and all target assignments back together. If the template was hand-edited since, the dialog requires explicit confirmation before overwriting. Every successful catalog commit still advances the runtime planning-cache generations through the platform mutation owner, and the frontend immediately refreshes the pricing template list, the Terminal Target option cache, and the affected target rows so every view agrees. Soft-deleting a source-linked template releases its coordinates, so the same offering can be imported again as a new live template while the retired template and its full revision history are retained.
-- Template and revision views expose where prices came from: the pricing table shows the offering coordinate under the template name, and the revision history labels each revision as manually authored or a catalog import and shows the catalog revision it replayed against.
+- Template and revision views expose where prices came from: the pricing table shows the offering coordinate under the template name, and the revision history labels each revision as manually authored or a catalog import and shows its price changes and time without exposing catalog revision hashes.
 - Catalog fetching is restricted to HTTPS, same-origin redirects, a 10-second timeout, and a 16 MiB budget, revalidates through ETag/304, collapses concurrent fetches, and never runs inside a database transaction. There is no scheduled synchronization: every read of fresh data is an explicit operator action. Pi directory prices stay out of this flow entirely — pi.dev `cost` is parsed only to be discarded, and models.dev remains the single catalog price authority.
 
 ### 4.20 Client Model Configuration Export
@@ -340,7 +340,7 @@ Database-backed header blocklist with CRUD API. Supports exact and prefix match 
 - The model-detail routing explanation is an explicit, read-only sample of the published runtime configuration and independently observed process-local state. It shows candidate paths and planner order, exclusions, schedules, missing observations and capacity evidence. Sampling never sends an upstream request, reserves capacity, advances live round-robin state or changes bans. A candidate is not a promise about the next request. Static diagnostics and manual runtime self-tests retain their separate meanings.
 - Models support three bounded batch actions: models.dev/OpenCode context/output limit overrides, model routing-strategy assignment, and Terminal Target pricing-template assignment. Each batch contains 1–20 explicitly selected objects and one action. The operator reviews item-by-item before/after values and invalid items, confirms replacement of existing manual values, and applies one atomic transaction. Stale or invalid previews write nothing; conflicts retain inputs for a fresh preview. Successful results are read back from the database and related views/runtime references are refreshed. Pi metadata remains independent.
 - Ingress ordering offers recorded elapsed duration and known cost in addition to time. Ranking, pagination, details and chain CSV retain the same filtered ingress cohort. Missing metrics sort last; the page reports full-cohort ranked/unranked counts and missing reasons. Monetary ordering stays within the same historical currency and currency epoch. Parent and attempt costs are not added, and a missing finalized record, usage/price evidence or known currency never becomes a zero metric.
-- Requests can compare two retained request records across pages. Metadata loads independently; a chosen audit record loads only on explicit action, then its request or response direction can be compared. The existing audit-detail API returns both directions for that selected record. Comparison never sends a reproduction request or executes captured tool calls. It compares retained text, not a reconstructed conversation: missing, truncated, SSE, tool fragments and binary/image captures retain their provenance and completeness labels. The displayed positional difference is bounded to 200 lines and 2,000 characters per line, with the display limit stated.
+- Requests can compare two retained request records across pages. Metadata loads independently; a chosen audit record loads only on explicit action, then its request or response direction can be compared. The existing audit-detail API returns both directions for that selected record. Comparison never sends a reproduction request or executes captured tool calls. It compares readable conversation text extracted from supported retained request/response formats; tool parameters, images, attachments, and raw protocol envelopes are excluded. Missing or truncated content and unsupported/binary captures remain explicit limitations. The displayed positional difference is bounded to 200 lines and 2,000 characters per line, with the display limit stated.
 - Narrow screens show ingress summaries with result, model, measured duration and known cost, preserving the complete chain, attempts and audit entry points. Filters may be collapsed without changing their active values; the full desktop table remains available.
 - Named export presets and request views use browser storage plus explicit versioned JSON file transfer. Restoring an export preset rechecks model identities against the current client source and the normal render gates. Imported numeric request filters and currency segments require explicit reconciliation with current-instance references, even if a numeric id happens to exist. Missing/renamed models, unsupported or damaged files, conflicting names and storage failures are explained; invalid filters never silently become all data. Files contain no keys, rendered configurations, captured bodies, signed query contexts, cursors or exact-request selection. Failed storage writes remain usable only in the current tab and may be downloaded for recovery.
 
@@ -382,7 +382,7 @@ Database-backed header blocklist with CRUD API. Supports exact and prefix match 
 
 ### 1. Overview
 
-The Requests page is Prism's dedicated request-browser and investigation surface for proxied traffic. It is mounted at `/observe/requests`. It provides a Default-profile-pinned view for browsing request history through server-backed filters, a retained-ingress chain view as the default investigation unit, and an overview detail sheet with a unified failure projection. Full audit payloads live on a dedicated audit page.
+The Requests page is Prism's dedicated request-browser and investigation surface for proxied traffic. It is mounted at `/observe/requests`. It provides a Default-profile-pinned view for browsing request history through server-backed filters, a retained-ingress chain view as the default investigation unit, and an overview detail sheet with a unified failure projection. Readable saved request/response content lives on a dedicated request-content page, with explicit capture and retention limits.
 
 The backend request-log and audit APIs remain the source of truth. The frontend route is responsible for presenting that data in an operator-friendly investigation workflow without changing runtime proxy semantics. Canonical browse identity uses `ingress_model_id` for the requested model and `attempt_target_model_id` for a retained attempt target; ambiguous model aliases are not restored. Ordinary URL state also carries endpoint, Terminal Target, caller client rule, status/error/pricing, triage, time, view, sort and pagination. Observe drill-down adds signed repeated `final_*`/attempt selectors, while exact single-request investigation uses a positive int64 decimal `request_id` without conversion to a JavaScript number.
 
@@ -394,7 +394,7 @@ The request-log route uses split HTTP contracts: a slim v2 row payload for attem
 - Support deep investigation of a single request through URL-addressable state.
 - Keep the retained browse filters server-backed and URL-addressable.
 - Default to the server-side retained ingress chain as the investigation unit.
-- Expose linked audit payloads only when needed.
+- Load saved conversation content only on explicit inspection; explain missing, unsupported, or truncated capture without displaying raw diagnostic data.
 - Support implemented drill-down entry points from dashboard overview and dashboard recent activity.
 - Show requested model identity separately from final target, selected Terminal Target, and endpoint.
 
@@ -482,7 +482,7 @@ Audit APIs:
 - request detail: `api.stats.requestDetail()` -> `/api/stats/requests/{request_id}`
 - request-scoped audit list: `api.audit.listForRequestLog()` -> `/api/audit/logs?request_log_id=...`
 - selected audit detail: `api.audit.get()` -> `/api/audit/logs/{id}`
-- raw body downloads: `GET /api/audit/logs/{log_id}/body/request` and `/body/response` (byte-exact BYTEA prefix, attachment, no-store)
+- The byte-exact raw-body download endpoints remain available to API clients; the request-content page does not invoke them.
 
 Required behavior:
 
@@ -525,7 +525,7 @@ Grouped request-tracking workflow:
 - `request_id` remains a one-row deep link for exact attempt investigation.
 - `ingress_request_id` groups multiple attempt rows from one incoming runtime request without changing `request_id` semantics.
 - Grouped rows show all attempts for one incoming runtime request together.
-- The overview sheet should surface `ingress_request_id`, `attempt_number`, `attempt_trigger`, `provider_correlation_id`, requested model, final target model, selected Terminal Target, and endpoint so operators can distinguish Prism grouping from upstream correlation and final response ownership.
+- The overview sheet explains the requested and actual models, service, attempt sequence, and observed results. Internal grouping and provider-correlation identifiers remain available to the route/API contracts rather than becoming diagnostic fields in the product UI.
 
 #### 7.3 Table Workflow
 
@@ -551,26 +551,25 @@ Required behavior:
 
 Every successfully loaded request detail provides a link to the dedicated full audit page. The sheet does not conditionally hide that entry and does not fetch audit payloads. The target page then renders one of three request-time states: disabled, metadata-only, or full capture.
 
-Failed rows use a dedicated failure summary: category/source/stage/code/detail with redacted/truncated/evidence-state flags and lifecycle facts (`upstream_request_started`, `response_headers_received`, `first_body_or_stream_event_seen`), plus stream fields when the failure came from a stream. Success rows do not render an empty six-cell grid.
+Failed rows lead with what is known from the scoped status and stream outcome, what remains uncertain, and an actionable next step. The shared recovery section links to the relevant model and service when those identities can be resolved; missing historical references fall back to an exact model-name search. Raw error text, failure codes, internal paths, and implementation-stage fields do not appear in the sheet or request-content page.
 
 Dense overview requirements:
 
 - Keep the same logical groups: `Request details`, `Routing context`, `Token usage`, and `Cost breakdown`.
 - Render a compact summary strip for latency, token, cost, and timestamp context above the grouped sections.
-- Pricing is layered: the pricing projection shows status/reason/resolution/components/trust, canonical cost and currency, template identity snapshots, and `cost_segment_key`; the old flat `priced`/`billable` flags are not part of the contract. Legacy-untrusted rows show `legacy_pricing_evidence` in a separate disclosure and never promote raw values into canonical cost.
-- Operation name, upstream operation name, translation mode, and upstream path are returned by the backend detail API, but the current sheet displays the request path and does not render those operation/translation fields.
+- Pricing presents known cost and currency, its component breakdown, and plain-language reasons for missing or untrusted amounts. Historical limits remain explicit; raw pricing enums, currency-segment keys, and legacy diagnostic values are not displayed or promoted into canonical cost.
+- Operation names, translation mode, request paths, and provider diagnostics remain backend detail fields; the product sheet presents user-relevant model, service, outcome, and usage information.
 - Keep audit payload loading out of the sheet and scoped to the dedicated full audit page.
 
 #### 7.5 Payload Views And Copy
 
-The dedicated audit page renders request and response headers plus request and response bodies. The detail API transfers stored body bytes as Base64 together with encoding, capture, and observed/stored-byte metadata; the viewer decodes eligible text and keeps binary content downloadable. The field definitions and scoped status/duration contracts belong to [Audit Log Detail](architecture.md#52-get-audit-log-detail). For each non-empty payload block:
+The dedicated request-content page uses the existing audit detail API to read saved request and response bodies on demand. Stored bytes still arrive as Base64 with encoding, capture, and observed/stored-byte metadata; the wire and raw-download contracts remain in [Audit Log Detail](architecture.md#52-get-audit-log-detail).
 
-- `Rendered` shows the structured document view when Prism recognizes the payload. Header rendering additionally masks `authorization`, `proxy-authorization`, `cookie`, `set-cookie`, and header names containing `api-key`, `token`, `secret`, or `credential` (case-insensitive).
-- `Raw JSON` pretty-prints stored body payloads. For header blocks, it shows a browser-normalized header representation with the same additional masking rather than the unmodified stored text.
-- Streaming responses offer three distinct views — 消息 (operation-aware message reassembly with tool cards and terminal state), JSON 事件 (per-event parsed JSON), and 原始 SSE (byte-exact stored text) — with SSE framing that handles LF/CRLF/CR-only, BOM, multi-line `data:`, `event:` names, comments, `[DONE]`, bad-JSON event isolation, and incomplete tails (a truncated capture keeps the tail unflushed with a visible notice). Non-streaming JSON bodies offer 消息 (operation-aware sectioned document including tool-call/tool-result sections) and JSON views. Only valid-UTF-8 stored prefixes are eligible for these views; binary/invalid-UTF-8 bodies show an unparseable state with byte metadata.
-- Copying in raw mode copies the transformed text currently shown. Copying in rendered mode copies the underlying stored text, not the browser-masked header display; the three request auth-header values redacted by the backend at write time remain redacted because the persisted values are `[REDACTED]`.
-- Empty bodies disable the copy control. Clipboard API failure or absence falls back to a temporary local textarea mounted under the page or sheet's `[data-clipboard-fallback-root]`.
-- Body downloads return the byte-exact stored BYTEA prefix with attachment/octet-stream/nosniff/no-store headers and a safe filename; invalid UTF-8/binary bodies use `.bin` and show an unparseable state while remaining downloadable.
+- Recognized text formats render user, assistant, and system messages, with natural-language indications of tool activity. Tool arguments/results, headers, raw JSON, JSON events, and raw SSE are not product views or copy targets.
+- Streaming content is reassembled through the operation-aware parser. An incomplete or truncated capture keeps a visible limitation; missing or unsupported content never becomes an empty successful conversation.
+- Copy operates on the readable extracted text and role labels. It is unavailable when no readable text exists, and clipboard failure retains the existing local fallback.
+- Capture-disabled, metadata-only, missing-body, unsupported/binary, and truncated states remain distinct. The page reports the applicable stored-byte limits, ±12-hour query window, and retention gaps without exposing diagnostic payloads.
+- Returning to the request list restores the original filters, paging, and selected request through a validated local `return_to` target. Request comparison uses the same readable-content boundary and states that tool parameters, images, and attachments are outside the comparison.
 
 ### 8. Module Boundaries
 
@@ -580,15 +579,15 @@ The dedicated audit page renders request and response headers plus request and r
 - `requestLogColumnPreferences.ts` owns versioned column-visibility preferences (localStorage).
 - `requestLogSavedViews.ts` owns versioned saved canonical queries (localStorage); `FiltersBar.tsx` renders the triage chips and the saved-views dropdown.
 - `requestLogsCsv.ts` only downloads the server-produced export file with the current filters.
-- `detail/RequestLogOverviewTab.tsx` renders the v2 detail including the failure projection and pricing layers.
+- `detail/RequestLogOverviewTab.tsx` renders the v2 detail as request outcome, model/service context, usage, and pricing. `detail/RequestFailureRecovery.tsx` shares failure explanation and recovery actions with the request-content page; `requestFailurePresentation.ts` maps observed status/stream facts, and `useRequestRecoveryModel.ts` resolves historical model names against the shared model catalog.
 - `useRequestLogChain.ts` loads the retained ingress chain for the detail sheet; `RequestLogDetailSheet.tsx` renders the chain section (attempt order, triggers, winner/current markers, completeness).
 - `useDedicatedRequestLogAudit.ts` composes the separate request, audit-list, and selected audit-detail read lanes; request-time capture evidence gates the latter two.
-- `detail/sseFraming.ts` owns SSE framing; `detail/streamTranscript.ts` owns operation-aware stream accumulation with tool calls; `detail/payloadDocumentViewModel.ts` owns the content-aware view model; `detail/RequestLogPayloadBlock.tsx` renders the three-view toggle and tool cards.
+- `detail/sseFraming.ts` owns SSE framing; `detail/streamTranscript.ts` owns operation-aware accumulation; `detail/payloadDocumentViewModel.ts` owns the content-aware projection. `detail/RequestLogPayloadBlock.tsx` renders only readable messages and tool-activity notices. Parser-level protocol data remains internal.
 
 ### 9. Cross-Route Integrations
 
 - Dashboard overview and recent activity deep-link into `/observe/requests` with `request_id` or `ingress_request_id`.
-- The detail sheet links to `/observe/requests/:requestId/audit`.
+- The detail sheet links to `/observe/requests/:requestId/audit` with a validated `/observe/requests` return target that preserves the original list state.
 - Routing Health Events and Requests can cross-link with absolute ±15-minute windows and verified objects; neither direction claims a unique trigger relationship, and retention cropping is surfaced.
 - Pricing Templates / Model detail CTAs come only from the pricing action matrix; usage-only unpriced reasons never show a Pricing CTA.
 
@@ -601,7 +600,7 @@ The Requests page must remain compatible with the following backend-facing and s
 - `RequestLogDetail` for the detail sheet only
 - `api.stats.requests()`/`api.stats.chains()` for browsing and `/api/stats/requests/{request_id}` for exact detail
 - `api.stats.exportCsv()` for the server-side full filtered export
-- audit API client methods plus raw body download helpers
+- audit list/detail API client methods for explicit content reads; raw-body download helpers remain separate API-client capabilities
 - dashboard flows that consume request-derived backend responses
 - caller-client and attempt/final-target observability fields such as `client_rule_id`, `filter_options.clients`, `filter_options.attempt_target_models`, and retained `resolved_target_model_id` execution attribution
 
@@ -616,19 +615,19 @@ The Requests page must remain compatible with the following backend-facing and s
 7. The table remains usable at large result counts through virtualization, sticky headers, adaptive height, and explicit pagination controls; the body is the single scroll container.
 8. The list view stays on the slim v2 row payload, the chain view on the chain envelope, and exact-request investigation uses the dedicated v2 detail payload without re-expanding the table schema.
 9. Dashboard overview and recent activity can emit deep links into `/observe/requests` without inventing route-local state outside the documented query contract.
-10. The overview sheet renders `ingress_request_id`, `attempt_number`, `attempt_trigger`, and `provider_correlation_id` when present so operators can distinguish incoming request grouping from per-attempt row identity.
+10. The overview sheet distinguishes requested model, actual model/service, attempt order, and results while keeping internal correlation identities out of its product presentation.
 11. The request-log table and detail sheet render requested model vs final target model separately, falling back to the requested model when `resolved_target_model_id` matches `model_id`.
 12. CSV export contains the full filtered result set as produced by the server (`/api/stats/requests/export`), not the currently loaded page.
-13. Failed rows open a failure-first summary (category/source/stage/code/detail) instead of an empty metric grid; stream failures carry the stream fields in the same projection.
+13. Failed rows open a plain-language explanation grounded in status and stream evidence, with uncertainty and model/service recovery actions; untrusted diagnostic text is never rendered.
 14. Route-shell, filter, empty-state, and detail-sheet labels follow the active frontend locale while timestamp rendering stays aligned to the selected timezone and locale-aware formatting helpers.
 15. TTFT is the primary latency with neutral coloring; total duration stays neutral and is never painted as an error state.
-16. The detail sheet renders each piece of primary information exactly once; pricing provenance is layered/collapsible rather than a flat internal-field dump.
-17. Audit rows show a top summary when a single row is selected (no empty left rail); header blocks render at readable density with grouping, search, copy, and download.
+16. The detail sheet renders each piece of primary information once and preserves pricing limitations in natural language; internal diagnostics do not reappear in disclosures or tooltips.
+17. A selected audit record shows a compact content summary, readable conversation, and capture limitations; header, protocol, and raw-download controls are absent.
 18. Request-log IDs stay decimal strings end-to-end (URL, JSON, TS); the frontend never converts BIGINT row IDs to JS numbers.
 19. The filter bar shows only search (request ID), time range, the triage chips, and a More Filters toggle at 1200px; the remaining filters collapse under More Filters.
 20. Operators can save, apply, and delete named views of the canonical query state (versioned localStorage); column visibility is adjustable through the table's Columns menu with a reset-to-defaults action.
 21. The detail sheet renders the server-owned retained ingress chain for the selected row: attempt order, triggers, winner/current markers, retained counts, and chain completeness.
-22. Streaming audit bodies show three genuinely distinct views (message reassembly, JSON events, raw SSE) with tool-call cards; the same stored text never impersonates two modes.
+22. Streaming bodies display recognized readable messages and tool-activity notices. Unsupported, incomplete, and truncated content remains explicit; comparison and copy exclude raw protocol and tool arguments.
 
 ## 9. Workflows Reference
 
@@ -696,7 +695,7 @@ The [startup guide](../README.md) owns local launcher URLs and port selection. [
 **Frontend flow**
 
 1. `AuthProvider` confirms the operator session through the process-local coordinator; every blocking phase (`BOOTSTRAPPING`, `REFRESHING`, `SESSION_EXPIRED`, `LOGGING_OUT`, `AUTH_TRANSITION_FAIL_CLOSED`, `AUTH_UNAVAILABLE`, `AUTH_DISABLED_VERIFYING`) renders the global access layer instead of stale authenticated UI.
-2. The shell groups pages under Observability, Routing Configuration, and System. The header contains breadcrumbs, global search, density, theme, and account controls; sign-out is available through the account menu when auth is enabled. The sidebar footer shows authentication state, its settings link, and a copyable build identifier. Interface copy uses the single Simplified Chinese locale.
+2. The shell groups pages under 使用情况, 模型与服务, and 访问与设置; 模型 precedes 服务 in the configuration group. The header contains breadcrumbs, global search, density, theme, and account controls; sign-out is available through the account menu when auth is enabled. The sidebar footer shows authentication state, its settings link, and a copyable build identifier. Interface copy uses the single Simplified Chinese locale.
 3. Default-profile pages send the pinned compatibility `X-Profile-Id: 1` header from the shared API client.
 4. Auth-disabled shells show the open-access state in the footer and explainer surfaces; issued proxy keys are never labeled as protecting access.
 
@@ -720,7 +719,7 @@ The [startup guide](../README.md) owns local launcher URLs and port selection. [
 3. Trend and Errors share a selected-scope context. Their metric and grouping controls expose only the current scope's catalog; changing the cohort withdraws stale data before the next response. Errors links carry the signed cohort into Requests.
 4. Activity loads finalized ingress rows in pages of 20 and opens the matching Requests chain. Terminal Targets uses its own endpoint-based final-execution or route-attempt view. Each fragment keeps its own loading, failure, missing-data, and retained-coverage state.
 5. Entry, URL changes, manual refresh, and explicit retry trigger reads. Automatic refresh defaults to off, with explicit 30/60-second choices, hidden-tab pause, no overlapping cycles, and cancellation/reset on leaving or changing identity. The freshness bar exposes the returned timestamps, and a failed refresh does not turn retained data into fresh data or synthetic zeros.
-6. The setup card reports Endpoint, Pricing, routing policy, Model, enabled Terminal Target, and Proxy Key facts plus a persistent runtime verification action. Its routing progress counts only four configuration items on one `route_witness_generation`; only direct-entry models qualify as roots. Fresh completion collapses the card after focus leaves, while its disclosure remains available.
+6. The setup card groups existing readiness facts into connecting a model, preparing cost reporting, and client access. Its underlying routing progress still counts four configuration facts on one `route_witness_generation`, with only direct-entry models qualifying as roots. A persistent verification action distinguishes saved configuration from an observed model response; fresh completion collapses the card after focus leaves while the disclosure remains available.
 7. Routing Health is a separate `/observe/routing-health` page with current process state and the retained events timeline. Current State is independent of the event time window; the timeline uses its own bounded signed context and shows coverage gaps.
 
 **Backend touchpoints**
@@ -746,12 +745,12 @@ The older dashboard aggregate, recent-activity, incident, usage-snapshot, and en
 
 **Frontend flow**
 
-1. Operators list, search, create, edit, and delete model configurations. The default entries view can switch to Model Targets only or all configurations; incoming references and unreferenced-target warnings explain non-entry models.
-2. Model create and edit dialogs manage the model configuration ID, direct-entry qualification, OpenAI text/image dimensions, loadbalance strategy, and enabled state. Existing Terminal Target upstream identities remain independent of model renames.
+1. The empty Models page offers “接入模型”. The form preselects a service passed by `action=create&endpoint_id=...`, selects the sole existing service when appropriate, or opens inline service creation when none exists. Operators can also save a disabled model and connect a service later. The default entries view can switch to Model Targets only or all configurations; incoming references and unreferenced-target warnings explain non-entry models.
+2. Model create/edit separates the exact client model name from the model name provided by the service. The service model name initially follows the client model name until the user edits it; OpenAI format choices state that they must match the service. Direct-entry qualification, text/image dimensions, strategy, and enabled state keep their existing semantics. Successful enabled creation opens the model detail, and existing Terminal Target upstream identities remain independent of model renames.
 3. Model detail owns access-target authoring as one mixed list: same-family Model Targets and Terminal Targets share the global `position` order, cross-type adjacent moves use the same controls, and Terminal Target management covers the model's private endpoint bindings. It also hosts the federated 外部目录来源 section: an independent models.dev panel (metadata, overrides, source-linked pricing entry) and an independent pi.dev panel (live candidate evidence, persisted binding, final Pi API, and the full bind/refresh/override/unbind workflows through the shared binding dialogs) — each panel loads, fails, and recovers on its own and neither can mask the other or the target configuration.
-4. The Terminal Target dialog's “高级请求设置” group lets operators configure request limits, custom request headers, and the optional custom request parameters JSON overlay (format/clear actions, top-level count summary, field-level validation, and server 422 mapping back to the editor). The routing schedule is edited in its own sibling section rather than inside that group, because it governs routing eligibility rather than request content.
-5. The model-config detail's RouteReadiness card opens with the owning `model_config` identity (`model_id`) and summarizes only direct configuration identity: direct Terminal Target and Model Target counts, the number of distinct known upstream identities, the case-sensitive count that differs from the owning identity, and the unknown-identity count, with an explicit 无直接终端目标 state when no direct Terminal Target exists. It never repeats the full exit mapping (the ordered target list owns that) and never follows Model Target rows recursively.
-6. Request logs preserve the requested model while final-target fields show the terminal model reached through the access graph.
+4. The Terminal Target dialog keeps request limits and custom headers alongside structured “服务附加设置” fields. Named text, number, switch, empty-value, group, and list values serialize to the unchanged request-parameter overlay contract; incomplete or invalid input stays editable with an inline error. The routing schedule remains a separate section because it governs routing eligibility.
+5. The model detail's RouteReadiness card presents the static configuration conclusion, API family, strategy, and enabled/total counts for direct service connections and Model Targets. Missing service model identities remain explicit, and a model without a direct service connection is labeled accordingly. The card does not repeat the ordered connection list or follow Model Target rows recursively.
+6. Model detail provides a client connection card with copyable address and model name, a client-key entry, and model-preselected verification. OpenAI clients use the effective Prism origin plus `/v1`; Anthropic and Gemini clients use the origin. Configuration readiness is neutral and does not claim that a real model request succeeded. Request records preserve the requested model separately from the final target.
 7. The Models page opens the dedicated client-export route with Pi selected by default. The operator supplies the Prism origin/provider id and selects only structurally eligible direct-entry models with backend `readiness.status=ready`; unready rows keep independent binding-repair actions and become explicitly selectable after repair. Each model's row shows its live pi.dev candidate evidence and persisted binding status, and the operator changes the source (default exact candidate or an explicit bounded directory search, including a cross-directory model id), refreshes, or overrides a binding inline before typing a proxy key only at final confirmation. Directory reads go through Prism's backend; the browser never contacts pi.dev.
 8. Choosing OpenCode switches to its independent source and result lifecycle. Operators inspect persisted models.dev source/override/final values and open the existing metadata editor in place from the export row. After saving reliable limits, the source is re-read and still-valid choices are preserved; cancelling or returning leaves the export context intact. No Pi binding or live catalog is needed for OpenCode rendering.
 9. Source and render requests use `private, no-store`; a stale digest forces a source refresh, a bind/rebind/refresh/override write forces the same, and generated content is held only long enough to copy, download, or open the exact bytes in a new tab.
@@ -798,11 +797,11 @@ The older dashboard aggregate, recent-activity, incident, usage-snapshot, and en
 
 **Frontend flow**
 
-1. Endpoints define reusable upstream credentials and base URLs that Terminal Targets can share.
+1. Services define reusable upstream credentials and base URLs that Terminal Targets can share. Saving and saving with verification are explicit separate actions; a saved service stays in a completion state with “配置可用模型”, which offers an existing model or a new model with this service preselected. A verification failure does not pretend the preceding save failed, and retrying verification does not recreate the service.
 2. The Ban Policies page manages reusable strategies, default selection, attached-model impact, and a strategy preview. Its Routing Health action opens the separate current-state and events page; those views are not tabs inside strategy configuration.
 3. Pricing templates define reusable cost models attached to Terminal Targets as typed, mutually-exclusive cards. Standard has one `standard` card; tiered has `tier_base` and `tier_above` plus a positive threshold; peak/valley has `peak` and `offpeak` plus at least one user-authored window and IANA timezone. A request chooses one complete card before FX and arithmetic; Prism never proportionally splits a request across a window boundary. Invalid/missing schedule evaluation is visibly unresolved and fail-closed, never silently priced with the valley card.
-4. Pricing-template management requires every card to carry all five component keys. Input/output must be non-null canonical decimal strings; specialty components use explicit JSON `null` for unconfigured and reject missing or blank values. Explicit `"0"` is configured free pricing, not missing pricing data.
-5. Pricing supports JSON file or pasted-text import with `upsert_by_name` or `create_only`, a connection-usage lookup, and delete protection when Terminal Targets still depend on a template.
+4. The price form shows the trusted current reporting currency and the price per million tokens. Input/output prices are required; optional cache/reasoning fields can remain empty and are serialized as explicit JSON `null`. All five component keys remain present in the wire payload, and explicit `"0"` alone means configured free pricing. Missing prices for components actually used by a request leave its cost unknown. Currency-read failure blocks saving and offers retry; failed saves retain the editable draft.
+5. Pricing import starts with a selected JSON price file and an add-only or name-based update choice. The operator previews the proposed changes on the page, then explicitly confirms the import. File/read/preview failures preserve a recovery path; a blocked preview states that nothing was written and can be discarded. The versioned import format and preview/hash-commit protocol are unchanged. After creating a template, “为模型设置价格” leads to assigning it to a model service connection; creating a template alone does not price a model or recalculate history. Usage lookup and referenced-template deletion protection remain available.
 6. Request logs and cost math consume canonical disjoint token components: base input, cache-read input, cache-creation input, base output, and reasoning output. Aggregate `cached_tokens` is derived-only for presentation.
 7. These resources are Default-profile-scoped and are usually managed before or alongside model-detail work.
 8. The defaults action creates the canonical loadbalance strategy rows for Default profile id `1`.
@@ -853,7 +852,7 @@ The loadbalance strategy routes are pinned to Default profile id `1`, and the de
 5. The Client filter sends `client_rule_id` to the backend and matches caller User-Agent Client Rules against `caller_user_agent` only.
 6. Pricing filters use the four-state `pricing_status`; the old `priced` boolean alias is rejected by the backend.
 7. CSV export is server-side over the full filtered result set (`/api/stats/requests/export`), never assembled from the current page.
-8. Audit payloads load only on the dedicated audit page or after an explicit capture-read action in the two-request comparison panel; the list and detail sheet remain body-free.
+8. Saved content loads only on the dedicated “请求内容” page or after an explicit read in the two-request comparison panel; the list and detail sheet remain body-free. Both paths show readable conversation text and capture limitations without raw payload or header views. Returning from content inspection restores the prior list filters and selection.
 
 **Backend touchpoints**
 
@@ -863,7 +862,6 @@ The loadbalance strategy routes are pinned to Default profile id `1`, and the de
 - `GET /api/stats/cost-segments` and `/api/stats/cost-segments/{segment_key}/symbols`
 - `GET /api/audit/logs`
 - `GET /api/audit/logs/{log_id}`
-- `GET /api/audit/logs/{log_id}/body/request` and `/body/response` (byte-exact raw downloads)
 - `GET /api/settings/costing` / `PUT /api/settings/costing` (timezone merged into the costing CAS)
 
 All Requests/Audit list, detail, chain, and export responses send `Cache-Control: private, no-store` and carry profile-sensitive `Vary`.
@@ -879,13 +877,15 @@ For the page-specific query contract and UI behavior, see section 8 (Requests Pa
 
 **Frontend flow**
 
-1. Settings uses canonical public URLs with `scope=global|instance` and a section allowlist; the legacy `tab` query value is dropped during canonicalization. `scope=global` covers reporting currency, timezone, audit/privacy, and config rules; `scope=instance` covers operator authentication, automatic retention policy with owner actual coverage, manual cleanup, and the retention job center.
-2. Reporting currency is a single active epoch contract: the UI shows the active epoch/symbol and, once an epoch exists, direct currency-code authoring is locked and any change goes through the currency migration preflight; historical snapshots stay read-only.
+1. Settings groups user tasks as “显示与记录” and “访问与数据”, with sections such as “货币与时间”, “详细记录与内容”, and “登录与客户端访问”. Canonical URLs still use `scope=global|instance` and the existing section allowlist; the legacy `tab` value is dropped. The underlying global/instance ownership and API scopes are unchanged.
+2. Reporting currency retains its single active epoch contract, while the UI shows the current currency and explains the effect of changing it without exposing the epoch. Once an epoch exists, a currency change still goes through migration preflight; historical snapshots remain read-only and existing request costs are not recalculated.
 3. Timezone is part of the costing CAS (no standalone timezone route); preview uses the current instant and current IANA offset, and changing the preference only affects display and Custom input interpretation.
 4. Destructive retention changes (enable `null -> N`, shorten `M -> N`, or one-time cleanup) always run through a fresh server preflight dialog with exact/estimated impact, owner coverage after, and keyword confirmation, then create a server-persisted job; queued manual jobs are cancellable from the job center, running manual purges are not.
 5. Startup settings remain in the plaintext bootstrap file selected by `PRISM_CONFIG_PATH`; edit `config.json` directly and restart Prism to apply changes.
 6. Saving a transition from disabled to enabled authentication broadcasts a localStorage auth-state update, refreshes local auth state, and redirects the current tab to `/auth/login`; other open tabs re-bootstrap from the broadcast. Enabling/disabling requires explicit acknowledgements (proxy-key readiness, permissive attribution when disabling, session invalidation).
-7. Proxy API keys are managed on their own route and stay global rather than profile-scoped. They can be issued while auth is disabled, but runtime proxy-key authentication is enforced only after operator auth is enabled. Auth enablement uses the Proxy owner's one-instant readiness count and 30-second safe-active horizon; a zero-safe-key enable requires an explicit acknowledgement, and key secrets are shown once only.
+7. “客户端密钥” manages global credentials on its own route. Keys can be created while authentication is disabled, but the page explicitly says they are not required for access then. Auth enablement retains the Proxy owner's one-instant readiness count and 30-second safe-active horizon; a zero-safe-key enable requires explicit acknowledgement. One-time secrets have copy/save acknowledgement and an explicit leave-without-saving confirmation; leaving does not delete the created key. Mutation errors stay with the form and preserve a recoverable draft.
+8. “验证接入” combines model/key selection, one explicit test send, and its result in one dialog. It offers only enabled direct-entry models, preselects a model from `action=verify&model_id=...`, and defaults to no-key testing only when authentication is known to be disabled. Sending may incur service fees; record-only retry does not send another model request. The UI separates the received outcome, record lookup failure or absence, and cancellation; stopping the wait does not promise to cancel execution.
+9. Verification exposes an exact-request link after the authoritative finalized request summary and its detail match the returned request identifier. Execution and cost come from that final summary, including when multiple attempts occurred or HTTP 200 ended incompletely. Receiving a response alone is shown separately from confirmed execution. A response-body interruption preserves any already received request identifier so its record can still be checked. Missing or unavailable records remain explicit and offer the selected model's recent requests with instructions to check the time; retrying a read never sends another model request.
 
 Mail bootstrap fields remain parse-compatible for existing `config.json` files, but Prism no longer sends mail. Fresh bootstrap seeds use backend `8000`, frontend `5173`, and PostgreSQL `15432`, but `./start.sh` follows the existing bootstrap file's configured `server.port` when one already exists. `runtime.sideEffects.attemptTimeout` is seeded as `"10s"`; the `runtime.transport` section was removed outright, and outbound provider requests are no longer subject to any connection or timeout limits (a leftover `runtime.transport` block is rejected with a readable migration error). Direct external `config.json` edits are not watched automatically, and existing valid files are not rewritten by the launcher. To reset startup defaults, stop Prism, remove or relocate the bootstrap file, and restart.
 
@@ -926,7 +926,7 @@ OpenAI text routing is native-only and mode-strict. Operators set runtime suppor
 
 Global log retention covers `request_logs`, `audit_logs`, `usage_request_events`, and `loadbalance_events`.
 
-The Settings UI exposes fixed deletion presets of `1`, `7`, `30`, `90` days, or all data, runs a fresh manual-cleanup preflight with impact counts and owner actual coverage, then creates a durable sealed job. The retention job center (`scope=instance&section=retention-jobs`) holds a static snapshot that lists/filters durable v2 jobs without background polling — manual refresh and post-mutation calibration re-read the loaded pages serially with fresh cursors and swap atomically — opens detail checkpoints and partition evidence through two independent pagination lanes, and cancels queued manual jobs (running manual purges return `409 purge_not_cancellable`; running automatic jobs accept `cancel_requested`). The audit & privacy card shows the three-state family policy plus the bounded storage summary (retained rows/bytes with exact/estimated/unavailable states, never zero defaults) and the fixed 4 MiB/body + 12+4 MiB ingress capture limits. Currency migration pages are bounded and preserve pending/null evidence; the archive-only FX action records a ledger without changing the active currency epoch or template prices.
+The Settings UI exposes fixed deletion presets of `1`, `7`, `30`, `90` days, or all data, runs a fresh manual-cleanup preflight with impact counts and owner actual coverage, then creates a durable sealed job. The retention job center (`scope=instance&section=retention-jobs`) holds a static snapshot that lists/filters durable v2 jobs without background polling — manual refresh and post-mutation calibration re-read the loaded pages serially with fresh cursors and swap atomically — opens progress history and cleanup results through two independently paginated reads, and cancels queued manual jobs (running manual purges return `409 purge_not_cancellable`; running automatic jobs accept `cancel_requested`). The audit & privacy card shows the three-state family policy plus the bounded storage summary (retained rows/bytes with exact/estimated/unavailable states, never zero defaults) and the fixed 4 MiB/body + 12+4 MiB ingress capture limits. Settings explanations preserve UTC retention boundaries, irreversible deletion, delayed physical space reclamation, possible interruption of active queries during manual cleanup, and missing/estimated evidence. Internal table names, revision/generation markers, and protocol states are not product explanations. Currency migration pages remain bounded and preserve pending/null evidence; the archive-only FX action records a ledger without changing the active currency epoch or template prices.
 
 ### 8. Runtime Proxy Traffic
 

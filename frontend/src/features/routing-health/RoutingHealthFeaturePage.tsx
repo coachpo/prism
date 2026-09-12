@@ -1,9 +1,10 @@
 import { useCallback } from "react";
-import { useNavigate, useSearch } from "@tanstack/react-router";
+import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 
 import { routingHealthRoute } from "@/app/router/appRouter";
 import { RoutingHealthTab } from "@/features/observe/RoutingHealthTab";
 import { useLocale } from "@/i18n/useLocale";
+import { Button } from "@/components/ui/button";
 import { OperatorPageHeader } from "@/shared/design-system";
 
 /**
@@ -33,8 +34,9 @@ export function RoutingHealthFeaturePage() {
   return (
     <div data-testid="routing-health-page" className="flex flex-col gap-[var(--density-page-gap)]">
       <OperatorPageHeader
-        title={messages.dashboard.routingHealthTitle}
-        description={messages.dashboard.routingHealthDescription}
+        title={messages.nav.routingHealth}
+        description={messages.routingHealth.pageDescription}
+        actions={<Button asChild size="sm"><Link to="/system/proxy-keys">{messages.setup.openClient}</Link></Button>}
       />
       <RoutingHealthTab
         search={search as unknown as Record<string, unknown>}

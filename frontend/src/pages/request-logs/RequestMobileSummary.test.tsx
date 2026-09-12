@@ -24,6 +24,7 @@ function renderSummary(overrides: Partial<FinalizedSummary> = {}) {
     finalized_summary: {
       request_log_id: null,
       final_status_code: 200,
+      final_result: "completed",
       ingress_model: { id: "entry", label: "Entry" },
       final_pricing_status: "priced",
       final_pricing_evidence_trust: "trusted",
@@ -84,6 +85,6 @@ describe("mobile retained summary evidence", () => {
     renderSummary({ total_cost_user_currency_micros: 0 });
     expect(costValue()).toHaveTextContent("$0.00 USD");
     expect(costValue()).not.toHaveTextContent("—");
-    expect(screen.getByText("200", { exact: true })).toBeInTheDocument();
+    expect(screen.getByText("完成", { exact: true })).toBeInTheDocument();
   });
 });

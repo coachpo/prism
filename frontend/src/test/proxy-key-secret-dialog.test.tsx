@@ -128,28 +128,27 @@ function renderDialog(
 }
 
 describe("ProxyKeySecretDialog unacknowledged session", () => {
-  it("shows the raw key, gateway origin, family base url, curl and ack gate", () => {
+  it("shows the saved-key gate with copyable client settings", () => {
     renderDialog(session())
     expect(screen.getByText("pm-secret-value-1a2b3c4d5e6f")).toBeTruthy()
-    expect(screen.getByText("可执行 curl 样例")).toBeTruthy()
+    expect(screen.getByText("客户端接入地址")).toBeTruthy()
+    expect(screen.getByRole("button", { name: "复制模型名称" })).toBeEnabled()
+    expect(screen.queryByText(/curl POST|responses_only/)).not.toBeInTheDocument()
     expect(screen.getByText("我已安全保存此密钥，关闭后将无法再次查看。")).toBeTruthy()
-    // Close is gated behind the acknowledgement.
-    const closeButtons = screen.getAllByRole("button", { name: "关闭" })
-    expect(closeButtons.length).toBeGreaterThan(0)
-    expect(closeButtons[0].hasAttribute("disabled")).toBe(true)
+    expect(screen.getByRole("button", { name: "完成并关闭" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "暂不保存" })).toBeEnabled()
   })
 
-  it("generates operation-aware curl from the selected model", async () => {
+  it("copies the client address for the selected model family", async () => {
     const user = userEvent.setup()
     renderDialog(session())
-    // Anthropic model selected -> X-API-Key curl for /v1/messages.
+    await user.click(screen.getByRole("button", { name: "复制接入地址" }))
+    expect(await navigator.clipboard.readText()).toBe(`${window.location.origin}/v1`)
     await user.selectOptions(screen.getByLabelText("可用模型"), "claude-sonnet-4-5")
-    const curlBlock = screen.getByText(/curl POST/).textContent ?? ""
-    expect(curlBlock).toContain("/v1/messages")
-    expect(curlBlock).toContain("X-API-Key")
-    expect(curlBlock).toContain("pm-secret-value-1a2b3c4d5e6f")
-    // The secret never appears in the URL (first curl line only).
-    expect(curlBlock.split("\n")[0]).not.toContain("pm-secret-value")
+    await user.click(screen.getByRole("button", { name: "复制接入地址" }))
+    expect(await navigator.clipboard.readText()).toBe(window.location.origin)
+    await user.click(screen.getByRole("button", { name: "复制模型名称" }))
+    expect(await navigator.clipboard.readText()).toBe("claude-sonnet-4-5")
   })
 
   it("excludes enabled model-target-only configs from self-test choices", () => {
@@ -180,7 +179,7 @@ describe("ProxyKeySecretDialog unacknowledged session", () => {
     const { handlers } = renderDialog(session({ kind: "closing_confirm", intent: "close" }))
     await user.click(screen.getByText("继续保存"))
     expect(handlers.onKeepEditing).toHaveBeenCalled()
-    await user.click(screen.getByText("放弃密钥并离开"))
+    await user.click(screen.getByText("放弃查看并离开"))
     expect(handlers.onAbandonAndLeave).toHaveBeenCalled()
   })
 
@@ -190,9 +189,11 @@ describe("ProxyKeySecretDialog unacknowledged session", () => {
     expect(screen.getByText("模型列表加载失败")).toBeTruthy()
   })
 
-  it("disables curl/self-test when no eligible models exist but keeps secret copy", () => {
+  it("disables testing when no eligible models exist but keeps secret copy", () => {
     renderDialog(session(), { models: [] })
     expect(screen.getByText("pm-secret-value-1a2b3c4d5e6f")).toBeTruthy()
-    expect(screen.getByText("当前没有已启用的可用模型。请先在模型中启用一个模型，再生成调用样例。")).toBeTruthy()
+    expect(screen.getByText(/还没有可供客户端调用的模型/)).toBeVisible()
+    expect(screen.getByRole("button", { name: "发送测试请求" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "复制密钥" })).toBeEnabled()
   })
 })

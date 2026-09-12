@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogBody,
@@ -15,6 +16,8 @@ import {
   FieldError,
   FieldGroup,
   FieldLabel,
+  FieldSet,
+  FieldLegend,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
@@ -46,6 +49,9 @@ import type {
   PiBindingController,
   PiCatalogModelView,
 } from "./usePiBindingController";
+import { PiThinkingOptionsEditor } from "./PiThinkingOptionsEditor";
+import { piInputLabel } from "./piCatalogPresentation";
+import { catalogFailureMessage } from "../catalogFailureMessage";
 
 type Copy = Record<string, string>;
 
@@ -133,7 +139,7 @@ export function PiBindingOverrideDialog({
       });
       onClose();
     } catch (cause) {
-      setSaveError(cause instanceof Error ? cause.message : String(cause));
+      setSaveError(catalogFailureMessage(cause));
     }
   }
 
@@ -144,7 +150,7 @@ export function PiBindingOverrideDialog({
       setClearAllOpen(false);
       onClose();
     } catch (cause) {
-      setClearAllError(cause instanceof Error ? cause.message : String(cause));
+      setClearAllError(catalogFailureMessage(cause));
     }
   }
 
@@ -383,9 +389,28 @@ function PiOverrideValueEditor({
       </Select>
     );
   }
-  if (field === "thinking_level_map" || field === "compat") {
+  if (field === "input") {
+    const selected = raw ? raw.split(",").map((value) => value.trim()) : [];
     return (
-      <Textarea
+      <FieldSet>
+        <FieldLegend className="sr-only">{label}</FieldLegend>
+        {(["text", "image"] as const).map((value) => (
+          <Field key={value} orientation="horizontal">
+            <Checkbox id={`pi-input-${value}`} disabled={disabled} checked={selected.includes(value)} onCheckedChange={(checked) => onChange((checked ? [...selected, value] : selected.filter((item) => item !== value)).join(","))} />
+            <FieldLabel htmlFor={`pi-input-${value}`}>{piInputLabel(value)}</FieldLabel>
+          </Field>
+        ))}
+      </FieldSet>
+    );
+  }
+  if (field === "thinking_level_map") {
+    return <PiThinkingOptionsEditor raw={raw} disabled={disabled} copy={copy} onChange={onChange} />;
+  }
+  if (field === "compat") {
+    return (
+      <div className="flex flex-col gap-1">
+        <p className="text-xs text-muted-foreground">{copy.optionClientHint}</p>
+        <Textarea
         aria-label={label}
         aria-invalid={invalid || undefined}
         aria-describedby={errorId}
@@ -395,6 +420,7 @@ function PiOverrideValueEditor({
         value={raw}
         onChange={(event) => onChange(event.target.value)}
       />
+      </div>
     );
   }
   return (
@@ -409,9 +435,6 @@ function PiOverrideValueEditor({
           : undefined
       }
       disabled={disabled}
-      placeholder={
-        field === "input" ? copy.overrideInputPlaceholder : undefined
-      }
       value={raw}
       onChange={(event) => onChange(event.target.value)}
     />

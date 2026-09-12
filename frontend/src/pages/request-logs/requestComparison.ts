@@ -6,6 +6,7 @@ export type ComparisonDirection = "request" | "response";
 export function comparisonBody(
   detail: AuditLogDetail,
   direction: ComparisonDirection,
+  apiFamily: "openai" | "anthropic" | "gemini" = "openai",
 ) {
   const stored = detail[`${direction}_body_stored`];
   const encoded = detail[`${direction}_body_base64`];
@@ -16,9 +17,10 @@ export function comparisonBody(
   const view =
     decoded.text === null
       ? null
-      : buildPayloadViewModel(decoded.text, "openai", direction, null);
+      : buildPayloadViewModel(decoded.text, apiFamily, direction, null);
   return {
-    text: stored && !decoded.binary && view?.readableText ? decoded.text : null,
+    text: stored && decoded.text === "" ? "" : stored && view?.transcript?.turns.some(turn => turn.text)
+      ? view.transcript.turns.filter(turn => turn.text).map(turn => turn.text).join("\n\n") : null,
     binary: decoded.binary || view?.readableText === false,
     truncated: detail[`${direction}_body_truncated`],
     observed: detail[`${direction}_body_bytes_observed`],

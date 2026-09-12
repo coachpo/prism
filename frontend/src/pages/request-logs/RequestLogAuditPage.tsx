@@ -1,3 +1,5 @@
+import { describeRequestFailure } from "./requestFailurePresentation";
+import { RequestFailureRecovery } from "./detail/RequestFailureRecovery";
 import { useEffect, useId, useRef, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import {
@@ -140,6 +142,7 @@ function AuditRecordsTable({
   nextCursor,
   requestId,
   selectedAuditId,
+  returnTo,
 }: {
   auditItems: AuditLogListItem[];
   cursor: string | null;
@@ -147,6 +150,7 @@ function AuditRecordsTable({
   nextCursor: string | null;
   requestId: string;
   selectedAuditId: number | null;
+  returnTo: string;
 }) {
   const { formatNumber, messages } = useLocale();
   const { format } = useTimezone();
@@ -181,8 +185,6 @@ function AuditRecordsTable({
             <TableHeader>
               <TableRow>
                 <TableHead>{copy.auditTableColumnAudit}</TableHead>
-                <TableHead>{copy.auditTableColumnMethod}</TableHead>
-                <TableHead>{copy.auditTableColumnUrl}</TableHead>
                 <TableHead>{copy.model}</TableHead>
                 <TableHead>{copy.endpoint}</TableHead>
                 <TableHead>{copy.auditTableColumnStatus}</TableHead>
@@ -214,20 +216,11 @@ function AuditRecordsTable({
                       <Link
                         to="/observe/requests/$requestId/audit"
                         params={{ requestId }}
-                        search={{ audit_id: String(item.id), cursor: cursor ?? undefined }}
+                        search={{ audit_id: String(item.id), cursor: cursor ?? undefined, return_to: returnTo === "/observe/requests" ? undefined : returnTo }}
                         className="hover:underline"
                       >
                         #{item.id}
                       </Link>
-                    </TableCell>
-                    <TableCell className="font-mono">
-                      {item.request_method}
-                    </TableCell>
-                    <TableCell
-                      className="max-w-80 truncate font-mono text-xs"
-                      title={item.request_url}
-                    >
-                      {item.request_url}
                     </TableCell>
                     <TableCell className="max-w-40 truncate font-mono text-xs">
                       {item.model_id}
@@ -282,7 +275,7 @@ function AuditRecordsTable({
               <Link
                 to="/observe/requests/$requestId/audit"
                 params={{ requestId }}
-                search={{}}
+                search={{ return_to: returnTo === "/observe/requests" ? undefined : returnTo }}
               >
                 {copy.previousPage}
               </Link>
@@ -297,7 +290,7 @@ function AuditRecordsTable({
               <Link
                 to="/observe/requests/$requestId/audit"
                 params={{ requestId }}
-                search={{ cursor: nextCursor }}
+                search={{ cursor: nextCursor, return_to: returnTo === "/observe/requests" ? undefined : returnTo }}
               >
                 {copy.nextPage}
               </Link>
@@ -424,9 +417,6 @@ function AuditDetailCard({
               className="text-[11px]"
             />
           </div>
-          <p className="whitespace-pre-wrap break-words rounded-lg border border-border bg-panel p-3 font-mono text-xs leading-5 text-foreground shadow-inner [overflow-wrap:anywhere]">
-            {`${detail.request_method} ${detail.request_url}`}
-          </p>
           <p className="text-xs text-muted-foreground">
             {formatTimestamp(detail.created_at)}
           </p>
@@ -439,14 +429,6 @@ function AuditDetailCard({
       <CardContent className="flex flex-col gap-4 p-4">
         {/* Every payload states what was observed, kept and dropped, so a
             truncated body is never mistaken for the whole body. */}
-        <div className="flex flex-col gap-2">
-          <RequestLogPayloadBlock
-            title={messages.requestLogs.requestHeaders}
-            content={detail.request_headers || ""}
-            contentKind="headers"
-          />
-        </div>
-        <Separator />
         <div className="flex flex-col gap-2">
           <RequestLogPayloadBlock
             title={messages.requestLogs.requestBody}
@@ -465,14 +447,6 @@ function AuditDetailCard({
             bytesStored={detail.request_body_bytes_stored}
             captureStatus={detail.request_body_capture_status}
             truncated={detail.request_body_truncated}
-          />
-        </div>
-        <Separator />
-        <div className="flex flex-col gap-2">
-          <RequestLogPayloadBlock
-            title={messages.requestLogs.responseHeaders}
-            content={detail.response_headers ?? ""}
-            contentKind="headers"
           />
         </div>
         <Separator />
@@ -520,6 +494,8 @@ export function RequestLogAuditPage({
   searchParams = new URLSearchParams(window.location.search),
 }: RequestLogAuditPageProps = {}) {
   const requestId = parseRequestLogIdParam(requestIdParam);
+  const returnParam = searchParams.get("return_to");
+  const returnTo = returnParam && /^\/observe\/requests(?:\?[^#]*)?$/.test(returnParam) ? returnParam : "/observe/requests";
   const auditIdParam = searchParams.get("audit_id");
   const auditCursor = searchParams.get("cursor")?.trim() || null;
   const selectedAuditId = parsePositiveAuditId(auditIdParam);
@@ -538,6 +514,15 @@ export function RequestLogAuditPage({
     selectedAuditParamLabel: auditIdParam,
   });
   const requestLane = state.request;
+  const requestSummary = requestLane.request?.summary;
+  const requestStatusCode = requestSummary ? auditScopedStatusCode(requestSummary) : null;
+  const requestFailure = describeRequestFailure({
+    statusCode: requestStatusCode,
+    streamOutcome: requestSummary?.stream_outcome,
+    streamErrorKind: requestSummary?.stream_error_kind,
+    errorPresent: Boolean(requestLane.request?.failure?.category),
+  });
+  const completionUnknown = !requestFailure && requestSummary?.is_stream && requestSummary.stream_outcome !== "completed";
   const listLane = state.list;
   const detailLane = state.detail;
   const auditRequestApiFamily =
@@ -615,16 +600,10 @@ export function RequestLogAuditPage({
         {/* query 串写进 to 不会被路由解析：request_id 与时间窗必须走 search，
             否则这条出口把操作者扔进一个空的默认 24h 列表。 */}
         <Button variant="outline" asChild>
-          <Link
-            to="/observe/requests"
-            search={{
-              request_id: requestId ?? undefined,
-              time_range: "all",
-            }}
-          >
+          <a href={returnTo}>
             <ArrowLeft data-icon="inline-start" />
-            {messages.requestLogs.viewRequestInLogs}
-          </Link>
+            {messages.requestLogs.returnToRequestList}
+          </a>
         </Button>
       </OperatorPageHeader>
 
@@ -649,6 +628,7 @@ export function RequestLogAuditPage({
           lane alone, so list/detail reads never flash it away. */}
       {requestLane.request ? (
         <>
+          <RequestFailureRecovery request={requestLane.request} />
           <RequestLogAuditWindowBar
             coverage={listLane.coverage}
             lastFetchedAt={state.lastFetchedAt}
@@ -685,18 +665,14 @@ export function RequestLogAuditPage({
                 {format(requestLane.request.summary.created_at)}
               </span>
               <Separator orientation="vertical" className="h-3" />
-              <span className="inline-flex items-center gap-1">
+              <span className="inline-flex items-center gap-1" data-testid="audit-request-result">
                 {messages.requestLogs.status}
-                {requestLane.request.summary.upstream_status_code === null ? (
+                {typeof requestStatusCode !== "number" ? (
                   <OperatorMissingValue reason={messages.honesty.noValue} />
                 ) : (
                   <OperatorStatusBadge
-                    intent={getStatusIntent(
-                      requestLane.request.summary.upstream_status_code,
-                    )}
-                    label={String(
-                      requestLane.request.summary.upstream_status_code,
-                    )}
+                    intent={requestFailure ? "failing" : completionUnknown ? "idle" : getStatusIntent(requestStatusCode)}
+                    label={requestFailure?.title ?? (completionUnknown ? messages.requestLogs.streamUnknown : messages.requestLogs.attemptResultCompleted)}
                     preserveLabel
                   />
                 )}
@@ -805,8 +781,6 @@ export function RequestLogAuditPage({
           testId="audit-list-error"
           title={messages.requestLogs.auditListLoadFailedTitle}
           description={messages.honesty.readFailedDescription}
-          details={listLane.error}
-          detailsLabel={messages.honesty.viewDetails}
           action={
             <>
               <Button variant="outline" size="sm" onClick={state.retryList}>
@@ -857,6 +831,7 @@ export function RequestLogAuditPage({
       {requestId !== null && listLane.items.length > 0 ? (
         <div className="flex min-w-0 flex-col gap-4">
           <AuditRecordsTable
+            returnTo={returnTo}
             auditItems={listLane.items}
             cursor={auditCursor}
             hasMore={listLane.hasMore}
@@ -896,8 +871,6 @@ export function RequestLogAuditPage({
                 testId="audit-detail-error"
                 title={messages.requestLogs.auditDetailLoadFailedTitle}
                 description={messages.honesty.readFailedDescription}
-                details={detailLane.error}
-                detailsLabel={messages.honesty.viewDetails}
                 action={
                   <>
                     <Button

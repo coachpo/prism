@@ -1,4 +1,6 @@
 import { ApiError } from "@/lib/api"
+import { getStaticMessages } from "@/i18n/staticMessages"
+import { managementErrorMessage } from "@/lib/api/errorMessage"
 
 export type ServerValidationIssue = {
   code?: string
@@ -20,12 +22,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function issueFromRecord(record: Record<string, unknown>): ServerValidationIssue | null {
-  const message = cleanString(record.message) || cleanString(record.detail) || cleanString(record.error)
-  if (!message) return null
+  if (!(cleanString(record.message) || cleanString(record.detail) || cleanString(record.error))) return null
   const field = cleanString(record.field) || cleanString(record.path) || cleanString(record.pointer) || "server"
   const code = cleanString(record.code)
 
-  return { field, message, ...(code ? { code } : {}) }
+  return { field, message: getStaticMessages().common.requestErrors.fieldInvalid, ...(code ? { code } : {}) }
 }
 
 function collectIssues(value: unknown): ServerValidationIssue[] {
@@ -64,25 +65,24 @@ function dedupeIssues(issues: ServerValidationIssue[]): ServerValidationIssue[] 
 }
 
 export function formatServerValidationIssue(issue: ServerValidationIssue): string {
-  if (issue.code) {
-    return `${issue.field} (${issue.code}): ${issue.message}`
-  }
-  return `${issue.field}: ${issue.message}`
+  const copy = getStaticMessages().common.requestErrors
+  const label = copy.fields[issue.field as keyof typeof copy.fields]
+  return label ? `${label}：${copy.fieldInvalid}` : copy.invalid
 }
 
 export function extractServerValidation(error: unknown, fallback: string): ServerValidationResult {
   if (error instanceof ApiError) {
-    const issues = collectIssues(error.detail)
+    const issues = [400, 409, 422].includes(error.status) ? collectIssues(error.detail).filter(issue => issue.field !== "server") : []
     if (issues.length > 0) {
-      return { issues, summary: issues.map(formatServerValidationIssue).join("\n") }
+      return { issues, summary: [...new Set(issues.map(formatServerValidationIssue))].join("\n") }
     }
 
-    return { issues: [], summary: error.message || fallback }
+    return { issues: [], summary: managementErrorMessage(error.status) }
   }
 
   return {
     issues: [],
-    summary: error instanceof Error && error.message ? error.message : fallback,
+    summary: fallback,
   }
 }
 

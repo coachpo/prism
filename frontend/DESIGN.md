@@ -11,12 +11,12 @@ New feature and page code should use `@/shared/design-system` first, then `@/com
 
 ## Product Character
 
-Prism is a self-hosted LLM gateway operated by one person. The console is a cockpit, not a marketing surface. Operators arrive with one of three tasks: is it healthy right now, why did this request fail, how should this route be configured.
+Prism is a self-hosted LLM gateway used by one person. The interface serves four tasks: connect a service and model, obtain client connection information, review recent usage and cost, and recover from failed requests. Knowing how to develop software does not imply wanting to operate a debugging console. Organize navigation and actions around those tasks; internal entity dependencies do not define the user journey.
 
 Four rules, in priority order:
 
 1. **Honesty over tidiness.** See Honesty Contract. This outranks every aesthetic consideration.
-2. **Density over whitespace.** One screen must hold KPIs, a time series, and a long table. Breathing room never costs screen information.
+2. **Task clarity before density.** Show current state and the next useful action before supporting detail. Recent usage and cost precede the trend chart. Empty installations show a direct connection path instead of an empty statistics table. Preserve compact, scannable presentation once data exists.
 3. **State must be scannable.** Anomalies are always more prominent than normal, and are never conveyed by color alone.
 4. **Numbers are the subject.** Metrics, identifiers, and timestamps use the mono family with tabular numerals so columns compare vertically.
 
@@ -217,21 +217,21 @@ Three sidebar groups follow **path prefix = sidebar group = first breadcrumb seg
 
 | Group | Prefix | Pages |
 | --- | --- | --- |
-| 可观测性 | `/observe`, `/observe/*` | 仪表盘, 请求日志, 路由健康; 请求审计 is a request detail route |
-| 路由配置 | `/route/*` | 端点 → 价格模板 → 路由策略 → 模型配置; 模型配置详情 and 导出客户端配置 are child routes |
-| 系统 | `/system/*` | 设置, 代理密钥 |
+| 使用情况 | `/observe`, `/observe/*` | 用量与费用, 请求记录, 连接状态; request content is a request detail route |
+| 模型与服务 | `/route/*` | 模型, 服务, 价格模板, 路由策略; model detail and client export remain child routes |
+| 访问与设置 | `/system/*` | 客户端密钥, 设置 |
 
 Route relationships:
 
 - **Routing health has its own sidebar entry** at `/observe/routing-health`. It is a triage entry point and must not be buried in a tab. The former `/observe?tab=events` entry redirects with the routing-health window and filters.
-- **Model configuration lives at `/route/models`**. `/models` and `/models/:modelId` redirect to the corresponding route under `/route/models`, so the configuration chain reads down the sidebar in dependency order. Configuring top to bottom is itself the guided path.
-- **Request audit is a detail page** at `/observe/requests/:requestId/audit`; it keeps 请求日志 active in the sidebar. Model detail and export similarly keep 模型配置 active.
+- **Model configuration lives at `/route/models`**. `/models` and `/models/:modelId` redirect to the corresponding route under `/route/models`, while the first-use action opens model creation directly. Service creation can continue into model creation with the saved service selected. Existing configuration dependencies are handled in context without requiring a tour of the sidebar.
+- **Request audit is a detail page** at `/observe/requests/:requestId/audit`; it keeps 请求记录 active in the sidebar. Model detail and export similarly keep 模型 active.
 
 Shell:
 
 - Desktop sidebar 240px, `panel` ground, 1px right outline. Group labels 11px `text-muted`. Items 32px tall, 6px radius, 16px icon plus 13px label. Active item: `primary-soft` ground, `on-primary-soft` text, 2px primary bar on the left edge — not a solid blue reverse fill. Collapses to a 56px icon rail, not off-canvas. Render each entry's icon from `useShellNavigation.ts`. Three bands, no cliff between them: **≥1280** expanded 240px; **768–1279** defaults to the icon rail (the operator's explicit choice is remembered and wins); **<768** only, the shared sidebar primitive uses a sheet and closes it after navigation. Below `sm` the header's global search collapses to a single icon button and the breadcrumb renders only its last two levels — a full trail there compresses every level to a couple of pixels.
 - Header 48px, `panel` ground, 1px bottom outline. Breadcrumb on the left at 12px. Right side: global search, density toggle, theme toggle, account menu. Theme and account controls belong in the header.
-- Breadcrumbs are fixed at **group › page › entity**. A detail page leaf must be the entity name, not a generic word: `路由配置 › 模型配置 › GPT-4o Mini 主线`, never `模型配置 › 配置`.
+- Breadcrumbs are fixed at **group › page › entity**. A detail page leaf must be the user-visible name, for example `模型与服务 › 模型 › GPT-4o Mini 主线`.
 
 ### Freshness Bar
 
@@ -287,7 +287,7 @@ Any of these is rework:
 - Settings toggles should use `OperatorSwitchField`.
 - Keep React Hook Form where it already owns validation and submission.
 - When touching selects, place `SelectItem`s inside `SelectGroup`.
-- Preserve existing labels, disabled states, `aria-invalid`, and server validation messages.
+- Preserve accurate labels, disabled states, and `aria-invalid`. Map server field errors to the visible field and locally authored recovery copy; never print server field paths, codes, or raw messages.
 - Group dense settings forms into section cards rather than nested local panels.
 - When a form needs a smaller visual group inside a section card or dialog, use `OperatorInsetPanel` instead of local `rounded-lg border bg-muted/*` containers.
 - Keep primary form actions in a predictable footer or page-header action area.
@@ -312,7 +312,7 @@ Shared specification, applied by every list page:
 - **Status stripe**: a 2px status-colored bar on the row's left edge, **for runtime state only**. Idle rows get no stripe. Never encode a non-runtime attribute (such as "has references") as a runtime status color.
 - **Alignment**: text left; values, currency, latency, and token counts right-aligned in mono with tabular numerals; status badge columns fixed-width and left-aligned.
 - **Identifier columns**: mono 13px, middle-elided when long (`gpt-4o-mini-2024…0718`), full value plus a copy control on hover.
-- **Model-config exit mapping** (models list): the targets cell projects the DIRECT `access_targets` rows in shared `(position, id)` order and shows the first two — Terminal Target rows as `端点 → 实际上游模型 ID`, Model Target rows prefixed `模型目标 →` — with the count and the first row sharing one line and the second row sharing a line with the remainder, capped at two lines. When exactly one row would remain, render it instead of folding: folding the last one saves no height. Otherwise the remainder folds into a `还有 N 项，见详情` pointer to the model-config detail. `入口同名` applies only when the owning model configuration has `direct_request_enabled=true` and its ID exactly matches the upstream ID; every upstream identity on a non-entry configuration is `仅上游`, even when the strings match. These identity states and non-participating (`未参与`) rows carry text, never color alone. A missing endpoint or upstream identity renders a reasoned `—`; the owning model configuration's `model_id` is never substituted for it, and the summary never follows Model Target rows recursively.
+- **Model-config exit mapping** (models list): the targets cell projects the DIRECT `access_targets` rows in shared `(position, id)` order and shows the first two — Terminal Target rows as `服务 → 服务提供的模型名称`, Model Target rows prefixed `转发到其他模型 →` — with the count and the first row sharing one line and the second row sharing a line with the remainder, capped at two lines. When exactly one row would remain, render it instead of folding: folding the last one saves no height. Otherwise the remainder folds into a `还有 N 项，见详情` pointer to the model-config detail. `入口同名` applies only when the owning model configuration has `direct_request_enabled=true` and its ID exactly matches the upstream ID; every upstream identity on a non-entry configuration is `仅上游`, even when the strings match. These identity states and non-participating (`未参与`) rows carry text, never color alone. A missing endpoint or upstream identity renders a reasoned `—`; the owning model configuration's `model_id` is never substituted for it, and the summary never follows Model Target rows recursively.
 - **Row actions**: faded out by default under a hovering pointer, faded in on row hover or focus, reachable by keyboard; the overflow-menu trigger stays visible (dimmed) so a row never looks actionless, and under `(hover:none)` every row action is visible. More than three actions collapse into an overflow menu.
 - **Frozen columns**: a table that scrolls horizontally freezes its identity column (`left-0`) and its actions column (`right-0`) against the panel ground with a 1px inset separator. Row actions that live past the scroll edge are not reachable. A row that also carries the status stripe must take its `position` back with `sticky!` — the stripe's `[&>td:first-child]:relative` outranks the cell's own class.
 - **Where the height goes**: the vertical limit belongs on the table's own scroll container, through `Table`'s `scrollAreaClassName` (`max-h-[calc(100dvh-18rem)]`). Wrapping `<Table>` in another `max-h` + `overflow-auto` element does **not** work: `overflow-x-auto` already computes `overflow-y` to `auto`, so the inner container is the nearest scrollport and it never scrolls vertically — measured, the header lands 599px above the viewport after a 600px scroll. The scroll container also becomes a keyboard-reachable `role="region"` and grows edge fades on its own once it overflows.
@@ -331,7 +331,7 @@ Shared specification, applied by every list page:
 - **Dialog height**: a dialog is never taller than the viewport minus twice the page padding. The body scrolls inside `DialogBody`; the header and footer stay put. A dialog must never rely on the page scrolling to reveal its own title or close button.
 - Every dialog returns focus to the element that opened it on close, including controlled dialogs with no Radix trigger.
 - A form dialog is a real `<form>`: Enter submits, required fields are marked, and the draft resets when the dialog opens a new session.
-- Detail drawers slide from the right at 560px, or 720px for payload-bearing detail. Payload and JSON render in an `inset` code block at 12px mono with copy and collapse controls.
+- Detail drawers slide from the right at 560px, or 720px when readable request content needs more room. Request content is presented as messages and results with explicit missing/truncated-content notices. Raw protocol payloads, headers, streams, and debugging JSON are not product detail views.
 
 ### Destructive Flows
 
@@ -354,7 +354,7 @@ Current adopters, and what each one contributes:
 - Model delete (`src/pages/models/DeleteModelDialog.tsx`): client-side referrer preflight over the loaded model configurations, blocked view listing the configurations that target this one, and delete failures reported inline instead of by toast. Reachable from both the list row menu and the detail page header.
 - Access target removal (`DeleteAccessTargetDialog` in `src/pages/models/AccessTargetsEditor.tsx`): impact summary naming the target, its endpoint, upstream model ID, pricing template, routing participation and position, with an extra warning when it is the last enabled target.
 
-Confirm buttons name the action (`删除端点`), never `确认`. The entry point that opens a blocked-delete dialog stays clickable so the operator can inspect the reason; the dialog's confirm action remains disabled or hidden. Silent disabling without a reason is not acceptable.
+Confirm buttons name the action (`删除服务`), never `确认`. The entry point that opens a blocked-delete dialog stays clickable so the operator can inspect the reason; the dialog's confirm action remains disabled or hidden. Silent disabling without a reason is not acceptable.
 
 ## Status And Feedback
 
@@ -372,8 +372,8 @@ State surface specifications:
 
 - **Loading is not absence.** While a value is being read, render a skeleton or say `指标仍在读取中`; never render the reason a value would be missing (`窗口内没有已最终化请求`, `没有可用延迟样本`) for a read that has not come back. A whole metric group enters and leaves the pending state together.
 - **Loading**: skeletons shaped like the real content — table skeletons draw rows, card skeletons draw blocks. Table pages keep the shell and swap in skeleton rows rather than collapsing to a panel spinner. Design-system components must not ship visible default copy; pass `undefined` and let the caller supply localized text.
-- **Empty**: centered, 48px `text-disabled` icon, 15px/600 title, 12px description, primary action. **The description states the next step** — `还没有配置端点。先添加一个供应商端点，模型才能路由到它。` First-load empty is page-level with a primary action; a filtered-to-nothing result renders inside the table body with a clear-filters action.
-- **Error**: `destructive` outlined card naming what happened, an actionable next step, and a retry control. Status codes and traces collapse behind `查看详情`.
+- **Empty**: centered, 48px `text-disabled` icon, 15px/600 title, 12px description, primary action. **The description states the next step** — `还没有接入模型。添加模型时可以一起填写服务地址和密钥。` First-load empty is page-level with a primary action; a filtered-to-nothing result renders inside the table body with a clear-filters action.
+- **Error**: `destructive` outlined card naming what happened, what is affected, and an actionable retry or recovery control. Use known statuses to explain supported facts; when the cause is unknown, say so. Raw errors, status enum keys, traces, SQL, and internal paths never appear, including in tooltips, dialogs, or expandable details. Diagnostic evidence belongs in logs and engineering reports.
 - **Partially degraded**: render the content and attach a `degraded` notice naming which part is unavailable.
 
 Feedback routing: while a dialog stays open, report inline only — every validation branch included, and the inline callout sits at the top of `DialogBody`, not below the fold; once it closes, or for inline row actions, report by toast. Never both. Toasts render bottom-right so they never cover the shell controls or the page header's primary action.
@@ -407,14 +407,26 @@ An inline switch that writes immediately needs no confirmation, but its success 
 
 Interface language is Simplified Chinese, single locale. All visible strings and every `aria-label` / `sr-only` string go through `messages`; no new hard-coded literals.
 
-Fixed terminology: 端点, 终端目标, 终端配置 (孤立时称孤立终端配置), 访问目标, 模型配置, 模型目标, 上游模型 ID, 入口模型, 仅模型目标, 最终目标模型, 价格模板, 路由策略, 路由时段, 代理密钥, 最终承载, 路由尝试, 参与路由, 已知成本, 定价状态, 覆盖, 口径, 可信成本, 未归因. The inventory, detail, and CRUD surfaces for `model_configs` are named 模型配置. A model configuration with `direct_request_enabled=true` is classified as 入口模型; one with `direct_request_enabled=false` is classified as 仅模型目标. 模型配置, 入口模型, 仅模型目标, 模型目标, and 上游模型 ID are distinct terms and never substitute for each other. 已知成本 is the single name for `known_cost_micros`; a scope difference belongs in the column basis or the KPI detail, never in a new noun such as 可信已知成本. 覆盖 refers to routing-target coverage only — incomplete sampling is 样本不全, and a window clipped by retention is 保留期外.
+User-facing terminology: 服务 (provider address and credential), 服务连接 (one model's use of a service), 模型 (saved model configuration), 客户端模型名称 (the exact name the client sends), 服务提供的模型名称 (the exact provider name), 转发到其他模型 (a model used as another model's destination), 价格模板, 路由策略, 客户端密钥, 请求记录, 连接状态, 用量与费用. Keep client and provider model identities distinct even when their values happen to match. The exact values must be copyable where needed; user-authored names remain unchanged.
 
-Left untranslated: Prism, Gateway, API family, epoch, cutoff, generation, FX, preflight, curl, OpenAI, Anthropic, Gemini.
+Keep 已知成本 as the single name for recorded priced cost, explain its scope beside the amount, and never imply that missing prices mean free usage. Describe retention, sampling, unavailable data, and partial results in natural language. Product copy may change while retaining the full meaning of these limitations.
 
-- Buttons are verb phrases (`添加端点`, `保存更改`, `重置封禁`), never `确定` or `提交`.
+Brand names and client-required protocol names such as OpenAI, Anthropic, Gemini, Chat Completions, and Responses remain exact where they support a choice. Database terms, internal enum names, implementation ownership, generation/CAS/cutoff terminology, internal paths, stacks, debugging JSON, and development-process explanations have no place in product copy. This applies equally to accessibility labels, help, errors, and details.
+
+### Completion And Recovery
+
+- First-use tasks are connect a model, configure cost recording when desired, and connect a client. Existing backend readiness facts determine their states; configuration completion does not claim a successful provider request.
+- A model's connection information names the Prism address, exact client model name, and client-key requirements. Visually distinguish it from the provider service address. Provide required copy controls and an in-context verification action.
+- Price forms show the confirmed current currency and per-million-token unit. If currency cannot be confirmed, offer retry before saving. Optional blank prices mean unknown; a request that uses an unpriced token category has unknown cost. Enter zero only for a known free category. Preserve price source, applicable dates, rates, and historical-cost limits without internal revision identifiers.
+- Saving and checking a service are explicit, separate actions with matching behavior. Validate required fields before either action. A saved item has one completion state; a failed connection check must not invite accidental duplicate creation.
+- Keep a failed save's draft available. Cancellation discards only unsaved changes. Show shared-service changes' affected models before saving. A successful action states what was saved and its effect.
+- Verification uses one dialog and one explicit send action. Preserve the possible provider charge notice. Show the request result separately from delayed or unavailable request records, and retry record loading without resending the request.
+- Failed-request details lead with the observed outcome, a supported explanation, and concrete next steps such as checking the service address, service key, or model. Links to configuration and back retain useful selection and filters.
+
+- Buttons are verb phrases (`添加服务`, `保存更改`, `恢复请求`), never `确定` or `提交`.
 - Values carry units: `342 ms`, `$12.48`, `1.2M`, `99.2%`.
 - Times follow the global timezone setting; relative times carry an absolute tooltip.
-- Errors say what happened and where to go: `端点连接失败（401）。检查该端点的 API 密钥是否有效。`
-- The honesty copy already shipped must not be weakened or rewritten.
+- Errors say what happened and where to go: `服务拒绝了这次访问。请检查服务中保存的密钥是否正确、仍然有效。`
+- Preserve the factual meaning of all uncertainty and data-limit notices; rewrite implementation language into natural language when needed.
 
 Product code should import operator components from `@/shared/design-system` directly instead of adding compatibility wrappers under `@/components`.

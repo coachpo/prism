@@ -77,8 +77,9 @@ describe("api client contracts", () => {
     )
 
     await expect(api.models.list()).rejects.toMatchObject({
-      message: "still expired",
+      message: "未能通过身份验证。请检查登录信息，或重新登录后再试。",
       status: 401,
+      detail: { code: "auth_not_authenticated", detail: "still expired" },
     })
 
     expect(modelRequests).toBe(2)

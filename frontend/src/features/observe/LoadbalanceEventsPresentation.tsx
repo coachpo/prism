@@ -2,7 +2,8 @@ import { Link } from "@tanstack/react-router";
 import { Loader2, RefreshCw, SearchX } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { RoutingHealthModelFilter } from "./RoutingHealthModelFilter";
+import { ObserveFragmentStamp } from "./ObserveFragmentStamp";
 import {
   Select,
   SelectContent,
@@ -175,6 +176,7 @@ export function LoadbalanceEventsPresentation({
         </div>
       }
     >
+      <ObserveFragmentStamp generatedAt={fragment.data?.generated_at} />
       <div className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center gap-2">
           <Select
@@ -237,7 +239,7 @@ export function LoadbalanceEventsPresentation({
             </SelectTrigger>
             <SelectContent>
               <SelectGroup>
-                <SelectItem value="all">{copy.eventTypeFilterAll}</SelectItem>
+                <SelectItem value="all">{copy.failureKindFilterAll}</SelectItem>
                 <SelectItem value="transient_http">
                   {copy.eventSummary.failureTransientHttp}
                 </SelectItem>
@@ -271,7 +273,7 @@ export function LoadbalanceEventsPresentation({
             </SelectTrigger>
             <SelectContent>
               <SelectGroup>
-                <SelectItem value="all">{copy.eventTypeFilterAll}</SelectItem>
+                <SelectItem value="all">{copy.admissionFilterAll}</SelectItem>
                 <SelectItem value="qps_limit">
                   {copy.eventSummary.admissionQpsLimit}
                 </SelectItem>
@@ -284,26 +286,7 @@ export function LoadbalanceEventsPresentation({
               </SelectGroup>
             </SelectContent>
           </Select>
-          <Input
-            className="w-44"
-            placeholder={copy.modelFilterSubmitPlaceholder}
-            defaultValue={eventModelId ?? ""}
-            aria-label={copy.modelFilterLabel}
-            onBlur={(event) =>
-              updateSearch({
-                event_model_id: event.target.value.trim() || undefined,
-                event_cursor: undefined,
-              })
-            }
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                updateSearch({
-                  event_model_id: event.currentTarget.value.trim() || undefined,
-                  event_cursor: undefined,
-                });
-              }
-            }}
-          />
+          <RoutingHealthModelFilter value={eventModelId} onValueChange={value => updateSearch({ event_model_id: value, event_cursor: undefined })} />
         </div>
       </div>
 
@@ -312,8 +295,6 @@ export function LoadbalanceEventsPresentation({
           testId="events-context-error"
           title={copy.loadFailed}
           description={messages.honesty.readFailedDescription}
-          details={contextState.error}
-          detailsLabel={messages.honesty.viewDetails}
           action={
             <Button
               type="button"
@@ -335,8 +316,6 @@ export function LoadbalanceEventsPresentation({
           testId="events-load-error"
           title={copy.loadFailed}
           description={messages.honesty.readFailedDescription}
-          details={fragment.error}
-          detailsLabel={messages.honesty.viewDetails}
           action={
             <Button
               type="button"
@@ -360,8 +339,6 @@ export function LoadbalanceEventsPresentation({
               : tableCopy.pageLoadFailed(knownPageNumber)
           }
           description={messages.honesty.readFailedDescription}
-          details={fragment.error}
-          detailsLabel={messages.honesty.viewDetails}
           action={
             <Button
               type="button"
@@ -381,6 +358,7 @@ export function LoadbalanceEventsPresentation({
           icon={<SearchX />}
           title={copy.eventsEmptyTitle}
           description={copy.eventsEmptyDescription}
+          action={(eventTypes.length || failureKinds?.length || admissionReasons?.length || eventModelId || search.event_endpoint_id || search.event_terminal_target_id) ? <Button size="sm" onClick={() => updateSearch({ event_type: undefined, event_failure_kind: undefined, event_admission_reason: undefined, event_model_id: undefined, event_endpoint_id: undefined, event_terminal_target_id: undefined, event_cursor: undefined })}>{copy.clearFilters}</Button> : undefined}
         />
       ) : null}
 

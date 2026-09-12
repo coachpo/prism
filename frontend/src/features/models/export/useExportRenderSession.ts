@@ -51,7 +51,7 @@ export function useExportRenderSession({
           setRenderStale(true);
           void refetchSource();
         }
-        setRenderError(detail.message ?? renderFailedMessage);
+        setRenderError(detail.status ? managementErrorMessage(detail.status) : renderFailedMessage);
         throw error;
       }
     },
@@ -85,3 +85,4 @@ export function useExportRenderSession({
     openKeyDialog,
   };
 }
+import { managementErrorMessage } from "@/lib/api/errorMessage";

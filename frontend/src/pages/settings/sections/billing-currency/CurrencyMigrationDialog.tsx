@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { ArrowRight, CheckCircle2 } from "lucide-react";
+import { CheckCircle2 } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -57,6 +57,7 @@ export function CurrencyMigrationDialog({
   const [symbol, setSymbol] = useState("");
   const [step, setStep] = useState<Step>(STEP_PREVIEW);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<CurrencyMigrationPreview | null>(null);
   const [draft, setDraft] = useState<CurrencyMigrationDraftHeader | null>(null);
   const [prepared, setPrepared] = useState<PreparedMigration | null>(null);
@@ -93,6 +94,7 @@ export function CurrencyMigrationDialog({
     if (codeError || !code.trim() || !symbol.trim()) {
       return;
     }
+    setError(null);
     setLoading(true);
     try {
       const migration = await prepareCurrencyMigration(currentCosting, code);
@@ -102,8 +104,8 @@ export function CurrencyMigrationDialog({
         return;
       }
       await submitMigration(migration);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : copy.previewFailed);
+    } catch {
+      setError(copy.previewFailed);
     } finally {
       setLoading(false);
     }
@@ -121,14 +123,15 @@ export function CurrencyMigrationDialog({
       return;
     }
     if (prepared.rows.some(currencyMigrationCardSetHasMissingRequiredPrice)) {
-      toast.error(copy.repairMissingRequired);
+      setError(copy.repairMissingRequired);
       return;
     }
+    setError(null);
     setLoading(true);
     try {
       await submitMigration(prepared);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : copy.previewFailed);
+    } catch {
+      setError(copy.previewFailed);
     } finally {
       setLoading(false);
     }
@@ -173,12 +176,13 @@ export function CurrencyMigrationDialog({
     if (!preview || !draft || preview.next_epoch === null) {
       return;
     }
+    setError(null);
     setLoading(true);
     try {
       await commitCurrencyMigration(preview);
       await onMigrated();
       toast.success(
-        copy.commitSucceeded(preview.target_currency_code, preview.next_epoch),
+        copy.commitSucceeded(preview.target_currency_code),
       );
       setPreview(null);
       setPrepared(null);
@@ -186,8 +190,8 @@ export function CurrencyMigrationDialog({
       setCode("");
       setSymbol("");
       onOpenChange(false);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : copy.commitFailed);
+    } catch {
+      setError(copy.commitFailed);
     } finally {
       setLoading(false);
     }
@@ -196,6 +200,7 @@ export function CurrencyMigrationDialog({
   const handleOpenChange = useCallback(
     (next: boolean) => {
       if (!next) {
+        setError(null);
         setPreview(null);
         setDraft(null);
         setPrepared(null);
@@ -217,6 +222,7 @@ export function CurrencyMigrationDialog({
             {copy.description}
           </AlertDialogDescription>
         </AlertDialogHeader>
+        {error ? <OperatorCallout intent="danger" role="alert" description={error} /> : null}
 
         {step === STEP_PREVIEW ? (
           // 真表单：两个代码框里敲回车就走预检，两个必填项也标出来。
@@ -287,12 +293,7 @@ export function CurrencyMigrationDialog({
               description={
                 <>
                   <p>{copy.repairDescription}</p>
-                  <details className="pt-2 text-xs">
-                    <summary className="cursor-pointer font-medium">
-                      {getStaticMessages().common.moreDetails}
-                    </summary>
-                    <p className="pt-2">{copy.repairDescriptionDetails}</p>
-                  </details>
+                  <p>{copy.repairDescriptionDetails}</p>
                 </>
               }
             />
@@ -303,7 +304,7 @@ export function CurrencyMigrationDialog({
               >
                 <p className="mb-2 text-sm font-medium">
                   {prepared.names[row.template_id] ||
-                    `Template ${row.template_id}`}
+                    copy.unknownTemplate}
                 </p>
                 <div className="flex flex-col gap-3">
                   {row.cards.map((card) => (
@@ -312,7 +313,7 @@ export function CurrencyMigrationDialog({
                       className="grid grid-cols-1 gap-2 sm:grid-cols-2"
                     >
                       <p className="text-xs font-medium text-muted-foreground sm:col-span-2">
-                        {card.card_role}
+                        {priceRoleLabel(card.card_role, copy)}
                       </p>
                       {(
                         [
@@ -358,7 +359,6 @@ export function CurrencyMigrationDialog({
                 preview.current_currency_code,
                 preview.target_currency_code,
                 preview.template_count,
-                preview.revision_change_count,
               )}
             />
             <div className="max-h-56 overflow-y-auto rounded-md border border-border">
@@ -366,7 +366,6 @@ export function CurrencyMigrationDialog({
                 <thead className="sticky top-0 bg-background text-left text-xs font-medium text-muted-foreground">
                   <tr>
                     <th className="px-3 py-2">{copy.tableTemplate}</th>
-                    <th className="px-3 py-2">{copy.tableVersion}</th>
                     <th className="px-3 py-2">{copy.tableReferences}</th>
                   </tr>
                 </thead>
@@ -374,14 +373,6 @@ export function CurrencyMigrationDialog({
                   {preview.template_page.items.map((template) => (
                     <tr key={template.template_id}>
                       <td className="px-3 py-2 font-medium">{template.name}</td>
-                      <td className="px-3 py-2 font-mono text-xs">
-                        {template.current_version}
-                        <ArrowRight
-                          className="mx-1 inline h-3 w-3"
-                          aria-hidden="true"
-                        />
-                        {template.next_version}
-                      </td>
                       <td className="px-3 py-2 font-mono text-xs">
                         {formatNumber(template.reference_count)}
                       </td>
@@ -392,7 +383,7 @@ export function CurrencyMigrationDialog({
             </div>
             <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
               <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
-              {copy.frozenRevisions(preview.next_epoch ?? "-")}
+              {copy.frozenRevisions}
             </p>
           </div>
         ) : null}
@@ -434,4 +425,9 @@ export function CurrencyMigrationDialog({
       </AlertDialogContent>
     </AlertDialog>
   );
+}
+
+function priceRoleLabel(role: string, copy: ReturnType<typeof getStaticMessages>["settingsCurrencyMigration"]): string {
+  const labels: Record<string, string> = { standard: copy.priceRoleStandard, tier_base: copy.priceRoleTierBase, tier_above: copy.priceRoleTierAbove, peak: copy.priceRolePeak, offpeak: copy.priceRoleOffpeak }
+  return labels[role] ?? copy.priceRoleUnknown
 }

@@ -21,7 +21,7 @@ function mount() {
 it('does not apply missing model until the operator explicitly repairs the filter', async () => {
   saveRequestLogView('旧模型', parsePageSearch({ ingress_model_id: 'deleted' })); mount();
   fireEvent.click(screen.getByRole('button', { name: '恢复预设' }));
-  await screen.findByText(/请核对当前实例引用/);
+  await screen.findByText(/请重新选择此 Prism 中的模型、服务或客户端密钥/);
   expect(replaceState).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: '当前模型 · current' }));
   fireEvent.click(screen.getByRole('button', { name: '保存修复并恢复' }));
@@ -30,7 +30,7 @@ it('does not apply missing model until the operator explicitly repairs the filte
 it('requires explicit confirmation even if a numeric ID exists in the current instance', async () => {
   saveRequestLogView('端点筛选', parsePageSearch({ endpoint: '3' })); mount();
   fireEvent.click(screen.getByRole('button', { name: '恢复预设' }));
-  await screen.findByText(/请核对当前实例引用/);
+  await screen.findByText(/请重新选择此 Prism 中的模型、服务或客户端密钥/);
   expect(replaceState).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: '保存修复并恢复' }));
   await waitFor(() => expect(replaceState).toHaveBeenCalledWith(expect.objectContaining({ endpoint_id: '3' })));

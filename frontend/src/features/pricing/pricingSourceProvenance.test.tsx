@@ -171,7 +171,7 @@ describe("pricing template source provenance", () => {
             ).not.toBeInTheDocument();
       });
 
-      it("labels each revision's source and shows the catalog revision it replayed against", () => {
+      it("labels each revision's source without exposing its internal catalog token", () => {
             render(
                   <LocaleProvider>
                         <PricingTemplateHistoryPanel
@@ -196,8 +196,8 @@ describe("pricing template source provenance", () => {
             expect(screen.getByText(/修订来源: 目录导入/)).toBeInTheDocument();
             expect(screen.getByText(/修订来源: 人工编写/)).toBeInTheDocument();
             expect(
-                  screen.getByText(/目录修订: "catalog-rev-9"/),
-            ).toBeInTheDocument();
+                  screen.queryByText(/catalog-rev-9/),
+            ).not.toBeInTheDocument();
       });
 
       it("names an unrecognised revision source instead of leaking the enum key", () => {
@@ -218,7 +218,8 @@ describe("pricing template source provenance", () => {
                   </LocaleProvider>,
             );
             expect(
-                  screen.getByText(/未识别的修订来源：future_kind/),
+                  screen.getByText(/来源暂时无法确认/),
             ).toBeInTheDocument();
+            expect(screen.queryByText(/future_kind/)).not.toBeInTheDocument();
       });
 });

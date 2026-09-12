@@ -1,7 +1,7 @@
 import type { AuthSettings, ProxyApiKey } from "@/lib/types";
 import { getCurrentLocale } from "@/i18n/format";
 import { getStaticMessages } from "@/i18n/staticMessages";
-import type { OperatorBadgeIntent, OperatorStatusTier } from "@/shared/design-system";
+import type { OperatorBadgeIntent } from "@/shared/design-system";
 
 function getProxyKeyMessages() {
   return getStaticMessages();
@@ -9,18 +9,6 @@ function getProxyKeyMessages() {
 
 export function isAuthSettingsEnabled(authSettings: AuthSettings | null) {
   return authSettings?.auth_mode?.effective === "enabled" || authSettings?.auth_enabled === true;
-}
-
-/**
- * Enforcement state as a runtime tier. Auth off is `degraded` rather than
- * `idle`: keys exist and traffic flows, but nothing is checking them.
- */
-export function getAuthStatusTier(authSettings: AuthSettings | null): OperatorStatusTier {
-  if (!authSettings) {
-    return "idle";
-  }
-
-  return isAuthSettingsEnabled(authSettings) ? "healthy" : "degraded";
 }
 
 export function getProxyKeyUsagePercent(used: number, limit: number) {

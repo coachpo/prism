@@ -1,3 +1,4 @@
+import { extractServerValidation } from "@/shared/forms/serverValidation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { getStaticMessages } from "@/i18n/staticMessages";
@@ -38,9 +39,7 @@ export function useCatalogImportReferenceData(
     } catch (cause) {
       if (generation !== requestGeneration.current) return;
       setError(
-        cause instanceof Error
-          ? cause.message
-          : getStaticMessages().common.requestFailed,
+        extractServerValidation(cause, getStaticMessages().pricingTemplatesData.loadFailed).summary,
       );
     } finally {
       if (generation === requestGeneration.current) setLoading(false);

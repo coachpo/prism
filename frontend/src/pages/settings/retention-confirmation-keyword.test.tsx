@@ -174,7 +174,10 @@ describe("Destructive retention confirmation keyword", () => {
     expect(result.current.isPolicyPhraseValid).toBe(true);
   });
 
-  it("names the server keyword in the manual cleanup dialog", async () => {
+  it("names the server keyword and preserves cleanup limits in plain language", async () => {
+    const preview = preflight("manual_cleanup");
+    preview.affected_domains[0].impact.warnings = ["手动清理不享受 scheduled query-token grace"];
+    preview.affected_domains[0].impact.non_cascades = [{ dataset: "audit_logs", effect: "preserved", retained_rows: { value: "2", accuracy: "exact", method: "count" } }];
     render(
       <LocaleProvider>
         <DeleteConfirmDialog
@@ -187,7 +190,7 @@ describe("Destructive retention confirmation keyword", () => {
           deleting={false}
           isDeletePhraseValid={false}
           preflightSemanticsComplete
-          preflight={preflight("manual_cleanup")}
+          preflight={preview}
         />
       </LocaleProvider>,
     );
@@ -195,7 +198,10 @@ describe("Destructive retention confirmation keyword", () => {
     expect(await screen.findByText("输入 DELETE 以继续")).toBeTruthy();
     expect(screen.getByRole("textbox")).toHaveAttribute("placeholder", "DELETE");
     // 删除不可逆：确认按钮要说清删的是什么，不能是一个裸「删除」。
-    expect(screen.getByRole("button", { name: "删除请求日志" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "删除请求记录" })).toBeTruthy();
+    expect(screen.getByText("详细请求记录不会随本次操作一起删除。")).toBeVisible();
+    expect(screen.getByText("手动清理不会等待正在进行的历史查询结束，这些查询可能无法继续读取待清理数据。")).toBeVisible();
+    expect(screen.queryByText(/scheduled query-token|audit_logs/)).not.toBeInTheDocument();
   });
 
   it("states that a discarded preflight voids the confirmation instead of showing a dead input", () => {
@@ -217,6 +223,6 @@ describe("Destructive retention confirmation keyword", () => {
     );
 
     expect(screen.queryByRole("textbox")).toBeNull();
-    expect(screen.getByText("本次预检已作废，服务端不会再接受它的确认。请关闭本对话框后重新发起预检。")).toBeTruthy();
+    expect(screen.getByText("本次影响检查已失效，不能继续确认。请关闭此窗口，重新检查后再操作。")).toBeTruthy();
   });
 });

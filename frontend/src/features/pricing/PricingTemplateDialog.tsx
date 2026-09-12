@@ -29,6 +29,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useLocale } from "@/i18n/useLocale";
+import { useReportingCurrencyContext } from "@/context/ReportingCurrencyContext";
 import type { PricingTemplate, PricingTemplateImpact } from "@/lib/types";
 import { OperatorCallout, OperatorErrorState, OperatorInsetPanel, OperatorRetryButton } from "@/shared/design-system";
 import {
@@ -92,6 +93,7 @@ export function PricingTemplateDialog({
   serverValidation,
 }: PricingTemplateDialogProps) {
   const { messages } = useLocale();
+  const { currency, ready: currencyReady, degraded: currencyUnavailable, refresh: refreshCurrency } = useReportingCurrencyContext();
   const dialogMessages = messages.pricingTemplateDialog;
   const form = useForm<PricingTemplateFormValues>({
     resolver: zodResolver(pricingTemplateFormSchema),
@@ -129,6 +131,7 @@ export function PricingTemplateDialog({
     <Dialog
       open={open}
       onOpenChange={(nextOpen) => {
+        if (pricingTemplateSaving) return;
         if (!nextOpen) onClose();
         else onOpenChange(nextOpen);
       }}
@@ -140,19 +143,21 @@ export function PricingTemplateDialog({
               ? dialogMessages.editTitle
               : dialogMessages.addTitle}
           </DialogTitle>
-          <DialogDescription>{dialogMessages.description}</DialogDescription>
+          <DialogDescription>{editingPricingTemplate ? dialogMessages.editDescription : dialogMessages.description}</DialogDescription>
         </DialogHeader>
-        {serverValidation ? (
-          <OperatorCallout intent="danger" data-testid="pricing-form-server-error">
-            <span className="whitespace-pre-line">{serverValidation.summary}</span>
-          </OperatorCallout>
-        ) : null}
         <Form {...form}>
           <form
             onSubmit={form.handleSubmit((values) => void onSave(values))}
             className="flex min-h-0 flex-col gap-5"
           >
             <DialogBody className="min-h-0 flex-1 overflow-y-auto pr-1">
+              {serverValidation ? (
+                <OperatorCallout intent="danger" className="mb-4" data-testid="pricing-form-server-error" title={dialogMessages.saveFailedTitle}>
+                  <p className="whitespace-pre-line">{serverValidation.summary}</p>
+                  <p className="mt-1">{dialogMessages.saveRecovery}</p>
+                </OperatorCallout>
+              ) : null}
+              <fieldset disabled={pricingTemplateSaving} className="min-w-0">
               <div className="flex flex-col gap-5">
                 <OperatorInsetPanel>
                   <p className="text-sm font-medium text-foreground">
@@ -164,10 +169,11 @@ export function PricingTemplateDialog({
                       name="name"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>{dialogMessages.nameLabel}</FormLabel>
+                          <FormLabel>{dialogMessages.requiredField(dialogMessages.nameLabel)}</FormLabel>
                           <FormControl>
                             <Input
                               autoComplete="off"
+                              aria-required="true"
                               placeholder={dialogMessages.namePlaceholder}
                               {...field}
                             />
@@ -241,13 +247,22 @@ export function PricingTemplateDialog({
                       : null
                 ) : null}
                 <div className="flex flex-col gap-4">
+                  {!currencyReady ? (
+                    <p role="status" className="text-sm text-muted-foreground">{dialogMessages.currencyLoading}</p>
+                  ) : currencyUnavailable ? (
+                    <OperatorErrorState
+                      title={dialogMessages.currencyUnavailable}
+                      description={dialogMessages.currencyUnavailableDescription}
+                      action={<OperatorRetryButton onClick={() => void refreshCurrency()}>{messages.common.retry}</OperatorRetryButton>}
+                    />
+                  ) : (
+                    <p className="text-sm font-medium" data-testid="pricing-currency-unit">
+                      {dialogMessages.currencyUnitNote(currency.code, currency.symbol, messages.costingUi.per1mTokens)}
+                    </p>
+                  )}
+                  <p className="text-sm text-muted-foreground">{dialogMessages.componentRatesSectionDescription}</p>
                   {templateKind !== "peak_valley" ? (
                     <>
-                      <p className="text-sm text-muted-foreground">
-                        {dialogMessages.rateUnitNote(
-                          messages.costingUi.per1mTokens,
-                        )}
-                      </p>
                       <PricingCardFields
                         control={form.control}
                         path="base"
@@ -260,12 +275,13 @@ export function PricingTemplateDialog({
                   )}
                 </div>
               </div>
+              </fieldset>
             </DialogBody>
             <DialogFooter className="sm:justify-between">
-              <Button type="button" variant="outline" onClick={onClose}>
+              <Button type="button" variant="outline" disabled={pricingTemplateSaving} onClick={onClose}>
                 {dialogMessages.cancel}
               </Button>
-              <Button type="submit" disabled={pricingTemplateSaving || Boolean(editingPricingTemplate && (impactLoading || impactError || !impact))}>
+              <Button type="submit" disabled={pricingTemplateSaving || !currencyReady || currencyUnavailable || Boolean(editingPricingTemplate && (impactLoading || impactError || !impact))}>
                 {pricingTemplateSaving
                   ? dialogMessages.saving
                   : dialogMessages.save}

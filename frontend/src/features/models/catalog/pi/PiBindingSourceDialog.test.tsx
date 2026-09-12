@@ -1,3 +1,4 @@
+import { getStaticMessages } from "@/i18n/staticMessages";
 // Pi binding source dialog contract on the shared controller: nothing is
 // ever preselected, stale directory evidence is readable but never
 // confirmable, append failures retry the same offset without losing rows, and
@@ -152,7 +153,7 @@ function renderDialog(reconcile = vi.fn()) {
 }
 
 function confirmButton() {
-  return screen.getByRole("button", { name: "应用绑定" });
+  return screen.getByRole("button", { name: "关联所选模型" });
 }
 
 async function typeAndSearch(
@@ -160,7 +161,7 @@ async function typeAndSearch(
   query: string,
 ) {
   await user.type(
-    screen.getByRole("textbox", { name: "目录 model_id 片段" }),
+    screen.getByRole("textbox", { name: "模型名称关键词" }),
     query,
   );
   await user.click(screen.getByRole("button", { name: "搜索目录" }));
@@ -208,7 +209,7 @@ describe("PiBindingSourceDialog", () => {
 
     // The stale evidence is visible...
     expect(
-      screen.getByText(/last-known-good|目录证据仅供查看|stale/),
+      screen.getByText(/目录暂时无法更新/),
     ).toBeInTheDocument();
     // ...but the confirm stays inert and nothing was written.
     expect(confirmButton()).toBeDisabled();
@@ -227,7 +228,7 @@ describe("PiBindingSourceDialog", () => {
     expect(screen.queryByRole("option", { name: /openai\/gpt-20/ })).toBeNull();
 
     await user.click(screen.getByTestId("pi-directory-load-more"));
-    await screen.findByText("append failed");
+    await screen.findByText(getStaticMessages().common.requestErrors.unknown);
     // Rows stay on screen; the failure is the local retry control.
     expect(
       screen.getByRole("option", { name: /openai\/gpt-19/ }),

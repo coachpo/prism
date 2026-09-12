@@ -1,3 +1,4 @@
+import { extractServerValidation } from "@/shared/forms/serverValidation";
 import { useEffect, useState, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -211,7 +212,7 @@ function CatalogPricingFlow({
     } catch (cause) {
       // The hook already dropped the stale preview and re-read; this message
       // explains why the operator has to look again.
-      setCommitError(cause instanceof Error ? cause.message : String(cause));
+      setCommitError(extractServerValidation(cause, messages.pricingTemplatesData.saveFailed).summary);
     }
   };
 

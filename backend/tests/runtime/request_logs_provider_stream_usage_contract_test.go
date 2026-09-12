@@ -162,6 +162,8 @@ func TestRuntimeRequestLogPersistsStreamedResponsesUsage(t *testing.T) {
 	assertStatus(t, response, http.StatusOK)
 	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
 
+	assertRuntimeResponseIngressLookup(t, harness, profileID, response, 1)
+
 	assertLatestRuntimeUsageRows(t, harness.conn, profileID, true, runtimePersistedUsageRow{
 		InputTokens:          runtimeNullInt64(5),
 		OutputTokens:         runtimeNullInt64(8),
@@ -338,6 +340,8 @@ func TestRuntimeAnthropicStreamRequestLogPersistsSplitUsage(t *testing.T) {
 	assertStatus(t, response, http.StatusOK)
 	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
 
+	assertRuntimeResponseIngressLookup(t, harness, profileID, response, 1)
+
 	assertLatestRuntimeUsageRows(t, harness.conn, profileID, true, runtimePersistedUsageRow{
 		InputTokens:              runtimeNullInt64(7),
 		OutputTokens:             runtimeNullInt64(13),
@@ -436,6 +440,7 @@ func TestRuntimeRequestLogPersistsGeminiStreamGenerateContentUsage(t *testing.T)
 		CacheReadInputTokens: runtimeNullInt64(3),
 		ReasoningTokens:      runtimeNullInt64(5),
 	})
+	assertRuntimeResponseIngressLookup(t, harness, profileID, response, 1)
 }
 
 type runtimeUsageEndpointLabelSnapshotRow struct {

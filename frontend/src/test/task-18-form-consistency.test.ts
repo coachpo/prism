@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest"
 import { ApiError } from "@/lib/api"
 import { extractServerValidation, fieldErrorsFromServerValidation } from "@/shared/forms/serverValidation"
 
-describe("Task 18 server validation helpers", () => {
-  it("keeps routing plan path and code context visible", () => {
+describe("server validation presentation", () => {
+  it("keeps field identity available for forms without exposing server diagnostics", () => {
     const validation = extractServerValidation(new ApiError("conflict", 409, {
       detail: {
         routing_plan_issues: [
@@ -12,12 +12,12 @@ describe("Task 18 server validation helpers", () => {
       },
     }), "fallback")
 
-    expect(validation.summary).toBe("access_targets.0.target_model_id (missing_model): Target model is gone")
+    expect(validation.summary).toBe("填写内容未被接受。请检查表单中标记的项目后重新保存。")
     expect(validation.issues).toEqual([
       {
         code: "missing_model",
         field: "access_targets.0.target_model_id",
-        message: "Target model is gone",
+        message: "此项内容未被接受，请检查后重新填写。",
       },
     ])
   })
@@ -33,8 +33,15 @@ describe("Task 18 server validation helpers", () => {
     }), "fallback")
 
     expect(fieldErrorsFromServerValidation(validation, ["name", "base_url"] as const)).toEqual({
-      base_url: "Base URL is not reachable",
-      name: "Name already exists",
+      base_url: "此项内容未被接受，请检查后重新填写。",
+      name: "此项内容未被接受，请检查后重新填写。",
     })
+  })
+
+  it("does not misreport an unavailable save as invalid input", () => {
+    const validation = extractServerValidation(new ApiError("sql failed", 503, { detail: "sql: /internal/database.go" }), "保存失败")
+    expect(validation.issues).toEqual([])
+    expect(validation.summary).toContain("Prism 暂时无法完成操作")
+    expect(validation.summary).not.toMatch(/sql|internal|server:/)
   })
 })

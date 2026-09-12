@@ -1,6 +1,8 @@
 import { useCallback, useRef, useState } from "react";
 
-import { ApiError, api } from "@/lib/api";
+import { api } from "@/lib/api";
+import { getModelSaveErrorMessage } from "./modelSaveFeedback";
+import { toModelListItem } from "./modelListProjection";
 import type { ManagedModelConfigListItem } from "@/lib/api/models";
 import { getStaticMessages } from "@/i18n/staticMessages";
 import type { LoadbalanceStrategy } from "@/lib/types";
@@ -36,80 +38,19 @@ function getModelValidationMessage(
   }
 }
 
-function getTrimmedString(value: unknown) {
-  return typeof value === "string" ? value.trim() : "";
-}
-
-function getModelSaveErrorMessage(error: unknown, fallback: string) {
-  if (
-    error instanceof ApiError &&
-    error.detail &&
-    typeof error.detail === "object"
-  ) {
-    const detail = error.detail as {
-      code?: unknown;
-      detail?: unknown;
-      field?: unknown;
-      message?: unknown;
-      routing_plan_issues?: unknown;
-    };
-
-    if (Array.isArray(detail.routing_plan_issues)) {
-      const routingPlanIssue = detail.routing_plan_issues.find(
-        (
-          issue,
-        ): issue is {
-          code?: unknown;
-          field?: unknown;
-          message?: unknown;
-          path?: unknown;
-        } => !!issue && typeof issue === "object",
-      );
-
-      if (routingPlanIssue) {
-        const code = getTrimmedString(routingPlanIssue.code);
-        const field =
-          getTrimmedString(routingPlanIssue.field) ||
-          getTrimmedString(routingPlanIssue.path);
-        const message = getTrimmedString(routingPlanIssue.message);
-
-        if (message && field && code) return `${field} (${code}): ${message}`;
-        if (message && code) return `${code}: ${message}`;
-        if (message) return message;
-      }
-    }
-
-    const structuredDetail =
-      detail.detail && typeof detail.detail === "object"
-        ? (detail.detail as {
-            code?: unknown;
-            field?: unknown;
-            message?: unknown;
-          })
-        : detail;
-    const code = getTrimmedString(structuredDetail.code);
-    const field = getTrimmedString(structuredDetail.field);
-    const message = getTrimmedString(structuredDetail.message);
-
-    if (message && field && code) return `${field} (${code}): ${message}`;
-    if (message && code) return `${code}: ${message}`;
-    if (message) return message;
-  }
-
-  return error instanceof Error ? error.message : fallback;
-}
-
 export type ModelDialogSession =
   | { readonly mode: "closed" | "edit"; readonly createSession: null }
   | { readonly mode: "create"; readonly createSession: number };
 
 interface UseModelDialogMutationsInput {
+  commitModels: (updater: (current: ManagedModelConfigListItem[]) => ManagedModelConfigListItem[]) => void;
   loadbalanceStrategies: LoadbalanceStrategy[];
   refreshStrategiesAfterDialogClose: () => void;
   refreshModels: () => Promise<ManagedModelConfigListItem[]>;
 }
 
 export function useModelDialogMutations({
+  commitModels,
   loadbalanceStrategies,
   refreshStrategiesAfterDialogClose,
   refreshModels,
@@ -217,27 +158,36 @@ export function useModelDialogMutations({
 
       try {
         if (editingModel) {
-          await api.models.update(
+          const updated = await api.models.update(
             editingModel.id,
             toModelUpdatePayload(formData),
           );
-          await refreshModels();
-          toast.success(messages.modelsData.updated);
+          commitModels((current) => current.map((item) =>
+            item.id === updated.model.id ? toModelListItem(updated.model, item) : item,
+          ));
         } else {
           await api.models.create(
             toModelCreatePayload(formData),
           );
-          await refreshModels();
-          toast.success(messages.modelsData.created);
         }
-        handleSetIsDialogOpen(false);
       } catch (error) {
         setFormError(
-          getModelSaveErrorMessage(error, messages.modelsData.saveFailed),
+          getModelSaveErrorMessage(error),
         );
+        return;
+      }
+
+      // The write is complete even if the follow-up list read is unavailable.
+      handleSetIsDialogOpen(false);
+      try {
+        await refreshModels();
+        toast.success(editingModel ? messages.modelsData.updated : messages.modelsData.created);
+      } catch {
+        toast.warning(editingModel ? messages.modelsData.updatedRefreshFailed : messages.modelsData.createdRefreshFailed);
       }
     },
     [
+      commitModels,
       editingModel,
       formData,
       handleSetIsDialogOpen,
@@ -249,7 +199,14 @@ export function useModelDialogMutations({
   const handleModelCreated = useCallback(
     async () => {
       const messages = getStaticMessages();
-      await refreshModels();
+      try {
+        await refreshModels();
+      } catch {
+        // A refresh failure cannot undo the completed creation.
+        toast.warning(messages.modelsData.createdRefreshFailed);
+        setCreateDialogOpenState(false);
+        return;
+      }
       toast.success(messages.modelsData.created);
       // Preserve the composite create dialog's existing close/session path.
       setCreateDialogOpenState(false);

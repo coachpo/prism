@@ -1,3 +1,4 @@
+import { retentionDatasetLabel, retentionWarningLabel } from "../retentionPresentation";
 import { useLocale } from "@/i18n/useLocale";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -84,7 +85,7 @@ export function DeleteConfirmDialog({
       confirmDisabled={!preflightSemanticsComplete || !isDeletePhraseValid}
       onCancel={resetDialog}
       onConfirm={handleBatchDelete}
-      contentClassName="sm:max-w-md"
+      size="sm"
     >
       <div className="flex flex-col gap-5">
         <div className="flex flex-col gap-3 rounded-lg border border-destructive/25 bg-destructive/5 p-4">
@@ -105,9 +106,9 @@ export function DeleteConfirmDialog({
               <div><span className="text-muted-foreground">{copy.retainedRows}：</span>{formatImpactCount(retainedRows?.value, retainedRows?.accuracy, copy)}</div>
               <div className="sm:col-span-2 text-muted-foreground">{copy.previewTimestamp(preflight ? format(preflight.previewed_at) : "-")}</div>
               {impact.non_cascades.map((item) => (
-                <div key={item.dataset} className="sm:col-span-2 text-muted-foreground">{copy.nonCascade(item.dataset)}</div>
+                <div key={item.dataset} className="sm:col-span-2 text-muted-foreground">{copy.nonCascade(retentionDatasetLabel(item.dataset))}</div>
               ))}
-              {impact.warnings.map((warning) => <div key={warning} className="sm:col-span-2 text-muted-foreground">{warning}</div>)}
+              {impact.warnings.map((warning) => <div key={warning} className="sm:col-span-2 text-muted-foreground">{retentionWarningLabel(warning)}</div>)}
             </div>
           ) : null}
           {preflight && !preflightSemanticsComplete ? <p className="text-sm text-destructive" role="alert">{messages.settingsRetentionDeletion.semanticFactsUnavailable}</p> : null}

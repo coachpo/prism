@@ -56,10 +56,16 @@ export function PricingCardFields({
             name={formPath(path, name)}
             render={({ field }) => (
               <FormItem>
-                <FormLabel>{labels[name]}</FormLabel>
+                <FormLabel>
+                  {name === "input_price" || name === "output_price"
+                    ? copy.requiredField(labels[name])
+                    : copy.optionalField(labels[name])}
+                </FormLabel>
                 <FormControl>
                   <Input
                     inputMode="decimal"
+                    aria-required={name === "input_price" || name === "output_price"}
+                    placeholder={name === "input_price" || name === "output_price" ? copy.requiredPricePlaceholder : copy.optionalPricePlaceholder}
                     autoComplete="off"
                     name={field.name}
                     ref={field.ref}

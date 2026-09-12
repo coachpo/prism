@@ -1,3 +1,4 @@
+import { retentionDatasetLabel, retentionWarningLabel } from "../retentionPresentation";
 import { AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -66,7 +67,7 @@ export function RetentionPolicyPreflightDialog({
                 return (
                   <div key={domain.dataset} className="flex flex-col gap-1 border-b border-border pb-3 last:border-0 last:pb-0">
                     <div className="flex flex-wrap justify-between gap-2">
-                      <span className="font-medium">{datasetLabel(domain.dataset, dialogCopy)}</span>
+                      <span className="font-medium">{retentionDatasetLabel(domain.dataset)}</span>
                       <span className="text-muted-foreground">
                         {count.accuracy === "unavailable" ? copy.countUnavailable : count.accuracy === "estimated" ? copy.estimatedCount(count.value ?? "-") : count.value ?? "-"}
                       </span>
@@ -77,8 +78,8 @@ export function RetentionPolicyPreflightDialog({
                       {copy.coverageAfter}: {formatSettingTime(domain.impact.logical_coverage_after.from_time, format, copy.notAvailable)} → {formatSettingTime(domain.impact.logical_coverage_after.to_time, format, copy.notAvailable)}
                     </p>
                     {domain.impact.physical_reclaim_not_before ? <p className="text-xs text-muted-foreground">{copy.physicalReclaimAt}: {formatSettingTime(domain.impact.physical_reclaim_not_before, format, copy.notAvailable)}</p> : null}
-                    {domain.impact.non_cascades.length > 0 ? <p className="text-xs text-muted-foreground">{copy.nonCascades}: {domain.impact.non_cascades.map((item) => datasetLabel(item.dataset, dialogCopy)).join("、")}</p> : null}
-                    {domain.impact.warnings.map((warning) => <p key={warning} className="text-xs text-degraded">{warning}</p>)}
+                    {domain.impact.non_cascades.length > 0 ? <p className="text-xs text-muted-foreground">{copy.nonCascades}: {domain.impact.non_cascades.map((item) => retentionDatasetLabel(item.dataset)).join("、")}</p> : null}
+                    {domain.impact.warnings.map((warning) => <p key={warning} className="text-xs text-degraded">{retentionWarningLabel(warning)}</p>)}
                   </div>
                 );
               })}
@@ -121,14 +122,4 @@ function formatCount(count: RetentionPreflightResponse["affected_domains"][numbe
 
 function formatSettingTime(value: string | null | undefined, format: (value: string) => string, fallback: string) {
   return value ? format(value) : fallback;
-}
-
-function datasetLabel(dataset: string, copy: ReturnType<typeof useLocale>["messages"]["settingsDialogs"]) {
-  switch (dataset) {
-    case "request_logs": return copy.cleanupTypeRequests;
-    case "usage_request_events": return copy.cleanupTypeStatistics;
-    case "audit_logs": return copy.cleanupTypeAudits;
-    case "loadbalance_events": return copy.cleanupTypeLoadbalanceEvents;
-    default: return dataset;
-  }
 }

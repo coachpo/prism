@@ -25,7 +25,6 @@ export function useEndpointMutations({
   const attachment = useEndpointAttachment();
   const forms = useEndpointFormMutations({
     commitEndpoints,
-    onEndpointCreated: attachment.setAttachModelTarget,
     references,
   });
   const deletion = useEndpointDeletion({

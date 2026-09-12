@@ -1423,7 +1423,7 @@ function TargetRuntime({
           intent="failing"
           preserveLabel
           label={copy.runtimeReadFailed}
-          title={copy.runtimeReadFailedReason(failure.message)}
+          title={copy.runtimeReadFailedReason}
         />
       );
     }

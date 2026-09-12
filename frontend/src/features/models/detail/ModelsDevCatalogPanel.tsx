@@ -22,7 +22,7 @@ import {
   OperatorLoadingState,
   OperatorRetryButton,
   OperatorStalenessBadge,
-  OperatorStatusBadge,
+  OperatorTypeBadge,
 } from "@/shared/design-system";
 import { CatalogBindDialog } from "@/pages/model-detail/CatalogBindDialog";
 import { CatalogOverrideDialog } from "@/pages/model-detail/CatalogOverrideDialog";
@@ -100,11 +100,11 @@ export function ModelsDevCatalogPanel({
       catalog.updated_at,
   );
   const matchBadgeIntent = !bound
-    ? ("idle" as const)
+    ? ("muted" as const)
     : catalog?.match_source === "manual"
       ? ("accent" as const)
       : catalog?.match_source === "unique_match"
-        ? ("healthy" as const)
+        ? ("accent" as const)
         : ("degraded" as const);
   const matchLabel = !bound
     ? copy.stateUnbound
@@ -147,7 +147,7 @@ export function ModelsDevCatalogPanel({
         <OperatorErrorState
           testId="catalog-read-error"
           title={copy.readFailedTitle}
-          description={catalogView.error ?? undefined}
+          description={catalogView.error ? catalogFailureMessage(catalogView.error) : undefined}
           action={
             <OperatorRetryButton onClick={catalogView.refresh}>
               <RefreshCw data-icon="inline-start" />
@@ -271,8 +271,8 @@ export function ModelsDevCatalogPanel({
                 catalogView.lastSuccessfulAt
                   ? `${copy.staleBadgeReason(
                       formatTime(catalogView.lastSuccessfulAt),
-                    )}${catalogView.error ? ` · ${catalogView.error}` : ""}`
-                  : (catalogView.error ?? undefined)
+                    )}${catalogView.error ? ` · ${catalogFailureMessage(catalogView.error)}` : ""}`
+                  : (catalogView.error ? catalogFailureMessage(catalogView.error) : undefined)
               }
             />
             <OperatorRetryButton
@@ -289,9 +289,8 @@ export function ModelsDevCatalogPanel({
               settled read (or last-good under staleness) may name a state. */}
           {!catalogView.loading &&
           !(catalogView.failed && !catalogView.hasLastGood) ? (
-            <OperatorStatusBadge
+            <OperatorTypeBadge
               intent={matchBadgeIntent}
-              preserveLabel
               label={matchLabel}
             />
           ) : null}
@@ -309,9 +308,8 @@ export function ModelsDevCatalogPanel({
                 Object.values(catalog.override).some(
                   (value) => value !== null,
                 ) && (
-                  <OperatorStatusBadge
+                  <OperatorTypeBadge
                     intent="degraded"
-                    preserveLabel
                     label={copy.hasOverridesBadge}
                   />
                 )}

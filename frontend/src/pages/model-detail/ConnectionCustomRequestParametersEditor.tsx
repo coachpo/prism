@@ -1,148 +1,55 @@
-import { useId } from "react";
-import { Braces, Eraser, WandSparkles } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
+import { useState } from "react";
 import { useLocale } from "@/i18n/useLocale";
-import {
-  parseCustomRequestParametersDraft,
-  type CustomRequestParametersParseError,
-} from "./customRequestParameters";
+import { OperatorCallout } from "@/shared/design-system";
+import { parseCustomRequestParametersDraft, type CustomRequestParametersParseError } from "./customRequestParameters";
+import { RequestSettingFields } from "./RequestSettingFields";
+import { serializeSettings, settingNode, type SettingNode } from "./structuredRequestSettings";
 
-interface ConnectionCustomRequestParametersEditorProps {
+interface Props {
   draft: string;
   onDraftChange: (draft: string) => void;
   error: CustomRequestParametersParseError | null;
 }
 
-/**
- * Full-width JSON editor for the Connection custom request parameters. The
- * draft stays as raw text so operators can repair JSON that is not yet valid;
- * validation mirrors the backend shared validator and blocks save until the
- * draft is empty or a fully valid object.
- */
-export function ConnectionCustomRequestParametersEditor({
-  draft,
-  onDraftChange,
-  error,
-}: ConnectionCustomRequestParametersEditorProps) {
+export function ConnectionCustomRequestParametersEditor({ draft, onDraftChange, error }: Props) {
   const { messages } = useLocale();
   const copy = messages.modelDetail;
-  const textareaId = useId();
-  const errorId = useId();
-
   const parsed = parseCustomRequestParametersDraft(draft);
-  const displayError = error ?? parsed.error;
-  const isValid = displayError === null;
-  const topLevelCount = parsed.value ? Object.keys(parsed.value).length : 0;
-
-  const handleFormat = () => {
-    if (!isValid || parsed.value === null) {
-      return;
-    }
-    onDraftChange(JSON.stringify(parsed.value, null, 2));
+  const [editing, setEditing] = useState(() => ({ source: draft, node: settingNode(parsed.value ?? {}), readable: !parsed.error }));
+  // Prefill/reopen replaces the tree. Incomplete local fields keep their exact
+  // draft so validation blocks saving instead of silently using an old value.
+  if (editing.source !== draft) {
+    setEditing({ source: draft, node: settingNode(parsed.value ?? {}), readable: !parsed.error });
+  }
+  const update = (node: SettingNode) => {
+    const source = serializeSettings(node);
+    setEditing({ source, node, readable: true });
+    onDraftChange(source);
   };
+  const displayError = error ?? parsed.error;
+  const topLevelCount = editing.node.kind === "group" ? editing.node.entries.length : 0;
 
-  return (
-    <section
-      className="flex flex-col gap-2.5"
-      data-testid="connection-dialog-custom-request-parameters-card"
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex flex-col gap-1">
-          <h3 className="text-sm font-semibold tracking-tight text-foreground">
-            {copy.customRequestParameters}
-          </h3>
-          <p className="text-sm text-muted-foreground">{copy.customRequestParametersDescription}</p>
-          <details className="text-xs text-muted-foreground">
-            <summary className="cursor-pointer font-medium text-foreground">{messages.common.moreDetails}</summary>
-            <p className="pt-2">{copy.customRequestParametersDescriptionDetails}</p>
-          </details>
-          <p className="text-xs text-muted-foreground">
-            {topLevelCount > 0
-              ? copy.customRequestParametersSummary(topLevelCount)
-              : copy.customRequestParametersNotConfigured}
-          </p>
-        </div>
-        <div className="flex gap-1.5">
-          <Button type="button" variant="outline" size="sm" onClick={handleFormat}>
-            <WandSparkles data-icon="inline-start" />
-            {copy.customRequestParametersFormat}
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            aria-label={copy.customRequestParametersClear}
-            onClick={() => onDraftChange("")}
-          >
-            <Eraser data-icon="inline-start" />
-            {copy.customRequestParametersClear}
-          </Button>
-        </div>
-      </div>
-
-      <Textarea
-        id={textareaId}
-        name="custom_request_parameters"
-        className="min-h-40 w-full font-mono text-xs"
-        spellCheck={false}
-        autoComplete="off"
-        aria-label={copy.customRequestParameters}
-        aria-invalid={!isValid}
-        aria-describedby={!isValid ? errorId : undefined}
-        placeholder={copy.customRequestParametersPlaceholder}
-        value={draft}
-        onChange={(event) => onDraftChange(event.target.value)}
-      />
-
-      {!isValid && displayError ? (
-        <p id={errorId} className="text-sm font-medium text-destructive" role="alert">
-          {customRequestParametersErrorMessage(copy, displayError)}
-        </p>
-      ) : null}
-
-      <div className="flex flex-col gap-1">
-        <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
-          <Braces data-icon="inline-start" className="mt-0.5 shrink-0" />
-          {copy.customRequestParametersProtectedHint}
-        </p>
-        <details className="text-xs text-muted-foreground">
-          <summary className="cursor-pointer font-medium text-foreground">{messages.common.moreDetails}</summary>
-          <p className="pt-2">{copy.customRequestParametersProtectedDetails}</p>
-        </details>
-        <p className="text-xs text-muted-foreground">{copy.customRequestParametersNotSecretHint}</p>
-        <details className="text-xs text-muted-foreground">
-          <summary className="cursor-pointer font-medium text-foreground">{messages.common.moreDetails}</summary>
-          <p className="pt-2">{copy.customRequestParametersNotSecretDetails}</p>
-        </details>
-      </div>
-    </section>
-  );
+  return <section className="flex flex-col gap-3" data-testid="connection-dialog-custom-request-parameters-card">
+    <div className="flex flex-col gap-1">
+      <h3 className="text-sm font-semibold">{copy.customRequestParameters}</h3>
+      <p className="text-sm text-muted-foreground">{copy.customRequestParametersDescription}</p>
+      {editing.readable ? <p className="text-xs text-muted-foreground">{topLevelCount ? copy.customRequestParametersSummary(topLevelCount) : copy.customRequestParametersNotConfigured}</p> : null}
+    </div>
+    {displayError ? <OperatorCallout intent="danger" role="alert" description={settingErrorMessage(copy, displayError)} /> : null}
+    {editing.readable ? <RequestSettingFields node={editing.node} label={copy.customRequestParameters} onChange={update} /> : <p className="text-xs text-muted-foreground">{copy.settingReadFailed}</p>}
+    <p className="text-xs text-muted-foreground">{copy.customRequestParametersNotSecretHint}</p>
+  </section>;
 }
 
-function customRequestParametersErrorMessage(
-  copy: ReturnType<typeof useLocale>["messages"]["modelDetail"],
-  error: CustomRequestParametersParseError,
-): string {
-  const path = error.path.length > 0 ? error.path : "custom_request_parameters";
+function settingErrorMessage(copy: ReturnType<typeof useLocale>["messages"]["modelDetail"], error: CustomRequestParametersParseError): string {
   switch (error.reason) {
-    case "not_object":
-      return copy.customRequestParametersErrorNotObject(path);
-    case "duplicate_key":
-      return copy.customRequestParametersErrorDuplicateKey(path);
-    case "blank_key":
-      return copy.customRequestParametersErrorBlankKey(path);
-    case "protected_field":
-      return copy.customRequestParametersErrorProtectedField(path);
-    case "too_large":
-      return copy.customRequestParametersErrorTooLarge(path, error.limit ?? 65536);
-    case "too_deep":
-      return copy.customRequestParametersErrorTooDeep(path, error.limit ?? 16);
-    case "too_many_members":
-      return copy.customRequestParametersErrorTooManyMembers(path, error.limit ?? 256);
-    case "number_out_of_range":
-      return copy.customRequestParametersErrorNumberOutOfRange(path);
-    default:
-      return copy.customRequestParametersErrorInvalid;
+    case "blank_key": return copy.settingNameRequired;
+    case "duplicate_key": return copy.settingNameDuplicate;
+    case "protected_field": return copy.settingNameUnavailable;
+    case "number_out_of_range": return copy.settingNumberInvalid;
+    case "too_large": return copy.settingTooLarge;
+    case "too_deep": return copy.settingTooDeep;
+    case "too_many_members": return copy.settingTooMany;
+    default: return copy.customRequestParametersErrorInvalid;
   }
 }

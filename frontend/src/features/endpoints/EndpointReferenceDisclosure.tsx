@@ -11,8 +11,6 @@ import {
   OperatorCallout,
   OperatorInsetPanel,
   OperatorMissingValue,
-  OperatorStatusBadge,
-  type OperatorStatusTier,
 } from "@/shared/design-system";
 import { LoadMoreControl } from "@/shared/table/paginationControls";
 import { summaryFor } from "./useEndpointReferenceSummaries";
@@ -145,38 +143,6 @@ function ReferenceCell({
   );
 }
 
-type ReferenceFlag = { intent: OperatorStatusTier; label: string };
-
-/** Backend flag keys never reach the screen; each becomes a labelled tier. */
-function referenceFlags(
-  item: EndpointReferenceItem,
-  copy: ReturnType<typeof useLocale>["messages"]["endpointsUi"],
-): ReferenceFlag[] {
-  const flags: ReferenceFlag[] = [];
-  if (item.kind === "owned_terminal_target") {
-    if (item.owner_model) {
-      flags.push(
-        item.owner_model.is_enabled
-          ? { intent: "healthy", label: copy.flagModelEnabled }
-          : { intent: "idle", label: copy.flagModelDisabled },
-      );
-    }
-    if (item.access_target) {
-      flags.push(
-        item.access_target.is_enabled
-          ? { intent: "healthy", label: copy.flagTargetEnabled }
-          : { intent: "idle", label: copy.flagTargetDisabled },
-      );
-    }
-  }
-  flags.push(
-    item.connection_is_active
-      ? { intent: "healthy", label: copy.flagConnectionActive }
-      : { intent: "degraded", label: copy.flagConnectionInactive },
-  );
-  return flags;
-}
-
 function reasonLabel(
   copy: Record<string, string | ((...args: never[]) => string)>,
   reason: string,
@@ -243,7 +209,7 @@ function ReferenceItemBody({
         <div className="flex min-w-0 flex-col gap-0.5">
           <span className="truncate text-[0.8125rem] font-medium">
             {item.kind === "orphan_connection"
-              ? copy.orphanRowLabel(String(item.connection_id))
+              ? copy.orphanRowLabel
               : (item.owner_model?.display_name ??
                 item.owner_model?.model_id ??
                 copy.referenceModelLabel)}
@@ -280,41 +246,24 @@ function ReferenceItemBody({
 
       <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
         <dt className="text-muted-foreground">{copy.referenceTargetLabel}</dt>
-        <dd className="min-w-0 truncate font-mono">
-          {item.terminal_target_name ?? `#${item.terminal_target_id}`}
+        <dd className="min-w-0 truncate">
+          {item.terminal_target_name ?? copy.unnamedConnection}
         </dd>
         <dt className="text-muted-foreground">{copy.referenceProtocolLabel}</dt>
         <dd className="min-w-0 truncate">{protocolLabel(copy, item)}</dd>
         <dt className="text-muted-foreground">{copy.referencePricingLabel}</dt>
         <dd className="min-w-0 truncate">
           {item.pricing_template ? (
-            <>
-              {item.pricing_template.name}
-              <span className="ml-1 font-mono text-[11px]">
-                v{item.pricing_template.current_version}
-              </span>
-            </>
+            item.pricing_template.name
           ) : (
             <OperatorMissingValue reason={copy.pricingNotSet} />
           )}
         </dd>
         <dt className="text-muted-foreground">{copy.referenceStateLabel}</dt>
         <dd className="flex min-w-0 flex-wrap gap-1">
-          {item.enabled ? null : (
-            <span className="text-degraded">
-              {item.inactive_reasons
-                .map((reason) => reasonLabel(copy, reason))
-                .join(" · ")}
-            </span>
-          )}
-          {referenceFlags(item, copy).map((flag) => (
-            <OperatorStatusBadge
-              key={flag.label}
-              intent={flag.intent}
-              label={flag.label}
-              preserveLabel
-            />
-          ))}
+          <span className={item.enabled ? "text-muted-foreground" : "text-degraded"}>
+            {item.enabled ? copy.enabled : item.inactive_reasons.length ? item.inactive_reasons.map((reason) => reasonLabel(copy, reason)).join(" · ") : copy.inactiveReasonUnknown}
+          </span>
         </dd>
       </dl>
     </>
@@ -357,7 +306,7 @@ function DisclosureItems({
   // A failed append keeps its rows and turns 加载更多 into the inline retry;
   // the error message rides with it instead of replacing the list.
   const appendError =
-    detailState.status === "stale" ? detailState.error.message : null;
+    detailState.status === "stale" ? messages.endpointsUi.deleteCheckError : null;
   return (
     <div className="flex flex-col gap-3">
       <p className="text-xs text-muted-foreground">
@@ -433,8 +382,7 @@ function ReferenceDisclosureRow({
           ) : detailState?.status === "error" ? (
             <OperatorCallout
               intent="warning"
-              title={copy.deleteCheckError}
-              description={detailState.error.message}
+              description={copy.deleteCheckError}
               action={
                 <Button
                   type="button"
@@ -492,8 +440,7 @@ function MobileReferenceDisclosure({
       <div className="flex flex-col gap-2 px-3 py-2">
         <OperatorCallout
           intent="warning"
-          title={copy.deleteCheckError}
-          description={detailState.error.message}
+          description={copy.deleteCheckError}
           action={
             <Button
               type="button"
@@ -519,7 +466,7 @@ function MobileReferenceDisclosure({
   const appending =
     detailState.status === "loading" && Boolean(detailState.previous);
   const appendError =
-    detailState.status === "stale" ? detailState.error.message : null;
+    detailState.status === "stale" ? messages.endpointsUi.deleteCheckError : null;
   return (
     <div className="divide-y divide-border">
       <p className="px-3 py-2 text-xs text-muted-foreground">
@@ -537,14 +484,14 @@ function MobileReferenceDisclosure({
           <dt className="sr-only">{copy.referenceModelLabel}</dt>
           <dd className="font-medium text-foreground">
             {item.kind === "orphan_connection"
-              ? copy.orphanRowLabel(String(item.connection_id))
+              ? copy.orphanRowLabel
               : (item.owner_model?.display_name ??
                 item.owner_model?.model_id ??
                 "")}
           </dd>
           <dt className="sr-only">{copy.referenceTargetLabel}</dt>
           <dd className="text-muted-foreground">
-            {item.terminal_target_name ?? `#${item.terminal_target_id}`}
+            {item.terminal_target_name ?? copy.unnamedConnection}
           </dd>
           <dt className="sr-only">{copy.referenceStateLabel}</dt>
           <dd className="text-muted-foreground">

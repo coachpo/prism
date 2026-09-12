@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { Loader2, RefreshCw } from "lucide-react";
 
@@ -14,7 +14,9 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
+import { RoutingHealthModelFilter } from "./RoutingHealthModelFilter";
+import { ObserveFragmentStamp } from "./ObserveFragmentStamp";
+import { requestServiceLabel } from "@/pages/request-logs/requestFailurePresentation";
 import {
   Select,
   SelectContent,
@@ -72,7 +74,6 @@ export function GlobalCurrentStatePresentation({
   const [confirmTarget, setConfirmTarget] = useState<
     import("@/lib/types").GlobalCurrentStateItem | null
   >(null);
-  const [modelDraft, setModelDraft] = useState(read.modelId ?? "");
   const rows = fragment.data?.items ?? [];
   const completeness = fragment.data?.completeness;
   const bannedCount = rows.filter(
@@ -116,18 +117,6 @@ export function GlobalCurrentStatePresentation({
     fragment.data !== null &&
     !fragment.stale;
 
-  useEffect(() => {
-    // URL navigation can replace the model filter while the draft is open.
-    // Keep the local input synchronized with that authoritative value.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setModelDraft(read.modelId ?? "");
-  }, [read.modelId]);
-
-  const submitModelFilter = () => {
-    const next = modelDraft.trim() || undefined;
-    if (next === read.modelId) return;
-    read.updateSearch({ runtime_model_id: next });
-  };
 
   return (
     <OperatorSectionCard
@@ -138,7 +127,7 @@ export function GlobalCurrentStatePresentation({
           <span>{copy.currentStateDescription}</span>
           {rows.length > 0 ? (
             <span className="ml-1 text-foreground">
-              {copy.currentStateSummary(
+              {copy.currentListBasis}{copy.currentStateSummary(
                 formatNumber(rows.length),
                 formatNumber(bannedCount),
                 formatNumber(retryWaitCount),
@@ -179,25 +168,14 @@ export function GlobalCurrentStatePresentation({
         </div>
       }
     >
+      <ObserveFragmentStamp generatedAt={fragment.data?.generated_at} />
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
         <FieldGroup className="flex-1">
           <Field>
             <FieldLabel htmlFor="runtime-model-filter">
               {copy.modelFilterLabel}
             </FieldLabel>
-            <Input
-              id="runtime-model-filter"
-              value={modelDraft}
-              placeholder={copy.modelFilterSubmitPlaceholder}
-              onChange={(event) => setModelDraft(event.target.value)}
-              onBlur={submitModelFilter}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  submitModelFilter();
-                }
-              }}
-            />
+            <RoutingHealthModelFilter id="runtime-model-filter" value={read.modelId} onValueChange={value => read.updateSearch({ runtime_model_id: value })} />
           </Field>
         </FieldGroup>
         <FieldGroup className="flex-1">
@@ -243,8 +221,6 @@ export function GlobalCurrentStatePresentation({
           testId="runtime-load-error"
           title={copy.loadFailed}
           description={messages.honesty.readFailedDescription}
-          details={fragment.error}
-          detailsLabel={messages.honesty.viewDetails}
           action={
             <Button
               type="button"
@@ -270,8 +246,6 @@ export function GlobalCurrentStatePresentation({
               : messages.operationalTable.pageLoadFailed(cursorStack.length + 1)
           }
           description={messages.honesty.readFailedDescription}
-          details={fragment.error}
-          detailsLabel={messages.honesty.viewDetails}
           action={
             <Button
               type="button"
@@ -324,15 +298,17 @@ export function GlobalCurrentStatePresentation({
       ) : null}
 
       {fragment.phase === "empty" && !fragment.reading ? (
-        completeness?.state === "no_config" ? (
+        completeness?.state === "no_config" && !read.modelId && read.states.length === 0 && !read.endpointId && !read.targetId ? (
           <OperatorEmptyState
             title={copy.currentStateNoConfig}
             description={copy.currentStateNoConfigDescription}
+            action={<Button asChild size="sm"><a href="/route/models?action=create">{messages.setup.addModel}</a></Button>}
           />
         ) : (
           <OperatorEmptyState
             title={copy.currentStateEmpty}
             description={copy.currentStateEmptyDescription}
+            action={<Button type="button" size="sm" onClick={() => read.updateSearch({ runtime_model_id: undefined, runtime_state: undefined, runtime_endpoint_id: undefined, runtime_terminal_target_id: undefined })}>{copy.clearFilters}</Button>}
           />
         )
       ) : null}
@@ -352,8 +328,9 @@ export function GlobalCurrentStatePresentation({
                 <TableHead className="sticky left-0 z-20 bg-inset shadow-[inset_-1px_0_0_0_var(--color-border)]">
                   {copy.modelColumn}
                 </TableHead>
-                <TableHead>{copy.targetColumn}</TableHead>
                 <TableHead>{copy.stateColumn}</TableHead>
+                <TableHead>{copy.targetColumn}</TableHead>
+                <TableHead>{copy.lastSuccessField}</TableHead>
                 {/* 一个列头装了两个基准：斜杠两侧各自从哪儿起算要说出来。 */}
                 <TableHead className="text-right">
                   <span className="inline-flex items-center gap-1">
@@ -373,7 +350,7 @@ export function GlobalCurrentStatePresentation({
             </TableHeader>
             <TableBody>
               {showPendingRows ? (
-                <OperationalTableSkeletonRows columns={7} rows={5} />
+                <OperationalTableSkeletonRows columns={8} rows={5} />
               ) : (
                 visibleRows.map((item) => (
                   <GlobalCurrentStateRow
@@ -459,7 +436,7 @@ export function GlobalCurrentStatePresentation({
             <AlertDialogTitle>{copy.resetCooldownConfirmTitle}</AlertDialogTitle>
             <AlertDialogDescription>
               {copy.resetCooldownConfirmDescription(
-                confirmTarget?.terminal_target.label ?? "",
+                confirmTarget ? `${confirmTarget.model.label || confirmTarget.model.id} · ${requestServiceLabel(confirmTarget.endpoint.label, copy.unnamedService)}` : "",
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>

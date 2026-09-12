@@ -79,7 +79,7 @@ export function RequestComparisonSide({
       {error ? (
         <OperatorCallout
           intent="danger"
-          description={error}
+          description={copy.unavailable}
           action={
             <Button
               variant="outline"

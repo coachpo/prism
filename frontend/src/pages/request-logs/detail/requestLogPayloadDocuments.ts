@@ -95,7 +95,7 @@ export function payloadRoleLabel(role: string): string {
     case "model":
       return copy.roleModel;
     default:
-      return copy.roleOther(role);
+      return copy.roleOther;
   }
 }
 

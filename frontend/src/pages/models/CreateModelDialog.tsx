@@ -1,21 +1,23 @@
+import { modelStrategyLabel } from "./modelStrategyLabel";
 import { useEffect, useMemo, useState } from "react";
 import { useLocale } from "@/i18n/useLocale";
 import { ApiFamilySelect } from "@/components/ApiFamilySelect";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { FieldError } from "@/components/ui/field";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { endpoints as endpointsApi } from "@/lib/api/endpoints";
 import { models as modelsApi } from "@/lib/api/models";
 import type { Endpoint, LoadbalanceStrategy, ModelConfig, OpenAIAcceptedFormat, OpenAIImageOperations } from "@/lib/types";
-import { getLoadbalanceStrategyTypeLabel } from "@/lib/loadbalanceRoutingPolicy";
 import { OperatorCallout, OperatorInsetPanel, OperatorSwitchField } from "@/shared/design-system";
 import { DEFAULT_OPENAI_ACCEPTED_FORMAT } from "@/pages/models/modelFormState";
 import type { OpenAICapabilitySelectValue } from "@/features/models/openaiCapabilityOptions";
 import { buildCompositeModelCreatePayload } from "./compositeModelCreatePayload";
 import { InitialTerminalTargetFields } from "./InitialTerminalTargetFields";
 import { useInitialTerminalTargetUpstreamModelId } from "./useInitialTerminalTargetUpstreamModelId";
+import { getModelSaveErrorMessage } from "./modelSaveFeedback";
 import {
   OPENAI_ACCEPTED_FORMAT_SELECT_VALUES,
   OPENAI_CAPABILITY_UNSET,
@@ -36,6 +38,7 @@ export function CreateModelDialog({
   loadbalanceStrategies,
   onClose,
   onCreated,
+  initialEndpointId,
   createLoadbalanceStrategyDefaultsPending = false,
   onCreateLoadbalanceStrategyDefaults,
 }: {
@@ -43,6 +46,7 @@ export function CreateModelDialog({
   loadbalanceStrategies: LoadbalanceStrategy[];
   onClose: () => void;
   onCreated: (model: ModelConfig) => void | Promise<void>;
+  initialEndpointId?: number;
   createLoadbalanceStrategyDefaultsPending?: boolean;
   onCreateLoadbalanceStrategyDefaults?: () => Promise<void>;
 }) {
@@ -57,14 +61,17 @@ export function CreateModelDialog({
   const [configureLater, setConfigureLater] = useState(false);
   const [directRequestEnabled, setDirectRequestEnabled] = useState(true);
   const [endpoints, setEndpoints] = useState<Endpoint[]>([]);
+  const [endpointsLoading, setEndpointsLoading] = useState(false);
+  const [endpointsError, setEndpointsError] = useState(false);
+  const [endpointsRead, setEndpointsRead] = useState(0);
   const [endpointId, setEndpointId] = useState<number | null>(null);
   const [inlineEndpoint, setInlineEndpoint] = useState(false);
   const [inlineName, setInlineName] = useState("");
   const [inlineBaseUrl, setInlineBaseUrl] = useState("");
   const [inlineApiKey, setInlineApiKey] = useState("");
-  const [targetName, setTargetName] = useState("");
   const initialUpstreamModelId = useInitialTerminalTargetUpstreamModelId({ modelId });
   const [formError, setFormError] = useState<string | null>(null);
+  const [invalidField, setInvalidField] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const handleClose = () => {
     initialUpstreamModelId.reset();
@@ -74,9 +81,10 @@ export function CreateModelDialog({
   useEffect(() => {
     if (!isOpen) return;
     setFormError(null);
+    setInvalidField(null);
     setSubmitting(false);
     setConfigureLater(false);
-    setEndpointId(null);
+    setEndpointId(initialEndpointId ?? null);
     setInlineEndpoint(false);
     setApiFamily("openai");
     setModelId("");
@@ -86,10 +94,31 @@ export function CreateModelDialog({
     setInlineName("");
     setInlineBaseUrl("");
     setInlineApiKey("");
-    setTargetName("");
-    void endpointsApi.list().then(setEndpoints).catch(() => setEndpoints([]));
     // 草稿只在一次新的打开会话开始时重置；期间到达的策略列表不得清空操作者的输入。
-  }, [isOpen]);
+  }, [isOpen, initialEndpointId]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    let current = true;
+    setEndpointsLoading(true);
+    setEndpointsError(false);
+    void endpointsApi.list().then((items) => {
+      if (!current) return;
+      setEndpoints(items);
+      if (initialEndpointId === undefined && items.length === 1) {
+        setEndpointId((currentId) => currentId ?? items[0].id);
+      }
+      if (initialEndpointId !== undefined && !items.some((item) => item.id === initialEndpointId)) {
+        setEndpointId(null);
+      }
+      if (items.length === 0) setInlineEndpoint(true);
+    }).catch(() => {
+      if (current) setEndpointsError(true);
+    }).finally(() => {
+      if (current) setEndpointsLoading(false);
+    });
+    return () => { current = false; };
+  }, [isOpen, initialEndpointId, endpointsRead]);
 
   // 默认路由策略可能在对话框已经打开之后才被创建出来。策略是必填项，所以列表
   // 一到就补上选中值，否则这个必填下拉框会一直空着。按 is_default 这个规范身份
@@ -121,9 +150,19 @@ export function CreateModelDialog({
   const handleSubmit = async () => {
     if (submitting) return;
     setFormError(null);
+    setInvalidField(null);
     initialUpstreamModelId.clearError();
+    const rejectField = (id: string, message: string) => {
+      setInvalidField(id);
+      setFormError(message);
+      document.getElementById(id)?.focus();
+    };
     if (!modelId.trim()) {
-      setFormError(messages.modelsData.modelIdRequired);
+      rejectField("create-model-id", messages.modelsData.modelIdRequired);
+      return;
+    }
+    if (apiFamily === "openai" && !resolvedAcceptedFormat && !resolvedImageOperations) {
+      rejectField("create-model-format", messages.modelsData.openaiCapabilityRequired);
       return;
     }
     if (strategyId === null) {
@@ -131,14 +170,30 @@ export function CreateModelDialog({
       return;
     }
     if (!configureLater) {
-      if (!initialUpstreamModelId.validate()) return;
+      if (!inlineEndpoint && (endpointsLoading || endpointsError)) {
+        setFormError(endpointsLoading ? copy.servicesLoading : copy.servicesLoadFailed);
+        return;
+      }
+      if (!initialUpstreamModelId.validate()) {
+        document.getElementById("create-target-upstream-model-id")?.focus();
+        return;
+      }
       if (!inlineEndpoint && endpointId === null) {
-        setFormError(copy.initialTargetEndpointRequired);
+        rejectField("create-target-endpoint", copy.initialTargetEndpointRequired);
         return;
       }
       if (inlineEndpoint && (!inlineName.trim() || !inlineBaseUrl.trim())) {
-        setFormError(copy.initialTargetInlineEndpointRequired);
+        rejectField(!inlineName.trim() ? "create-target-inline-name" : "create-target-inline-url", copy.initialTargetInlineEndpointRequired);
         return;
+      }
+      if (inlineEndpoint) {
+        try {
+          const url = new URL(inlineBaseUrl.trim());
+          if (!["http:", "https:"].includes(url.protocol)) throw new Error();
+        } catch {
+          rejectField("create-target-inline-url", copy.endpointUrlInvalid);
+          return;
+        }
       }
     }
     setSubmitting(true);
@@ -158,17 +213,17 @@ export function CreateModelDialog({
               ...(inlineEndpoint
                 ? { endpoint_create: { name: inlineName.trim(), base_url: inlineBaseUrl.trim(), api_key: inlineApiKey } }
                 : { endpoint_id: endpointId ?? undefined }),
-              name: targetName.trim() || null,
+              name: null,
               is_active: true,
               upstream_model_id: initialUpstreamModelId.value.trim(),
             },
       });
       const created = await modelsApi.create(payload);
-      await onCreated(created.model);
       handleClose();
+      await onCreated(created.model);
     } catch (error) {
       if (initialUpstreamModelId.applyServerError(error)) return;
-      setFormError(error instanceof Error ? error.message : messages.modelsData.saveFailed);
+      setFormError(getModelSaveErrorMessage(error));
     } finally {
       setSubmitting(false);
     }
@@ -196,7 +251,7 @@ export function CreateModelDialog({
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="create-model-family">{copy.apiFamilyLabel}</Label>
-                <ApiFamilySelect value={apiFamily} onValueChange={(value) => setApiFamily(value as "openai" | "anthropic" | "gemini")} />
+                <ApiFamilySelect id="create-model-family" showAll={false} value={apiFamily} onValueChange={(value) => setApiFamily(value as "openai" | "anthropic" | "gemini")} />
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="create-model-id" required>
@@ -205,13 +260,19 @@ export function CreateModelDialog({
                 <Input
                   id="create-model-id"
                   aria-required="true"
+                  aria-invalid={invalidField === "create-model-id"}
+                  aria-describedby="create-model-id-help"
+                  className="font-mono"
                   value={modelId}
                   onChange={(event) => {
                     const nextModelId = event.target.value;
                     setModelId(nextModelId);
+                    setInvalidField(null);
                     setDisplayName((current) => current.trim() === "" || current === modelId ? nextModelId : current);
                   }}
                 />
+                <p id="create-model-id-help" className="text-xs text-muted-foreground">{copy.clientModelNameHint}</p>
+                {invalidField === "create-model-id" ? <FieldError>{formError}</FieldError> : null}
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="create-model-display">{copy.displayNameLabel}</Label>
@@ -232,6 +293,7 @@ export function CreateModelDialog({
                       ))}
                     </SelectContent>
                   </Select>
+                  <p className="text-xs text-muted-foreground">{copy.capabilitiesHint}</p>
                 </div>
               ) : null}
               {apiFamily === "openai" ? (
@@ -255,6 +317,7 @@ export function CreateModelDialog({
                 <Label htmlFor="create-model-strategy" required>
                   {copy.loadbalanceStrategyLabel}
                 </Label>
+                <p className="text-xs text-muted-foreground">{copy.createStrategyHint}</p>
                 {loadbalanceStrategies.length === 0 ? (
                   <div className="flex flex-col items-start gap-2">
                     <p className="text-sm text-muted-foreground">{messages.modelDetail.noLoadbalanceStrategiesAvailable}</p>
@@ -284,7 +347,7 @@ export function CreateModelDialog({
                     <SelectContent>
                       {loadbalanceStrategies.map((strategy) => (
                         <SelectItem key={strategy.id} value={String(strategy.id)}>
-                          {strategy.name} · {getLoadbalanceStrategyTypeLabel(strategy, messages.loadbalanceStrategyCopy)}
+                          {modelStrategyLabel(strategy)}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -310,7 +373,6 @@ export function CreateModelDialog({
 
           {!configureLater ? (
             <InitialTerminalTargetFields
-              apiFamily={apiFamily}
               endpointId={endpointId}
               endpoints={endpoints}
               inlineApiKey={inlineApiKey}
@@ -318,19 +380,23 @@ export function CreateModelDialog({
               inlineEndpoint={inlineEndpoint}
               inlineName={inlineName}
               modelId={modelId}
-              resolvedAcceptedFormat={resolvedAcceptedFormat}
               setEndpointId={setEndpointId}
               setInlineApiKey={setInlineApiKey}
               setInlineBaseUrl={setInlineBaseUrl}
               setInlineEndpoint={setInlineEndpoint}
               setInlineName={setInlineName}
-              setTargetName={setTargetName}
-              targetName={targetName}
+              endpointsLoading={endpointsLoading}
+              endpointsError={endpointsError}
+              onRetryEndpoints={() => setEndpointsRead((value) => value + 1)}
+              invalidField={invalidField}
+              fieldError={formError}
               upstreamModelId={initialUpstreamModelId.value}
               upstreamModelIdError={initialUpstreamModelId.error}
               onUpstreamModelIdChange={initialUpstreamModelId.updateFromOperator}
             />
           ) : null}
+
+          <p className="text-xs text-muted-foreground">{configureLater ? copy.configureLaterDescription : copy.createEffect}</p>
 
         </DialogBody>
         <DialogFooter>

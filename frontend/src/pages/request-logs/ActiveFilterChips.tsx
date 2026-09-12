@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { useLocale } from "@/i18n/useLocale";
 import { applyRequestLogStatePatch } from "./queryParams";
 import type { useRequestLogPageState } from "./useRequestLogPageState";
+import { formatUnpricedReasonLabel } from "@/lib/costing";
 import { getTimeLabel } from "./FiltersBar.constants";
 
 type Actions = ReturnType<typeof useRequestLogPageState>;
@@ -28,10 +29,23 @@ export function ActiveFilterChips({ actions }: { actions: Actions }) {
   const copy = messages.requestLogs;
   const { state } = actions;
 
+  const knownLabels: Record<string, string> = {
+    completed: copy.attemptResultCompleted, failed: copy.finalFailedChip,
+    client_disconnected: copy.attemptResultClientDisconnected,
+    priced: copy.pricingStatusPriced, unpriced: copy.pricingStatusUnpriced,
+    ineligible: copy.pricingStatusIneligible, unknown: copy.unknown,
+    "2xx": copy.twoHundredsOnly, "4xx": copy.fourHundredsOnly, "5xx": copy.fiveHundredsOnly,
+    standard: copy.pricingCardStandard, tier_base: copy.pricingCardTierBase,
+    tier_above: copy.pricingCardTierAbove, peak: copy.pricingCardPeak, offpeak: copy.pricingCardOffpeak,
+    not_evaluated: copy.pricingSelectionNotEvaluated, not_applicable: copy.pricingSelectionNotApplicable,
+    selected: copy.pricingSelectionSelected, unresolved: copy.pricingSelectionUnresolved,
+  };
+  const enumKeys = new Set(["final_result", "ingress_final_result", "status_family", "pricing_status", "pricing_card_role", "pricing_selection_state"]);
   const chips: Chip[] = [];
   const push = (key: string, label: string, value: string | null | undefined, onClear: () => void) => {
     if (!value) return;
-    chips.push({ key, label, onClear, value });
+    const visibleValue = key === "unpriced_reason" ? formatUnpricedReasonLabel(value) : enumKeys.has(key) ? value.split(",").map(item => knownLabels[item] ?? copy.unknown).join("、") : value;
+    chips.push({ key, label, onClear, value: visibleValue });
   };
 
   // 按请求 ID 定位是 URL 里最强的一个条件，却是唯一不出现在生效筛选条里的。
@@ -94,7 +108,7 @@ export function ActiveFilterChips({ actions }: { actions: Actions }) {
           className="inline-flex h-5 items-center gap-1 rounded-[4px] border border-primary/25 bg-primary/10 pl-1.5 pr-0.5 text-xs text-primary"
         >
           <span className="text-muted-foreground">{chip.label}</span>
-          <span className="max-w-40 truncate font-mono">{chip.value}</span>
+          <span className="max-w-40 truncate">{chip.value}</span>
           <button
             type="button"
             onClick={chip.onClear}

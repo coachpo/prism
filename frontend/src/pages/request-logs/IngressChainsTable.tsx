@@ -1,3 +1,4 @@
+import { describeRequestFailure, requestServiceLabel } from "./requestFailurePresentation";
 import { ChainRankingValue } from "./ChainRankingValue";
 import { Fragment, useId, useMemo, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
@@ -397,7 +398,7 @@ function ChainRowsPanel({
 					className="text-xs text-failing"
 					data-testid={`chain-rows-error-${chain.ingress_request_id}`}
 				>
-					{readState.error}
+					{messages.requestLogs.loadFailed}
 				</p>
 			) : null}
 			{hasMore || readState?.pending ? (
@@ -499,7 +500,7 @@ function ChainSummaryRow({
 	const endpointRepeats =
 		summary !== null &&
 		endpointRepeatsTerminalTarget(
-			summary.terminal_target?.label,
+			requestServiceLabel(summary.terminal_target?.label, summary.endpoint?.label ?? "未命名服务"),
 			summary.endpoint?.label,
 		);
 	// Finalized evidence is either authoritative or unavailable; unavailable is a
@@ -559,7 +560,7 @@ function ChainSummaryRow({
 					{summary ? (
 						<OperatorStatusBadge
 							intent={tier}
-							label={String(summary.final_status_code)}
+							label={describeRequestFailure({ statusCode: summary.final_status_code, streamOutcome: summary.final_result === "client_disconnected" ? "client_disconnected" : undefined, errorPresent: summary.final_result !== "completed" })?.title ?? copy.attemptResultCompleted}
 							preserveLabel
 						/>
 					) : (
@@ -569,11 +570,6 @@ function ChainSummaryRow({
 							preserveLabel
 						/>
 					)}
-					{summary?.final_error_code ? (
-						<span className="font-mono text-xs text-failing">
-							{summary.final_error_code}
-						</span>
-					) : null}
 					{chain.chain_complete === false ? (
 						<OperatorClippedBadge
 							label={copy.chainIncomplete}
@@ -639,10 +635,10 @@ function ChainSummaryRow({
 						<div className="flex min-w-0 flex-col gap-0.5 text-xs">
 							<span
 								className="truncate"
-								title={summary.terminal_target?.label ?? undefined}
+								title={requestServiceLabel(summary.terminal_target?.label, summary.endpoint?.label ?? "未命名服务")}
 							>
 								{summary.terminal_target?.label ? (
-									truncateIdentifier(summary.terminal_target.label, 16, 8)
+									truncateIdentifier(requestServiceLabel(summary.terminal_target.label, summary.endpoint?.label ?? "未命名服务"), 16, 8)
 								) : (
 									<OperatorMissingValue reason={copy.actualTerminalTargetMissing} />
 								)}
@@ -790,7 +786,7 @@ function ChainSummaryRow({
 							<Link
 								to="/observe/requests/$requestId/audit"
 								params={{ requestId: requestLogId }}
-								search={{}}
+                                search={{ return_to: `${window.location.pathname}${window.location.search}` }}
 								data-testid={`chain-view-audit-${chain.ingress_request_id}`}
 							>
 								<FileSearch />
@@ -871,7 +867,7 @@ function ChainRowButton({
 		row.endpoint_label ??
 		(row.endpoint_id === null ? null : copy.endpointId(row.endpoint_id));
 	const terminalTarget =
-		row.terminal_target_label ??
+		requestServiceLabel(row.terminal_target_label, row.endpoint_label ?? copy.terminalTarget) ??
 		(row.terminal_target_id === null
 			? null
 			: copy.terminalTargetId(row.terminal_target_id));

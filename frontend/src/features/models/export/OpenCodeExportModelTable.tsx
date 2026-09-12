@@ -82,9 +82,6 @@ export function OpenCodeExportModelTable({
               </TableCell>
               <TableCell>
                 <p>{formatApiFamily(model.api_family)}</p>
-                <p className="font-mono text-xs">
-                  {model.npm || oc.absent}{" · "}{model.api_path || oc.absent}
-                </p>
               </TableCell>
               <TableCell className="min-w-72 whitespace-normal">
                 <p>{model.readiness?.status === "ready" ? messages.clientReadiness.ready : model.readiness?.status === "blocked" ? messages.clientReadiness.blocked : null}</p>

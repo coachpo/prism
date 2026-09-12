@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   setSharedModels: vi.fn(),
   toastError: vi.fn(),
   toastSuccess: vi.fn(),
+  toastWarning: vi.fn(),
 }));
 
 vi.mock("@/lib/referenceData", () => ({
@@ -68,6 +69,7 @@ vi.mock("@/i18n/staticMessages", () => ({
       selectApiFamily: "Select API family",
       selectLoadbalanceStrategy: "Select strategy",
       updated: "Model updated",
+      updatedRefreshFailed: "Model saved; list refresh failed",
     },
     modelsPage: {
       bulkDone: (succeeded: string, failed: string) =>
@@ -82,7 +84,7 @@ vi.mock("@/i18n/staticMessages", () => ({
 }));
 
 vi.mock("sonner", () => ({
-  toast: { error: mocks.toastError, success: mocks.toastSuccess },
+  toast: { error: mocks.toastError, success: mocks.toastSuccess, warning: mocks.toastWarning },
 }));
 
 vi.mock("./useModelMetrics24h", () => ({
@@ -186,6 +188,20 @@ describe("useModelsPageData lifecycle owners", () => {
 
     expect(mocks.getSharedLoadbalanceStrategies).toHaveBeenLastCalledWith(3);
     expect(mocks.setSharedLoadbalanceStrategies).not.toHaveBeenCalled();
+  });
+
+  it("keeps a completed edit saved when the following list refresh fails", async () => {
+    mocks.modelUpdate.mockResolvedValue({ model: modelConfig({ display_name: "Saved name" }) });
+    const { result } = renderHook(() => useModelsPageData(3));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    await act(async () => { await result.current.handleOpenDialog(result.current.models[0]); });
+    mocks.getSharedModels.mockRejectedValueOnce(new Error("refresh unavailable"));
+    await act(async () => { await result.current.handleSubmit({ preventDefault: vi.fn() }); });
+    expect(result.current.models[0].display_name).toBe("Saved name");
+    expect(result.current.isDialogOpen).toBe(false);
+    expect(result.current.formError).toBeNull();
+    expect(mocks.toastWarning).toHaveBeenCalledWith("Model saved; list refresh failed");
+    expect(mocks.modelUpdate).toHaveBeenCalledOnce();
   });
 
   it("re-reads strategy defaults and updates only an active create session", async () => {

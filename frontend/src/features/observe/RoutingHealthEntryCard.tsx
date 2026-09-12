@@ -91,7 +91,7 @@ export function RoutingHealthEntryCard() {
       data-testid="routing-health-entry"
       title={copy.routingHealthEntryTitle}
       description={
-        completeness && subset ? (
+        completeness && subset && unobserved === 0 ? (
           messages.routingHealth.currentStateSummary(
             formatNumber(completeness.configured_target_count),
             formatNumber(banned),
@@ -117,8 +117,6 @@ export function RoutingHealthEntryCard() {
           testId="routing-health-entry-error"
           title={copy.routingHealthStateUnavailable}
           description={messages.honesty.readFailedDescription}
-          details={state.error}
-          detailsLabel={messages.honesty.viewDetails}
           action={
             <OperatorRetryButton onClick={load}>
               {copy.retry}
@@ -162,7 +160,7 @@ export function RoutingHealthEntryCard() {
                     )}
                   />
                 ) : null}
-                {subset && banned === 0 && retryWait === 0 ? (
+                {subset && banned === 0 && retryWait === 0 && unobserved === 0 ? (
                   <OperatorStatusBadge
                     intent="healthy"
                     preserveLabel

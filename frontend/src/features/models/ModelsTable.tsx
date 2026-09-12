@@ -1,3 +1,4 @@
+import { modelStrategyLabel } from "@/pages/models/modelStrategyLabel";
 import type { ReactNode } from "react"
 import { useId, useMemo, useState } from "react"
 import { Link, useNavigate } from "@tanstack/react-router"
@@ -338,7 +339,7 @@ export function ModelsTable({
       if (column === "api_family") return model.api_family
       if (column === "status") return model.is_enabled
       if (column === "targets") return model.routing_summary?.total_access_target_count ?? null
-      if (column === "strategy") return model.loadbalance_strategy?.name ?? null
+      if (column === "strategy") return model.loadbalance_strategy ? modelStrategyLabel(model.loadbalance_strategy) : null
       if (column === "success") return modelMetrics24h[model.id]?.success_rate ?? null
       if (column === "p95") return modelMetrics24h[model.id]?.p95_latency_ms ?? null
       if (column === "requests") return modelMetrics24h[model.id]?.request_count_24h ?? null
@@ -612,7 +613,7 @@ export function ModelsTable({
                   <TableCell className="align-top">
                     <div className="flex min-w-32 flex-col items-start gap-0.5">
                       {model.loadbalance_strategy ? (
-                        <span className="truncate text-xs">{model.loadbalance_strategy.name}</span>
+                        <span className="truncate text-xs">{modelStrategyLabel(model.loadbalance_strategy)}</span>
                       ) : (
                         <OperatorMissingValue className="text-xs" reason={copy.strategyMissingReason} />
                       )}

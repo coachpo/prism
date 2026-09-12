@@ -519,10 +519,10 @@ test.describe("observe page regression", () => {
 
     await expect(page.getByTestId("observe-page")).toBeVisible();
     // One view, four content values — the KPI row and the chart render once.
-    await expect(page.getByRole("tab", { name: "趋势" })).toBeVisible();
-    await expect(page.getByRole("tab", { name: "错误" })).toBeVisible();
-    await expect(page.getByRole("tab", { name: "活动" })).toBeVisible();
-    await expect(page.getByRole("tab", { name: "终端目标" })).toBeVisible();
+    await expect(page.getByRole("tab", { name: "用量趋势" })).toBeVisible();
+    await expect(page.getByRole("tab", { name: "处理失败" })).toBeVisible();
+    await expect(page.getByRole("tab", { name: "近期请求" })).toBeVisible();
+    await expect(page.getByRole("tab", { name: "服务明细" })).toBeVisible();
     await expect(page.getByRole("tab", { name: "事件" })).toHaveCount(0);
 
     // Now strip shows rolling 30m RPM as the headline (not window average).
@@ -542,7 +542,7 @@ test.describe("observe page regression", () => {
     await expect(page.getByTestId("pricing-unknown")).toContainText("0");
 
     // Activity feed: route-changed row + named open action.
-    await page.getByRole("tab", { name: "活动" }).click();
+    await page.getByRole("tab", { name: "近期请求" }).click();
     await expect(page.getByTestId("observe-activity-table")).toBeVisible();
     await expect(page.getByTestId("route-changed").first()).toBeVisible();
     await expect(
@@ -564,7 +564,7 @@ test.describe("observe page regression", () => {
 
     await expect(page.getByTestId("observe-main-chart")).toBeVisible();
     // Error panel renders HTTP/stream rankings under its own switcher value.
-    await page.getByRole("tab", { name: "错误" }).click();
+    await page.getByRole("tab", { name: "处理失败" }).click();
     await expect(page.getByTestId("observe-error-panel")).toBeVisible();
     await expect(page.getByTestId("error-status-503")).toContainText(
       "HTTP 503",
@@ -574,7 +574,7 @@ test.describe("observe page regression", () => {
     ).toBeVisible();
     // Metric and group selectors are single-select ToggleGroups: each option
     // is a radio inside a named group.
-    await page.getByRole("tab", { name: "趋势" }).click();
+    await page.getByRole("tab", { name: "用量趋势" }).click();
     await page.getByRole("radio", { name: "首字耗时" }).click();
     await expect(page).toHaveURL(/metric=ttft/);
     await page.getByRole("radio", { name: "按入口模型" }).click();
@@ -612,14 +612,14 @@ test.describe("observe page regression", () => {
         (query) => !query.groupBy || query.groupBy === "none",
       ),
     ).toBe(true);
-    await page.getByRole("tab", { name: "趋势" }).click();
+    await page.getByRole("tab", { name: "用量趋势" }).click();
 
     // These controls write to the URL, but they are in-page state changes, not
     // navigations. The router's default scroll reset would throw the operator
     // back to the top every time they touch a control below the fold. Bring
     // each control into view first, so Playwright's own scroll-into-view is not
     // what moves the page between the two readings.
-    const groupByEndpoint = page.getByRole("radio", { name: "按端点" });
+    const groupByEndpoint = page.getByRole("radio", { name: "按服务" });
     await groupByEndpoint.scrollIntoViewIfNeeded();
     const offsetBeforeGroupChange = await page.evaluate(() => window.scrollY);
     expect(offsetBeforeGroupChange).toBeGreaterThan(0);
@@ -631,7 +631,7 @@ test.describe("observe page regression", () => {
 
     // Switching views swaps what renders below the switcher, so the page height
     // moves with it; what has to hold is that the operator keeps their place.
-    const activityTab = page.getByRole("tab", { name: "活动" });
+    const activityTab = page.getByRole("tab", { name: "近期请求" });
     await activityTab.scrollIntoViewIfNeeded();
     const offsetBeforeViewChange = await page.evaluate(() => window.scrollY);
     expect(offsetBeforeViewChange).toBeGreaterThan(0);
@@ -648,7 +648,7 @@ test.describe("observe page regression", () => {
 
     await expect(page).toHaveURL(/\/observe\/routing-health/);
     await expect(page.getByTestId("routing-health-page")).toBeVisible();
-    await expect(page.getByText("负载均衡事件", { exact: true })).toBeVisible();
+    await expect(page.getByText("连接变化记录", { exact: true })).toBeVisible();
   });
 
   test("route-attempt trend and errors share context and open attempt logs", async ({
@@ -681,7 +681,7 @@ test.describe("observe page regression", () => {
       )
       .toBe(true);
 
-    await page.getByRole("tab", { name: "错误" }).click();
+    await page.getByRole("tab", { name: "处理失败" }).click();
     await expect(page.getByTestId("observe-error-panel")).toBeVisible();
     await expect
       .poll(() =>
@@ -692,7 +692,7 @@ test.describe("observe page regression", () => {
       .toBe(true);
     await page.getByTestId("error-status-503").click();
     await expect(
-      page.getByRole("link", { name: "在请求日志中查看全部" }),
+      page.getByRole("link", { name: "在请求记录中查看全部" }),
     ).toHaveAttribute("href", /view=attempts/);
   });
 });

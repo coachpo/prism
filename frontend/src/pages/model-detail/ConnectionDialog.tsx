@@ -31,6 +31,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useLocale } from "@/i18n/useLocale";
 import { cn } from "@/lib/utils";
 import { classifyOpenAICoverage } from "./classifyOpenAICoverage";
+import { routeExplanationOperations } from "./routeExplanationOperations";
 import { ConnectionCustomRequestParametersEditor } from "./ConnectionCustomRequestParametersEditor";
 import { ConnectionRoutingScheduleField } from "./ConnectionRoutingScheduleField";
 import {
@@ -887,7 +888,7 @@ export function ConnectionDialog({
                       </div>
 
                       <p className="text-xs text-muted-foreground">
-                        {copy.routingPriorityHint}
+                        {editingConnection ? copy.routingPriorityEditHint : copy.routingPriorityHint}
                       </p>
                     </ConnectionDialogSection>
 
@@ -939,7 +940,7 @@ export function ConnectionDialog({
                             data-testid="connection-dialog-capability-preview"
                           >
                             <p className="text-xs font-medium text-muted-foreground">
-                              {routingCopy.capabilityCoverageLabel}
+                              {copy.configuredInterfacesLabel}
                             </p>
                             {(() => {
                               const preview = classifyOpenAICoverage(
@@ -948,10 +949,10 @@ export function ConnectionDialog({
                               );
                               const badgeLabel =
                                 preview.coverage === "full"
-                                  ? routingCopy.coverageFull
+                                  ? copy.configuredInterfacesMatch
                                   : preview.coverage === "partial"
-                                    ? routingCopy.coveragePartial
-                                    : routingCopy.coverageNone;
+                                    ? copy.configuredInterfacesPartial
+                                    : copy.configuredInterfacesMismatch;
                               const badgeIntent =
                                 preview.coverage === "full"
                                   ? "healthy"
@@ -960,18 +961,16 @@ export function ConnectionDialog({
                                     : "danger";
                               return (
                                 <div className="flex flex-col gap-1">
-                                  <OperatorStatusBadge
+                                  {preview.coverage === "full" ? <OperatorTypeBadge intent="neutral" label={badgeLabel} preserveLabel /> : <OperatorStatusBadge
                                     intent={badgeIntent}
                                     label={badgeLabel}
                                     preserveLabel
-                                  />
+                                  />}
                                   {preview.unsupportedAcceptedOperations
                                     .length > 0 ? (
                                     <p className="text-xs text-muted-foreground">
                                       {routingCopy.missingOperations(
-                                        preview.unsupportedAcceptedOperations.join(
-                                          "、",
-                                        ),
+                                        preview.unsupportedAcceptedOperations.map((operation) => routeExplanationOperations("openai", messages).find(([name]) => name === operation)?.[1] ?? messages.observe.routingUnknownOperationLabel).join("、"),
                                       )}
                                     </p>
                                   ) : null}

@@ -21,6 +21,7 @@ import {
 } from "@/shared/design-system";
 import type { PiRefreshPreviewResponse } from "@/lib/types";
 import type { PiBindingController } from "./usePiBindingController";
+import { piFieldLabel, piPreviewValueLabel } from "./piCatalogPresentation";
 
 type Copy = Record<string, string>;
 
@@ -162,11 +163,11 @@ export function PiBindingRefreshDialog({
               {preview.changes.map((change) => (
                 <OperatorInsetPanel key={change.field}>
                   <div className="font-mono text-xs font-medium">
-                    {change.field}
+                    {piFieldLabel(change.field)}
                   </div>
                   <div className="text-xs text-muted-foreground">
-                    {change.current ?? copy.refreshFieldAbsent} →{" "}
-                    {change.next ?? copy.refreshFieldAbsent}
+                    {piPreviewValueLabel(change.current, change.field) ?? copy.refreshFieldAbsent} →{" "}
+                    {piPreviewValueLabel(change.next, change.field) ?? copy.refreshFieldAbsent}
                   </div>
                 </OperatorInsetPanel>
               ))}

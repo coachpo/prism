@@ -181,8 +181,6 @@ function CoverageCard({
         <dt className="text-muted-foreground">{copy.coverageBasisLabel}</dt>
         {/* 「口径」这一栏说的是这个数从哪来、按什么算，不是后端字段路径。 */}
         <dd>{copy.coverageBasisSource(coverage.source)}</dd>
-        <dt className="text-muted-foreground">{copy.coverageGenerationLabel}</dt>
-        <dd className="truncate font-mono tabular-nums">{coverage.retention_generation}</dd>
       </dl>
 
       {gapLabels.length > 0 ? (

@@ -48,23 +48,23 @@ describe("AuditConfigurationAPIFamilyCard", () => {
       "Anthropic",
       "Gemini",
     ]);
-    expect(screen.getByRole("switch", { name: "OpenAI 捕获正文" })).toBeDisabled();
-    expect(screen.getByRole("switch", { name: "Anthropic 捕获正文" })).toBeEnabled();
-    expect(screen.getByRole("switch", { name: "Gemini 捕获正文" })).toBeDisabled();
+    expect(screen.getByRole("switch", { name: "OpenAI 保存请求与回复内容" })).toBeDisabled();
+    expect(screen.getByRole("switch", { name: "Anthropic 保存请求与回复内容" })).toBeEnabled();
+    expect(screen.getByRole("switch", { name: "Gemini 保存请求与回复内容" })).toBeDisabled();
   });
 
   it("names why capture bodies is disabled, in text and on a focusable control", () => {
     renderCard();
 
-    const reason = "先启用该 API 家族的审计日志，才能捕获请求与响应正文。";
-    const openaiCapture = screen.getByRole("switch", { name: "OpenAI 捕获正文" });
+    const reason = "先开启这个接口类型的详细记录，才能保存请求与回复内容。";
+    const openaiCapture = screen.getByRole("switch", { name: "OpenAI 保存请求与回复内容" });
     const describedBy = openaiCapture.getAttribute("aria-describedby");
     expect(describedBy).toBe("audit-openai-capture-bodies-reason");
     expect(document.getElementById(describedBy ?? "")?.textContent).toBe(reason);
-    // 已启用审计的那一行没有理由可给，也就不该多出一个帮助按钮。
+    // 已记录请求的那一行没有理由可给，也就不该多出一个帮助按钮。
     expect(screen.getAllByRole("button", { name: reason })).toHaveLength(2);
     expect(
-      screen.getByRole("switch", { name: "Anthropic 捕获正文" }).getAttribute("aria-describedby"),
+      screen.getByRole("switch", { name: "Anthropic 保存请求与回复内容" }).getAttribute("aria-describedby"),
     ).toBeNull();
   });
 
@@ -72,8 +72,8 @@ describe("AuditConfigurationAPIFamilyCard", () => {
     const user = userEvent.setup();
     const props = renderCard();
 
-    await user.click(screen.getByRole("switch", { name: "OpenAI 启用审计" }));
-    await user.click(screen.getByRole("switch", { name: "Anthropic 捕获正文" }));
+    await user.click(screen.getByRole("switch", { name: "OpenAI 保存详细记录" }));
+    await user.click(screen.getByRole("switch", { name: "Anthropic 保存请求与回复内容" }));
 
     expect(props.setAPIFamilyAuditEnabled).toHaveBeenCalledWith("openai", true);
     expect(props.setAPIFamilyAuditCaptureBodies).toHaveBeenCalledWith("anthropic", false);

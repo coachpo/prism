@@ -45,8 +45,8 @@ function renderModels(
 
 describe("ModelsTable internal-model identity", () => {
   it.each([
-    [2, "被 2 个模型目标引用"],
-    [0, "未被模型目标引用"],
+    [2, "被 2 个其他模型引用"],
+    [0, "未被其他模型引用"],
   ] as const)("renders incoming-reference evidence for count %i", (incoming, expected) => {
     renderModels([{
       ...entryModelListItem([]),
@@ -60,9 +60,9 @@ describe("ModelsTable internal-model identity", () => {
   })
 
   it.each([
-    ["entries", "还没有配置入口模型"],
-    ["model_targets", "还没有仅模型目标"],
-    ["all", "还没有模型配置"],
+    ["entries", "还没有配置客户端模型"],
+    ["model_targets", "还没有仅供其他模型使用"],
+    ["all", "还没有模型"],
   ] as const)("keeps the %s empty state distinct", (view, title) => {
     renderModels([], view)
     expect(screen.getByText(title)).toBeVisible()

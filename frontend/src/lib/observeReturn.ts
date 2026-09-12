@@ -10,14 +10,19 @@ export interface ObserveReturnPayload {
   preset: EventsQueryContextPreset;
   from_time?: string;
   to_time?: string;
-  event_type?: string;
-  event_failure_kind?: string;
-  event_admission_reason?: string;
+  event_type?: string | string[];
+  event_failure_kind?: string | string[];
+  event_admission_reason?: string | string[];
   event_model_id?: string;
   event_endpoint_id?: string;
   event_terminal_target_id?: string;
   event_sort_order?: "desc" | "asc";
   event_cursor?: string;
+  runtime_model_id?: string;
+  runtime_endpoint_id?: string;
+  runtime_terminal_target_id?: string;
+  runtime_cursor?: string;
+  runtime_state?: string | string[];
 }
 
 const ALLOWED_KEYS = new Set([
@@ -34,6 +39,11 @@ const ALLOWED_KEYS = new Set([
   "event_terminal_target_id",
   "event_sort_order",
   "event_cursor",
+  "runtime_model_id",
+  "runtime_endpoint_id",
+  "runtime_terminal_target_id",
+  "runtime_cursor",
+  "runtime_state",
 ]);
 
 const MAX_OBSERVE_RETURN_BYTES = 2048;
@@ -83,17 +93,22 @@ export function decodeObserveReturn(raw: string | undefined | null): ObserveRetu
   for (const optionalKey of [
     "from_time",
     "to_time",
-    "event_type",
-    "event_failure_kind",
-    "event_admission_reason",
     "event_model_id",
     "event_endpoint_id",
     "event_terminal_target_id",
     "event_cursor",
+    "runtime_model_id",
+    "runtime_endpoint_id",
+    "runtime_terminal_target_id",
+    "runtime_cursor",
   ]) {
     if (record[optionalKey] !== undefined && typeof record[optionalKey] !== "string") {
       return null;
     }
+  }
+  for (const filterKey of ["event_type", "event_failure_kind", "event_admission_reason", "runtime_state"]) {
+    const value = record[filterKey];
+    if (value !== undefined && typeof value !== "string" && !(Array.isArray(value) && value.every(item => typeof item === "string"))) return null;
   }
   if (record.event_sort_order !== undefined && record.event_sort_order !== "desc" && record.event_sort_order !== "asc") {
     return null;
@@ -119,6 +134,11 @@ export function observeReturnToSearch(payload: ObserveReturnPayload): Record<str
     ["event_sort_order", "event_sort_order"],
     ["event_cursor", "event_cursor"],
     ["event_id", "event_id"],
+    ["runtime_model_id", "runtime_model_id"],
+    ["runtime_endpoint_id", "runtime_endpoint_id"],
+    ["runtime_terminal_target_id", "runtime_terminal_target_id"],
+    ["runtime_cursor", "runtime_cursor"],
+    ["runtime_state", "runtime_state"],
   ];
   for (const [sourceKey, searchKey] of keys) {
     const value = payload[sourceKey];

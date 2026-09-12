@@ -1,5 +1,6 @@
 import type { Messages } from "@/i18n/messages";
 import type { ModelCatalogMetadata } from "@/lib/types";
+import { getStaticMessages } from "@/i18n/staticMessages";
 
 export type CatalogFieldKey = keyof ModelCatalogMetadata;
 export type CatalogFieldKind =
@@ -54,14 +55,35 @@ export const CATALOG_FIELD_KINDS: Record<CatalogFieldKey, CatalogFieldKind> = {
 };
 
 export function renderCatalogFieldValue(
-  metadata: ModelCatalogMetadata | null,
+  metadata: Partial<ModelCatalogMetadata> | null,
   key: CatalogFieldKey,
 ): string | null {
   const value = metadata?.[key];
   if (value === null || value === undefined) return null;
-  if (Array.isArray(value)) return value.join("、");
-  if (typeof value === "boolean") return value ? "是" : "否";
+  const copy = getStaticMessages().modelCatalog;
+  if (Array.isArray(value)) return value.length ? value.map(catalogModalityLabel).join("、") : copy.formatNone;
+  if (typeof value === "boolean") return value ? copy.overrideBooleanTrue : copy.overrideBooleanFalse;
+  if (key === "status") return catalogStatusLabel(String(value));
   return String(value);
+}
+
+export function catalogModalityLabel(value: string): string {
+  const copy = getStaticMessages().modelCatalog;
+  const labels: Record<string, string> = { text: copy.formatText, image: copy.formatImage, audio: copy.formatAudio, video: copy.formatVideo, pdf: copy.formatPdf };
+  return labels[value] ?? copy.formatOther;
+}
+
+export function catalogStatusLabel(value: string): string {
+  const copy = getStaticMessages().modelCatalog;
+  const labels: Record<string, string> = { alpha: copy.statusAlpha, beta: copy.statusBeta, deprecated: copy.statusDeprecated };
+  return labels[value] ?? copy.statusUnknown;
+}
+
+export function renderCatalogPreviewValue(value: string | null, field: string): string | null {
+  if (value === null) return null;
+  let parsed: unknown = value;
+  try { parsed = JSON.parse(value); } catch { /* Plain catalog values need no decoding. */ }
+  return renderCatalogFieldValue({ [field]: parsed }, field as CatalogFieldKey);
 }
 
 export function catalogFieldLabel(
@@ -88,5 +110,5 @@ export function catalogFieldLabel(
     open_weights: copy.fieldOpenWeights,
     status: copy.fieldStatus,
   };
-  return labels[key];
+  return labels[key] ?? copy.fieldUnknown;
 }

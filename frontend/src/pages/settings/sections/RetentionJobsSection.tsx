@@ -160,7 +160,7 @@ export function RetentionJobsSection({
             {jobsStale && jobsLoadedAt ? (
               <OperatorStalenessBadge
                 label={copy.jobsStaleBadge}
-                reason={jobsError ?? undefined}
+                reason={jobsError ? copy.jobsLoadFailed : undefined}
               />
             ) : (
               <span className="text-xs text-muted-foreground">
@@ -223,9 +223,7 @@ export function RetentionJobsSection({
           </Field>
         </div>
 
-        {jobsLoading && jobs.length === 0 ? (
-          <OperationalTableSkeletonRows columns={JOB_COLUMN_COUNT} rows={4} />
-        ) : jobs.length === 0 && !jobsLoading ? (
+        {jobs.length === 0 && !jobsLoading ? (
           jobsStale ? (
             // A first load that failed is a failure surface, never an empty list.
             <p role="alert" className="text-sm text-failing">
@@ -257,7 +255,9 @@ export function RetentionJobsSection({
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {jobs.map((job) => (
+                    {jobsLoading && jobs.length === 0 ? (
+                      <OperationalTableSkeletonRows columns={JOB_COLUMN_COUNT} rows={4} label={copy.jobsLoading} />
+                    ) : jobs.map((job) => (
                       <RetentionJobRows
                         key={job.id}
                         copy={copy}
@@ -464,7 +464,7 @@ function RetentionJobRows({
             </dl>
             {job.error ? (
               <p className="mt-3 text-xs text-destructive">
-                {job.error.code}: {job.error.message}
+                {copy.jobErrorHelp}
               </p>
             ) : null}
           </TableCell>
@@ -510,7 +510,9 @@ function protectionLabel(
     case "observe_query_token":
       return `${copy.observeProtection} · ${format(protection.deadline)}`;
     case "audit_retention_fence":
-      return `${copy.auditProtection} · ${protection.reader_fence_state}/${protection.materializer_state}`;
+      return protection.reader_fence_state === "clear" && protection.materializer_state === "ready"
+        ? copy.auditProtectionReady
+        : protection.materializer_state === "blocked" ? copy.auditProtectionBlocked : copy.auditProtection;
     case "none":
       return copy.noProtection;
     default:
@@ -549,6 +551,7 @@ function RetentionJobDetailDialog({
   const { messages } = useLocale();
   const tableCopy = messages.operationalTable;
   const copy = messages.settingsRetentionDeletion;
+  const { format } = useTimezone();
   const job = detail?.job ?? fallbackJob;
   return (
     <Dialog open={Boolean(fallbackJob)} onOpenChange={onOpenChange}>
@@ -570,7 +573,7 @@ function RetentionJobDetailDialog({
               role="alert"
               data-testid="retention-job-detail-error"
             >
-              <p className="text-sm text-failing">{baseError}</p>
+              <p className="text-sm text-failing">{copy.jobDetailFailed}</p>
               <Button
                 type="button"
                 variant="outline"
@@ -586,6 +589,7 @@ function RetentionJobDetailDialog({
                 <OperatorCalloutTerminal
                   kind={detail.terminal_result.kind}
                   label={copy.terminalResult}
+                  stateLabel={jobStateLabel(detail.terminal_result.kind, copy)}
                 />
               ) : null}
               <EvidenceLane
@@ -602,7 +606,7 @@ function RetentionJobDetailDialog({
                     key={item.sequence}
                     className="font-mono text-xs text-muted-foreground"
                   >
-                    #{item.sequence} · {item.stage} · {item.kind}
+                    {copy.checkpointEntry(format(item.recorded_at), jobStateLabel(item.stage, copy))}
                   </p>
                 ))}
               </EvidenceLane>
@@ -620,7 +624,7 @@ function RetentionJobDetailDialog({
                     key={item.sequence}
                     className="font-mono text-xs text-muted-foreground"
                   >
-                    #{item.sequence} · {item.partition_name} · {item.action}
+                    {copy.partitionEntry(format(item.evidence_at), item.action === "dropped" && item.dropped_rows_accuracy === "estimated" && item.dropped_rows_estimate !== null ? copy.partitionEstimate(item.dropped_rows_estimate) : copy.countUnavailable)}
                   </p>
                 ))}
               </EvidenceLane>
@@ -661,6 +665,8 @@ function EvidenceLane({
   onLoadMore: () => void;
   children: React.ReactNode;
 }) {
+  const { messages } = useLocale();
+  const safeError = lane.error ? messages.settingsRetentionDeletion.jobDetailFailed : null;
   if (count === 0 && !lane.error) return null;
   return (
     <div className="flex flex-col gap-2" data-testid={`evidence-lane-${title}`}>
@@ -674,14 +680,14 @@ function EvidenceLane({
           className="text-xs text-failing"
           data-testid="evidence-lane-error"
         >
-          {lane.error}
+          {safeError}
         </p>
       ) : null}
       {hasMore || lane.loading ? (
         <LoadMoreControl
           testId={`evidence-lane-more-${title}`}
           pending={lane.loading}
-          error={lane.error}
+          error={safeError}
           hasMore={hasMore}
           labels={{ loadMore: title, loading: loadingLabel, retry: retryLabel }}
           onLoadMore={onLoadMore}
@@ -694,9 +700,11 @@ function EvidenceLane({
 function OperatorCalloutTerminal({
   kind,
   label,
+  stateLabel,
 }: {
   kind: string;
   label: string;
+  stateLabel: string;
 }) {
   return (
     <div
@@ -704,10 +712,10 @@ function OperatorCalloutTerminal({
         "rounded-md border px-3 py-2 text-xs",
         kind === "failed"
           ? "border-destructive/25 bg-destructive/10 text-destructive"
-          : "border-healthy/25 bg-healthy/10 text-healthy",
+          : kind === "succeeded" ? "border-healthy/25 bg-healthy/10 text-healthy" : "border-border bg-inset text-muted-foreground",
       )}
     >
-      {label}: {kind}
+      {label}: {stateLabel}
     </div>
   );
 }
@@ -723,7 +731,7 @@ function datasetLabel(dataset: string, copy: JobCopy) {
     case "loadbalance_events":
       return copy.loadbalanceEventsPolicy;
     default:
-      return dataset;
+      return copy.unknownDataset;
   }
 }
 
@@ -746,7 +754,7 @@ function jobStateLabel(state: string, copy: JobCopy) {
     publishing_epoch_coverage: copy.jobPublishing,
     finished: copy.jobFinished,
   };
-  return labels[state] ?? state;
+  return labels[state] ?? copy.unknownState;
 }
 
 function visibilityStateLabel(state: string, copy: JobCopy) {
@@ -756,7 +764,7 @@ function visibilityStateLabel(state: string, copy: JobCopy) {
     revoked: copy.visibilityRevoked,
     legacy_unknown: copy.visibilityLegacyUnknown,
   };
-  return labels[state] ?? state;
+  return labels[state] ?? copy.unknownState;
 }
 
 function purgeStateLabel(state: string, copy: JobCopy) {
@@ -767,5 +775,5 @@ function purgeStateLabel(state: string, copy: JobCopy) {
     published: copy.purgePublished,
     rolled_back: copy.purgeRolledBack,
   };
-  return labels[state] ?? state;
+  return labels[state] ?? copy.unknownState;
 }

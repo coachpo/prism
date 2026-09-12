@@ -37,6 +37,7 @@ import type { Connection } from "@/lib/types";
 import type { ModelConfigListItem } from "@/lib/types";
 import { toast } from "sonner";
 import { RouteReadinessCard } from "@/pages/model-detail/RouteReadinessCard";
+import { ModelClientConnectionCard } from "./ModelClientConnectionCard";
 import {
   OperatorClippedBadge,
   OperatorCallout,
@@ -253,7 +254,7 @@ export function ModelDetailFeaturePage({
   });
   // The breadcrumb leaf must name the model, not say "配置". Until the model
   // loads this stays null and the shell falls back to the id.
-  usePublishBreadcrumbEntity(data.model?.display_name || data.model?.model_id);
+  usePublishBreadcrumbEntity(data.model?.display_name || data.model?.model_id || messages.modelsPage.title);
   const metricsScope: DetailMetricsScope =
     resolvedSearchParams.get("metrics_scope") === "final_execution"
       ? "final_execution"
@@ -291,7 +292,7 @@ export function ModelDetailFeaturePage({
   const pageTitle =
     data.model?.display_name ||
     data.model?.model_id ||
-    messages.modelDetail.modelFallbackTitle(modelId ?? "");
+    messages.modelsPage.title;
   const backToListAction = (
     <Button
       type="button"
@@ -309,9 +310,7 @@ export function ModelDetailFeaturePage({
         <OperatorPageHeader title={pageTitle} />
         <OperatorEmptyState
           title={messages.modelDetailData.invalidModelRouteTitle}
-          description={messages.modelDetailData.invalidModelRouteDescription(
-            modelId ?? "",
-          )}
+          description={messages.modelDetailData.invalidModelRouteDescription}
           action={backToListAction}
           testId="model-detail-invalid-route"
         />
@@ -327,9 +326,7 @@ export function ModelDetailFeaturePage({
         <OperatorPageHeader title={pageTitle} />
         <OperatorEmptyState
           title={messages.modelDetailData.modelConfigNotFoundTitle}
-          description={messages.modelDetailData.modelConfigNotFoundDescription(
-            modelId ?? "",
-          )}
+          description={messages.modelDetailData.modelConfigNotFoundDescription}
           action={backToListAction}
           testId="model-detail-not-found"
         />
@@ -374,8 +371,6 @@ export function ModelDetailFeaturePage({
         <OperatorErrorState
           title={messages.modelDetailData.fetchModelDetailsFailed}
           description={messages.modelDetailData.modelDetailLoadFailedDescription}
-          details={data.loadError}
-          detailsLabel={messages.honesty.viewDetails}
           action={
             <OperatorRetryButton onClick={() => void data.retryLoad()}>
               {messages.common.retry}
@@ -437,7 +432,7 @@ export function ModelDetailFeaturePage({
       >
         {/* 「路由是否就绪」的结论放在身份徽章之前：从列表点着「无法路由」
             进来，第一眼不该是一个绿色的「已启用」。 */}
-        {routingConclusion ? (
+        {routingConclusion?.key === "routable" ? <OperatorTypeBadge intent="neutral" preserveLabel label={routingConclusion.label} /> : routingConclusion ? (
           <OperatorStatusBadge
             intent={routingConclusion.intent}
             preserveLabel
@@ -498,6 +493,8 @@ export function ModelDetailFeaturePage({
         </DropdownMenu>
       </OperatorPageHeader>
 
+      <ModelClientConnectionCard model={model} onNavigateTo={navigateTo} />
+
       <OperatorFreshnessBar
         updatedAt={
           data.currentStateGeneratedAt ? (
@@ -528,9 +525,7 @@ export function ModelDetailFeaturePage({
                   ? messages.routing.stateStale
                   : messages.routing.runtimeReadFailed
               }
-              reason={messages.routing.runtimeReadFailedReason(
-                data.currentStateFailure.message,
-              )}
+              reason={messages.routing.runtimeReadFailedReason}
             />
           ) : null
         }

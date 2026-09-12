@@ -15,7 +15,6 @@ import { Spinner } from "@/components/ui/spinner";
 import {
   OperatorCallout,
   OperatorInsetPanel,
-  OperatorMissingValue,
 } from "@/shared/design-system";
 import type { PiCandidateWire } from "@/lib/types";
 import { piBindingCoordinateKey } from "./piBindingCoordinate";
@@ -216,16 +215,6 @@ export function PiBindingSourceDialog({
                 {copy.exportIdentityModelLabel}
               </dt>
               <dd className="break-all font-mono">{view.modelId}</dd>
-              <dt className="text-muted-foreground">
-                {copy.exportIdentityApiLabel}
-              </dt>
-              <dd className="break-all font-mono">
-                {view.piApi || copy.exportIdentityApiUnknown}
-              </dd>
-              <dt className="text-muted-foreground">
-                {copy.exportIdentityProviderLabel}
-              </dt>
-              <dd>{copy.exportIdentityProviderHint}</dd>
             </dl>
             <p className="text-xs text-muted-foreground">
               {copy.exportIdentityNote}
@@ -236,7 +225,7 @@ export function PiBindingSourceDialog({
             <p className="text-xs text-muted-foreground">
               {copy.rebindCurrentLabel}:{" "}
               <span className="font-mono">
-                {selected.provider_id}/{selected.model_id} ({selected.api})
+                {selected.provider_id}/{selected.model_id}
               </span>
               {view.bindingPrismModelId ? (
                 <>
@@ -293,8 +282,7 @@ export function PiBindingSourceDialog({
                     key={piBindingCoordinateKey(candidate)}
                     value={piBindingCoordinateKey(candidate)}
                   >
-                    {candidate.provider_id}/{candidate.model_id} (
-                    {candidate.api})
+                    {candidate.provider_id}/{candidate.model_id}{candidate.name ? ` · ${candidate.name}` : ""}
                   </option>
                 ))}
               </select>
@@ -337,10 +325,6 @@ export function PiBindingSourceDialog({
                     {copy.directorySearchLabel}
                   </dt>
                   <dd className="break-all font-mono">{effective.model_id}</dd>
-                  <dt className="text-muted-foreground">
-                    {copy.catalogApiLabel}
-                  </dt>
-                  <dd className="break-all font-mono">{effective.api}</dd>
                 </dl>
                 <p className="text-xs text-muted-foreground">
                   {isCrossDirectory
@@ -351,7 +335,7 @@ export function PiBindingSourceDialog({
               <PiCandidateEvidence candidate={effective} copy={copy} />
             </>
           ) : (
-            <OperatorMissingValue reason={copy.noCoordinateChosen} />
+            <p className="text-sm text-muted-foreground">{copy.noCoordinateChosen}</p>
           )}
 
           {clearsOverrides ? (

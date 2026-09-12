@@ -6,6 +6,7 @@ import { useObserveAutoRefresh, type ObserveRefreshInterval } from "./useObserve
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
+import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { observeRoute } from "@/app/router/appRouter";
@@ -221,6 +222,18 @@ function ObservePageContent() {
   /** The bucket width the server actually applied, not the requested `auto`. */
   const effectiveInterval = seriesFragment.data?.interval ?? null;
 
+  const configurationReady = setup.state.route_configured_count === 4;
+  const setupCard = (
+    <SetupCard
+        state={setup.state}
+        collapsed={setup.collapsed}
+        cardRef={setup.cardRef}
+        onBlurCapture={setup.handleBlurCapture}
+        onRetry={setup.refresh}
+        onToggle={setup.toggleDisclosure}
+      />
+  );
+
   return (
     <div
       data-testid="observe-page"
@@ -230,6 +243,10 @@ function ObservePageContent() {
         title={messages.observe.pageTitle}
         description={messages.observe.pageDescription}
         actions={
+          <>
+          <Button asChild size="sm">
+            {configurationReady ? <Link to="/system/proxy-keys">{messages.setup.openClient}</Link> : <Link to="/route/models" search={{ action: "create" }}>{messages.setup.addModel}</Link>}
+          </Button>
           <ObserveExportButton
             preset={preset}
             metric={metric}
@@ -242,6 +259,7 @@ function ObservePageContent() {
             nowFragment={fragments.now}
             seriesFragment={seriesFragment}
           />
+          </>
         }
       />
 
@@ -269,26 +287,13 @@ function ObservePageContent() {
         <button type="button" className="text-sm text-primary underline-offset-4 hover:underline" onClick={() => setView("activity")}>{messages.observe.recentActivityEntry}</button>
       </div>
 
-      <SetupCard
-        state={setup.state}
-        collapsed={setup.collapsed}
-        cardRef={setup.cardRef}
-        onBlurCapture={setup.handleBlurCapture}
-        onRetry={setup.refresh}
-        onToggle={setup.toggleDisclosure}
-      />
+      {!configurationReady ? setupCard : null}
 
-      <OperatorSectionCard
-        title={messages.observe.nowLabel}
-        description={messages.observe.nowBasis}
-      >
-        <ObserveFragmentStamp generatedAt={fragments.now.data?.generated_at} />
-        <NowStrip fragment={fragments.now} onRetry={fragments.refresh} />
-      </OperatorSectionCard>
+
 
       <ObserveControlBar preset={preset} onPresetChange={setPreset} />
 
-      {fragments.queryContext.data?.usage_coverage.complete === false ? (
+      {view !== "trend" && fragments.queryContext.data?.usage_coverage.complete === false ? (
         <OperatorCallout
           intent="warning"
           title={messages.observe.retentionCoverageTitle}
@@ -303,10 +308,6 @@ function ObservePageContent() {
         </OperatorCallout>
       ) : null}
 
-      {/* 视图切换与视图正文排在窗口 KPI 之前：1440×900 上，KPI 网格把
-          tab 条压到 829px、图表卡头压到 937px，「这次请求为何失败」这类
-          最常见的任务永远要先滚一屏，1280×800 连自己在哪个视图都看不见。
-          窗口 KPI 是这一屏的小结，留在视图正文之后。 */}
       <Tabs
         value={view}
         onValueChange={setView}
@@ -328,6 +329,13 @@ function ObservePageContent() {
           </TabsTrigger>
         </TabsList>
       </Tabs>
+
+      {view === "trend" ? (
+        <>
+          <ObserveFragmentStamp generatedAt={fragments.summary.data?.generated_at} from={fragments.summary.data?.coverage.from_time} to={fragments.summary.data?.coverage.to_time} />
+          <WindowKpiGrid fragment={fragments.summary} onRetry={fragments.refresh} />
+        </>
+      ) : null}
 
       {view === "trend" || view === "errors" ? (
         <div className="flex flex-wrap items-center gap-2">
@@ -513,10 +521,17 @@ function ObservePageContent() {
         </OperatorSectionCard>
       ) : null}
 
-      <ObserveFragmentStamp generatedAt={fragments.summary.data?.generated_at} from={fragments.summary.data?.coverage.from_time} to={fragments.summary.data?.coverage.to_time} />
-      <WindowKpiGrid fragment={fragments.summary} onRetry={fragments.refresh} />
-
+      {view === "trend" ? (
+      <OperatorSectionCard
+        title={messages.observe.nowLabel}
+        description={messages.observe.nowBasis}
+      >
+        <ObserveFragmentStamp generatedAt={fragments.now.data?.generated_at} />
+        <NowStrip fragment={fragments.now} onRetry={fragments.refresh} />
+      </OperatorSectionCard>
+      ) : null}
       <RoutingHealthEntryCard />
+      {configurationReady ? setupCard : null}
     </div>
   );
 }

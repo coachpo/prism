@@ -253,7 +253,7 @@ export function ObserveActivityTable({
   // non-table block carries the gutter itself.
   // 读失败后 phase 仍停在 idle：不排除 error 的话，错误分支永远轮不到，
   // 后端挂掉会被渲染成一块永远转不完的骨架。
-  if (!queryContext && contextError) return <OperatorErrorState title={messages.observe.windowUnavailable} details={contextError} action={<Button onClick={onContextRetry}>{messages.common.retry}</Button>} />;
+  if (!queryContext && contextError) return <OperatorErrorState title={messages.observe.windowUnavailable} description={messages.honesty.readFailedDescription} action={<Button onClick={onContextRetry}>{messages.common.retry}</Button>} />;
   if (
     !queryContext ||
     (fragment.phase === "idle" && !fragment.reading && fragment.error === null)
@@ -271,8 +271,6 @@ export function ObserveActivityTable({
           testId="activity-load-error"
           title={messages.observe.windowUnavailable}
           description={messages.honesty.readFailedDescription}
-          details={fragment.error}
-          detailsLabel={messages.honesty.viewDetails}
           action={
             <Button
               type="button"
@@ -395,8 +393,6 @@ export function ObserveActivityTable({
                   : tableCopy.pageLoadFailed(cursorStack.length + 1)
               }
               description={messages.honesty.readFailedDescription}
-              details={fragment.error}
-              detailsLabel={messages.honesty.viewDetails}
               action={
                 <Button
                   type="button"
@@ -557,9 +553,6 @@ function ActivityRow({
       <TableCell className="text-right font-mono tabular-nums">
         {formatNumber(item.attempt_count)}
       </TableCell>
-      {/* 出口先给端点这个操作者认得的身份，#id 降为次要行——它是数据库行号，
-          单独一行读不出这是哪个上游；终端目标明细的行上渲染同一个 #id，
-          两个视图才有一个能对上的公共字段。 */}
       <TableCell>
         <div className="flex min-w-40 flex-col gap-0.5">
           <span className="truncate">
@@ -567,13 +560,7 @@ function ActivityRow({
               <OperatorMissingValue reason={copy.noEndpointEvidence} />
             )}
           </span>
-          <span className="text-xs text-muted-foreground">
-            {item.terminal_target_id === null ? (
-              <OperatorMissingValue reason={copy.noTerminalTargetEvidence} />
-            ) : (
-              copy.terminalTargetId(item.terminal_target_id)
-            )}
-          </span>
+
         </div>
       </TableCell>
       <TableCell className="text-right font-mono tabular-nums">

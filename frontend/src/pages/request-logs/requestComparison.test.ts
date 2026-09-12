@@ -5,7 +5,7 @@ import { comparisonBody, compareRetainedLines } from "./requestComparison";
 function capture(overrides: Partial<AuditLogDetail> = {}): AuditLogDetail {
   return {
     request_body_stored: true,
-    request_body_base64: btoa('{"model":"a"}'),
+    request_body_base64: btoa('{"messages":[{"role":"user","content":"hello"}]}'),
     request_body_truncated: false,
     response_body_stored: true,
     response_body_base64: btoa(
@@ -19,13 +19,12 @@ function capture(overrides: Partial<AuditLogDetail> = {}): AuditLogDetail {
 }
 
 describe("retained request comparison", () => {
-  it("compares selected direction without reconstructing SSE or tool fragments", () => {
+  it("compares readable conversation while excluding tool fragments", () => {
     const record = capture();
-    expect(comparisonBody(record, "request").text).toBe('{"model":"a"}');
+    expect(comparisonBody(record, "request").text).toBe("hello");
     const body = comparisonBody(record, "response");
     expect(body.truncated).toBe(true);
-    expect(body.text).toBe(atob(record.response_body_base64!));
-    expect(compareRetainedLines(body.text!, body.text!).equal).toBe(true);
+    expect(body.text).toBeNull();
   });
   it("distinguishes missing, stored empty, invalid base64 and binary", () => {
     expect(
@@ -44,12 +43,12 @@ describe("retained request comparison", () => {
       ).binary,
     ).toBe(true);
   });
-  it("keeps image references as literal text and bounds only display, not equality", () => {
+  it("does not expose image transport fields and bounds comparison display, not equality", () => {
     const image = '{"image_url":"data:image/png;base64,AAAA"}';
     expect(
       comparisonBody(capture({ request_body_base64: btoa(image) }), "request")
         .text,
-    ).toBe(image);
+    ).toBeNull();
     const prefix = Array.from({ length: 201 }, () => "x".repeat(2001)).join(
       "\n",
     );

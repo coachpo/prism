@@ -20,7 +20,9 @@ export const endpointFormSchema = z.object({
   base_url: z
     .string()
     .trim()
-    .pipe(z.url(schemaCopy.baseUrlInvalid)),
+    .pipe(z.url(schemaCopy.baseUrlInvalid))
+    .refine((value) => /^https?:\/\//i.test(value), schemaCopy.baseUrlInvalid)
+    .refine((value) => Array.from(value).length <= MAX_BASE_URL_CODE_POINTS, schemaCopy.baseUrlInvalid),
   api_key: z.string(),
 })
 

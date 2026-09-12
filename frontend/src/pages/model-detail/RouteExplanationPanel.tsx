@@ -51,8 +51,8 @@ function RouteExplanationSession({ modelId, apiFamily }: RouteExplanationPanelPr
     setError(null);
     routeExplanation.get(modelId, operation, abort.signal).then((result) => {
       if (!abort.signal.aborted) setData(result);
-    }).catch((cause: unknown) => {
-      if (!abort.signal.aborted) setError(cause instanceof Error ? cause.message : copy.readFailed);
+    }).catch(() => {
+      if (!abort.signal.aborted) setError(copy.readFailed);
     }).finally(() => { if (!abort.signal.aborted) setPending(false); });
   };
   const strategies: Record<string, string> = {
@@ -82,11 +82,11 @@ function RouteExplanationSession({ modelId, apiFamily }: RouteExplanationPanelPr
       {error && data ? <OperatorStalenessBadge label={copy.stale(formatWithZone(data.observed_at))} reason={error} /> : null}
       {!data && !error ? <p className="text-sm text-muted-foreground">{pending ? copy.loading : copy.idle}</p> : null}
       {data ? <div className="flex flex-col gap-2 text-sm">
-        <p>{copy.sample(formatWithZone(data.observed_at), formatWithZone(data.sample_completed_at), data.generation, formatWithZone(data.published_at))} · {data.completeness === "partial" ? copy.partial : copy.sampled}</p>
+        <p>{copy.sample(formatWithZone(data.observed_at), formatWithZone(data.sample_completed_at))} · {data.completeness === "partial" ? copy.partial : copy.sampled}</p>
         <p className="text-muted-foreground">{copy.boundary}</p>
-        {data.planner_error ? <OperatorErrorState title={copy.plannerFailed} description={data.planner_error} /> : null}
+        {data.planner_error ? <OperatorErrorState title={copy.plannerFailed} description={copy.plannerFailedHint} /> : null}
         {data.candidates.map((row, index) => <div className="border-b py-2" key={`${row.terminal_target_id}-${index}`}>
-          <Link className="text-primary underline" to={buildModelDetailPath(row.model_config_id)}>{copy.terminalPath(row.path.join(" → "), row.terminal_target_id)}</Link>
+          <Link className="text-primary underline" to={buildModelDetailPath(row.model_config_id)}>{copy.terminalPath(row.path.join(" → "))}</Link>
           <p>{strategies[row.strategy] ?? copy.unknownStrategy} · {row.planner_position === null ? copy.excluded : copy.candidate(row.planner_position)} · {copy.reasons[row.reason] ?? copy.unknownReason} · {copy.schedules[row.schedule] ?? copy.unknownSchedule}</p>
           <p className="text-muted-foreground">{row.runtime_observed ? copy.observed : copy.unobserved} · {row.capacity === "sampled_limit_reached" ? copy.limited : row.capacity === "sampled_not_reserved" ? copy.unreserved : copy.missingCapacity}</p>
         </div>)}

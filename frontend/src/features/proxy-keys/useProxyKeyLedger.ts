@@ -38,14 +38,8 @@ export function useProxyKeyLedger() {
   const pageLoading =
     authSettingsQuery.isLoading || proxyKeysQuery.isLoading;
   const pageError = proxyKeysQuery.error
-    ? proxyKeysQuery.error instanceof Error
-      ? proxyKeysQuery.error.message
-      : messages.proxyApiKeysData.loadKeysFailed
-    : authSettingsQuery.error
-      ? authSettingsQuery.error instanceof Error
-        ? authSettingsQuery.error.message
-        : messages.proxyApiKeysData.loadAuthStatusFailed
-      : null;
+    ? messages.proxyApiKeysData.loadKeysFailed
+    : authSettingsQuery.error ? messages.proxyApiKeysData.loadAuthStatusFailed : null;
   const pageErrorTitle = proxyKeysQuery.error
     ? messages.proxyApiKeysData.loadKeysFailed
     : messages.proxyApiKeysData.loadAuthStatusFailed;

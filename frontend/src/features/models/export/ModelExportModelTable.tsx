@@ -156,7 +156,7 @@ function ModelExportModelRow({
             <TableCell>
                 <div className="flex flex-wrap gap-1">
                     {warningCodes.map((code) => (
-                        <Badge key={code} variant="outline" title={code}>
+                        <Badge key={code} variant="outline">
                             {exportWarningLabel(copy, code)}
                         </Badge>
                     ))}

@@ -38,6 +38,8 @@ export function getStreamOutcomeLabel(
       return messages.streaming;
     case "not_streaming":
       return messages.nonStreaming;
+    default:
+      return messages.streamUnknown;
   }
 }
 

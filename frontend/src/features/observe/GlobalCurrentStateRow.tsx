@@ -17,6 +17,7 @@ import {
   OperatorStatusBadge,
   type OperatorStatusTier,
 } from "@/shared/design-system";
+import { requestServiceLabel } from "@/pages/request-logs/requestFailurePresentation";
 import { cn } from "@/lib/utils";
 import { operationalRowStripe } from "@/shared/table/operationalTable";
 
@@ -68,19 +69,20 @@ export function GlobalCurrentStateRow({
         </div>
       </TableCell>
       <TableCell>
-        <div className="flex flex-col">
-          <span>{item.terminal_target.label}</span>
-          <span className="font-mono text-xs text-muted-foreground">
-            #{item.terminal_target.id}
-          </span>
-        </div>
-      </TableCell>
-      <TableCell>
         <OperatorStatusBadge
           intent={tier}
           label={stateLabel(observed ? item.state : null, copy)}
           preserveLabel
         />
+      </TableCell>
+      <TableCell>
+        <div className="flex flex-col">
+          <span>{requestServiceLabel(item.endpoint.label, copy.unnamedService)}</span>
+          {requestServiceLabel(item.terminal_target.label, "") && <span className="text-xs text-muted-foreground">{requestServiceLabel(item.terminal_target.label, "")}</span>}
+        </div>
+      </TableCell>
+      <TableCell className="font-mono tabular-nums">
+        {observed && item.last_success_at ? formatTime(item.last_success_at) : <OperatorMissingValue reason={copy.lastSuccessMissingReason} />}
       </TableCell>
       <TableCell className="text-right font-mono tabular-nums">
         {observed && hasAttemptCounters ? (

@@ -1,5 +1,31 @@
-import { describe, expect, it } from "vitest";
-import { overloadRetryDelayMs, parseRetryAfter } from "./request";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { ApiError, overloadRetryDelayMs, parseRetryAfter, request } from "./request";
+
+afterEach(() => vi.unstubAllGlobals());
+
+describe("management error presentation", () => {
+  it("preserves server evidence without exposing it as the displayed message", async () => {
+    const detail = { code: "database_unavailable", detail: "sql: failed at /internal/database.go:42" };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify(detail), { status: 503 })));
+    await expect(request("/api/endpoints")).rejects.toMatchObject({
+      status: 503, code: "database_unavailable", detail,
+      message: "Prism 暂时无法完成操作。请稍后重试；若刚才保存过内容，请先刷新确认结果。",
+    });
+  });
+
+  it.each(["network", "invalid-response", "body-read"])("offers recovery for %s failures", async (failure) => {
+    vi.stubGlobal("fetch", failure === "network"
+      ? vi.fn().mockRejectedValue(new TypeError("Failed to fetch /internal/route"))
+      : vi.fn().mockResolvedValue(failure === "body-read"
+        ? new Response(new ReadableStream({ start(controller) { controller.error(new TypeError("Failed to read /internal/route")); } }))
+        : new Response("<html>internal stack</html>")));
+    const error = await request("/api/endpoints").catch(error => error);
+    expect(error).toBeInstanceOf(ApiError);
+    if (!(error instanceof ApiError)) throw new Error("Expected a recoverable API error");
+    expect(error.message).toContain("请");
+    expect(error.message).not.toMatch(/internal|Failed to fetch|html/);
+  });
+});
 
 describe("parseRetryAfter", () => {
   it("parses delay-seconds", () => {

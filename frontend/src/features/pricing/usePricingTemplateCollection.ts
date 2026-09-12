@@ -1,3 +1,4 @@
+import { extractServerValidation } from "@/shared/forms/serverValidation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { toast } from "sonner";
@@ -59,9 +60,7 @@ export function usePricingTemplateCollection(revision: number) {
       } catch (error) {
         if (generation !== requestGeneration.current) return;
         const detail =
-          error instanceof Error
-            ? error.message
-            : messages.pricingTemplatesData.loadFailed;
+          extractServerValidation(error, messages.pricingTemplatesData.loadFailed).summary;
         setPricingTemplatesError(detail);
         toast.error(detail);
       } finally {

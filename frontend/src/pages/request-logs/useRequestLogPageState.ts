@@ -4,6 +4,7 @@ import {
   DEFAULTS,
   applyRequestLogStatePatch,
   normalizeRequestId,
+  requestLookupPatch,
   parsePageSearch,
   parsePageState,
   requestLogStateForView,
@@ -216,6 +217,11 @@ export function useRequestLogPageState() {
     [update],
   );
 
+  const findRequest = useCallback((value: string) => {
+    const patch = requestLookupPatch(value);
+    if (patch) update(patch);
+  }, [update]);
+
   const selectRequest = useCallback(
     (id: string) => update({ selected_request_id: id }, false),
     [update],
@@ -339,6 +345,7 @@ export function useRequestLogPageState() {
     setChainLimit,
     setOffset,
     setRequestId,
+    findRequest,
     selectRequest,
     clearSelectedRequest,
     clearRequest,

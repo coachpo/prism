@@ -48,8 +48,8 @@ function KeyIdentityCell({
       }
       return (
             <div className="flex min-w-0 flex-col gap-0.5">
-                  <span className="font-mono text-xs text-foreground">
-                        {endpoint.api_key_fingerprint ?? "—"}
+                  <span className="text-xs text-foreground">
+                        {copy.savedKeyStatus}
                   </span>
                   <span className="text-[11px] text-muted-foreground">
                         {endpoint.api_key_updated_at
@@ -374,10 +374,9 @@ function MobileEndpointCard({
                         </div>
                         <div className="flex flex-col gap-1">
                               <dt className="sr-only">{copy.apiKey}</dt>
-                              <dd className="font-mono text-xs text-foreground">
+                              <dd className="text-xs text-foreground">
                                     {endpoint.has_api_key
-                                          ? (endpoint.api_key_fingerprint ??
-                                            "—")
+                                          ? copy.savedKeyStatus
                                           : copy.noApiKey}
                               </dd>
                         </div>

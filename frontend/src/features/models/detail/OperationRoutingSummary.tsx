@@ -47,14 +47,14 @@ export function OperationRoutingSummary({ diagnostics }: { diagnostics: RoutingD
         </ul>
         {singleTruncated ? (
           <OperatorCallout intent="warning" data-testid="single-truncation-callout">
-            {singleTruncated.message}
+            {messages.modelDetail.singleServiceWarning}
           </OperatorCallout>
         ) : null}
         {warnings
           .filter((warning) => warning && warning.code !== "single_strategy_truncates_targets")
           .map((warning) => (
             <OperatorCallout key={warning.code} intent={warning.severity === "danger" ? "danger" : "warning"}>
-              {warning.message}
+              {messages.modelDetail.configurationWarning}
             </OperatorCallout>
           ))}
       </div>
@@ -110,7 +110,7 @@ function OperationGroupRow({ group, copy }: { group: OperationGroup; copy: Obser
   return (
     <div className="flex items-center justify-between gap-2 rounded-md px-1 py-0.5 text-sm">
       <span className="font-mono text-xs">{groupLabel(group.key, copy)}</span>
-      {uniform ? (
+      {uniform && members[0].disposition.key === "routable" ? <OperatorTypeBadge intent="neutral" preserveLabel label={members[0].disposition.label} /> : uniform ? (
         <OperatorStatusBadge intent={members[0].disposition.intent} label={members[0].disposition.label} />
       ) : (
         // Members of one group are authorized independently: a model may accept
@@ -118,7 +118,7 @@ function OperationGroupRow({ group, copy }: { group: OperationGroup; copy: Obser
         // whole group as routable when only one member is, so a split group
         // stays split, one badge per member.
         <div className="flex flex-wrap items-center justify-end gap-1.5">
-          {members.map(({ route, disposition }) => (
+          {members.map(({ route, disposition }) => disposition.key === "routable" ? <OperatorTypeBadge key={route.operation_name} intent="neutral" preserveLabel label={copy.routingMemberState(memberLabel(route.operation_name, copy), disposition.label)} /> : (
             <OperatorStatusBadge
               key={route.operation_name}
               intent={disposition.intent}
@@ -157,7 +157,10 @@ function groupLabel(groupKey: string, copy: ObserveCopy): string {
 function memberLabel(operationName: string, copy: ObserveCopy): string {
   if (operationName === "openai.images.generations") return copy.imagesGenerations;
   if (operationName === "openai.images.edits") return copy.imagesEdits;
-  if (operationName.startsWith("openai.")) return operationName.slice("openai.".length);
+  if (operationName === "openai.responses") return copy.routingResponsesLabel;
+  if (operationName === "openai.responses.input_tokens") return copy.routingResponsesTokensLabel;
+  if (operationName === "openai.responses.compact") return copy.routingResponsesCompactLabel;
+  if (operationName === "openai.chat_completions") return copy.routingChatLabel;
   return operationLabel(operationName, copy) ?? copy.routingUnknownOperationLabel;
 }
 
@@ -165,12 +168,12 @@ function modeLabel(mode: string, copy: ObserveCopy): string {
   if (mode === "dual_native") return copy.modeDual ?? "双模式";
   if (mode === "chat_completions_only") return copy.modeChat ?? "仅 Chat Completions";
   if (mode === "responses_only") return copy.modeResponses ?? "仅 Responses";
-  return mode;
+  return copy.routingUnknownOperationLabel;
 }
 
 function strategyLabel(type: string, copy: ObserveCopy): string {
   if (type === "single") return copy.strategySingle ?? "单一";
   if (type === "fill-first") return copy.strategyFillFirst ?? "优先填满";
   if (type === "round-robin") return copy.strategyRoundRobin ?? "轮询";
-  return type;
+  return copy.routingUnknownOperationLabel;
 }

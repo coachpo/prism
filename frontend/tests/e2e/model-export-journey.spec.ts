@@ -34,7 +34,7 @@ test("export journey: bind Pi, inspect OpenCode metadata, and deliver isolated c
   await row.waitFor({ timeout: 15000 });
   await expect(page.getByTestId("export-row-9")).toHaveCount(0);
   await expect(page.getByTestId("shell-breadcrumb")).toContainText(
-    "路由配置导出客户端配置",
+    "模型与服务导出客户端配置",
   );
 
   // A structural entry with no ready binding stays visible but cannot be selected.
@@ -51,16 +51,16 @@ test("export journey: bind Pi, inspect OpenCode metadata, and deliver isolated c
       new URL(response.url()).pathname === "/api/models/3/pi/bind" &&
       response.request().method() === "POST",
   );
-  await row.getByRole("button", { name: "绑定来源" }).click();
-  const sourceDialog = page.getByRole("dialog", { name: "更换 Pi 来源" });
+  await row.getByRole("button", { name: "选择 Pi 资料" }).click();
+  const sourceDialog = page.getByRole("dialog", { name: "选择 Pi 模型资料" });
   await expect(sourceDialog).toBeVisible();
   await expect(
-    sourceDialog.getByText("最终导出身份（由 Prism 决定）"),
+    sourceDialog.getByText("当前客户端模型"),
   ).toBeVisible();
-  const apply = sourceDialog.getByRole("button", { name: "应用绑定" });
+  const apply = sourceDialog.getByRole("button", { name: "关联所选模型" });
   await expect(apply).toBeDisabled();
   await sourceDialog
-    .getByRole("textbox", { name: "目录 model_id 片段" })
+    .getByRole("textbox", { name: "模型名称关键词" })
     .fill("gpt-x");
   const searchRequestPromise = page.waitForRequest(
     (request) =>
@@ -80,12 +80,12 @@ test("export journey: bind Pi, inspect OpenCode metadata, and deliver isolated c
     .getByRole("option")
     .filter({ hasText: "alias-provider/gpt-x-alias" });
   await option.click();
-  await expect(sourceDialog.getByText("已选目录坐标")).toBeVisible();
+  await expect(sourceDialog.getByText("已选模型来源")).toBeVisible();
   // Evidence renders as separate label/value nodes (dt/dd).
   await expect(sourceDialog.getByText("上下文窗口（令牌）")).toBeVisible();
   await expect(sourceDialog.getByText("200000")).toBeVisible();
-  await expect(sourceDialog.getByText("目录 Provider")).toBeVisible();
-  await expect(sourceDialog.getByText(/跨目录绑定/)).toBeVisible();
+  await expect(sourceDialog.getByText("目录中的提供方")).toBeVisible();
+  await expect(sourceDialog.getByText(/来源模型使用其他名称/)).toBeVisible();
   await expect(apply).toBeEnabled();
   const bindRequestPromise = page.waitForRequest(
     (request) =>
@@ -163,12 +163,12 @@ test("export journey: bind Pi, inspect OpenCode metadata, and deliver isolated c
   await expect(openCodeRow.getByRole("checkbox")).toBeChecked();
   const missingLimits = page.getByTestId("opencode-export-row-4");
   await expect(missingLimits.getByRole("checkbox")).toBeDisabled();
-  await expect(missingLimits).toContainText("上下文 / 输出上限");
-  await openCodeRow.getByText("查看最终值与来源", { exact: true }).click();
+  await expect(missingLimits).toContainText("上下文和输出上限");
+  await openCodeRow.getByText("查看资料与来源", { exact: true }).click();
   await expect(openCodeRow.getByText("Catalog GPT X", { exact: true })).toBeVisible();
-  await expect(openCodeRow.getByText("models.dev 人工覆盖").first()).toBeVisible();
+  await expect(openCodeRow.getByText("models.dev 手动调整").first()).toBeVisible();
   await page.route("**/api/models/3/catalog", async (route) => route.fulfill({ json: { bound: false, source: null, override: null, effective: null } }));
-  await openCodeRow.getByRole("button", { name: "到模型详情补全 models.dev 元数据" }).click();
+  await openCodeRow.getByRole("button", { name: "补全此模型的资料" }).click();
   await expect(page.getByText("修复客户端接入资料", { exact: true })).toBeVisible();
   await expect(generateButton).toBeDisabled();
   await expect(openCodeRow.getByRole("checkbox")).toBeChecked();
@@ -179,12 +179,12 @@ test("export journey: bind Pi, inspect OpenCode metadata, and deliver isolated c
   await page.locator("#export-model-search").fill("codex/");
   await expect(missingLimits).toHaveCount(0);
   await page.locator("#export-model-search").fill("");
-  await page.getByRole("textbox", { name: "Prism Gateway origin" }).fill("http://127.0.0.1:8000");
+  await page.getByRole("textbox", { name: "Prism 连接地址" }).fill("http://127.0.0.1:8000");
 
   await generateButton.click();
   await dialog.getByText("手动输入统一密钥", { exact: true }).click();
   await expect(dialog.getByRole("button", { name: "确认生成" })).toBeDisabled();
-  await dialog.getByLabel(/^Prism 代理密钥/).fill("  prism-e2e-synthetic-key  ");
+  await dialog.getByLabel(/^Prism 客户端密钥/).fill("  prism-e2e-synthetic-key  ");
   await dialog.getByRole("button", { name: "确认生成" }).click();
   await expect(sheet).toBeVisible();
   const keyedPayload = openCodeRenderPayload("prism-e2e-synthetic-key");
@@ -227,7 +227,7 @@ test("export journey: bind Pi, inspect OpenCode metadata, and deliver isolated c
   await openCodeDownload.saveAs(downloadedPath);
   expect(await readFile(downloadedPath, "utf8")).toBe(openCodePayload.content);
   const rawViewPromise = page.context().waitForEvent("page");
-  await sheet.getByRole("button", { name: "在新标签页查看原始 JSON", exact: true }).click();
+  await sheet.getByRole("button", { name: "在新标签页查看配置文件", exact: true }).click();
   const rawView = await rawViewPromise;
   await rawView.waitForLoadState("domcontentloaded");
   expect(rawView.url()).toMatch(/^blob:/);

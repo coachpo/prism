@@ -35,8 +35,8 @@ function ComparisonSession({ items }: { items: RequestLogListItem[] }) {
       [...choices, ...items].map((item) => [item.request_log_id, item]),
     ).values(),
   ];
-  const bodies = captures.map((capture) =>
-    capture.detail ? comparisonBody(capture.detail, direction) : null,
+  const bodies = captures.map((capture, index) =>
+    capture.detail ? comparisonBody(capture.detail, direction, candidates.find(item => item.request_log_id === ids[index])?.api_family) : null,
   );
   const difference =
     bodies[0]?.text != null && bodies[1]?.text != null
@@ -122,7 +122,7 @@ function ComparisonSession({ items }: { items: RequestLogListItem[] }) {
             {captures[index].error ? (
               <OperatorCallout
                 intent="danger"
-                description={captures[index].error}
+                description={copy.unavailable}
               />
             ) : null}
             {bodies[index] ? (

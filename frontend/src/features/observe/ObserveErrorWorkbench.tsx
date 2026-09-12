@@ -233,7 +233,7 @@ function MatchingStream({
     return (
       <OperatorErrorState
         title={copy.windowUnavailable}
-        description={fragment.error ?? undefined}
+        description={messages.honesty.readFailedDescription}
         action={
           <OperatorRetryButton
             onClick={() => setAttempt((current) => current + 1)}

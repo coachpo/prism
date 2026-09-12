@@ -119,7 +119,7 @@ describe("Proxy-Key mutation lifecycle owners", () => {
       item: created,
       capacity,
     } as ProxyApiKeyCreateResponse;
-    mocks.create.mockResolvedValue(response);
+    mocks.create.mockRejectedValueOnce(new Error("private SQL detail")).mockResolvedValue(response);
     const { client, wrapper } = withClient();
     client.setQueryData(rewriteQueryKeys.global.proxyApiKeys(), {
       items: [current],
@@ -139,6 +139,7 @@ describe("Proxy-Key mutation lifecycle owners", () => {
     );
 
     act(() => {
+      result.current.setIssueSheetOpen(true);
       result.current.setProxyKeyName("  staging  ");
       result.current.setProxyKeyNotes("  notes  ");
     });
@@ -147,6 +148,12 @@ describe("Proxy-Key mutation lifecycle owners", () => {
         preventDefault: vi.fn(),
       } as never);
     });
+
+    expect(result.current.createError).toBe("Create failed");
+    expect(result.current.proxyKeyName).toBe("  staging  ");
+    expect(result.current.issueSheetOpen).toBe(true);
+    expect(showCreatedSecret).not.toHaveBeenCalled();
+    await act(async () => { result.current.handleCreateSubmit({ preventDefault: vi.fn() } as never); });
 
     expect(mocks.create).toHaveBeenCalledWith(
       {
@@ -171,7 +178,7 @@ describe("Proxy-Key mutation lifecycle owners", () => {
       item: updated,
       capacity,
     } as ProxyApiKeyUpdateResponse;
-    mocks.update.mockResolvedValue(response);
+    mocks.update.mockRejectedValueOnce(new Error("private SQL detail")).mockResolvedValue(response);
     const { client, wrapper } = withClient();
     client.setQueryData(rewriteQueryKeys.global.proxyApiKeys(), {
       items: [original],
@@ -188,6 +195,11 @@ describe("Proxy-Key mutation lifecycle owners", () => {
         preventDefault: vi.fn(),
       } as never);
     });
+
+    expect(result.current.editError).toBe("Update failed");
+    expect(result.current.editingProxyKeyName).toBe("  production-updated  ");
+    expect(result.current.editProxyKeySheetOpen).toBe(true);
+    await act(async () => { result.current.handleEditSubmit({ preventDefault: vi.fn() } as never); });
 
     expect(mocks.update).toHaveBeenCalledWith(original.id, {
       name: "production-updated",

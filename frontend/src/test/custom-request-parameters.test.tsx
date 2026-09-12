@@ -1,7 +1,8 @@
-import { describe, expect, it, vi } from "vitest"
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { LocaleProvider } from "@/i18n/LocaleProvider"
+import { TooltipProvider } from "@/components/ui/tooltip"
 import {
   CUSTOM_REQUEST_PARAMETERS_MAX_COMPACT_BYTES,
   parseCustomRequestParametersDraft,
@@ -10,6 +11,10 @@ import {
 import { buildConnectionDraftPayload } from "@/pages/model-detail/connectionDataSupport"
 import { ConnectionCustomRequestParametersEditor } from "@/pages/model-detail/ConnectionCustomRequestParametersEditor"
 import type { Connection } from "@/lib/types"
+
+// Tooltip positioning requires the browser observer API; these tests do not measure layout.
+beforeAll(() => vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} }))
+afterAll(() => vi.unstubAllGlobals())
 
 function createEditingConnection(params?: Partial<Connection>): Connection {
   return {
@@ -207,40 +212,23 @@ describe("buildConnectionDraftPayload custom request parameters", () => {
 })
 
 describe("ConnectionCustomRequestParametersEditor", () => {
-  it("shows the summary count, formats valid JSON, and surfaces field-level errors", async () => {
+  it("shows structured settings and explicitly removes the selected group", async () => {
     const user = userEvent.setup()
     const onDraftChange = vi.fn()
-
-    render(
-      <LocaleProvider>
-        <ConnectionCustomRequestParametersEditor draft='{"provider":{"only":["deepinfra/turbo"]}}' onDraftChange={onDraftChange} error={null} />
-      </LocaleProvider>,
-    )
-
-    expect(screen.getByText("已配置 1 个顶层参数")).toBeTruthy()
-    const textarea = screen.getByRole("textbox", { name: "自定义请求参数（JSON）" })
-    expect(textarea.getAttribute("aria-invalid")).toBe("false")
-
-    await user.click(screen.getByRole("button", { name: "格式化" }))
-    expect(onDraftChange).toHaveBeenCalledWith('{\n  "provider": {\n    "only": [\n      "deepinfra/turbo"\n    ]\n  }\n}')
-
-    await user.click(screen.getByRole("button", { name: "清空" }))
-    expect(onDraftChange).toHaveBeenLastCalledWith("")
+    render(<LocaleProvider><TooltipProvider><ConnectionCustomRequestParametersEditor draft='{ "provider": { "only": ["deepinfra/turbo"] } }' onDraftChange={onDraftChange} error={null} /></TooltipProvider></LocaleProvider>)
+    expect(screen.getByText("已添加 1 项设置")).toBeTruthy()
+    expect(screen.getByRole("textbox", { name: "服务附加设置 · provider · only · 第 1 项" })).toHaveValue("deepinfra/turbo")
+    await user.click(screen.getByRole("button", { name: "移除设置 provider" }))
+    expect(parseCustomRequestParametersDraft(onDraftChange.mock.lastCall?.[0])).toEqual({ value: null, error: null })
   })
 
-  it("renders the error message with an accessible association", () => {
-    render(
-      <LocaleProvider>
-        <ConnectionCustomRequestParametersEditor
-          draft='{"model":"x"}'
-          onDraftChange={() => undefined}
-          error={{ reason: "protected_field", path: "custom_request_parameters.model" }}
-        />
-      </LocaleProvider>,
-    )
-
-    const textarea = screen.getByRole("textbox", { name: "自定义请求参数（JSON）" })
-    expect(textarea.getAttribute("aria-invalid")).toBe("true")
-    expect(screen.getByText("「custom_request_parameters.model」是受保护字段，不可设置。")).toBeTruthy()
+  it("keeps unreadable content unchanged and reports a safe recovery action", () => {
+    const onDraftChange = vi.fn()
+    render(<LocaleProvider><TooltipProvider><ConnectionCustomRequestParametersEditor draft='{ "model": "x" }' onDraftChange={onDraftChange} error={{ reason: "protected_field", path: "custom_request_parameters.model" }} /></TooltipProvider></LocaleProvider>)
+    expect(screen.getByRole("alert")).toHaveTextContent("此名称不能用于附加设置")
+    expect(screen.getByText(/为保留原内容，请取消后重新打开连接/)).toBeInTheDocument()
+    expect(screen.queryByText(/custom_request_parameters/)).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "添加设置" })).toBeNull()
+    expect(onDraftChange).not.toHaveBeenCalled()
   })
 })

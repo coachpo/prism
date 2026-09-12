@@ -25,7 +25,7 @@ export function NowStrip({
 
   if (fragment.phase === "loading" && fragment.data === null) {
     return (
-      <section aria-busy="true" aria-label={copy.nowLabel} className="grid grid-cols-4 gap-[var(--density-card-gap)]">
+      <section aria-busy="true" aria-label={copy.nowLabel} className="grid grid-cols-2 @2xl/main:grid-cols-4 gap-[var(--density-card-gap)]">
         {Array.from({ length: 4 }, (_, index) => (
           <Skeleton key={index} className="h-16 rounded-md" />
         ))}
@@ -39,8 +39,6 @@ export function NowStrip({
         testId="now-strip-error"
         title={copy.nowUnavailable}
         description={messages.honesty.readFailedDescription}
-        details={fragment.error}
-        detailsLabel={messages.honesty.viewDetails}
         action={onRetry ? <OperatorRetryButton onClick={onRetry}>{copy.retry}</OperatorRetryButton> : undefined}
       />
     );
@@ -52,7 +50,7 @@ export function NowStrip({
     <section
       aria-label={copy.nowLabel}
       data-testid="now-strip"
-      className="grid grid-cols-4 gap-[var(--density-card-gap)]"
+      className="grid grid-cols-2 @2xl/main:grid-cols-4 gap-[var(--density-card-gap)]"
     >
       <OperatorMetricTile
         label={copy.currentRpm}

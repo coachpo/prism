@@ -13,7 +13,7 @@ test("request comparison is explicit and mobile summary preserves investigation"
   const summary = page.getByTestId("request-mobile-summary");
   await expect(summary).toBeVisible();
   await expect(
-    summary.getByRole("button", { name: "进入完整调查" }),
+    summary.getByRole("button", { name: "查看结果与下一步" }),
   ).toBeVisible();
   expect(calls.auditDetailRequests).toEqual([]);
   expect(
@@ -21,12 +21,12 @@ test("request comparison is explicit and mobile summary preserves investigation"
       () => document.documentElement.scrollWidth <= innerWidth,
     ),
   ).toBe(true);
-  await summary.getByRole("button", { name: "进入完整调查" }).click();
+  await summary.getByRole("button", { name: "查看结果与下一步" }).click();
   await expect(page.getByRole("dialog")).toBeVisible();
   expect(calls.auditDetailRequests).toEqual([]);
   await page.keyboard.press("Escape");
-  await expect(summary.getByRole("button", { name: "进入完整调查" })).toBeFocused();
-  await summary.getByRole("link", { name: "查看审计" }).click();
+  await expect(summary.getByRole("button", { name: "查看结果与下一步" })).toBeFocused();
+  await summary.getByRole("link", { name: "查看输入与回复" }).click();
   await expect(page).toHaveURL(/\/observe\/requests\/101\/audit/);
   await expect.poll(() => calls.auditDetailRequests.length).toBeGreaterThan(0);
 
@@ -93,12 +93,12 @@ test("request comparison is explicit and mobile summary preserves investigation"
         id: 302,
         request_log_id: "102",
         request_body_stored: true,
-        request_body_base64: Buffer.from('{"model":"other-model"}').toString(
+        request_body_base64: Buffer.from('{"messages":[{"role":"user","content":"other-model"}]}').toString(
           "base64",
         ),
         response_body_stored: true,
         response_body_base64: Buffer.from(
-          'data: {"text":"different"}\n\n',
+          '{"choices":[{"message":{"role":"assistant","content":"different"}}]}',
         ).toString("base64"),
         response_body_truncated: true,
         response_body_bytes_observed: 200,
@@ -115,17 +115,17 @@ test("request comparison is explicit and mobile summary preserves investigation"
   await page.getByRole("combobox", { name: "对照请求 B", exact: true }).click();
   await page.getByRole("option", { name: /^#102/ }).click();
   await expect(
-    page.getByRole("combobox", { name: "基准请求 A 选择捕获记录与层" }),
+    page.getByRole("combobox", { name: "基准请求 A 选择内容记录" }),
   ).toBeVisible();
   expect(calls.auditDetailRequests).toHaveLength(prior);
   for (const side of ["基准请求 A", "对照请求 B"]) {
     await page
-      .getByRole("combobox", { name: `${side} 选择捕获记录与层` })
+      .getByRole("combobox", { name: `${side} 选择内容记录` })
       .click();
     await page.getByRole("option").first().click();
     await page
       .getByRole("region", { name: side, exact: true })
-      .getByRole("button", { name: "读取所选捕获" })
+      .getByRole("button", { name: "读取所选内容" })
       .click();
   }
   await expect(page.getByTestId("request-comparison-diff")).toContainText(

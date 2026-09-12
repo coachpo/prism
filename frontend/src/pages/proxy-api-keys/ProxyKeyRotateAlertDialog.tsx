@@ -1,3 +1,4 @@
+import { OperatorCallout } from "@/shared/design-system";
 import { Spinner } from "@/components/ui/spinner";
 import { useLocale } from "@/i18n/useLocale";
 import type { ProxyApiKey } from "@/lib/types";
@@ -5,6 +6,7 @@ import { OperatorDestructiveDialog, OperatorInsetPanel, OperatorStatusBadge, Ope
 import { getProxyKeyLifecycleIntent, getProxyKeyLifecycleLabel } from "./proxyKeyFormatting";
 
 interface ProxyKeyRotateAlertDialogProps {
+  error?: string | null;
   authEnabled: boolean;
   open: boolean;
   rotateConfirm: ProxyApiKey | null;
@@ -22,6 +24,7 @@ interface ProxyKeyRotateAlertDialogProps {
  * the ledger.
  */
 export function ProxyKeyRotateAlertDialog({
+  error,
   authEnabled,
   displayedRotateConfirm,
   onCancel,
@@ -58,6 +61,7 @@ export function ProxyKeyRotateAlertDialog({
       onConfirm={onConfirm}
       confirmTestId="proxy-key-rotate-confirm"
     >
+      {error ? <OperatorCallout intent="danger" description={error} /> : null}
       {target ? (
         <div className="flex flex-col gap-3">
           <div className="flex flex-wrap items-center gap-2">

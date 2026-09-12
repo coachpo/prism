@@ -20,7 +20,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
 import { useLocale } from "@/i18n/useLocale";
 import type {
   PricingTemplateCreate,
@@ -31,6 +30,7 @@ import { OperatorCallout, OperatorInsetPanel } from "@/shared/design-system";
 
 interface PricingTemplateImportDialogProps {
   importing: boolean;
+  serverError?: string | null;
   onClose: () => void;
   onImport: (request: PricingTemplateImportRequest) => Promise<boolean>;
   onOpenChange: (open: boolean) => void;
@@ -66,6 +66,7 @@ function parseImportJson(
 
 export function PricingTemplateImportDialog({
   importing,
+  serverError,
   onClose,
   onImport,
   onOpenChange,
@@ -76,17 +77,40 @@ export function PricingTemplateImportDialog({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [mode, setMode] = useState<PricingTemplateImportMode>("upsert_by_name");
   const [rawJson, setRawJson] = useState("");
+  const [fileName, setFileName] = useState("");
+  const [readingFile, setReadingFile] = useState(false);
+  const fileReadGeneration = useRef(0);
   const [error, setError] = useState<string | null>(null);
 
   const resetDraft = () => {
     setMode("upsert_by_name");
     setRawJson("");
+    setFileName("");
+    setReadingFile(false);
+    fileReadGeneration.current += 1;
     setError(null);
   };
 
   const closeDialog = () => {
+    if (importing) return;
     resetDraft();
     onClose();
+  };
+
+  const selectFile = async (file: File) => {
+    const generation = ++fileReadGeneration.current;
+    setError(null);
+    setRawJson("");
+    setFileName(file.name);
+    setReadingFile(true);
+    try {
+      const contents = await file.text();
+      if (generation === fileReadGeneration.current) setRawJson(contents);
+    } catch {
+      if (generation === fileReadGeneration.current) setError(copy.fileReadFailed);
+    } finally {
+      if (generation === fileReadGeneration.current) setReadingFile(false);
+    }
   };
 
   const handleSubmit = async () => {
@@ -116,16 +140,18 @@ export function PricingTemplateImportDialog({
           <DialogTitle>{copy.importTitle}</DialogTitle>
           <DialogDescription>{copy.importDescription}</DialogDescription>
         </DialogHeader>
-        {error ? <OperatorCallout intent="danger" description={error} /> : null}
         <DialogBody className="flex min-h-0 flex-col gap-4 overflow-y-auto pr-1">
+          {error ? <OperatorCallout intent="danger" description={error} /> : null}
+          {serverError ? <OperatorCallout intent="danger" title={copy.importFailed} description={serverError} /> : null}
           <OperatorInsetPanel>
             <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
               <div className="grid gap-2">
                 <Label htmlFor="pricing-import-mode">
-                  {copy.importModeUpsert}
+                  {copy.importModeLabel}
                 </Label>
                 <Select
                   value={mode}
+                  disabled={importing}
                   onValueChange={(value) =>
                     setMode(value as PricingTemplateImportMode)
                   }
@@ -148,43 +174,36 @@ export function PricingTemplateImportDialog({
               <Button
                 type="button"
                 variant="outline"
+                disabled={importing || readingFile}
                 onClick={() => fileInputRef.current?.click()}
               >
                 <Upload data-icon="inline-start" />
-                {copy.importButton}
+                {fileName ? copy.changeFile : copy.chooseFile}
               </Button>
               <input
                 ref={fileInputRef}
                 className="hidden"
                 type="file"
+                aria-label={copy.chooseFile}
                 accept="application/json,.json"
                 onChange={(event) => {
                   const file = event.target.files?.[0];
                   if (!file) return;
-                  void file.text().then(setRawJson);
+                  void selectFile(file);
                   event.currentTarget.value = "";
                 }}
               />
             </div>
           </OperatorInsetPanel>
-          <div className="grid gap-2">
-            <Label htmlFor="pricing-import-json">{copy.importTitle}</Label>
-            <Textarea
-              id="pricing-import-json"
-              className="min-h-64 font-mono text-xs"
-              value={rawJson}
-              onChange={(event) => setRawJson(event.target.value)}
-              spellCheck={false}
-            />
-          </div>
+          <p className="text-sm text-muted-foreground" role="status">{fileName ? copy.selectedFile(fileName) : copy.noFileSelected}</p>
         </DialogBody>
         <DialogFooter className="sm:justify-between">
-          <Button type="button" variant="outline" onClick={closeDialog}>
+          <Button type="button" variant="outline" disabled={importing} onClick={closeDialog}>
             {messages.pricingTemplatesUi.close}
           </Button>
           <Button
             type="button"
-            disabled={importing || rawJson.trim().length === 0}
+            disabled={importing || readingFile || rawJson.trim().length === 0}
             onClick={() => void handleSubmit()}
           >
             {importing ? (
@@ -192,7 +211,7 @@ export function PricingTemplateImportDialog({
             ) : (
               <FileUp data-icon="inline-start" />
             )}
-            {copy.importButton}
+            {copy.importPreview}
           </Button>
         </DialogFooter>
       </DialogContent>

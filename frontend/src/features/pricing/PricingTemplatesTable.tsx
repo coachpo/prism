@@ -132,6 +132,7 @@ interface PricingTemplatesTableProps {
   detailUsageLoading: boolean;
   facts: PricingListFacts;
   filter: PricingFilter;
+  onCreate?: () => void;
   onDelete: (template: PricingTemplate) => Promise<void>;
   onEdit: (template: PricingTemplate) => Promise<void>;
   onFilterChange: (filter: PricingFilter) => void;
@@ -272,6 +273,7 @@ export function PricingTemplatesTable({
   detailUsageLoading,
   facts,
   filter,
+  onCreate,
   onDelete,
   onEdit,
   onFilterChange,
@@ -805,7 +807,8 @@ export function PricingTemplatesTable({
           <div className="p-3">
             <OperatorEmptyState
               title={copy.noTemplatesConfigured}
-              description={copy.description}
+              description={copy.noTemplatesDescription}
+              action={onCreate ? <Button onClick={onCreate}>{copy.addTemplate}</Button> : undefined}
             />
           </div>
         ) : null}

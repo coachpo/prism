@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
-import { OperatorCallout, OperatorMissingValue } from "@/shared/design-system";
+import { OperatorCallout } from "@/shared/design-system";
 import { CatalogCandidatePicker } from "@/features/models/catalog/CatalogCandidatePicker";
 import type { PiCandidateWire } from "@/lib/types";
 import { piBindingCoordinateKey } from "./piBindingCoordinate";
@@ -55,9 +55,7 @@ export function PiDirectorySearchPanel({
   const fieldError =
     search.fieldError === "model_id_query"
       ? copy.directorySearchQueryRequired
-      : search.fieldError;
-  const hasQuery =
-    ownsModel && (pager.revision !== null || search.activeQuery !== "");
+      : search.fieldError ? copy.directorySearchFailed : null;
 
   return (
     <section className="flex flex-col gap-2">
@@ -117,7 +115,6 @@ export function PiDirectorySearchPanel({
                 {candidate.provider_id}/{candidate.model_id}
               </span>
               <span className="truncate text-xs">
-                {copy.catalogApiLabel}: {candidate.api} ·{" "}
                 {candidate.name ?? copy.candidateFieldAbsent}
               </span>
             </span>
@@ -142,9 +139,6 @@ export function PiDirectorySearchPanel({
             listboxLabel: copy.directorySearchResultsLabel,
           }}
         />
-      ) : null}
-      {!hasQuery ? (
-        <OperatorMissingValue reason={copy.directorySearchHint} />
       ) : null}
     </section>
   );

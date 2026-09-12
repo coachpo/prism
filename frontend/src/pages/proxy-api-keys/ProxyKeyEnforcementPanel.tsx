@@ -3,8 +3,8 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useLocale } from "@/i18n/useLocale";
 import type { AuthSettings } from "@/lib/types";
-import { OperatorStatusBadge } from "@/shared/design-system";
-import { getAuthStatusTier, isAuthSettingsEnabled } from "./proxyKeyFormatting";
+import { OperatorTypeBadge } from "@/shared/design-system";
+import { isAuthSettingsEnabled } from "./proxyKeyFormatting";
 
 interface ProxyKeyEnforcementPanelProps {
   authSettings: AuthSettings | null;
@@ -42,8 +42,8 @@ export function ProxyKeyEnforcementPanel({ authSettings, loading }: ProxyKeyEnfo
     : copy.authenticationUnavailable;
   const statusDescription = authSettings
     ? authEnabled
-      ? messages.settingsAuthentication.proxyKeyTrafficRequirement
-      : messages.settingsAuthentication.enableAuthenticationToEnforceKeys
+      ? copy.verifyAccessAuthOn
+      : copy.keysPreparedDescription
     : messages.proxyApiKeysData.settingsUnavailable;
 
   return (
@@ -51,7 +51,7 @@ export function ProxyKeyEnforcementPanel({ authSettings, loading }: ProxyKeyEnfo
       data-testid="proxy-key-enforcement"
       className="operator-section-surface flex min-w-0 flex-col gap-2 rounded-lg border px-[var(--density-card-pad-x)] py-2 sm:flex-row sm:items-center sm:gap-3"
     >
-      <OperatorStatusBadge intent={getAuthStatusTier(authSettings)} label={statusLabel} preserveLabel />
+      <OperatorTypeBadge label={statusLabel} />
       <p className="min-w-0 flex-1 text-xs text-muted-foreground">
         {statusDescription}
         <span className="ml-1">{copy.scopeDescription}</span>

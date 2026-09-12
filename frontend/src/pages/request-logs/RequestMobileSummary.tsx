@@ -1,3 +1,4 @@
+import { describeRequestFailure } from "./requestFailurePresentation";
 import { ChainRankingValue } from "./ChainRankingValue";
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
@@ -66,7 +67,7 @@ export function RequestMobileSummary({
                     value={summary?.final_status_code}
                     reason={summary ? messages.honesty.noValue : copy.missingFinal}
                   >
-                    {(status) => <OperatorTypeBadge label={String(status)} />}
+                    {(status) => <OperatorTypeBadge label={describeRequestFailure({ statusCode: Number(status), streamOutcome: summary?.final_result === "client_disconnected" ? "client_disconnected" : undefined, errorPresent: summary?.final_result === "failed" })?.title ?? messages.requestLogs.attemptResultCompleted} preserveLabel />}
                   </OperatorValue>
                 </div>
                 <span className="font-mono text-xs break-all">
@@ -133,7 +134,9 @@ export function RequestMobileSummary({
                         {copy.investigate}
                       </Button>
                       <Link
-                        to={`/observe/requests/${requestId}/audit`}
+                        to="/observe/requests/$requestId/audit"
+                        params={{ requestId }}
+                        search={{ return_to: `${window.location.pathname}${window.location.search}` }}
                         className="inline-flex min-h-8 items-center px-2 text-primary text-sm"
                       >
                         {copy.audit}

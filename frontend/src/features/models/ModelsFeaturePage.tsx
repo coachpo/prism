@@ -21,6 +21,7 @@ import {
   OperatorCallout,
   OperatorClippedBadge,
   OperatorErrorState,
+  OperatorEmptyState,
   OperatorFreshnessBar,
   OperatorKpiCard,
   OperatorMissingValue,
@@ -45,6 +46,7 @@ import {
 } from "./modelRoutingFlags";
 import { filterModelsByInventoryView, type ModelInventoryView } from "./modelView";
 import { useModelsPageData } from "@/pages/models/useModelsPageData";
+import { modelStrategyLabel } from "@/pages/models/modelStrategyLabel";
 import {
   DEFAULT_MODELS_LIST_FILTERS,
   modelsQueryKeys,
@@ -64,6 +66,17 @@ export function ModelsFeaturePage() {
   const navigate = useNavigate();
   const [batchOpen, setBatchOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const createDialogOpen = data.createDialogOpen || search.action === "create";
+  const closeCreateDialog = () => {
+    data.setCreateDialogOpen(false);
+    if (search.action === "create") {
+      void navigate({ to: "/route/models", search: (current: Record<string, unknown>) => ({ ...current, action: undefined, endpoint_id: undefined }), replace: true });
+    }
+  };
+  const handleCreated = async (model: import("@/lib/types").ModelConfig) => {
+    await data.handleModelCreated();
+    void navigate({ to: "/route/models/$modelId", params: { modelId: String(model.id) } });
+  };
 
   const searchText = search.search ?? "";
   const view: ModelInventoryView = search.view === "model_targets" || search.view === "all" ? search.view : "entries";
@@ -104,13 +117,11 @@ export function ModelsFeaturePage() {
   const visibleModels = useMemo(() => filterModelsByInventoryView(data.models, view), [data.models, view]);
   // 策略名从行数据取，避免为一个筛选标签再发一次读。策略被删或没有匹配行时
   // 退回编号，不假装知道它叫什么。
-  const strategyFilterLabel =
-    strategyFilter === null
-      ? ""
-      : (visibleModels.find(
+  const selectedStrategy = visibleModels.find(
           (model: import("@/lib/api/models").ManagedModelConfigListItem) =>
             model.loadbalance_strategy_id === strategyFilter,
-        )?.loadbalance_strategy?.name ?? `#${strategyFilter}`);
+        )?.loadbalance_strategy;
+  const strategyFilterLabel = selectedStrategy ? modelStrategyLabel(selectedStrategy) : copy.selectedStrategy;
 
   const filtered = useMemo(() => {
     const query = searchText.trim().toLowerCase();
@@ -261,8 +272,6 @@ export function ModelsFeaturePage() {
         <OperatorErrorState
           title={messages.modelsData.fetchFailed}
           description={messages.honesty.readFailedDescription}
-          details={data.loadError}
-          detailsLabel={messages.honesty.viewDetails}
           action={
             <OperatorRetryButton onClick={data.retryLoad}>
               {messages.common.retry}
@@ -271,7 +280,8 @@ export function ModelsFeaturePage() {
         />
 
         <CreateModelDialog
-          isOpen={data.createDialogOpen}
+          isOpen={createDialogOpen}
+          initialEndpointId={search.endpoint_id}
           loadbalanceStrategies={data.loadbalanceStrategies}
           createLoadbalanceStrategyDefaultsPending={
             data.loadbalanceStrategyDefaultsCreating
@@ -279,8 +289,8 @@ export function ModelsFeaturePage() {
           onCreateLoadbalanceStrategyDefaults={
             data.handleCreateLoadbalanceStrategyDefaults
           }
-          onClose={() => data.setCreateDialogOpen(false)}
-          onCreated={data.handleModelCreated}
+          onClose={closeCreateDialog}
+          onCreated={handleCreated}
         />
       </OperatorPageShell>
     );
@@ -291,8 +301,8 @@ export function ModelsFeaturePage() {
       data-testid="models-feature-page"
       data-query-key={JSON.stringify(queryKey)}
     >
-      <OperatorPageHeader title={copy.title}>
-        <Button variant="outline" onClick={() => setBatchOpen(true)}>批量维护</Button>
+      <OperatorPageHeader title={copy.title} description={copy.description}>
+        {data.models.length > 0 ? <Button variant="outline" onClick={() => setBatchOpen(true)}>{copy.batchMaintenance}</Button> : null}
         {/* Export entry: the standalone client-config export page. */}
         <Button
           variant="outline"
@@ -300,12 +310,15 @@ export function ModelsFeaturePage() {
         >
           {messages.modelExportPage.entryButton}
         </Button>
-        <Button onClick={() => data.setCreateDialogOpen(true)}>
+        {data.models.length > 0 ? <Button onClick={() => data.setCreateDialogOpen(true)}>
           <Plus data-icon="inline-start" />
           {copy.newModel}
-        </Button>
+        </Button> : null}
       </OperatorPageHeader>
 
+      {data.models.length === 0 ? (
+        <OperatorEmptyState title={messages.modelsUi.noModelsConfigured} description={messages.modelsUi.createFirstModel} action={<Button onClick={() => data.setCreateDialogOpen(true)}><Plus data-icon="inline-start" />{copy.newModel}</Button>} />
+      ) : <>
       <OperatorFreshnessBar
         updatedAt={
           data.metricsLastSuccessAt ? (
@@ -625,10 +638,12 @@ export function ModelsFeaturePage() {
           />
         </CardContent>
       </Card>
+      </>}
 
       <BatchMaintenanceDialog open={batchOpen} onOpenChange={setBatchOpen} onApplied={async () => { await data.refreshModels(); setSelectedIds(new Set()); }} />
       <CreateModelDialog
-        isOpen={data.createDialogOpen}
+        isOpen={createDialogOpen}
+        initialEndpointId={search.endpoint_id}
         loadbalanceStrategies={data.loadbalanceStrategies}
         createLoadbalanceStrategyDefaultsPending={
           data.loadbalanceStrategyDefaultsCreating
@@ -636,8 +651,8 @@ export function ModelsFeaturePage() {
         onCreateLoadbalanceStrategyDefaults={
           data.handleCreateLoadbalanceStrategyDefaults
         }
-        onClose={() => data.setCreateDialogOpen(false)}
-        onCreated={data.handleModelCreated}
+        onClose={closeCreateDialog}
+        onCreated={handleCreated}
       />
       <ModelDialog
         editingModel={data.editingModel}

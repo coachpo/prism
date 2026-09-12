@@ -375,8 +375,6 @@ export function ObserveMainChart({
           testId="main-chart-error"
           title={copy.windowUnavailable}
           description={messages.honesty.readFailedDescription}
-          details={fragment.error}
-          detailsLabel={messages.honesty.viewDetails}
           action={
             onRetry ? (
               <OperatorRetryButton onClick={onRetry}>

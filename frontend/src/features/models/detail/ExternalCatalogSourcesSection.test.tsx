@@ -181,16 +181,16 @@ describe("ExternalCatalogSourcesSection", () => {
       catalogView: catalogView({ catalog: null, loading: true }),
       piRead: piReadFixture(),
     });
-    expect(screen.getByText("外部目录来源")).toBeInTheDocument();
-    expect(screen.getByText("models.dev 元信息与价格来源")).toBeInTheDocument();
-    expect(screen.getByText("pi.dev Pi 模板来源")).toBeInTheDocument();
+    expect(screen.getByText("模型资料与客户端支持")).toBeInTheDocument();
+    expect(screen.getByText("models.dev 模型资料")).toBeInTheDocument();
+    expect(screen.getByText("Pi 客户端模型资料")).toBeInTheDocument();
     // The models.dev panel is loading while the pi.dev panel already serves
     // evidence: the two read states stay independent.
     expect(
-      screen.getByText("正在读取 models.dev 目录绑定…"),
+      screen.getByText("正在读取 models.dev 模型资料…"),
     ).toBeInTheDocument();
     expect(screen.getByText("codex/gpt-x")).toBeInTheDocument();
-    expect(screen.getByText("最终 Pi API")).toBeInTheDocument();
+    expect(screen.getByText("Pi 资料状态")).toBeInTheDocument();
   });
 
   it("a models.dev first-read failure does not mask the pi.dev panel", () => {
@@ -209,9 +209,10 @@ describe("ExternalCatalogSourcesSection", () => {
     expect(screen.queryByText("尚未绑定目录条目")).not.toBeInTheDocument();
     // The pi.dev panel still renders its identity evidence set.
     expect(screen.getByText("codex/gpt-x")).toBeInTheDocument();
-    expect(screen.getByText("模型配置 ID（Prism）")).toBeInTheDocument();
-    expect(screen.getByText("最终 Pi API")).toBeInTheDocument();
-    expect(screen.getByText("openai-responses")).toBeInTheDocument();
+    expect(screen.getByText("客户端模型名称")).toBeInTheDocument();
+    expect(screen.getByText("Pi 资料状态")).toBeInTheDocument();
+    expect(screen.queryByText("openai-responses")).not.toBeInTheDocument();
+    expect(screen.queryByText(/sha256-/)).not.toBeInTheDocument();
   });
 
   it("a pi.dev read failure does not mask the models.dev panel", () => {
@@ -286,10 +287,11 @@ describe("ExternalCatalogSourcesSection", () => {
     // The pi.dev binding stays healthy and renderable regardless; the
     // coordinate row also carries the cross-directory marker.
     expect(screen.getByText(/openai\/gpt-x/)).toBeInTheDocument();
-    expect(screen.getByText(/headers/)).toBeInTheDocument();
+    expect(screen.queryByText(/headers/)).not.toBeInTheDocument();
+    expect(screen.getByText(/有 1 项不支持的目录设置未采用/)).toBeInTheDocument();
     // 解绑收进了溢出菜单：一个常驻的红色按钮挨着「刷新」是误点的温床。
     expect(
-      screen.getByRole("button", { name: "pi.dev 绑定的更多操作" }),
+      screen.getByRole("button", { name: "Pi 模型资料的更多操作" }),
     ).toBeInTheDocument();
   });
 
@@ -306,7 +308,7 @@ describe("ExternalCatalogSourcesSection", () => {
       onPiRetry,
     });
     expect(screen.getByTestId("pi-detail-read-stale")).toBeInTheDocument();
-    expect(screen.getByText("模型配置 ID（Prism）")).toBeInTheDocument();
+    expect(screen.getByText("客户端模型名称")).toBeInTheDocument();
     expect(screen.getAllByText("未绑定").length).toBeGreaterThanOrEqual(2);
     await user.click(screen.getByRole("button", { name: "重试" }));
     expect(onPiRetry).toHaveBeenCalledTimes(1);
@@ -321,9 +323,9 @@ describe("ExternalCatalogSourcesSection", () => {
       piReadRefreshing: true,
     });
     expect(screen.getByTestId("pi-detail-read-refreshing")).toHaveTextContent(
-      "正在权威重读 pi.dev",
+      "正在更新 Pi 模型资料",
     );
-    expect(screen.getByRole("button", { name: "绑定来源" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "选择 Pi 资料" })).toBeDisabled();
   });
 
   it("keeps the stale Pi retry visible but disabled while retrying", () => {
@@ -361,8 +363,8 @@ describe("ExternalCatalogSourcesSection", () => {
         },
       }),
     });
-    expect(screen.getByText("（绑定身份快照缺失）")).toBeInTheDocument();
-    expect(screen.getByText(/冻结绑定缺少目录坐标/)).toBeInTheDocument();
+    expect(screen.getByText("重新关联后可用于导出")).toBeInTheDocument();
+    expect(screen.getByText(/已保存的关联信息不完整/)).toBeInTheDocument();
   });
 
   it("does not render a no-op bind action when Prism has no final Pi API", () => {
@@ -375,7 +377,7 @@ describe("ExternalCatalogSourcesSection", () => {
       piRead: read,
     });
     expect(
-      screen.queryByRole("button", { name: "绑定来源" }),
+      screen.queryByRole("button", { name: "选择 Pi 资料" }),
     ).not.toBeInTheDocument();
   });
 });

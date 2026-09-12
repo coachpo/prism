@@ -11,7 +11,7 @@ import {
 const timestamp = "2026-08-08T12:00:00Z";
 const saveButton = /Save|保存/;
 const editTerminalTargetButton = "编辑 OpenRouter Primary";
-const editTerminalTargetDialog = /编辑终端目标/;
+const editTerminalTargetDialog = /编辑服务连接/;
 
 function createStrategy() {
   return {
@@ -122,9 +122,10 @@ async function mockModelDetailRoutes(
   options: {
     patchStatus?: number;
     patchBody?: unknown;
+    parameters?: Record<string, unknown>;
   } = {},
 ) {
-  const connection = createConnection(1);
+  const connection = createConnection(1, options.parameters ?? null);
   const patchPayloads: unknown[] = [];
   let updatedConnection = connection;
 
@@ -269,77 +270,47 @@ async function revealCustomRequestParametersEditor(
   return editor;
 }
 
-test("terminal target custom request parameters editor saves and round-trips an OpenRouter provider object", async ({ page }) => {
-  const routes = await mockModelDetailRoutes(page);
+test("service settings editor edits nested values and round-trips the complete configuration", async ({ page }) => {
+  const routes = await mockModelDetailRoutes(page, { parameters: { provider: { only: ["example/previous"], allow_fallbacks: false }, options: [null, 1.5, true], empty_group: {} } });
   const dialog = await openEditTerminalTargetDialog(page);
-
   const editor = await revealCustomRequestParametersEditor(dialog, {
-    summary: "未限流 · 0 个请求头 · 无自定义参数",
-    expanded: false,
-  });
-  const textarea = editor.getByRole("textbox", { name: "自定义请求参数（JSON）" });
-  await expect(editor.getByText("未配置")).toBeVisible();
-
-  await textarea.fill(
-    '{\n  "provider": {\n    "only": ["deepinfra/turbo"],\n    "allow_fallbacks": false\n  }\n}',
-  );
-  await expect(editor.getByText("已配置 1 个顶层参数")).toBeVisible();
-
-  await dialog.getByRole("button", { name: saveButton }).click();
-  await expect(dialog).toHaveCount(0);
-
-  const payloads = routes.getPatchPayloads();
-  expect(payloads.length).toBe(1);
-  const payload = payloads[0] as { custom_request_parameters: unknown };
-  expect(payload.custom_request_parameters).toEqual({
-    provider: { only: ["deepinfra/turbo"], allow_fallbacks: false },
-  });
-
-  // Reopen: the saved object hydrates back into the editor with full JSON
-  // semantics preserved.
-  const reopened = await openEditTerminalTargetDialog(page);
-  // A Terminal Target that now carries custom parameters opens the group by
-  // itself, so the saved value is never folded out of sight.
-  const reopenedEditor = await revealCustomRequestParametersEditor(reopened, {
     summary: "未限流 · 0 个请求头 · 有自定义参数",
     expanded: true,
   });
-  const reopenedTextarea = reopenedEditor.getByRole("textbox", { name: "自定义请求参数（JSON）" });
-  await expect(reopenedEditor.getByText("已配置 1 个顶层参数")).toBeVisible();
-  await expect(reopenedTextarea).toHaveValue(
-    '{\n  "provider": {\n    "only": [\n      "deepinfra/turbo"\n    ],\n    "allow_fallbacks": false\n  }\n}',
-  );
+  await editor.getByRole("textbox", { name: "服务附加设置 · provider · only · 第 1 项" }).fill("deepinfra/turbo");
+  await expect(editor.locator('textarea[name="custom_request_parameters"]')).toHaveCount(0);
+  await dialog.getByRole("button", { name: saveButton }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(routes.getPatchPayloads()).toHaveLength(1);
+  expect(routes.getPatchPayloads()[0]).toMatchObject({ custom_request_parameters: {
+    provider: { only: ["deepinfra/turbo"], allow_fallbacks: false }, options: [null, 1.5, true], empty_group: {},
+  } });
+  const reopened = await openEditTerminalTargetDialog(page);
+  const reopenedEditor = await revealCustomRequestParametersEditor(reopened, { summary: "未限流 · 0 个请求头 · 有自定义参数", expanded: true });
+  await expect(reopenedEditor.getByRole("textbox", { name: "服务附加设置 · provider · only · 第 1 项" })).toHaveValue("deepinfra/turbo");
+  await expect(reopenedEditor.getByRole("textbox", { name: "服务附加设置 · options · 第 2 项" })).toHaveValue("1.5");
 });
 
-test("terminal target custom request parameters editor blocks save on invalid JSON and maps server 422 back to the field", async ({ page }) => {
-  const routes = await mockModelDetailRoutes(page, {
-    patchStatus: 422,
-    patchBody: {
-      detail: "Invalid custom request parameters",
-      field: "custom_request_parameters",
-      path: "custom_request_parameters.provider.only",
-      reason: "protected_field",
-    },
-  });
+test("service settings block incomplete numbers and show an actionable server rejection", async ({ page }) => {
+  const routes = await mockModelDetailRoutes(page, { patchStatus: 422, patchBody: {
+    detail: "Invalid custom request parameters", field: "custom_request_parameters", path: "custom_request_parameters.temperature", reason: "protected_field",
+  } });
   const dialog = await openEditTerminalTargetDialog(page);
-  const editor = await revealCustomRequestParametersEditor(dialog, {
-    summary: "未限流 · 0 个请求头 · 无自定义参数",
-    expanded: false,
-  });
-  const textarea = editor.getByRole("textbox", { name: "自定义请求参数（JSON）" });
-
-  // Invalid JSON blocks the mutation before any request.
-  await textarea.fill('{"provider": }');
+  const editor = await revealCustomRequestParametersEditor(dialog, { summary: "未限流 · 0 个请求头 · 无自定义参数", expanded: false });
+  await editor.getByRole("button", { name: "添加设置" }).click();
+  await page.getByRole("menuitem", { name: "数字", exact: true }).click();
+  await editor.getByRole("textbox", { name: "设置名称", exact: true }).fill("temperature");
+  const value = editor.getByRole("textbox", { name: "服务附加设置 · temperature" });
+  await value.fill("invalid");
   await dialog.getByRole("button", { name: saveButton }).click();
-  await expect(dialog.getByRole("alert")).toBeVisible();
-  await expect(dialog).toBeVisible();
-
-  // A client-valid object rejected by the server maps the 422 field envelope
-  // back into the editor instead of a toast.
-  await textarea.fill('{"provider":{"only":["deepinfra/turbo"]}}');
+  await expect(editor.getByText("请填写有效且可表示的数字。")).toBeVisible();
+  expect(routes.getPatchPayloads()).toHaveLength(0);
+  await value.fill("0.5");
   await dialog.getByRole("button", { name: saveButton }).click();
   await expect.poll(() => routes.getPatchPayloads().length).toBe(1);
-  await expect(dialog.getByRole("alert")).toContainText("custom_request_parameters.provider.only");
+  await expect(dialog.getByRole("alert")).toContainText("此名称不能用于附加设置");
+  await expect(dialog.getByRole("alert")).not.toContainText("custom_request_parameters");
+  await expect(value).toHaveValue("0.5");
   await expect(dialog).toBeVisible();
 });
 
@@ -378,7 +349,7 @@ test("terminal target dialog scrolls to the bottom of the form on a short viewpo
   // The routing-schedule block is the last thing in the form: reaching the
   // bottom has to actually put it on screen, next to the footer buttons.
   await expect(
-    dialog.getByText("限制该终端目标的可路由时段"),
+    dialog.getByText("限制该服务连接的可路由时段"),
   ).toBeInViewport();
   await expect(dialog.getByRole("button", { name: saveButton })).toBeInViewport();
 });

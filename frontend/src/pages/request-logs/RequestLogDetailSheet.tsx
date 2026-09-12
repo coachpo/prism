@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { Terminal } from "lucide-react";
+import { FileText } from "lucide-react";
 import { useLocale } from "@/i18n/useLocale";
 import { useRequestLogChain } from "./useRequestLogChain";
 import {
@@ -12,6 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import type { ChainResponse, RequestLogDetail } from "@/lib/types/request-logs";
 import { RequestLogOverviewTab } from "./detail/RequestLogOverviewTab";
+import { requestServiceLabel } from "./requestFailurePresentation";
 import { UpstreamModelIdValue } from "./UpstreamModelIdValue";
 
 interface RequestLogDetailSheetProps {
@@ -36,7 +37,6 @@ export function RequestLogDetailSheet({
   onNext,
 }: RequestLogDetailSheetProps) {
   const { messages } = useLocale();
-  const hasRequestContext = Boolean(request);
   const ingressRequestId = request?.request.ingress_request_id ?? null;
   const { chain, loading: chainLoading } = useRequestLogChain({
     ingressRequestId,
@@ -54,7 +54,7 @@ export function RequestLogDetailSheet({
         <div className="flex min-h-full flex-col gap-4 px-4 pb-5 pt-4 sm:px-6">
           <SheetHeader className="gap-2 pr-8 text-left">
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Terminal className="h-3.5 w-3.5" />
+              <FileText className="h-3.5 w-3.5" />
               <span>{messages.requestLogs.technicalInspection}</span>
             </div>
             <SheetTitle className="text-xl font-semibold tracking-tight">
@@ -62,17 +62,16 @@ export function RequestLogDetailSheet({
             </SheetTitle>
             <SheetDescription className="text-sm text-muted-foreground">
               {messages.requestLogs.detailDescription}
-              {hasRequestContext ? ` ${messages.requestLogs.entryModel} / ${messages.requestLogs.attemptTargetModel}.` : ""}
             </SheetDescription>
           </SheetHeader>
 
           {request && (
             <div className="flex items-center justify-end gap-2" aria-label={messages.requestLogs.requestNavigation}>
               <Button type="button" variant="outline" size="sm" data-testid="sheet-previous" disabled={!canPrevious} onClick={onPrevious}>
-                {messages.requestLogs.previousPage}
+                {messages.requestLogs.previousRequest}
               </Button>
               <Button type="button" variant="outline" size="sm" data-testid="sheet-next" disabled={!canNext} onClick={onNext}>
-                {messages.requestLogs.nextPage}
+                {messages.requestLogs.nextRequest}
               </Button>
             </div>
           )}
@@ -84,8 +83,9 @@ export function RequestLogDetailSheet({
                   <Link
                     to="/observe/requests/$requestId/audit"
                     params={{ requestId: String(request.summary.request_log_id) }}
+                    search={{ return_to: `${window.location.pathname}${window.location.search}` }}
                   >
-                    <Terminal data-icon="inline-start" />
+                    <FileText data-icon="inline-start" />
                     {messages.requestLogs.openDedicatedAuditPage}
                   </Link>
                 </Button>
@@ -134,9 +134,6 @@ function RetainedChainSection({
         <h3 className="text-sm font-semibold tracking-tight text-foreground">
           {messages.requestLogs.retainedChain}
         </h3>
-        <p className="mt-0.5 font-mono text-[11px] text-muted-foreground break-all">
-          {ingressRequestId}
-        </p>
       </div>
       <div className="flex flex-col gap-2 p-4">
         {loading ? (
@@ -245,7 +242,7 @@ function RetainedChainSection({
                     ) : null}
                     {row.terminal_target_label || row.terminal_target_id !== null ? (
                       <span className="shrink-0 text-[11px]">
-                        {row.terminal_target_label ?? messages.requestLogs.terminalTargetId(row.terminal_target_id)}
+                        {requestServiceLabel(row.terminal_target_label, row.endpoint_label ?? messages.requestLogs.terminalTarget)}
                       </span>
                     ) : null}
                     {row.attempt_duration_ms !== null ? (

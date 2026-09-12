@@ -1,4 +1,4 @@
-import { KeyRound, TriangleAlert } from "lucide-react"
+import { KeyRound } from "lucide-react"
 import { useMemo, useRef, useState } from "react"
 import { CopyButton } from "@/components/CopyButton"
 import { Button } from "@/components/ui/button"
@@ -17,7 +17,7 @@ import { OperatorInsetPanel } from "@/shared/design-system"
 import { getEffectiveBackendOrigin } from "@/features/runtime-self-test/effectiveOrigin"
 import { buildSelfTestCurl, type CurlBuildOutput } from "@/features/runtime-self-test/curlBuilder"
 import type { ModelConfigListItem } from "@/lib/types"
-import { RuntimeSelfTestDialog } from "@/features/runtime-self-test/RuntimeSelfTestDialog"
+import { RuntimeSelfTestPanel } from "@/features/runtime-self-test/RuntimeSelfTestPanel"
 import type { SelfTestRequestSpec } from "@/features/runtime-self-test/selfTestTypes"
 import type { GeneratedProxyKeyState } from "./generatedSecretSession"
 import { runtimeSelfTestModelCandidates } from "@/features/runtime-self-test/modelCandidates"
@@ -61,7 +61,7 @@ export function ProxyKeySecretDialog({
     runtimeSelfTestModelCandidates(models)[0]?.model_id ?? "",
   )
   const [selectedOpenAIOperation, setSelectedOpenAIOperation] = useState<"responses" | "chat_completions">("responses")
-  const [selfTestOpen, setSelfTestOpen] = useState(false)
+  const [selfTestBusy, setSelfTestBusy] = useState(false)
   const [closeAttemptAnnounced, setCloseAttemptAnnounced] = useState(false)
   const announcementRef = useRef<HTMLDivElement | null>(null)
 
@@ -100,7 +100,7 @@ export function ProxyKeySecretDialog({
   }, [selectedModel, selectedOpenAIOperation, session])
 
   const selfTestSpec: SelfTestRequestSpec | null = useMemo(() => {
-    if (!session || !curl) {
+    if (!session || !curl || modelsError || modelsLoading) {
       return null
     }
     return {
@@ -109,7 +109,7 @@ export function ProxyKeySecretDialog({
       headers: curl.headers,
       body: curl.body,
     }
-  }, [curl, session])
+  }, [curl, modelsError, modelsLoading, session])
 
   const handleCloseAttempt = () => {
     if (!acknowledged) {
@@ -178,25 +178,13 @@ export function ProxyKeySecretDialog({
               />
             </OperatorInsetPanel>
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="flex flex-col gap-1">
-                <span className="text-xs font-medium text-muted-foreground">{copy.accessGatewayOrigin}</span>
-                <OperatorInsetPanel className="flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <p className="min-w-0 break-all font-mono text-xs">{origin ?? copy.accessOriginUnavailable}</p>
-                  {origin ? (
-                    <CopyButton value={origin} label={copy.copyGatewayOrigin} targetLabel={copy.accessGatewayOrigin} variant="outline" className="shrink-0" />
-                  ) : null}
-                </OperatorInsetPanel>
-              </div>
-              <div className="flex flex-col gap-1">
-                <span className="text-xs font-medium text-muted-foreground">{copy.accessFamilyBaseUrl}</span>
-                <OperatorInsetPanel className="flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <p className="min-w-0 break-all font-mono text-xs">{curl?.familyBaseUrl ?? copy.accessBaseUnavailable}</p>
-                  {curl ? (
-                    <CopyButton value={curl.familyBaseUrl} label={copy.copyFamilyBaseUrl} targetLabel={copy.accessFamilyBaseUrl} variant="outline" className="shrink-0" />
-                  ) : null}
-                </OperatorInsetPanel>
-              </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-medium text-muted-foreground">{copy.accessFamilyBaseUrl}</span>
+              <OperatorInsetPanel className="flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <p className="min-w-0 break-all font-mono text-xs">{selectedModel?.api_family === "openai" ? curl?.familyBaseUrl ?? copy.accessBaseUnavailable : origin ?? copy.accessOriginUnavailable}</p>
+                {origin && selectedModel ? <CopyButton value={selectedModel.api_family === "openai" ? curl?.familyBaseUrl ?? origin : origin} label={copy.copyFamilyBaseUrl} targetLabel={copy.accessFamilyBaseUrl} variant="outline" /> : null}
+              </OperatorInsetPanel>
+              <p className="text-xs text-muted-foreground">{copy.accessClientHelp}</p>
             </div>
 
             <div className="flex flex-col gap-1">
@@ -218,14 +206,14 @@ export function ProxyKeySecretDialog({
                 <select
                   id="proxy-key-model-select"
                   className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+                  disabled={selfTestBusy}
                   value={selectedModel?.model_id ?? ""}
                   onChange={(event) => setSelectedModelId(event.target.value)}
                 >
                   {candidates.map((model) => (
                     <option key={model.model_id} value={model.model_id}>
                       {model.model_id}
-                      {model.display_name ? ` · ${model.display_name}` : ""} · {model.api_family}
-                      {model.openai_accepted_format ? ` · ${model.openai_accepted_format}` : ""}
+                      {model.display_name ? ` · ${model.display_name}` : ""}
                     </option>
                   ))}
                 </select>
@@ -240,6 +228,7 @@ export function ProxyKeySecretDialog({
                 <select
                   id="proxy-key-operation-select"
                   className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm sm:w-64"
+                  disabled={selfTestBusy}
                   value={selectedOpenAIOperation}
                   onChange={(event) => setSelectedOpenAIOperation(event.target.value as "responses" | "chat_completions")}
                 >
@@ -249,29 +238,13 @@ export function ProxyKeySecretDialog({
               </div>
             ) : null}
 
-            {curl ? (
-              <div className="flex flex-col gap-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-medium text-muted-foreground">{copy.accessCurl}</span>
-                  <CopyButton value={curl.curl} label={copy.copyCurl} targetLabel={copy.accessCurl} variant="outline" size="sm" />
-                </div>
-                <pre className="overflow-x-auto rounded-md border border-border bg-inset p-3 text-[11px] leading-relaxed">
-                  <code>{curl.curl}</code>
-                </pre>
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">{copy.accessCurlUnavailable}</p>
-            )}
-
-            <OperatorInsetPanel className="flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-start gap-2">
-                <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-degraded" />
-                <p className="text-xs text-muted-foreground">{copy.selfTestCostWarning}</p>
-              </div>
-              <Button type="button" variant="outline" size="sm" className="shrink-0" disabled={!selfTestSpec} onClick={() => setSelfTestOpen(true)}>
-                {copy.selfTestRun}
-              </Button>
-            </OperatorInsetPanel>
+            {selectedModel ? <CopyButton value={selectedModel.model_id} label={copy.copyModel} targetLabel={copy.accessModel} variant="outline" className="self-start" /> : null}
+            <RuntimeSelfTestPanel
+              key={`${selectedModel?.model_id}:${selectedOpenAIOperation}`}
+              spec={selfTestSpec}
+              context={{ source: "generated_secret", requestedModelId: selectedModel?.model_id ?? "", proxyKey: session.rawKey, explicitNoKey: false, expectedProxyApiKeyId: session.keyId }}
+              onBusyChange={setSelfTestBusy}
+            />
 
             <div className="flex items-start gap-2 rounded-md border border-border bg-inset p-3">
               <Checkbox
@@ -285,9 +258,9 @@ export function ProxyKeySecretDialog({
             </div>
           </DialogBody>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={handleCloseAttempt} disabled={!acknowledged}>
-              {messages.common.close}
-            </Button>
+            {!acknowledged ? <Button type="button" variant="outline" onClick={handleCloseAttempt}>
+              {copy.newSecretLeaveWithoutSaving}
+            </Button> : null}
             <Button type="button" onClick={handleCloseAttempt} disabled={!acknowledged}>
               {copy.newSecretFinish}
             </Button>
@@ -314,18 +287,6 @@ export function ProxyKeySecretDialog({
         </Dialog>
       ) : null}
 
-      <RuntimeSelfTestDialog
-        open={selfTestOpen}
-        onOpenChange={setSelfTestOpen}
-        spec={selfTestSpec}
-        context={{
-          source: "generated_secret",
-          requestedModelId: selectedModel?.model_id ?? "",
-          proxyKey: session.rawKey,
-          explicitNoKey: false,
-          expectedProxyApiKeyId: session.keyId,
-        }}
-      />
     </>
   )
 }

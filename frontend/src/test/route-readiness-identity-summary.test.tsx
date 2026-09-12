@@ -93,12 +93,8 @@ function renderCard(model: ModelConfig) {
   );
 }
 
-/**
- * 三个上游计数合并成了「终端目标」瓦片下的一行摘要：多数配置下它们恒为
- * 1/0/0，独占一整行瓦片不值得。计数逻辑本身没有变，断言随呈现位置移动。
- */
-function upstreamSummary(): string {
-  return screen.getByText(/上游标识 .* 种/).textContent ?? "";
+function missingIdentityNotice(): string | null {
+  return screen.queryByText(/有 \d+ 个服务连接缺少模型名称信息/)?.textContent ?? null;
 }
 
 describe("RouteReadinessCard direct identity summary", () => {
@@ -118,58 +114,54 @@ describe("RouteReadinessCard direct identity summary", () => {
     expect(screen.queryByText(ENTRY_MODEL_ID)).toBeNull();
   });
 
-  it("counts distinct upstream identities, excluding unknown evidence", () => {
+  it("warns when direct service connections lack a model name", () => {
     renderCard(makeModel([
       makeTarget(1, "connection", makeConnection(11, "provider/X")),
       makeTarget(2, "connection", makeConnection(12, "provider/X")),
       makeTarget(3, "connection", makeConnection(13, "provider/Y")),
       makeTarget(4, "connection", makeConnection(14, null)),
     ]));
-    expect(upstreamSummary()).toBe("上游标识 2 种 · 解耦 3 · 未知 1");
+    expect(missingIdentityNotice()).toBe("有 1 个服务连接缺少模型名称信息，请检查连接设置。");
   });
 
-  it("compares decoupling against the entry ID case-sensitively", () => {
+  it("does not label a different known service model name as missing", () => {
     renderCard(makeModel([
       makeTarget(1, "connection", makeConnection(11, "entry-a")),
       makeTarget(2, "connection", makeConnection(12, "provider/Y")),
     ]));
-    expect(upstreamSummary()).toBe("上游标识 2 种 · 解耦 2 · 未知 0");
+    expect(missingIdentityNotice()).toBeNull();
   });
 
-  it("never counts unknown identities as decoupled and reports them separately", () => {
+  it("counts blank and absent service model names as needing attention", () => {
     renderCard(makeModel([
       makeTarget(1, "connection", makeConnection(11, null)),
       makeTarget(2, "connection", makeConnection(12, "  ")),
       makeTarget(3, "connection", makeConnection(13, ENTRY_MODEL_ID)),
     ]));
-    expect(upstreamSummary()).toBe("上游标识 1 种 · 解耦 0 · 未知 2");
+    expect(missingIdentityNotice()).toBe("有 2 个服务连接缺少模型名称信息，请检查连接设置。");
   });
 
   it("ignores Model Target rows: they are logical edges without upstream identity", () => {
     renderCard(makeModel([makeTarget(1, "model", null)]));
     // No DIRECT Terminal Targets exist, so the honest state is the explicit
     // no-direct-terminal conclusion — not fabricated zeros, not recursion.
-    expect(screen.getByText("无直接终端目标")).toBeInTheDocument();
-    expect(screen.getAllByText(
-      "该模型配置没有直接终端目标；上游身份只由终端目标持有，模型目标是逻辑边，不在此推断。",
-    ).length).toBeGreaterThan(0);
+    expect(screen.getByText("无直接服务连接")).toBeInTheDocument();
+    expect(screen.getByText("无直接服务连接")).toHaveAttribute("title", "此模型尚未直接连接服务；如需通过其他模型处理请求，请查看下方的转发配置。");
   });
 
   it("shows an explicit no-direct-terminal state with a reason", () => {
     renderCard(makeModel([makeTarget(1, "model", null)]));
-    expect(screen.getByText("无直接终端目标")).toBeInTheDocument();
-    expect(screen.getAllByText(
-      "该模型配置没有直接终端目标；上游身份只由终端目标持有，模型目标是逻辑边，不在此推断。",
-    ).length).toBeGreaterThan(0);
+    expect(screen.getByText("无直接服务连接")).toBeInTheDocument();
+    expect(screen.getByText("无直接服务连接")).toHaveAttribute("title", "此模型尚未直接连接服务；如需通过其他模型处理请求，请查看下方的转发配置。");
   });
 
-  it("counts a mixed list where only Terminal Targets contribute identities", () => {
+  it("does not invent missing service names for forwarding entries", () => {
     renderCard(makeModel([
       makeTarget(1, "model", null),
       makeTarget(2, "connection", makeConnection(12, "provider/Y")),
       makeTarget(3, "connection", makeConnection(13, "provider/Z")),
     ]));
-    expect(upstreamSummary()).toBe("上游标识 2 种 · 解耦 2 · 未知 0");
+    expect(missingIdentityNotice()).toBeNull();
   });
 
   it("counts zero unknown identities when every direct terminal target carries a readable id", () => {
@@ -177,6 +169,6 @@ describe("RouteReadinessCard direct identity summary", () => {
       makeTarget(1, "connection", makeConnection(11, ENTRY_MODEL_ID)),
       makeTarget(2, "connection", makeConnection(12, "provider/Y")),
     ]));
-    expect(upstreamSummary()).toBe("上游标识 2 种 · 解耦 1 · 未知 0");
+    expect(missingIdentityNotice()).toBeNull();
   });
 });

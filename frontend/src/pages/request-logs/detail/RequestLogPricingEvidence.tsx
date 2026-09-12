@@ -152,14 +152,9 @@ export function RequestLogPricingEvidence({
       {pricing.pricing_schedule_local_weekday !== null &&
       pricing.pricing_schedule_local_minute !== null ? (
         <DetailRow label={copy.pricingScheduleLocalTime}>
-          <span className="font-mono">
-            {pricing.pricing_schedule_local_weekday} · {String(Math.floor(pricing.pricing_schedule_local_minute / 60)).padStart(2, "0")}:{String(pricing.pricing_schedule_local_minute % 60).padStart(2, "0")}
+          <span>
+            {messages.pricingTemplateDialog.weekdayLabels[pricing.pricing_schedule_local_weekday - 1] ?? copy.unknown} · <span className="font-mono">{String(Math.floor(pricing.pricing_schedule_local_minute / 60)).padStart(2, "0")}:{String(pricing.pricing_schedule_local_minute % 60).padStart(2, "0")}</span>
           </span>
-        </DetailRow>
-      ) : null}
-      {pricing.pricing_schedule_digest ? (
-        <DetailRow label={copy.pricingScheduleDigest}>
-          <span className="break-all font-mono text-[11px]">{pricing.pricing_schedule_digest}</span>
         </DetailRow>
       ) : null}
       <DetailRow label={copy.pricingSnapshotInput}><span className="font-mono">{snapshotValue(pricing.pricing_snapshot_input)}</span></DetailRow>

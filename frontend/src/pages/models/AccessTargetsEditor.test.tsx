@@ -223,13 +223,13 @@ describe("AccessTargetsEditor mixed ordering", () => {
       "access-target-503",
       "access-target-501",
     ]);
-    expect(within(rows[0]).getByText("终端目标")).toBeTruthy();
+    expect(within(rows[0]).getByText("服务连接")).toBeTruthy();
     expect(
-      within(rows[0]).getByTitle("上游模型 ID: provider/Model-901"),
+      within(rows[0]).getByTitle("服务模型名称: provider/Model-901"),
     ).toBeTruthy();
     expect(within(rows[0]).getByText("1")).toBeTruthy();
     expect(within(rows[1]).getByText("2")).toBeTruthy();
-    expect(within(rows[2]).getByText("模型目标")).toBeTruthy();
+    expect(within(rows[2]).getByText("转发到其他模型")).toBeTruthy();
     expect(within(rows[2]).queryByText(/provider\/Model-/)).toBeNull();
     expect(within(rows[2]).getByText("3")).toBeTruthy();
   });
@@ -555,9 +555,9 @@ describe("AccessTargetsEditor runtime column keeps absence distinguishable", () 
   it("never presents per-type first labels or partition copy", () => {
     const modelsUi = zhCNMessages.modelsUi;
     expect(modelsUi.accessTargetsDescription).not.toMatch(
-      /模型目标阶段|终端目标阶段/,
+      /模型目标阶段|服务连接阶段/,
     );
-    expect(modelsUi.accessTargetsDescription).toMatch(/混合列表/);
+    expect(modelsUi.accessTargetsDescription).toMatch(/服务选择方式/);
   });
 });
 
@@ -600,7 +600,7 @@ describe("AccessTargetsEditor model target detail entry", () => {
     openRowMenu("access-target-501").focus();
     await user.keyboard("{Enter}");
     const item = await screen.findByRole("menuitem", {
-      name: "查看模型配置 Child Model 的详情",
+      name: "查看模型 Child Model 的详情",
     });
     if (item.getAttribute("data-highlighted") == null) {
       await user.keyboard("{ArrowDown}");
@@ -627,7 +627,7 @@ describe("AccessTargetsEditor model target detail entry", () => {
       within(menu).queryByRole("menuitem", { name: /查看模型/ }),
     ).toBeNull();
     expect(
-      within(menu).getByRole("menuitem", { name: /复制终端目标 Terminal A/ }),
+      within(menu).getByRole("menuitem", { name: /复制服务连接 Terminal A/ }),
     ).toBeTruthy();
     await user.keyboard("{Escape}");
 
@@ -635,7 +635,7 @@ describe("AccessTargetsEditor model target detail entry", () => {
     menu = await screen.findByRole("menu");
     expect(
       within(menu).getByRole("menuitem", {
-        name: /查看模型配置 Child Model 的详情/,
+        name: /查看模型 Child Model 的详情/,
       }),
     ).toBeTruthy();
     expect(onViewViewModelTargetDetail).not.toHaveBeenCalled();
@@ -680,7 +680,7 @@ describe("AccessTargetsEditor model target detail entry", () => {
     await user.click(openRowMenu("access-target-501"));
     await user.click(
       await screen.findByRole("menuitem", {
-        name: /查看模型配置 Child Model 的详情/,
+        name: /查看模型 Child Model 的详情/,
       }),
     );
 

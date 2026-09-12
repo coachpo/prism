@@ -6,15 +6,16 @@ describe("describeUnpricedCause", () => {
     expect(describeUnpricedCause({ pricingStatus: "priced", unpricedReason: null, streamOutcome: "completed" })).toBeNull();
   });
 
-  it("explains MISSING_TOKEN_USAGE on a streamed row with the injection note", () => {
+  it("explains MISSING_TOKEN_USAGE with actionable plain-language missing-usage information", () => {
     const cause = describeUnpricedCause({ pricingStatus: "unpriced", unpricedReason: "MISSING_TOKEN_USAGE", streamOutcome: "completed" });
-    expect(cause).toContain("stream_options.include_usage");
+    expect(cause).toContain("没有返回用量");
+    expect(cause).not.toContain("stream_options");
   });
 
   it("explains MISSING_TOKEN_USAGE on a non-stream row without the stream note", () => {
     const cause = describeUnpricedCause({ pricingStatus: "unpriced", unpricedReason: "MISSING_TOKEN_USAGE", streamOutcome: "not_streaming" });
     expect(cause).not.toContain("stream_options.include_usage");
-    expect(cause).toContain("usage");
+    expect(cause).toContain("没有返回用量");
   });
 
   it("explains truncated streams", () => {

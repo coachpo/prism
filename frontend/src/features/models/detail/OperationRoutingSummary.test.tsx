@@ -55,7 +55,7 @@ describe("OperationRoutingSummary", () => {
     expect(rows).toHaveLength(3)
     expect(screen.getAllByText("Responses")).toHaveLength(1)
     expect(screen.getByTestId("routing-operation-chat_completions")).toHaveTextContent("Chat Completions")
-    expect(screen.getByTestId("routing-operation-responses")).toHaveTextContent("入口不接受")
+    expect(screen.getByTestId("routing-operation-responses")).toHaveTextContent("未开启")
     expect(screen.getByTestId("routing-operation-images")).toHaveTextContent("生图 / 改图")
   })
 
@@ -75,8 +75,8 @@ describe("OperationRoutingSummary", () => {
       route("openai.images.edits"),
     ])
     const images = screen.getByTestId("routing-operation-images")
-    expect(images).toHaveTextContent("生图：可路由")
-    expect(images).toHaveTextContent("改图：入口不接受")
+    expect(images).toHaveTextContent("生图：配置已就绪")
+    expect(images).toHaveTextContent("改图：未开启")
   })
 
   it("gives non-OpenAI operations one row each with a localized label", () => {
@@ -87,8 +87,8 @@ describe("OperationRoutingSummary", () => {
     const list = screen.getByTestId("routing-operation-list")
     const rows = within(list).getAllByRole("listitem")
     expect(rows).toHaveLength(2)
-    expect(screen.getByTestId("routing-operation-anthropic.messages")).toHaveTextContent("可路由")
-    expect(screen.getByTestId("routing-operation-anthropic.count_tokens")).toHaveTextContent("无静态路由")
+    expect(screen.getByTestId("routing-operation-anthropic.messages")).toHaveTextContent("配置已就绪")
+    expect(screen.getByTestId("routing-operation-anthropic.count_tokens")).toHaveTextContent("缺少可用服务配置")
 
     // The registry name is an internal enum key. It may key a test id, but it
     // must not be what the operator reads.

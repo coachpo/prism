@@ -7,12 +7,12 @@ import {
 } from "./useShellNavigation"
 
 describe("shell navigation contract", () => {
-  it("derives routing navigation in setup dependency order", () => {
+  it("puts model setup before supporting configuration", () => {
     expect(SHELL_SIDEBAR_ITEMS.filter((item) => item.groupId === "routing").map((item) => item.id)).toEqual([
+      "models",
       "endpoints",
       "pricing-templates",
       "loadbalance-strategies",
-      "models",
     ])
   })
 

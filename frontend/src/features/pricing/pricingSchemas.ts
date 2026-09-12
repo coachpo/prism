@@ -130,10 +130,10 @@ export const pricingTemplateFormSchema = z
       const parsed = cardSchema.safeParse(card);
       if (!parsed.success)
         for (const issue of parsed.error.issues)
-          ctx.addIssue({ ...issue, path: [path, ...issue.path] });
+          ctx.addIssue({ ...issue, path: [...(path ? [path] : []), ...issue.path] });
     };
-    if (values.template_kind === "standard") checkCard("card", values);
-    if (values.template_kind === "tiered") checkCard("card", values);
+    if (values.template_kind === "standard") checkCard("", values);
+    if (values.template_kind === "tiered") checkCard("", values);
     if (values.template_kind === "tiered") {
       if (
         !/^\d+$/.test(values.tier.input_tokens_above.trim()) ||

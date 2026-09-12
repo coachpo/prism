@@ -1,3 +1,5 @@
+import { managementErrorMessage } from "@/lib/api/errorMessage";
+import { getStaticMessages } from "@/i18n/staticMessages";
 import { api } from "@/lib/api";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen, within, waitFor } from "@testing-library/react";
@@ -79,13 +81,13 @@ it("shows explicit false, zero, missing evidence and an action to the existing m
   vi.mocked(fetchOpenCodeExportSource).mockResolvedValue(fixture);
   mount();
   const row = await chooseOpenCode(user);
-  await user.click(within(row).getByText("查看最终值与来源"));
+  await user.click(within(row).getByText("查看资料与来源"));
   const reasoning = within(row).getByText("推理能力").closest("tr")!;
   expect(within(reasoning).getAllByText("否")).toHaveLength(2);
-  expect(within(reasoning).getByText("models.dev 人工覆盖")).toBeVisible();
+  expect(within(reasoning).getByText("models.dev 手动调整")).toBeVisible();
   expect(within(row).getAllByText("0")).toHaveLength(2);
   expect(within(row).getByText(/无有效来源/)).toBeVisible();
-  expect(within(row).getByRole("button", { name: /补全 models.dev 元数据/ })).toBeEnabled();
+  expect(within(row).getByRole("button", { name: /补全此模型的资料/ })).toBeEnabled();
   expect(within(row).getByRole("checkbox")).toBeDisabled();
   expect(screen.getByRole("button", { name: /生成配置文件/ })).toBeDisabled();
 });
@@ -99,7 +101,7 @@ it("discards a delayed credential render after closing, switching targets and op
   await chooseOpenCode(user);
   await user.click(screen.getByRole("button", { name: /生成配置文件/ }));
   await user.click(screen.getByRole("radio", { name: /手动输入统一密钥/ }));
-  await user.type(screen.getByLabelText(/^Prism 代理密钥/), " synthetic-final ");
+  await user.type(screen.getByLabelText(/^Prism 客户端密钥/), " synthetic-final ");
   await user.click(screen.getByRole("button", { name: "确认生成" }));
   const signal = vi.mocked(renderOpenCodeExport).mock.calls[0][1];
   await user.click(screen.getByRole("button", { name: "取消" }));
@@ -110,7 +112,7 @@ it("discards a delayed credential render after closing, switching targets and op
   await act(async () => { late.resolve({ ...resultFixture(), content: '"synthetic-final"\n' }); });
   expect(screen.getByTestId("export-key-dialog")).toBeVisible();
   expect(screen.queryByTestId("export-result-sheet")).toBeNull();
-  expect(screen.queryByLabelText(/^Prism 代理密钥/)).toBeNull();
+  expect(screen.queryByLabelText(/^Prism 客户端密钥/)).toBeNull();
   expect(JSON.stringify(client.getQueryCache().getAll().map(query => query.state.data))).not.toContain("synthetic-final");
   expect(client.getMutationCache().getAll()).toHaveLength(0);
   expect(storage).not.toHaveBeenCalled();
@@ -139,7 +141,7 @@ it.each([401, 409, 422])("keeps render %i errors recoverable in the key dialog",
   await chooseOpenCode(user);
   await generate(user);
   const dialog = screen.getByTestId("export-key-dialog");
-  expect(await within(dialog).findByText(status === 409 ? /源事实已漂移/ : "controlled failure")).toBeVisible();
+  expect(await within(dialog).findByText(status === 409 ? /模型资料在生成前已更新/ : managementErrorMessage(status))).toBeVisible();
   await user.click(within(dialog).getByRole("button", { name: "确认生成" }));
   expect(await screen.findByTestId("export-result-sheet")).toBeVisible();
   expect(renderOpenCodeExport).toHaveBeenLastCalledWith(expect.objectContaining({ credential: { include: false } }), expect.any(AbortSignal));
@@ -150,16 +152,16 @@ it("keeps failed source reads distinct from empty state and retains labeled last
   vi.mocked(fetchOpenCodeExportSource).mockRejectedValueOnce(new Error("initial source failure"));
   mount();
   await user.click(screen.getByRole("radio", { name: "OpenCode" }));
-  expect(await screen.findByText("Error: initial source failure")).toBeVisible();
+  expect(await screen.findByText(getStaticMessages().common.requestErrors.unknown)).toBeVisible();
   expect(screen.queryByTestId("opencode-export-row-9")).toBeNull();
   await user.click(screen.getByRole("button", { name: "重试" }));
   const row = await screen.findByTestId("opencode-export-row-9");
   vi.mocked(fetchOpenCodeExportSource).mockRejectedValueOnce(new Error("refresh source failure"));
-  await user.click(screen.getByRole("button", { name: "刷新导出源" }));
+  await user.click(screen.getByRole("button", { name: "刷新模型资料" }));
   expect(await screen.findByText(/上次成功刷新/)).toBeVisible();
   expect(row).toBeVisible();
   expect(screen.getByRole("button", { name: /生成配置文件/ })).toBeDisabled();
-  await user.click(screen.getByRole("button", { name: "刷新导出源" }));
+  await user.click(screen.getByRole("button", { name: "刷新模型资料" }));
   expect(screen.queryByText(/上次成功刷新/)).toBeNull();
   expect(screen.getByRole("button", { name: /生成配置文件/ })).toBeEnabled();
 });
@@ -171,7 +173,7 @@ it("keeps selection when repairing in place and reconciles a concurrent invalida
   mount();
   const row = await chooseOpenCode(user);
   expect(within(row).getByRole("checkbox")).toBeChecked();
-  await user.click(within(row).getByRole("button", { name: "修复元数据" }));
+  await user.click(within(row).getByRole("button", { name: "补全模型资料" }));
   expect(await screen.findByText("修复客户端接入资料")).toBeVisible();
   expect(screen.getByRole("button", { name: /生成配置文件/ })).toBeDisabled();
   expect(within(row).getByRole("checkbox")).toBeChecked();

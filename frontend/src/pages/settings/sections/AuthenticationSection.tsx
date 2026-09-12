@@ -15,21 +15,13 @@ import { Link } from "@tanstack/react-router";
 import {
   OperatorInsetPanel,
   OperatorSectionCard,
-  OperatorStatusBadge,
+  OperatorTypeBadge,
   OperatorSwitchField,
 } from "@/shared/design-system";
 import { OperatorAccountFields } from "./authentication/OperatorAccountFields";
 import type { AuthenticationSectionProps } from "./authentication/types";
 
-/**
- * One card, not three.
- *
- * This section used to nest a card titled `身份验证` inside a card titled
- * `身份验证`, plus a third for the operator account, so the same word appeared
- * three times before any actual state did. The card header now carries the
- * three facts that answer "what is enforcing right now": enabled state,
- * effective generation, and the current operator.
- */
+/** Account controls share the current access status and login identity. */
 export function AuthenticationSection({
   authEnabled,
   authSettings,
@@ -56,13 +48,12 @@ export function AuthenticationSection({
   const readiness = authSettings?.proxy_key_readiness;
   const readinessDescription = readiness?.state === "ready"
     ? copy.authenticationReadiness(
-        readiness.active ?? "0",
-        readiness.activation_guard?.safe_active ?? "0",
-        readiness.expired ?? "0",
-        readiness.disabled ?? "0",
+        readiness.active ?? "—",
+        readiness.activation_guard?.safe_active ?? "—",
+        readiness.expired ?? "—",
+        readiness.disabled ?? "—",
       )
     : copy.readinessUnavailable;
-  const effectiveGeneration = authSettings?.auth_mode?.effective_generation;
   const operatorUsername = authSettings?.operator_account?.effective.username;
 
   return (
@@ -77,16 +68,11 @@ export function AuthenticationSection({
         description={statusDescription}
         actions={(
           <div className="flex flex-wrap items-center justify-end gap-2 text-xs text-muted-foreground">
-            <OperatorStatusBadge
-              intent={authEnabled ? "healthy" : "degraded"}
+            <OperatorTypeBadge
+              intent={authEnabled ? "muted" : "degraded"}
               label={authEnabled ? messages.loadbalanceStrategiesTable.enabled : messages.loadbalanceStrategiesTable.disabled}
               preserveLabel
             />
-            <span className="font-mono tabular-nums">
-              {effectiveGeneration
-                ? copy.effectiveGeneration(effectiveGeneration)
-                : copy.effectiveGenerationUnknown}
-            </span>
             <span aria-hidden="true">·</span>
             <span>
               {operatorUsername ? copy.currentOperator(operatorUsername) : copy.currentOperatorUnconfigured}
@@ -97,7 +83,7 @@ export function AuthenticationSection({
       >
         <OperatorSwitchField
           label={copy.authentication}
-          description={copy.authenticationToggleDescription}
+          description={!setupReady && !authEnabled ? copy.authenticationSetupRequired : copy.authenticationToggleDescription}
           checked={authEnabled}
           disabled={authSaving || (!setupReady && !authEnabled)}
           onCheckedChange={(checked) => {

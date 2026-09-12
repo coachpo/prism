@@ -39,9 +39,7 @@ export function useEndpointOrphanCleanup({
           return;
         }
         toast.error(
-          error instanceof Error
-            ? error.message
-            : messages.endpointsData.orphanCleanupFailed,
+          messages.endpointsData.orphanCleanupFailed,
         );
       }
     },

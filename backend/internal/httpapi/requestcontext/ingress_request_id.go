@@ -3,9 +3,10 @@ package requestcontext
 import "context"
 
 // RuntimeIngressRequestID is the server-generated, opaque ingress identifier
-// for runtime-branch traffic. It is generated from server entropy, never
-// derived from a caller-supplied X-Request-ID or X-Prism-* header, and is the
-// durable correlation key for telemetry, request logs and usage events.
+// for runtime-branch traffic before operation acceptance. It is generated from
+// server entropy and never derived from caller headers. Accepted operations use
+// the runtime owner's UUID for telemetry and the response header instead; this
+// branch token must not be used to look up durable request records.
 type RuntimeIngressRequestID string
 
 type runtimeIngressRequestIDContextKey struct{}

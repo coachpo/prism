@@ -1,3 +1,4 @@
+import { modelStrategyLabel } from "../models/modelStrategyLabel";
 import { Link } from "@tanstack/react-router";
 
 import { ApiFamilyIcon } from "@/components/ApiFamilyIcon";
@@ -87,8 +88,6 @@ export function RouteReadinessCard({
           testId="route-readiness-diagnostics-error"
           title={copy.diagnosticsErrorTitle}
           description={copy.diagnosticsErrorDescription}
-          details={diagnosticsView.message}
-          detailsLabel={copy.diagnosticsErrorDetailsLabel}
           action={
             <OperatorRetryButton onClick={onRetryDiagnostics}>
               {copy.diagnosticsRetry}
@@ -98,7 +97,7 @@ export function RouteReadinessCard({
       ) : null}
 
       <div className="grid gap-3 grid-cols-2 xl:grid-cols-4">
-        <ReadinessFact label={messages.common.apiFamily}>
+        <ReadinessFact label={messages.modelsUi.apiFamilyLabel}>
           <span className="flex items-center gap-1.5">
             <ApiFamilyIcon apiFamily={apiFamily} size={14} />
             <span className="text-sm font-medium">
@@ -116,7 +115,7 @@ export function RouteReadinessCard({
                 to="/route/ban-policies"
                 className="truncate text-sm font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
               >
-                {model.loadbalance_strategy.name}
+                {modelStrategyLabel(model.loadbalance_strategy)}
               </Link>
               {strategyDetail ? (
                 <span className="truncate text-xs text-muted-foreground">
@@ -133,13 +132,9 @@ export function RouteReadinessCard({
           label={modelsUiCopy.terminalTargets}
           reason={copy.upstreamIdentityDistinctReason}
           caption={
-            upstreamIdentity.hasDirectTerminalTargets
-              ? copy.upstreamIdentitySummary(
-                  formatNumber(upstreamIdentity.distinctUpstreamModelIdCount),
-                  formatNumber(upstreamIdentity.decoupledUpstreamModelIdCount),
-                  formatNumber(upstreamIdentity.unknownUpstreamModelIdCount),
-                )
-              : copy.noDirectTerminalTargetsReason
+            upstreamIdentity.unknownUpstreamModelIdCount > 0
+              ? copy.upstreamUnknownCount(formatNumber(upstreamIdentity.unknownUpstreamModelIdCount))
+              : undefined
           }
         >
           {accessTargetSummary ? (

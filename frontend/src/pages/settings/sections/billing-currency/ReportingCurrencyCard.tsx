@@ -81,11 +81,7 @@ export function ReportingCurrencyCard({
         <FieldDescription>
           {copy.usedForSpendingReports}
         </FieldDescription>
-        {normalizedCurrentCosting.reporting_currency_epoch !== undefined ? (
-          <p className="text-xs text-muted-foreground">
-            {copy.activeEpoch(String(normalizedCurrentCosting.reporting_currency_epoch))}
-          </p>
-        ) : <p className="text-xs font-medium text-degraded">{copy.migrationRequired}</p>}
+        {normalizedCurrentCosting.reporting_currency_epoch === undefined ? <p className="text-xs font-medium text-degraded">{copy.migrationRequired}</p> : null}
       </FieldGroup>
     </OperatorInsetPanel>
   );

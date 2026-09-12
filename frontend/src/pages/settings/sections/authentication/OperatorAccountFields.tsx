@@ -71,7 +71,7 @@ export function OperatorAccountFields({
               ? passwordError
               : authSettings?.has_password
                 ? copy.passwordKeepCurrent
-                : copy.authenticationToggleDescription
+                : copy.passwordSetupHelp
           }
           helperClassName={passwordError ? "text-destructive" : undefined}
           descriptionId={passwordError ? "auth-password-error" : undefined}

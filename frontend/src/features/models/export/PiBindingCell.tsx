@@ -14,10 +14,10 @@ import { useLocale } from "@/i18n/useLocale";
 import {
     OperatorCallout,
     OperatorDestructiveDialog,
-    OperatorStatusBadge,
     OperatorTypeBadge,
 } from "@/shared/design-system";
 import type { ExportSourceModelRow } from "@/lib/types";
+import { catalogFailureMessage } from "../catalog/catalogFailureMessage";
 import { PiBindingOverrideDialog } from "@/features/models/catalog/pi/PiBindingOverrideDialog";
 import { PiBindingRefreshDialog } from "@/features/models/catalog/pi/PiBindingRefreshDialog";
 import { PiBindingSourceDialog } from "@/features/models/catalog/pi/PiBindingSourceDialog";
@@ -48,7 +48,7 @@ function apiErrorDetail(error: unknown, copy: Copy): string {
     if (isModelExportSourceReconciliationError(error)) {
         return copy.sourceReconciliationFailed;
     }
-    return error instanceof Error ? error.message : String(error);
+    return catalogFailureMessage(error);
 }
 
 export function PiBindingCell({
@@ -82,7 +82,6 @@ export function PiBindingCell({
                     <OperatorTypeBadge
                         intent="muted"
                         label={copy[candidateKey] ?? copy.candidateStatusUnknown}
-                        title={candidateKey ? undefined : model.candidate_status}
                     />
                     <OperatorTypeBadge
                         intent="muted"
@@ -136,7 +135,7 @@ export function PiBindingCell({
     return (
         <div className="flex flex-col gap-1">
             <span className="font-mono text-xs">
-                {selected.provider_id}/{selected.model_id} ({selected.api})
+                {selected.provider_id}/{selected.model_id}
             </span>
             <p className="text-xs text-muted-foreground">
                 {copy.boundIdentityLabel}:{" "}
@@ -151,16 +150,14 @@ export function PiBindingCell({
                 <OperatorTypeBadge
                     intent="muted"
                     label={copy[candidateKey] ?? copy.candidateStatusUnknown}
-                    title={candidateKey ? undefined : model.candidate_status}
                 />
-                <OperatorStatusBadge
+                <OperatorTypeBadge
                     intent={
                         model.pi_binding_status === "bound"
-                            ? "healthy"
+                            ? "accent"
                             : "degraded"
                     }
                     label={copy[bindingKey] ?? copy.bindingStatusUnknown}
-                    title={bindingKey ? undefined : model.pi_binding_status}
                 />
             </div>
             {!model.pi_binding_renderable ? (

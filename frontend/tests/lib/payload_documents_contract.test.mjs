@@ -84,7 +84,8 @@ test("payload view model exposes message + JSON views for non-stream tool bodies
   assert.equal(model.isStreaming, false);
   assert.deepEqual(model.availability.map((view) => view.kind), ["transcript", "json"]);
   assert.ok(model.transcript !== null);
-  const toolTurn = model.transcript.turns[0];
+  const toolTurn = model.transcript.turns.find(turn => turn.toolCalls.length > 0);
+  assert.ok(toolTurn);
   assert.equal(toolTurn.toolCalls.length, 1);
   assert.equal(toolTurn.toolCalls[0].name, "get_weather");
   assert.equal(toolTurn.toolResults.length, 1);

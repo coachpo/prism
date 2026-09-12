@@ -70,11 +70,11 @@ describe("ModelsMetricsScopeSwitch", () => {
     renderSwitch({ scope: "ingress" });
     expect(screen.getByRole("radio", { name: "入口请求" })).toHaveAttribute(
       "title",
-      "口径：按入口模型归属，每个入口请求只计一次。",
+      "口径：按客户端模型归属，每个入口请求只计一次。",
     );
     expect(screen.getByRole("radio", { name: "最终承载" })).toHaveAttribute(
       "title",
-      "口径：按最终目标模型与胜出终端目标归属，每个请求只计一次。",
+      "口径：按最终目标模型与胜出服务连接归属，每个请求只计一次。",
     );
     expect(screen.getByRole("radio", { name: "路由尝试" })).toHaveAttribute(
       "title",

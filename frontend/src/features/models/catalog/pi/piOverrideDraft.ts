@@ -1,5 +1,6 @@
 import type { PiOverrideFieldValue } from "@/lib/types";
 import type { PiBindingMetadataWire } from "@/lib/types";
+import { piMetadataValueLabel } from "./piCatalogPresentation";
 
 export const PI_OVERRIDE_FIELD_ORDER = [
   "name",
@@ -166,9 +167,5 @@ export function formatPiBindingMetadataValue(
   field: PiOverrideField,
 ): string | null {
   const value = piBindingMetadataValue(metadata, field);
-  if (value === undefined || value === null) return null;
-  if (Array.isArray(value)) return value.join("、");
-  if (typeof value === "boolean") return value ? "是" : "否";
-  if (typeof value === "object") return JSON.stringify(value);
-  return String(value);
+  return piMetadataValueLabel(value, field);
 }

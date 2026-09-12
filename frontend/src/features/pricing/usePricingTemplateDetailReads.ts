@@ -1,3 +1,4 @@
+import { extractServerValidation } from "@/shared/forms/serverValidation";
 import { useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -47,9 +48,7 @@ export function usePricingTemplateDetailReads() {
       } catch (error) {
         if (generation !== usageGeneration.current) return;
         const detail =
-          error instanceof Error
-            ? error.message
-            : messages.pricingTemplatesData.loadUsageFailed;
+          extractServerValidation(error, messages.pricingTemplatesData.loadUsageFailed).summary;
         toast.error(detail);
         setPricingTemplateUsageLoadError(detail);
         setPricingTemplateUsageRows([]);
@@ -78,9 +77,7 @@ export function usePricingTemplateDetailReads() {
       } catch (error) {
         if (generation !== usageGeneration.current) return null;
         toast.error(
-          error instanceof Error
-            ? error.message
-            : messages.pricingTemplatesData.loadUsageFailed,
+          extractServerValidation(error, messages.pricingTemplatesData.loadUsageFailed).summary,
         );
         setPricingTemplateUsageError(true);
         setPricingTemplateUsageRows([]);
@@ -110,9 +107,7 @@ export function usePricingTemplateDetailReads() {
       } catch (error) {
         if (generation !== historyGeneration.current) return;
         const detail =
-          error instanceof Error
-            ? error.message
-            : messages.pricingTemplatesData.historyLoadFailed;
+          extractServerValidation(error, messages.pricingTemplatesData.historyLoadFailed).summary;
         setPricingTemplateHistoryError(detail);
         toast.error(detail);
       } finally {

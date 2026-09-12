@@ -54,7 +54,7 @@ export function PricingImportPreview({ committing, onCancel, onCommit, preview }
     >
       {blocked ? (
         <p className="px-[var(--density-card-pad-x)] text-xs text-destructive" role="alert">
-          {preview.response.errors[0]?.detail ?? copy.importPreviewBlocked}
+          {copy.importPreviewBlocked}
         </p>
       ) : null}
 

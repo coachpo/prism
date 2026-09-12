@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { decodeObserveReturn, encodeObserveReturn, observeReturnToSearch } from "@/lib/observeReturn"
 import {
   buildModelDetailPath,
   buildRequestAuditPath,
@@ -9,7 +10,7 @@ import {
   rewriteRoutePaths,
 } from "@/app/index"
 import { resolveProtectedRedirect, resolvePublicRedirect } from "@/app/router/authGates"
-import { modelsListSearchSchema } from "@/app/router/rewriteRoutes"
+import { endpointsSearchSchema, modelsListSearchSchema, proxyKeysSearchSchema } from "@/app/router/rewriteRoutes"
 import { groupBelongsToScope } from "@/features/observe/observeSearch"
 
 const returnLocation = {
@@ -19,6 +20,21 @@ const returnLocation = {
 }
 
 describe("rewrite route helpers", () => {
+  it("restores independent connection-state and event filters after inspecting related requests", () => {
+    const source = { v: 1 as const, event_id: "23", preset: "24h" as const, event_type: ["retry_scheduled", "retry_exhausted"], runtime_model_id: "work-chat", runtime_state: ["retry_wait"], runtime_cursor: "next-page" };
+    const decoded = decodeObserveReturn(encodeObserveReturn(source));
+    expect(decoded).toEqual(source);
+    expect(observeReturnToSearch(decoded!)).toMatchObject({ tab: "events", event_id: "23", event_type: ["retry_scheduled", "retry_exhausted"], runtime_model_id: "work-chat", runtime_state: ["retry_wait"], runtime_cursor: "next-page" });
+    expect(decodeObserveReturn(encodeObserveReturn({ v: 1, event_id: "22", preset: "24h" }))).toEqual({ v: 1, event_id: "22", preset: "24h" });
+    expect(decodeObserveReturn(encodeObserveReturn({ ...source, runtime_state: [3] } as never))).toBeNull();
+    expect(decodeObserveReturn(encodeObserveReturn({ ...source, unexpected: "private" } as never))).toBeNull();
+  })
+
+  it("keeps the requested client verification model and excludes credentials from search", () => {
+    expect(proxyKeysSearchSchema.parse({ action: "verify", model_id: "my model/准确值", api_key: "private" })).toEqual({ action: "verify", model_id: "my model/准确值" })
+    expect(proxyKeysSearchSchema.parse({ action: "invalid" })).toEqual({ action: undefined })
+  })
+
   it("keeps the required target route map and typed builders", () => {
     expect(rewriteRoutePaths).toContain("/observe")
     expect(rewriteRoutePaths).toContain("/auth/login")
@@ -38,6 +54,11 @@ describe("rewrite route helpers", () => {
     for (const sort_by of ["elapsed_ms", "total_cost_user_currency_micros"]) {
       expect(requestLogSearchSchema.parse({ view: "ingress_chains", sort_by, sort_order: "asc", cost_segment_key: "e.1", ingress_model_id: "joint-chat", endpoint: "1" })).toMatchObject({ view: "ingress_chains", sort_by, sort_order: "asc", cost_segment_key: "e.1", ingress_model_id: "joint-chat", endpoint: "1" })
     }
+  })
+
+  it("retains a valid service recovery target without accepting unrelated fields", () => {
+    expect(endpointsSearchSchema.parse({ endpoint_id: "21", api_key: "never-carry" })).toEqual({ endpoint_id: 21 })
+    expect(endpointsSearchSchema.parse({ endpoint_id: "invalid" })).toEqual({ endpoint_id: undefined })
   })
 
   it("validates and normalizes target route search params", () => {
@@ -71,6 +92,8 @@ describe("rewrite route helpers", () => {
     })
     expect(modelsListSearchSchema.parse({ scope: "final_execution" })).toEqual({ scope: "final_execution" })
     expect(modelsListSearchSchema.parse({ scope: "route_attempt" })).toEqual({ scope: "route_attempt" })
+    expect(modelsListSearchSchema.parse({ action: "create", endpoint_id: "12" })).toEqual({ action: "create", endpoint_id: 12 })
+    expect(modelsListSearchSchema.parse({ action: "invalid", endpoint_id: "-1" })).toEqual({ action: undefined, endpoint_id: undefined })
     // Identity flags: the two new flags parse alongside the retained ones and
     // survive a URL round-trip; `all` is a valid input but the list page never
     // persists it (patchSearch drops "all" values from the URL).

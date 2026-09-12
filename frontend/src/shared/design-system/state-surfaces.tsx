@@ -93,18 +93,16 @@ export function OperatorLoadingState({
 }
 /**
  * A read failed. This never degrades to an empty state: an empty state claims
- * there is nothing, and that is a different fact. Status codes and traces go
- * behind `details` so the surface stays readable.
+ * there is nothing, and that is a different fact. Callers supply a user-facing
+ * explanation and a recovery action; diagnostic payloads belong in logs.
  */
 export function OperatorErrorState({
   title,
   description,
   action,
   className,
-  details,
-  detailsLabel,
   testId,
-}: OperatorStateProps & { details?: ReactNode; detailsLabel?: string }) {
+}: OperatorStateProps) {
   return (
     <Alert
       role="alert"
@@ -114,17 +112,9 @@ export function OperatorErrorState({
     >
       <AlertCircleIcon />
       <AlertTitle>{title}</AlertTitle>
-      {description || action || details ? (
+      {description || action ? (
         <AlertDescription>
           {description ? <p>{description}</p> : null}
-          {details && detailsLabel ? (
-            <details className="mt-2">
-              <summary className="cursor-pointer text-xs text-muted-foreground">{detailsLabel}</summary>
-              <div className="mt-1 rounded-md border border-border bg-inset p-2 font-mono text-xs">
-                {details}
-              </div>
-            </details>
-          ) : null}
           {action ? <div className="mt-3 flex flex-wrap gap-2">{action}</div> : null}
         </AlertDescription>
       ) : null}

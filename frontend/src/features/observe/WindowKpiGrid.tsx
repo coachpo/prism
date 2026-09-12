@@ -65,8 +65,6 @@ export function WindowKpiGrid({
         testId="window-kpi-error"
         title={copy.windowUnavailable}
         description={messages.honesty.readFailedDescription}
-        details={fragment.error}
-        detailsLabel={messages.honesty.viewDetails}
         action={
           onRetry ? (
             <OperatorRetryButton onClick={onRetry}>
@@ -113,7 +111,8 @@ export function WindowKpiGrid({
           intent="warning"
           data-testid="window-coverage-incomplete"
         >
-          {messages.routingHealth.coverageIncompleteDescription}
+          <p>{copy.usageCoverageIncompleteDescription}</p>
+          <a href="/system/settings?scope=instance&section=retention" className="inline-flex min-h-7 items-center text-sm font-medium text-primary hover:underline">{copy.retentionCoverageLink}</a>
         </OperatorCallout>
       ) : null}
       <section
@@ -160,6 +159,36 @@ export function WindowKpiGrid({
                 reason={messages.honesty.coverageIncompleteReason}
               />
             ) : null
+          }
+        />
+        <OperatorKpiCard
+          className="col-span-2"
+          label={copy.cost}
+          value={<Money micros={segment?.known_cost_micros} symbol={symbol} />}
+          detail={copy.knownCostCaption(
+            copy.coverageLabel(pricing.pricing_coverage_state),
+          )}
+          badges={
+            <div className="flex flex-col gap-1">
+              <PricingBreakdown pricing={pricing} />
+              {segment?.pricing_card_role_breakdown?.length ? (
+                <div className="flex flex-wrap gap-x-2 text-[11px] text-muted-foreground">
+                  <span>{copy.pricingCardRoleBreakdown}：</span>
+                  {segment.pricing_card_role_breakdown.map((role) => (
+                    <span key={role.card_role}>
+                      {pricingRoleLabel(role.card_role, messages.requestLogs)}{" "}
+                      <Money micros={role.known_cost_micros} symbol={symbol} />
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+              <span className="text-[11px] text-muted-foreground">
+                {copy.pricingSelectorUnresolved}：
+                <span className="font-mono text-foreground">
+                  {formatNumber(data.pricing_selector_unresolved_count)}
+                </span>
+              </span>
+            </div>
           }
         />
         <OperatorKpiCard
@@ -244,36 +273,7 @@ export function WindowKpiGrid({
             </>
           }
         />
-        <OperatorKpiCard
-          className="col-span-2"
-          label={copy.cost}
-          value={<Money micros={segment?.known_cost_micros} symbol={symbol} />}
-          detail={copy.knownCostCaption(
-            copy.coverageLabel(pricing.pricing_coverage_state),
-          )}
-          badges={
-            <div className="flex flex-col gap-1">
-              <PricingBreakdown pricing={pricing} />
-              {segment?.pricing_card_role_breakdown?.length ? (
-                <div className="flex flex-wrap gap-x-2 text-[11px] text-muted-foreground">
-                  <span>{copy.pricingCardRoleBreakdown}：</span>
-                  {segment.pricing_card_role_breakdown.map((role) => (
-                    <span key={role.card_role}>
-                      {pricingRoleLabel(role.card_role, messages.requestLogs)}{" "}
-                      <Money micros={role.known_cost_micros} symbol={symbol} />
-                    </span>
-                  ))}
-                </div>
-              ) : null}
-              <span className="text-[11px] text-muted-foreground">
-                {copy.pricingSelectorUnresolved}：
-                <span className="font-mono text-foreground">
-                  {formatNumber(data.pricing_selector_unresolved_count)}
-                </span>
-              </span>
-            </div>
-          }
-        />
+
       </section>
     </div>
   );

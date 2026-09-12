@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { getStaticMessages } from "@/i18n/staticMessages";
+import { getModelSaveErrorMessage } from "../models/modelSaveFeedback";
 import { clearSharedReferenceData } from "@/lib/referenceData";
 import type { ModelConfig } from "@/lib/types";
 import {
@@ -87,20 +88,27 @@ export function useModelDetailModelForm({
         setModelFormError(messages.modelsData.modelIdRequired);
         return;
       }
+      if (validationError === "openai_capability_required") {
+        setModelFormError(messages.modelsData.openaiCapabilityRequired);
+        return;
+      }
 
       try {
         const updatedResponse = await api.models.update(model.id, toModelUpdatePayload(formData));
         applyUpdatedModel(updatedResponse.model);
-        await refreshModels?.();
+        try {
+          await refreshModels?.();
+        } catch {
+          toast.warning(messages.modelsData.updatedRefreshFailed);
+          void refreshDiagnostics?.();
+          setIsEditModelDialogOpen(false);
+          return;
+        }
         void refreshDiagnostics?.();
         toast.success(messages.modelDetailData.modelUpdated);
         setIsEditModelDialogOpen(false);
       } catch (error) {
-        setModelFormError(
-          error instanceof Error
-            ? error.message
-            : messages.modelDetailData.updateModelFailed,
-        );
+        setModelFormError(getModelSaveErrorMessage(error));
       }
     },
     [

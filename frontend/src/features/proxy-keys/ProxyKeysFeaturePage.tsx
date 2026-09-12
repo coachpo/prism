@@ -1,4 +1,4 @@
-import { useBlocker } from "@tanstack/react-router"
+import { useBlocker, useNavigate, useSearch } from "@tanstack/react-router"
 import { useEffect } from "react"
 import { useState } from "react"
 import { useQuery } from "@tanstack/react-query"
@@ -22,6 +22,7 @@ import { ProxyKeyLedgerCard } from "@/pages/proxy-api-keys/ProxyKeyLedgerCard"
 import { ProxyKeyRotateAlertDialog } from "@/pages/proxy-api-keys/ProxyKeyRotateAlertDialog"
 import { ProxyKeyVerifyAccessDialog } from "@/pages/proxy-api-keys/ProxyKeyVerifyAccessDialog"
 import { ProxyKeySecretDialog } from "./ProxyKeySecretDialog"
+import { proxyKeysSearchSchema } from "@/app/router/rewriteRoutes"
 import { useProxyKeysFeatureData } from "./useProxyKeysFeatureData"
 import { rewriteQueryKeys } from "@/shared/api/queryKeys"
 import { isAuthSettingsEnabled } from "@/pages/proxy-api-keys/proxyKeyFormatting"
@@ -30,7 +31,14 @@ export default function ProxyKeysFeaturePage() {
   const { messages } = useLocale()
   const data = useProxyKeysFeatureData()
   const { format: formatTime } = useTimezone()
-  const [verifyAccessOpen, setVerifyAccessOpen] = useState(false)
+  const navigate = useNavigate()
+  const search = proxyKeysSearchSchema.parse(useSearch({ strict: false }))
+  const [verifyRequested, setVerifyRequested] = useState(false)
+  const verifyAccessOpen = verifyRequested || search.action === "verify"
+  const setVerifyAccessOpen = (open: boolean) => {
+    setVerifyRequested(open)
+    if (!open && search.action === "verify") void navigate({ to: "/system/proxy-keys", search: {}, replace: true })
+  }
   const copy = messages.proxyApiKeys
   const authEnabled = isAuthSettingsEnabled(data.authSettings)
 
@@ -127,6 +135,7 @@ export default function ProxyKeysFeaturePage() {
       )}
 
       <ProxyKeyIssuePanel
+        error={data.createError}
         authAvailable={Boolean(data.authSettings)}
         capacity={data.capacity}
         createDisabled={data.createDisabled}
@@ -146,7 +155,10 @@ export default function ProxyKeysFeaturePage() {
         setProxyKeyNotes={data.setProxyKeyNotes}
       />
 
-      <ProxyKeyVerifyAccessDialog
+      {verifyAccessOpen ? <ProxyKeyVerifyAccessDialog
+        key={search.model_id ?? "standing"}
+        authEnabled={data.authSettings ? authEnabled : undefined}
+        initialModelId={search.model_id}
         models={modelsQuery.data ?? []}
         modelsError={Boolean(modelsQuery.error)}
         modelsLoading={modelsQuery.isLoading}
@@ -155,7 +167,7 @@ export default function ProxyKeysFeaturePage() {
           void modelsQuery.refetch()
         }}
         open={verifyAccessOpen}
-      />
+      /> : null}
 
       <ProxyKeySecretDialog
         key={data.secretSession.kind === "idle" ? "idle" : String(data.secretSession.session.keyId)}
@@ -177,6 +189,7 @@ export default function ProxyKeysFeaturePage() {
       />
 
       <ProxyKeyDetailSheet
+        error={data.editError}
         open={data.editProxyKeySheetOpen}
         proxyKeyActive={data.editingProxyKeyActive}
         proxyKeyExpiresAt={data.editingProxyKeyExpiresAt}
@@ -194,6 +207,7 @@ export default function ProxyKeysFeaturePage() {
       />
 
       <ProxyKeyRotateAlertDialog
+        error={data.rotateError}
         authEnabled={authEnabled}
         open={data.rotateProxyKeyAlertOpen}
         rotateConfirm={data.rotateConfirm}
@@ -205,6 +219,7 @@ export default function ProxyKeysFeaturePage() {
       />
 
       <ProxyKeyDeleteAlertDialog
+        error={data.deleteError}
         authEnabled={authEnabled}
         open={data.deleteProxyKeyAlertOpen}
         deleteConfirm={data.deleteConfirm}

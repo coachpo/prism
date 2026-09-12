@@ -217,7 +217,7 @@ describe("ObserveMainChart series table", () => {
   it("shows the window-total cost column and its trusted sums", async () => {
     await renderTable("cost");
     expect(
-      screen.getByRole("columnheader", { name: "窗口合计 · 已知成本" }),
+      screen.getByRole("columnheader", { name: "所选时段合计 · 已知成本" }),
     ).toBeInTheDocument();
     // Two buckets × 10470000 micros, formatted with the active currency.
     expect(screen.getByText("$20.94")).toBeInTheDocument();
@@ -226,7 +226,7 @@ describe("ObserveMainChart series table", () => {
   it("shows the window-total token column and its sums", async () => {
     await renderTable("tokens");
     expect(
-      screen.getByRole("columnheader", { name: "窗口合计 · 令牌数" }),
+      screen.getByRole("columnheader", { name: "所选时段合计 · 令牌数" }),
     ).toBeInTheDocument();
     expect(screen.getByText("700")).toBeInTheDocument();
   });
@@ -234,7 +234,7 @@ describe("ObserveMainChart series table", () => {
   it("shows the window-total error column and its sums", async () => {
     await renderTable("errors");
     expect(
-      screen.getByRole("columnheader", { name: "窗口合计 · 错误数" }),
+      screen.getByRole("columnheader", { name: "所选时段合计 · 错误数" }),
     ).toBeInTheDocument();
     // failed_count + client_disconnected_count across both buckets.
     expect(screen.getByText("2")).toBeInTheDocument();
@@ -242,7 +242,7 @@ describe("ObserveMainChart series table", () => {
 
   it("keeps the request-count window total next to the metric column", async () => {
     await renderTable("cost");
-    expect(screen.getByText("窗口合计 · 请求数")).toBeInTheDocument();
+    expect(screen.getByText("所选时段合计 · 请求数")).toBeInTheDocument();
     expect(screen.getByText("1,000")).toBeInTheDocument();
   });
 
@@ -323,7 +323,7 @@ describe("ObserveMainChart series table", () => {
     ];
     await renderTable("output_rate", [{ ...SERIES[0], points: unsampled }]);
     expect(
-      screen.getByTitle("该时间桶没有可测的输出速率样本。"),
+      screen.getByTitle("该统计时段没有可测的输出速率样本。"),
     ).toBeInTheDocument();
     expect(screen.queryByText(/tok\/s/)).not.toBeInTheDocument();
   });
@@ -360,7 +360,7 @@ describe("ObserveMainChart series table", () => {
     // The last bucket has no comparable rows; the earlier measured share must
     // not bleed into it, and no percentage may render for this window.
     expect(
-      screen.getByTitle("该时间桶没有可比的缓存分量。"),
+      screen.getByTitle("该统计时段没有可比的缓存分量。"),
     ).toBeInTheDocument();
     expect(screen.queryByText(/%/)).not.toBeInTheDocument();
   });
@@ -382,7 +382,7 @@ describe("ObserveMainChart series table", () => {
     ];
     await renderTable("cache_read_share", [{ ...SERIES[0], points: mixed }]);
     expect(
-      screen.getByTitle("该时间桶的输入与缓存分量合计为零，无法计算占比。"),
+      screen.getByTitle("该统计时段的输入与缓存分量合计为零，无法计算占比。"),
     ).toBeInTheDocument();
     expect(screen.queryByText(/%/)).not.toBeInTheDocument();
   });
@@ -415,7 +415,7 @@ describe("ObserveMainChart honest chart states", () => {
 
   it.each([
     ["ingress", ["合计", "按入口模型", "按 API 家族"]],
-    ["final_execution", ["合计", "按最终目标模型", "按 API 家族", "按端点", "按终端目标"]],
+    ["final_execution", ["合计", "按最终目标模型", "按 API 家族", "按服务", "按模型服务"]],
     [
       "route_attempt",
       [
@@ -424,8 +424,8 @@ describe("ObserveMainChart honest chart states", () => {
         "按尝试触发原因",
         "按尝试结果",
         "按 API 家族",
-        "按端点",
-        "按终端目标",
+        "按服务",
+        "按模型服务",
       ],
     ],
   ] as const)(
@@ -494,7 +494,7 @@ describe("ObserveMainChart honest chart states", () => {
     expect(
       screen.getByTestId("cache-read-share-zero-denominator-empty"),
     ).toBeInTheDocument();
-    expect(screen.getByText("窗口内缓存占比分母为零")).toBeInTheDocument();
+    expect(screen.getByText("所选时间范围内缓存占比分母为零")).toBeInTheDocument();
   });
 
   it("derives partial coverage from window totals, including a zero-coverage bucket", () => {

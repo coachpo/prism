@@ -11,7 +11,6 @@ import type {
   ProxyKeyCapacity,
 } from "@/lib/types";
 import type { ResolvedExpiryInput } from "@/pages/proxy-api-keys/ProxyKeyExpiryField";
-import { showProxyKeyMutationError } from "./proxyKeyMutationErrors";
 import { reconcileProxyKeyLedgerAfterCreateOrRotate } from "./proxyKeyMutationReconciliation";
 
 type FormSubmitEvent = Parameters<
@@ -35,6 +34,7 @@ export function useProxyKeyCreateMutation({
 }: UseProxyKeyCreateMutationInput) {
   const queryClient = useQueryClient();
   const messages = getStaticMessages();
+  const [createError, setCreateError] = useState<string | null>(null);
   const [proxyKeyName, setProxyKeyName] = useState("");
   const [proxyKeyNotes, setProxyKeyNotes] = useState("");
   const [proxyKeyExpiresAt, setProxyKeyExpiresAt] = useState("");
@@ -52,21 +52,26 @@ export function useProxyKeyCreateMutation({
     remainingKeys === 0;
 
   async function handleCreateProxyKey() {
+    setCreateError(null);
     if (!authSettings) {
-      toast.error(messages.proxyApiKeysData.settingsUnavailable);
+      setCreateError(messages.proxyApiKeysData.settingsUnavailable);
       return;
     }
     if (!proxyKeyName.trim()) {
-      toast.error(messages.proxyApiKeysData.keyNameRequired);
+      setCreateError(messages.proxyApiKeysData.keyNameRequired);
       return;
     }
     if (remainingKeys <= 0) {
-      toast.error(
+      setCreateError(
         messages.proxyApiKeysData.maxKeysReached(String(proxyKeyLimit)),
       );
       return;
     }
 
+    if (proxyKeyExpiresResolved?.gapError) {
+      setCreateError(messages.proxyApiKeysData.expiryInvalid);
+      return;
+    }
     try {
       const created = await createMutation.mutateAsync({
         name: proxyKeyName.trim(),
@@ -91,8 +96,8 @@ export function useProxyKeyCreateMutation({
         created.capacity,
       );
       toast.success(messages.proxyApiKeysData.created);
-    } catch (error) {
-      showProxyKeyMutationError(error, messages.proxyApiKeysData.createFailed);
+    } catch {
+      setCreateError(messages.proxyApiKeysData.createFailed);
     }
   }
 
@@ -102,6 +107,7 @@ export function useProxyKeyCreateMutation({
   };
 
   return {
+    createError,
     createDisabled,
     creatingProxyKey: createMutation.isPending,
     handleCreateSubmit,
@@ -110,7 +116,17 @@ export function useProxyKeyCreateMutation({
     proxyKeyExpiresResolved,
     proxyKeyName,
     proxyKeyNotes,
-    setIssueSheetOpen,
+    setIssueSheetOpen: (open: boolean) => {
+      if (createMutation.isPending) return;
+      setCreateError(null);
+      setIssueSheetOpen(open);
+      if (!open) {
+        setProxyKeyName("");
+        setProxyKeyNotes("");
+        setProxyKeyExpiresAt("");
+        setProxyKeyExpiresResolved(null);
+      }
+    },
     setProxyKeyExpiresAt,
     setProxyKeyExpiresResolved,
     setProxyKeyName,

@@ -30,6 +30,6 @@ export function cardRoleLabel(role: string, copy: Messages["pricingTemplatesUi"]
     case "tier_above": return copy.cardTierAbove;
     case "peak": return copy.cardPeak;
     case "offpeak": return copy.cardOffpeak;
-    default: return role;
+    default: return copy.unknownRate;
   }
 }

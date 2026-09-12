@@ -5,7 +5,7 @@ type EventSummaryCopy = ReturnType<typeof useLocale>["messages"]["routingHealth"
 
 // Exhaustive event summary renderer: the six event enums map one-to-one to
 // zh-CN catalog keys (SPEC §12). Unknown codes fall back to a localized
-// generic line plus the raw code for diagnostics — never backend prose.
+// generic explanation; raw codes remain outside product presentation.
 export function renderEventSummary(summary: EventSummaryV1, eventSummaryMessages: EventSummaryCopy): { label: string; reason: string } {
   const copy = eventSummaryMessages
   const params = summary.params ?? {}
@@ -51,7 +51,7 @@ export function renderEventSummary(summary: EventSummaryV1, eventSummaryMessages
     default:
       return {
         label: copy.unknownEvent,
-        reason: `${copy.unknownEventCode}${summary.code ?? "unknown"}`,
+        reason: copy.unknownEventReason,
       }
   }
 }

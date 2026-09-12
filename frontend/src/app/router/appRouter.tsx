@@ -41,9 +41,11 @@ import {
   MODELS_LIST_FALLBACK_SEARCH_KEYS,
   SETTINGS_FALLBACK_SEARCH_KEYS,
   emptySearchSchema,
+  endpointsSearchSchema,
   authLoginSearchSchema,
   modelsListSearchSchema,
   observeSearchSchema,
+  proxyKeysSearchSchema,
   requestAuditSearchSchema,
   requestLogSearchSchema,
   routingHealthSearchSchema,
@@ -133,9 +135,7 @@ function NotFoundRoute() {
         <OperatorEmptyState
           testId="route-not-found"
           title={messages.common.pageNotFound}
-          description={messages.common.pageNotFoundDescription(
-            window.location.pathname,
-          )}
+          description={messages.common.pageNotFoundDescription}
           action={
             <Button onClick={() => void navigate({ to: "/observe" })}>
               {messages.common.backToDashboard}
@@ -151,25 +151,20 @@ function NotFoundRoute() {
  * The router's own error component is English and prints the raw validation
  * issue list — including every legal enum member — straight onto the page. This
  * one keeps the shell so the sidebar is still a way out, names the page that
- * failed, and puts the raw error behind 查看详情.
+ * failed, and provides recovery without rendering diagnostic content.
  */
 function RouteErrorSurface({
-  error,
   pageLabel,
   reset,
 }: ErrorComponentProps & { pageLabel: string }) {
   const { messages } = useLocale();
   const router = useTanStackRouter();
-  const detail =
-    error instanceof Error ? (error.stack ?? error.message) : String(error);
 
   return (
     <OperatorErrorState
       testId="route-error"
       title={messages.common.routeRenderFailedTitle(pageLabel)}
       description={messages.common.routeRenderFailedDescription}
-      details={<pre className="whitespace-pre-wrap break-all">{detail}</pre>}
-      detailsLabel={messages.honesty.viewDetails}
       action={
         <>
           <OperatorRetryButton
@@ -462,8 +457,10 @@ function ProtectedRoutingHealthRoute() {
 }
 
 function ProtectedEndpointsRoute() {
+  const search = useTanStackSearch({ from: "/route/endpoints" });
+  const navigate = useTanStackNavigate();
   return (
-    <ProtectedRoute>{withRouteSuspense(<EndpointsPage />)}</ProtectedRoute>
+    <ProtectedRoute>{withRouteSuspense(<EndpointsPage requestedEndpointId={search.endpoint_id} onLocateHandled={() => { void navigate({ to: "/route/endpoints", search: {}, replace: true }); }} />)}</ProtectedRoute>
   );
 }
 
@@ -540,6 +537,7 @@ function ProtectedRequestAuditRoute() {
   const searchParams = new URLSearchParams();
   if (search.audit_id) searchParams.set("audit_id", search.audit_id);
   if (search.cursor) searchParams.set("cursor", search.cursor);
+  if (search.return_to) searchParams.set("return_to", search.return_to);
 
   return (
     <ProtectedRoute>
@@ -637,7 +635,7 @@ const modelDetailRoute = createRoute({
 const endpointsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/route/endpoints",
-  validateSearch: (search) => emptySearchSchema.parse(search),
+  validateSearch: (search) => endpointsSearchSchema.parse(search),
   component: ProtectedEndpointsRoute,
 });
 const banPoliciesRoute = createRoute({
@@ -659,7 +657,7 @@ const settingsRoute = createRoute({
 const proxyKeysRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/system/proxy-keys",
-  validateSearch: (search) => emptySearchSchema.parse(search),
+  validateSearch: (search) => proxyKeysSearchSchema.parse(search),
   component: ProtectedProxyKeysRoute,
 });
 const routingHealthRouteInternal = createRoute({

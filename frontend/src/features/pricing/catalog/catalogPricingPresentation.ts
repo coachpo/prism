@@ -7,6 +7,7 @@
 // messages, so a language switch can never render stale copy.
 
 import type { Messages } from "@/i18n/messages";
+import { getStaticMessages } from "@/i18n/staticMessages";
 import type {
   CatalogIncompatibility,
   CatalogPriceCard,
@@ -50,7 +51,7 @@ export function catalogCardRoleLabel(copy: CatalogCopy, role: string): string {
     case "offpeak":
       return copy.pricingRoleOffpeak;
     default:
-      return role;
+      return getStaticMessages().pricingTemplatesUi.unknownRate;
   }
 }
 
@@ -109,9 +110,7 @@ export function renderPriceComponent(
 }
 
 /**
- * Stable fail-closed reasons get operator-facing labels. An unrecognised reason
- * still surfaces, carrying its code, so a newer backend reason is visible rather
- * than silently dropped.
+ * Unknown reasons keep an explicit limitation without exposing wire identifiers.
  */
 export function catalogIncompatibilityLabel(
   copy: CatalogCopy,
@@ -137,7 +136,7 @@ export function catalogIncompatibilityLabel(
     case "specialty_shape_mismatch":
       return copy.incompatSpecialtyShapeMismatch;
     default:
-      return copy.incompatUnknown(item.reason);
+      return getStaticMessages().pricingTemplatesUi.catalogIncompatibleUnknown;
   }
 }
 

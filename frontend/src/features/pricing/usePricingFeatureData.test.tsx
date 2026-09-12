@@ -8,6 +8,8 @@ import { usePricingFeatureData } from "./usePricingFeatureData";
 
 const mocks = vi.hoisted(() => ({
   getSharedPricingTemplates: vi.fn(),
+  getTemplate: vi.fn(),
+  impact: vi.fn(),
   importTemplates: vi.fn(),
   importCommit: vi.fn(),
   setSharedPricingTemplates: vi.fn(),
@@ -22,6 +24,8 @@ vi.mock("@/lib/api", () => ({
   },
   api: {
     pricingTemplates: {
+      get: mocks.getTemplate,
+      impact: mocks.impact,
       importTemplates: mocks.importTemplates,
       importCommit: mocks.importCommit,
     },
@@ -65,9 +69,46 @@ vi.mock("sonner", () => ({
   },
 }));
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((complete) => { resolve = complete; });
+  return { promise, resolve };
+}
+
 describe("usePricingFeatureData", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("does not replace a new draft with a late edit read", async () => {
+    const template = makeTemplate(1, "Old template");
+    const delayed = deferred<PricingTemplate>();
+    mocks.getTemplate.mockReturnValueOnce(delayed.promise);
+    const { result } = renderHook(() => usePricingFeatureData(3));
+    let editing: Promise<void>;
+    act(() => { editing = result.current.handleEditPricingTemplate(template); });
+    act(() => { result.current.openCreatePricingTemplateDialog(); });
+    await act(async () => { delayed.resolve(template); await editing; });
+    expect(result.current.editingPricingTemplate).toBeNull();
+    expect(result.current.pricingTemplateDialogOpen).toBe(true);
+    expect(result.current.pricingTemplateImpactLoading).toBe(false);
+    expect(mocks.impact).not.toHaveBeenCalled();
+  });
+
+  it("discards a cancelled impact retry before opening another template", async () => {
+    mocks.getTemplate.mockImplementation(async (id: number) => makeTemplate(id, `Template ${id}`));
+    mocks.impact.mockResolvedValue({ template_id: 1 });
+    const { result } = renderHook(() => usePricingFeatureData(3));
+    await act(async () => { await result.current.handleEditPricingTemplate(makeTemplate(1, "First")); });
+    const delayed = deferred<{ template_id: number }>();
+    mocks.impact.mockReturnValueOnce(delayed.promise).mockResolvedValueOnce({ template_id: 2 });
+    let retrying: Promise<void>;
+    act(() => { retrying = result.current.retryPricingTemplateImpact(); result.current.closePricingTemplateDialog(); });
+    await act(async () => { await result.current.handleEditPricingTemplate(makeTemplate(2, "Second")); });
+    await act(async () => { delayed.resolve({ template_id: 1 }); await retrying; });
+    expect(result.current.editingPricingTemplate?.id).toBe(2);
+    expect(result.current.pricingTemplateImpact).toEqual({ template_id: 2 });
+    expect(result.current.pricingTemplateImpactError).toBeNull();
   });
 
   it("previews an import without writing, then commits with the server preview hash", async () => {

@@ -171,6 +171,52 @@ function buildNonStreamingTranscript(
   }
 
   const turns: TranscriptDocument["turns"] = [];
+  const record = (value: unknown): Record<string, unknown> | null => typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : null;
+  const textParts = (value: unknown): string => {
+    if (typeof value === "string") return value;
+    if (!Array.isArray(value)) return "";
+    return value.map(part => {
+      const item = record(part);
+      if (!item) return "";
+      return typeof item.text === "string" && (!item.type || ["text", "input_text", "output_text"].includes(String(item.type))) ? item.text : "";
+    }).filter(Boolean).join("\n");
+  };
+  const addTurn = (role: unknown, content: unknown) => {
+    if (role === "tool") return;
+    const text = textParts(content);
+    if (text) turns.push({ role: typeof role === "string" ? role : "assistant", text, toolCalls: [], toolResults: [], terminalState: null });
+  };
+  if (apiFamily === "openai" || apiFamily === "anthropic") {
+    if (bodyKind === "request") {
+      addTurn("system", body.system ?? body.instructions);
+      if (typeof body.input === "string") addTurn("user", body.input);
+      const inputs = Array.isArray(body.messages) ? body.messages : Array.isArray(body.input) ? body.input : [];
+      for (const input of inputs) {
+        const item = record(input);
+        if (item && (!item.type || item.type === "message")) addTurn(item.role ?? "user", item.content);
+      }
+    } else {
+      addTurn(body.role, body.content);
+      addTurn("assistant", body.output_text);
+      for (const choice of Array.isArray(body.choices) ? body.choices : []) {
+        const item = record(choice);
+        const message = record(item?.message);
+        addTurn(message?.role ?? "assistant", message?.content ?? item?.text);
+      }
+      for (const output of Array.isArray(body.output) ? body.output : []) {
+        const item = record(output);
+        if (item?.type === "message") addTurn(item.role ?? "assistant", item.content);
+      }
+    }
+  } else {
+    addTurn("system", record(body.systemInstruction)?.parts);
+    const contents = bodyKind === "request" ? body.contents : body.candidates;
+    for (const entry of Array.isArray(contents) ? contents : []) {
+      const item = record(entry);
+      const message = bodyKind === "request" ? item : record(item?.content);
+      addTurn(message?.role ?? "model", message?.parts);
+    }
+  }
   if (calls.calls.length > 0 || calls.results.length > 0) {
     turns.push({ role: "tool_calls", text: "", toolCalls: calls.calls, toolResults: calls.results, terminalState: null });
   }

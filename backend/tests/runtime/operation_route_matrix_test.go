@@ -384,6 +384,7 @@ func TestRuntimeTypedPricingOperationMatrix(t *testing.T) {
 			test.assertModelSource(t, upstreamRequest, route, ignoredBodyModel)
 			assertRouteMatrixGoldenUpstreamRequest(t, test.operationName, upstreamRequest, route)
 			assertRouteMatrixSharedCorePersistence(t, harness, profileID, route, test.operationName, requestPath)
+			assertRuntimeResponseIngressLookup(t, harness, profileID, response, 1)
 			assertRouteMatrixUsage(t, harness, profileID, test.usage)
 			assertRouteMatrixTypedPricing(t, harness, profileID, test.operationName)
 			assertRouteMatrixGenerationParams(t, harness, profileID, test.generationParams)

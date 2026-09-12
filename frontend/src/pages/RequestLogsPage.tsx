@@ -404,8 +404,6 @@ export function RequestLogsPage() {
               testId="request-logs-load-error"
               title={messages.requestLogs.loadFailed}
               description={messages.honesty.readFailedDescription}
-              details={error}
-              detailsLabel={messages.honesty.viewDetails}
               action={
                 <OperatorRetryButton onClick={refresh}>
                   {messages.common.retry}

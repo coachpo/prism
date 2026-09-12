@@ -129,7 +129,7 @@ export function useManualCleanup({
       return;
     setDeleting(true);
     try {
-      const response = await api.settings.retention.createJob({
+      await api.settings.retention.createJob({
         operation_id: manualOperationId,
         preflight_token: manualPreflight.preflight_token,
         confirmation: { keyword: deleteConfirmPhrase.trim() },
@@ -137,7 +137,6 @@ export function useManualCleanup({
       toast.success(
         messages.settingsRetentionDeletion.deletionRequested(
           getCleanupTypeLabel(deleteConfirm.type),
-          response.job.id,
         ),
       );
       setDeleteConfirmDialogOpen(false);

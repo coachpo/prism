@@ -402,6 +402,7 @@ func TestRuntimeRequestLogPersistsFailoverAttemptRowsAndSingleUsageEvent(t *test
 		ResolvedTargetModelID: fixture.targetModelID,
 		UpstreamModelID:       fixture.secondaryUpstreamModelID,
 	}})
+	assertRuntimeResponseIngressLookup(t, fixture.harness, fixture.profileID, response, 2)
 	assertLatestRuntimeModelIdentity(t, fixture.harness.conn, fixture.profileID, fixture.publicModelID, fixture.targetModelID)
 	assertRuntimeUpstreamReadProjections(t, fixture.harness, fixture.profileID, ingressRequestID, fixture.primaryUpstreamModelID, fixture.secondaryUpstreamModelID)
 	primaryPersisted := loadRuntimePersistedPricingOwnerFixture(t, fixture.harness.conn, fixture.profileID, ingressRequestID, "request_logs", &fixture.primaryConnectionID)

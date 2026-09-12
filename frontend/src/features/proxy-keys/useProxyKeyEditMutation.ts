@@ -7,7 +7,6 @@ import { getStaticMessages } from "@/i18n/staticMessages";
 import { api } from "@/lib/api";
 import type { ProxyApiKey, ProxyApiKeyUpdate } from "@/lib/types";
 import type { ResolvedExpiryInput } from "@/pages/proxy-api-keys/ProxyKeyExpiryField";
-import { showProxyKeyMutationError } from "./proxyKeyMutationErrors";
 import { reconcileProxyKeyLedgerAfterUpdate } from "./proxyKeyMutationReconciliation";
 
 type FormSubmitEvent = Parameters<
@@ -17,6 +16,7 @@ type FormSubmitEvent = Parameters<
 export function useProxyKeyEditMutation() {
   const queryClient = useQueryClient();
   const messages = getStaticMessages();
+  const [editError, setEditError] = useState<string | null>(null);
   const [editingProxyKey, setEditingProxyKey] = useState<ProxyApiKey | null>(
     null,
   );
@@ -38,6 +38,7 @@ export function useProxyKeyEditMutation() {
   });
 
   const startEditingProxyKey = (item: ProxyApiKey) => {
+    setEditError(null);
     setEditingProxyKey(item);
     setEditingProxyKeyName(item.name);
     setEditingProxyKeyNotes(item.notes ?? "");
@@ -48,13 +49,18 @@ export function useProxyKeyEditMutation() {
   };
 
   async function handleSaveEditedProxyKey() {
+    setEditError(null);
     if (!editingProxyKey) return;
     const nextName = editingProxyKeyName.trim();
     if (!nextName) {
-      toast.error(messages.proxyApiKeysData.keyNameRequired);
+      setEditError(messages.proxyApiKeysData.keyNameRequired);
       return;
     }
 
+    if (editingProxyKeyExpiresResolved?.gapError) {
+      setEditError(messages.proxyApiKeysData.expiryInvalid);
+      return;
+    }
     try {
       const payload: ProxyApiKeyUpdate = {
         name: nextName,
@@ -82,8 +88,8 @@ export function useProxyKeyEditMutation() {
       setEditingProxyKeyActive(updated.item.is_active);
       setEditProxyKeySheetOpen(false);
       toast.success(messages.proxyApiKeysData.updated);
-    } catch (error) {
-      showProxyKeyMutationError(error, messages.proxyApiKeysData.updateFailed);
+    } catch {
+      setEditError(messages.proxyApiKeysData.updateFailed);
     }
   }
 
@@ -93,7 +99,8 @@ export function useProxyKeyEditMutation() {
   };
 
   const handleEditDialogOpenChange = (open: boolean) => {
-    if (!open && !updateMutation.isPending) {
+    if (updateMutation.isPending) return;
+    if (!open) {
       setEditProxyKeySheetOpen(false);
       return;
     }
@@ -101,6 +108,7 @@ export function useProxyKeyEditMutation() {
   };
 
   return {
+    editError,
     editProxyKeySheetOpen,
     editingProxyKey,
     editingProxyKeyActive,

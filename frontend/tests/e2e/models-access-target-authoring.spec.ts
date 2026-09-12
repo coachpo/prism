@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { zhCNMessages } from "../../src/i18n/messages/zh-CN";
 import {
   createEmptyIngressSpendingReport,
   expectIngressSpendingRequest,
@@ -9,16 +10,15 @@ import {
 } from "./model-detail-catalog-fixtures";
 
 const timestamp = "2026-04-27T12:00:00Z";
-const newModelButton = /New Model Config|新建模型配置/;
-const newModelDialog = /New Model Config|新建模型配置/;
-const editModelDialog = /Edit Model Config|编辑模型配置/;
+const newModelButton = /New Model Config|接入模型/;
+const newModelDialog = /New Model Config|接入模型/;
+const editModelDialog = /Edit Model Config|编辑模型/;
 const cancelButton = /Cancel|取消/;
 const createDefaultsButton = /Create Defaults|创建默认策略/;
-const modelIdLabel = /Model Config ID|模型配置 ID/;
+const modelIdLabel = /Model Config ID|客户端模型名称/;
 const displayNameLabel = /Display Name|显示名称/;
-const noStrategiesCopy =
-  /No loadbalance strategies are available\. Create one on the Loadbalance Strategies page first\.|没有可用的路由策略。请先在路由策略页面创建一个。/;
-const modelCreatedToast = /Model config created|模型配置已创建/;
+const noStrategiesCopy = zhCNMessages.modelDetail.noLoadbalanceStrategiesAvailable;
+const modelCreatedToast = zhCNMessages.modelsData.created;
 const defaultStrategiesCreatedToast =
   /Default loadbalance strategies created|默认路由策略已创建/;
 
@@ -280,7 +280,7 @@ test("create model dialog disables submit when no loadbalance strategies exist",
   await dialog.getByRole("button", { name: cancelButton }).click();
   await page
     .getByRole("button", {
-      name: /Edit Model Config: Target Alpha|编辑模型配置: Target Alpha/,
+      name: /Edit Model Config: Target Alpha|编辑模型: Target Alpha/,
     })
     .click();
 
@@ -321,7 +321,7 @@ test("create model dialog creates default strategy and saves a configure-later d
   ).toHaveCount(0);
   await expect(directEntrySwitch).not.toBeChecked();
   await expect(dialog.locator("#create-model-strategy")).toContainText(
-    "Default fill-first routing",
+    "默认 · 优先顺序",
   );
 
   // Ready mode needs an endpoint; configure-later omits the initial target
@@ -329,7 +329,7 @@ test("create model dialog creates default strategy and saves a configure-later d
   await page
     .getByRole("textbox", { name: modelIdLabel })
     .fill("defaults-created-model");
-  await dialog.getByRole("switch", { name: /稍后配置/ }).check();
+  await dialog.getByRole("switch", { name: /稍后连接服务/ }).check();
   await expect(
     dialog.getByRole("button", { name: "创建为停用" }),
   ).toBeEnabled();
@@ -375,7 +375,7 @@ test("create model dialog keeps empty strategy state when default creation fails
 
   await dialog.getByRole("button", { name: createDefaultsButton }).click();
 
-  await expect(page.getByText("Default creation failed")).toBeVisible();
+  await expect(page.getByText(zhCNMessages.common.requestErrors.unavailable)).toBeVisible();
   await expect(
     dialog.getByRole("button", { name: createDefaultsButton }),
   ).toBeVisible();
@@ -422,7 +422,7 @@ test("create model dialog does not apply delayed defaults response to edit dialo
 
   await page
     .getByRole("button", {
-      name: /Edit Model Config: Edit No Strategy|编辑模型配置: Edit No Strategy/,
+      name: /Edit Model Config: Edit No Strategy|编辑模型: Edit No Strategy/,
     })
     .click();
   const editDialog = page.getByRole("dialog", { name: editModelDialog });
@@ -471,7 +471,7 @@ test("reopened create model dialog adopts the canonical default strategy after d
   // reopened dialog selects it by canonical identity (never array index).
   await expect(page.getByText(defaultStrategiesCreatedToast)).toBeVisible();
   await expect(reopenedDialog.locator("#create-model-strategy")).toContainText(
-    "Default fill-first routing",
+    "默认 · 优先顺序",
   );
 });
 
@@ -487,9 +487,9 @@ test("create model dialog supports configure-later and a decoupled initial targe
 
   const dialog = page.getByRole("dialog", { name: newModelDialog });
   await page.getByRole("textbox", { name: modelIdLabel }).fill("draft-openai");
-  await dialog.getByRole("switch", { name: /稍后配置/ }).check();
+  await dialog.getByRole("switch", { name: /稍后连接服务/ }).check();
   await expect(
-    dialog.getByRole("textbox", { name: "上游模型 ID" }),
+    dialog.getByRole("textbox", { name: "服务提供的模型名称" }),
   ).toHaveCount(0);
   await expect(
     dialog.getByRole("button", { name: "创建为停用" }),
@@ -511,9 +511,10 @@ test("create model dialog supports configure-later and a decoupled initial targe
     },
   ]);
 
+  await page.goto("/route/models");
   await page.getByRole("button", { name: newModelButton }).click();
   const entryModelId = dialog.getByRole("textbox", { name: modelIdLabel });
-  const upstreamModelId = dialog.getByRole("textbox", { name: "上游模型 ID" });
+  const upstreamModelId = dialog.getByRole("textbox", { name: "服务提供的模型名称" });
 
   await entryModelId.fill("entry-a");
   await expect(upstreamModelId).toHaveValue("entry-a");
@@ -521,7 +522,7 @@ test("create model dialog supports configure-later and a decoupled initial targe
   await page.getByRole("option", { name: "OpenAI Primary" }).click();
   await upstreamModelId.fill("");
   await dialog.getByRole("button", { name: "创建并启用" }).click();
-  await expect(dialog.getByText("上游模型 ID 不能为空白")).toBeVisible();
+  await expect(dialog.getByText("服务模型名称 不能为空白")).toBeVisible();
   expect(routes.getCreatedPayloads()).toHaveLength(1);
   await upstreamModelId.fill("provider/Model-B");
   await entryModelId.fill("entry-c");
@@ -536,8 +537,9 @@ test("create model dialog supports configure-later and a decoupled initial targe
       upstream_model_id: "provider/Model-B",
     },
   });
+  await page.goto("/route/models");
   await page
-    .getByRole("button", { name: "编辑模型配置: Target Alpha" })
+    .getByRole("button", { name: "编辑模型: Target Alpha" })
     .click();
   const editDialog = page.getByRole("dialog", { name: editModelDialog });
   await editDialog
@@ -1235,18 +1237,18 @@ test("model target detail entry switches entities over SPA without stale state",
     .click();
   let menu = page.getByRole("menu");
   await expect(
-    menu.getByRole("menuitem", { name: /查看模型配置/ }),
+    menu.getByRole("menuitem", { name: /查看模型/ }),
   ).toHaveCount(0);
   await expect(
-    menu.getByRole("menuitem", { name: /复制终端目标 Primary Responses/ }),
+    menu.getByRole("menuitem", { name: /复制服务连接 Primary Responses/ }),
   ).toBeVisible();
   await menu
-    .getByRole("menuitem", { name: /复制终端目标 Primary Responses/ })
+    .getByRole("menuitem", { name: /复制服务连接 Primary Responses/ })
     .click();
-  const copyDialog = page.getByRole("dialog", { name: "复制终端目标" });
+  const copyDialog = page.getByRole("dialog", { name: "复制服务连接" });
   await expect(
     copyDialog.getByTestId("copy-upstream-model-note"),
-  ).toContainText("保留源终端目标的上游模型 ID");
+  ).toContainText("保留源服务连接的服务模型名称");
   await copyDialog.getByRole("button", { name: "取消" }).click();
 
   // The model-target row offers the detail action and lands on the canonical
@@ -1257,7 +1259,7 @@ test("model target detail entry switches entities over SPA without stale state",
     .click();
   menu = page.getByRole("menu");
   const viewEntry = menu.getByRole("menuitem", {
-    name: /查看模型配置 Beta Detail 的详情/,
+    name: /查看模型 Beta Detail 的详情/,
   });
   await expect(viewEntry).toBeVisible();
   await viewEntry.click();
@@ -1300,17 +1302,17 @@ test("model detail canonicalizes dead tab and one-shot target actions", async ({
   await expect(
     page
       .getByTestId("access-target-91")
-      .getByTitle("上游模型 ID: provider/Responses-Primary"),
+      .getByTitle("服务模型名称: provider/Responses-Primary"),
   ).toBeVisible();
-  await page.getByRole("button", { name: "编辑模型配置" }).click();
-  const modelSettings = page.getByRole("dialog", { name: "编辑模型配置" });
+  await page.getByRole("button", { name: "编辑模型" }).click();
+  const modelSettings = page.getByRole("dialog", { name: "编辑模型" });
   await expect(
     modelSettings.getByText(
-      /修改模型配置 ID 不会改写已有终端目标的上游模型 ID/,
+      /修改客户端模型名称后，也需同步修改客户端/,
     ),
   ).toBeVisible();
   await expect(
-    modelSettings.getByRole("textbox", { name: "模型配置 ID" }),
+    modelSettings.getByRole("textbox", { name: "客户端模型名称" }),
   ).toBeVisible();
   await modelSettings.getByRole("button", { name: "取消" }).click();
 
@@ -1320,16 +1322,16 @@ test("model detail canonicalizes dead tab and one-shot target actions", async ({
   await page
     .getByTestId("model-detail-feature-page")
     .waitFor({ timeout: 15000 });
-  const dialog = page.getByRole("dialog", { name: /终端目标|Terminal Target/ });
+  const dialog = page.getByRole("dialog", { name: /服务连接|Terminal Target/ });
   await expect(dialog).toBeVisible();
   await expect(page).toHaveURL(/\/models\/7$/);
   const upstreamModelId = dialog.getByRole("textbox", {
-    name: "上游模型 ID",
+    name: "服务模型名称",
   });
   await expect(upstreamModelId).toHaveValue("detail-openai");
   await upstreamModelId.fill("");
-  await dialog.getByRole("button", { name: "保存终端目标" }).click();
-  await expect(dialog.getByText("上游模型 ID 不能为空白")).toBeVisible();
+  await dialog.getByRole("button", { name: "保存服务连接" }).click();
+  await expect(dialog.getByText("服务模型名称 不能为空白")).toBeVisible();
   expect(routes.mutationPaths).toHaveLength(0);
   await dialog.locator("#conn-prefill-source").click();
   await page.getByRole("option", { name: "Primary Responses" }).click();
@@ -1339,20 +1341,20 @@ test("model detail canonicalizes dead tab and one-shot target actions", async ({
     .getByTestId("model-detail-feature-page")
     .waitFor({ timeout: 15000 });
   await expect(
-    page.getByRole("dialog", { name: /终端目标|Terminal Target/ }),
+    page.getByRole("dialog", { name: /服务连接|Terminal Target/ }),
   ).toHaveCount(0);
 
   await page.getByRole("button", { name: "编辑 Primary Responses" }).click();
-  const editDialog = page.getByRole("dialog", { name: "编辑终端目标" });
+  const editDialog = page.getByRole("dialog", { name: "编辑服务连接" });
   const editUpstreamModelId = editDialog.getByRole("textbox", {
-    name: "上游模型 ID",
+    name: "服务模型名称",
   });
   await expect(editUpstreamModelId).toHaveValue("provider/Responses-Primary");
   await editUpstreamModelId.fill("");
-  await editDialog.getByRole("button", { name: "保存终端目标" }).click();
+  await editDialog.getByRole("button", { name: "保存服务连接" }).click();
   await expect(
     editDialog.getByText(
-      "上游模型 ID 不能清空；如需改回模型配置 ID，请显式填写。",
+      "服务模型名称 不能清空；如需改回客户端模型名称，请显式填写。",
     ),
   ).toBeVisible();
   expect(routes.mutationPaths).toHaveLength(0);
@@ -1365,13 +1367,13 @@ test("model detail canonicalizes dead tab and one-shot target actions", async ({
   await expect(page.getByTestId("access-target-92")).toHaveCount(1);
   await expect(page).toHaveURL(/\/models\/7$/);
 
-  await page.getByLabel("添加模型目标").click();
+  await page.getByLabel("添加转发到其他模型").click();
   await page
     .getByRole("option", {
       name: "Internal Detail Target internal-detail-target",
     })
     .click();
-  await page.getByRole("button", { name: "添加模型目标" }).click();
+  await page.getByRole("button", { name: "添加转发到其他模型" }).click();
 
   await expect.poll(() => routes.targetPayloads.length).toBe(1);
   expect(routes.targetPayloads[0]).toEqual({
@@ -1503,14 +1505,14 @@ test("entry-model list journey: navigation, scope switch, and identity filters",
     ],
   });
 
-  // The sidebar and breadcrumb use the managed-inventory term 模型配置.
+  // The sidebar and breadcrumb use the managed-inventory term 模型.
   await page.goto("/route/models");
   await expect(page.getByTestId("models-feature-page")).toBeVisible();
   await expect(
-    page.getByRole("link", { name: new RegExp("^模型配置$") }),
+    page.getByRole("link", { name: new RegExp("^模型$") }),
   ).toHaveAttribute("href", /\/route\/models$/);
   await expect(page.getByTestId("shell-breadcrumb")).toContainText(
-    "路由配置模型配置",
+    "模型与服务模型",
   );
 
   // Stats scope: a controlled single-select segmented control with the
@@ -1542,15 +1544,15 @@ test("entry-model list journey: navigation, scope switch, and identity filters",
 
   // Identity flag filter: upstream_decoupled matches the case-sensitive
   // decoupled entry and URL round-trips.
-  await page.getByRole("combobox", { name: "身份筛选" }).click();
-  await page.getByRole("option", { name: "上游 ID 已解耦" }).click();
+  await page.getByRole("combobox", { name: "连接筛选" }).click();
+  await page.getByRole("option", { name: "服务模型名称不同" }).click();
   await expect(page).toHaveURL(/[?&]flag=upstream_decoupled/);
   await expect(page.getByTestId("models-table-row-1")).toBeVisible();
   await expect(page.getByTestId("models-table-row-2")).toHaveCount(0);
 
   // The model-target filter matches the entry carrying a Model Target row.
-  await page.getByRole("combobox", { name: "身份筛选" }).click();
-  await page.getByRole("option", { name: "包含模型目标" }).click();
+  await page.getByRole("combobox", { name: "连接筛选" }).click();
+  await page.getByRole("option", { name: "转发到其他模型" }).click();
   await expect(page).toHaveURL(/[?&]flag=has_model_target/);
   await expect(page.getByTestId("models-table-row-1")).toBeVisible();
 
@@ -1607,23 +1609,23 @@ test("model inventory view deep links switch between entries, targets, and all",
   const kpiValues = page.locator(
     '[data-slot="kpi-card"] [data-slot="metric-value"]',
   );
-  await expect(viewSwitch.getByRole("radio", { name: "仅模型目标" })).toBeChecked();
+  await expect(viewSwitch.getByRole("radio", { name: "仅供其他模型使用" })).toBeChecked();
   await expect(page).toHaveURL(/view=model_targets/);
   await expect(page.getByTestId("models-table-row-1")).toHaveCount(0);
   await expect(page.getByTestId("models-table-row-2")).toHaveCount(1);
   await expect(kpiValues).toHaveText(["1", "1", "0", "0", "0"]);
 
   await page.reload();
-  await expect(viewSwitch.getByRole("radio", { name: "仅模型目标" })).toBeChecked();
+  await expect(viewSwitch.getByRole("radio", { name: "仅供其他模型使用" })).toBeChecked();
   await expect(page.getByTestId("models-table-row-2")).toHaveCount(1);
 
-  await viewSwitch.getByRole("radio", { name: "全部模型配置" }).click();
+  await viewSwitch.getByRole("radio", { name: "全部模型" }).click();
   await expect(page).toHaveURL(/view=all/);
   await expect(page.getByTestId("models-table-row-1")).toHaveCount(1);
   await expect(page.getByTestId("models-table-row-2")).toHaveCount(1);
   await expect(kpiValues).toHaveText(["2", "2", "0", "0", "0"]);
 
-  await viewSwitch.getByRole("radio", { name: "入口模型" }).click();
+  await viewSwitch.getByRole("radio", { name: "客户端模型" }).click();
   await expect(page).not.toHaveURL(/view=/);
   await expect(page.getByTestId("models-table-row-1")).toHaveCount(1);
   await expect(page.getByTestId("models-table-row-2")).toHaveCount(0);

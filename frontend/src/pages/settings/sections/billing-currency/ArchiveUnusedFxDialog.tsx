@@ -17,11 +17,13 @@ interface ArchiveUnusedFxDialogProps {
 export function ArchiveUnusedFxDialog({ open, onOpenChange, currentCosting, onArchived }: ArchiveUnusedFxDialogProps) {
   const copy = getStaticMessages().settingsCurrencyMigration;
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<CurrencyMigrationPreview | null>(null);
   const [operationId, setOperationId] = useState<string | null>(null);
   const [verifiedCount, setVerifiedCount] = useState(0);
 
   const reset = useCallback(() => {
+    setError(null);
     setPreview(null);
     setOperationId(null);
     setVerifiedCount(0);
@@ -31,9 +33,10 @@ export function ArchiveUnusedFxDialog({ open, onOpenChange, currentCosting, onAr
     const inventory = currentCosting.pricing_migration_inventory;
     const epoch = currentCosting.reporting_currency_epoch ? Number(currentCosting.reporting_currency_epoch) : NaN;
     if (!inventory?.archive_only_available || !Number.isSafeInteger(epoch) || epoch < 1 || !currentCosting.expected_updated_at) {
-      toast.error(copy.previewFailed);
+      setError(copy.previewFailed);
       return;
     }
+    setError(null);
     setLoading(true);
     try {
       const nextOperationId = crypto.randomUUID();
@@ -76,8 +79,8 @@ export function ArchiveUnusedFxDialog({ open, onOpenChange, currentCosting, onAr
       setOperationId(nextOperationId);
       setVerifiedCount(count);
       setPreview(response);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : copy.previewFailed);
+    } catch {
+      setError(copy.previewFailed);
     } finally {
       setLoading(false);
     }
@@ -89,6 +92,7 @@ export function ArchiveUnusedFxDialog({ open, onOpenChange, currentCosting, onAr
     if (!preview || !operationId || !inventory || !Number.isSafeInteger(epoch) || !currentCosting.expected_updated_at) {
       return;
     }
+    setError(null);
     setLoading(true);
     try {
       await api.settings.costing.currencyMigrationCommit({
@@ -107,8 +111,8 @@ export function ArchiveUnusedFxDialog({ open, onOpenChange, currentCosting, onAr
       toast.success(copy.archiveSucceeded(verifiedCount));
       reset();
       onOpenChange(false);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : copy.commitFailed);
+    } catch {
+      setError(copy.commitFailed);
     } finally {
       setLoading(false);
     }
@@ -126,6 +130,7 @@ export function ArchiveUnusedFxDialog({ open, onOpenChange, currentCosting, onAr
           <AlertDialogTitle>{copy.archiveButton}</AlertDialogTitle>
           <AlertDialogDescription id="archive-fx-description">{copy.archiveDescription}</AlertDialogDescription>
         </AlertDialogHeader>
+        {error ? <OperatorCallout intent="danger" role="alert" description={error} /> : null}
         {!preview ? (
           <OperatorCallout intent="warning" description={copy.archiveDescription} />
         ) : (

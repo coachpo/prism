@@ -13,14 +13,15 @@ import (
 )
 
 // IngressRequestIDHeader is the response header carrying the server-generated
-// runtime ingress correlation ID. It is never accepted from callers and never
-// contains secret material.
+// canonical accepted-operation ID, or a branch correlation token when the
+// request has not reached that boundary. It is never accepted from callers.
 const IngressRequestIDHeader = "X-Prism-Ingress-Request-Id"
 
 // RuntimeIngressRequestIDMiddleware generates an opaque, server-entropy ingress
-// ID for every runtime-branch request before auth runs, stores it in its own
-// request-context field, and guarantees the response carries it even when the
-// handler or an upstream provider attempts to overwrite it.
+// token for every runtime-branch request before auth runs. Accepted proxy
+// operations bind the writer to their canonical UUID before any response write;
+// early rejections and the local models list retain the branch token. Neither
+// caller nor provider headers can overwrite the server-owned response value.
 //
 // The ID deliberately does not derive from chi middleware.RequestID, because
 // that transport trace may honor a caller-supplied X-Request-ID. Caller
@@ -41,6 +42,25 @@ func newRuntimeIngressRequestID() string {
 		return fmt.Sprintf("fallback-%d", time.Now().UnixNano())
 	}
 	return hex.EncodeToString(buffer)
+}
+
+// bindRuntimeIngressResponseID projects the accepted-operation owner's UUID to
+// the outer response writer before body handling or provider execution. The
+// branch token stays separate so early rejection creates no accepted identity.
+func bindRuntimeIngressResponseID(w http.ResponseWriter, id string) {
+	for {
+		switch writer := w.(type) {
+		case *runtimeIngressResponseWriter:
+			if !writer.wroteHeader {
+				writer.id = id
+			}
+			return
+		case interface{ Unwrap() http.ResponseWriter }:
+			w = writer.Unwrap()
+		default:
+			return
+		}
+	}
 }
 
 // runtimeIngressResponseWriter forces the ingress ID header onto every
@@ -73,9 +93,7 @@ func (w *runtimeIngressResponseWriter) Write(body []byte) (int, error) {
 
 func (w *runtimeIngressResponseWriter) Flush() {
 	w.ensureHeader()
-	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
-		flusher.Flush()
-	}
+	_ = http.NewResponseController(w.ResponseWriter).Flush()
 }
 
 // Hijack preserves the optional HTTP/1 connection interface while retaining

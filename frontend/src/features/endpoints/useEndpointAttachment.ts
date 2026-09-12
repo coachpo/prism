@@ -25,7 +25,13 @@ export function useEndpointAttachment() {
     [attachModelTarget],
   );
 
+  const handleCreateModelForEndpoint = useCallback(() => {
+    if (!attachModelTarget) return;
+    window.location.assign(`/route/models?action=create&endpoint_id=${attachModelTarget.id}`);
+  }, [attachModelTarget]);
+
   return {
+    handleCreateModelForEndpoint,
     attachModelTarget,
     handleAttachModelSelected,
     handleAttachNavigate,

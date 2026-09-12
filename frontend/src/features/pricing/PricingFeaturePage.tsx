@@ -1,12 +1,15 @@
 import { useMemo, useState } from "react";
-import { Download, Plus, Upload } from "lucide-react";
+import { Coins, Download, Plus, Upload } from "lucide-react";
 import { toast } from "sonner";
+import { Link } from "@tanstack/react-router";
 
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useTimezone } from "@/hooks/useTimezone";
 import { useLocale } from "@/i18n/useLocale";
 import {
   OperatorCallout,
+  OperatorEmptyState,
   OperatorFreshnessBar,
   OperatorKpiCard,
   OperatorMissingValue,
@@ -45,6 +48,10 @@ export function PricingFeaturePage() {
   const facts = usePricingListFacts(0);
   const catalogImport = useCatalogPricingImportEntry(0);
   const [filter, setFilter] = useState<PricingFilter>("all");
+  const createdTemplate = data.pricingTemplates.find((template) => template.id === data.createdPricingTemplateId);
+  const collectionPending = !data.pricingTemplatesLoadedAt && !data.pricingTemplatesError;
+  const factsIncomplete = data.pricingTemplates.some((template) => !facts.byId.has(template.id));
+  const firstUse = Boolean(data.pricingTemplatesLoadedAt) && !data.pricingTemplatesLoading && !data.pricingTemplatesError && data.pricingTemplates.length === 0;
 
   // 页面的两个读：模板集合与列表分页事实。刷新控件必须两个都重跑，
   // 否则「未被引用」这类计数会停在旧的一次读上。
@@ -106,6 +113,14 @@ export function PricingFeaturePage() {
         }
       />
 
+      {firstUse ? (
+        <OperatorEmptyState
+          icon={<Coins />}
+          title={copy.noTemplatesConfigured}
+          description={copy.noTemplatesDescription}
+          action={<Button onClick={data.openCreatePricingTemplateDialog}>{copy.addTemplate}</Button>}
+        />
+      ) : <>
       <OperatorFreshnessBar
         updatedAt={
           data.pricingTemplatesLoadedAt ? (
@@ -127,33 +142,38 @@ export function PricingFeaturePage() {
       <div className="grid gap-[var(--density-card-gap)] sm:grid-cols-2 xl:grid-cols-4">
         <OperatorKpiCard
           label={copy.kpiTotal}
-          value={data.pricingTemplatesError ? "—" : formatNumber(stats.total)}
+          value={collectionPending ? <Skeleton className="h-7 w-16" /> : data.pricingTemplatesError ? "—" : formatNumber(stats.total)}
           detail={copy.kpiTotalDetail}
           onClick={() => setFilter("all")}
+          pressed={filter === "all"}
         />
         <OperatorKpiCard
           label={copy.kpiIncomplete}
-          value={facts.failed ? "—" : formatNumber(stats.incomplete)}
+          value={collectionPending || facts.loading ? <Skeleton className="h-7 w-16" /> : data.pricingTemplatesError || facts.failed || factsIncomplete ? "—" : formatNumber(stats.incomplete)}
           detail={copy.kpiIncompleteDetail}
           onClick={() => setFilter("incomplete")}
+          pressed={filter === "incomplete"}
         />
         <OperatorKpiCard
           label={copy.kpiUnreferenced}
-          value={facts.failed ? "—" : formatNumber(stats.unreferenced)}
+          value={collectionPending || facts.loading ? <Skeleton className="h-7 w-16" /> : data.pricingTemplatesError || facts.failed || factsIncomplete ? "—" : formatNumber(stats.unreferenced)}
           detail={copy.kpiUnreferencedDetail}
           onClick={() => setFilter("unreferenced")}
+          pressed={filter === "unreferenced"}
         />
         <OperatorKpiCard
           label={copy.kpiRecentlyChanged}
           value={
-            data.pricingTemplatesError
+            collectionPending ? <Skeleton className="h-7 w-16" /> : data.pricingTemplatesError
               ? "—"
               : formatNumber(stats.recentlyChanged)
           }
           detail={copy.kpiRecentlyChangedDetail}
           onClick={() => setFilter("recently_changed")}
+          pressed={filter === "recently_changed"}
         />
       </div>
+      </>}
 
       {/* A preview is a fact the operator has to see before anything is
           written, so it lands on the page rather than inside the dialog. */}
@@ -166,7 +186,16 @@ export function PricingFeaturePage() {
         />
       ) : null}
 
-      <PricingTemplatesTable
+      {createdTemplate ? (
+        <OperatorCallout
+          intent="success"
+          title={copy.savedTemplateTitle(createdTemplate.name)}
+          description={copy.savedTemplateNextStep}
+          action={<Button asChild size="sm"><Link to="/route/models">{copy.configureModelPricing}</Link></Button>}
+        />
+      ) : null}
+
+      {!firstUse ? <PricingTemplatesTable
         detailHistory={data.pricingTemplateHistoryRevisions}
         detailHistoryError={data.pricingTemplateHistoryError}
         detailHistoryLoading={data.pricingTemplateHistoryLoading}
@@ -175,6 +204,7 @@ export function PricingFeaturePage() {
         detailUsageLoading={data.pricingTemplateUsageLoading}
         facts={facts}
         filter={filter}
+        onCreate={data.openCreatePricingTemplateDialog}
         onDelete={data.handleDeletePricingTemplateClick}
         onEdit={data.handleEditPricingTemplate}
         onFilterChange={setFilter}
@@ -185,7 +215,7 @@ export function PricingFeaturePage() {
         pricingTemplatePreparingEditId={data.pricingTemplatePreparingEditId}
         pricingTemplates={data.pricingTemplates}
         pricingTemplatesLoading={data.pricingTemplatesLoading}
-      />
+      /> : null}
 
       <PricingTemplateDialog
         editingPricingTemplate={data.editingPricingTemplate}
@@ -195,13 +225,16 @@ export function PricingFeaturePage() {
         onClose={data.closePricingTemplateDialog}
         onOpenChange={data.setPricingTemplateDialogOpen}
         onRetryImpact={() => void data.retryPricingTemplateImpact()}
-        onSave={data.handleSavePricingTemplate}
+        onSave={async (values) => {
+          if (await data.handleSavePricingTemplate(values)) facts.refresh();
+        }}
         open={data.pricingTemplateDialogOpen}
         pricingTemplateSaving={data.pricingTemplateSaving}
         serverValidation={data.pricingTemplateServerError}
       />
       <PricingTemplateImportDialog
         importing={data.pricingTemplateImporting}
+        serverError={data.pricingTemplateImportError}
         onClose={() => data.setPricingTemplateImportDialogOpen(false)}
         onImport={data.handleImportPricingTemplates}
         onOpenChange={data.setPricingTemplateImportDialogOpen}

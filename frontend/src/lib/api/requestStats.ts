@@ -35,10 +35,12 @@ export const requestStats = {
       sort_by?: string;
       sort_order?: string;
     },
+    signal?: AbortSignal,
   ) => {
     const query = buildStatsQuery(params);
     return request<ChainResponse>(
       `/api/stats/requests${query ? `?${query}` : ""}`,
+      { signal },
     );
   },
   exportCsv: async (params?: StatsRequestParams): Promise<Blob> => {
@@ -51,8 +53,8 @@ export const requestStats = {
       { responseType: "blob" },
     );
   },
-  requestDetail: (requestId: string) =>
-    request<RequestLogDetail>(`/api/stats/requests/${requestId}`),
+  requestDetail: (requestId: string, signal?: AbortSignal) =>
+    request<RequestLogDetail>(`/api/stats/requests/${requestId}`, { signal }),
   proxyApiKeyFilterOptions: (params?: {
     q?: string;
     from_time?: string;

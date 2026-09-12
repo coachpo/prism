@@ -411,9 +411,9 @@ test("narrow 390x844 observe page has no horizontal overflow and all tabs reacha
   // The Terminal Target basis is a metrics scope switch, so it is the same
   // segmented control as every other one — never tabs — and it carries the
   // visible label the group is named by.
-  await expect(page.getByText("终端目标统计口径")).toBeVisible();
+  await expect(page.getByText("模型服务统计方式")).toBeVisible();
   const terminalScopes = page
-    .getByRole("radiogroup", { name: "终端目标统计口径" })
+    .getByRole("radiogroup", { name: "模型服务统计方式" })
     .getByRole("radio");
   await expect(terminalScopes).toHaveCount(2);
   await terminalScopes.nth(0).focus();
@@ -519,7 +519,7 @@ test("narrow ingress attempt chain scrolls inside its inset without widening the
   await page.goto("/observe/requests?view=ingress_chains");
   await expect(page.getByTestId("request-mobile-summary")).toBeVisible();
   // Narrow browsing starts with summaries; the complete chain table remains explicit.
-  await page.getByRole("button", { name: "展开完整链表", exact: true }).click();
+  await page.getByRole("button", { name: "展开完整请求列表", exact: true }).click();
   const summary = page.getByTestId("chain-summary-ingress-101");
   await expect(summary).toBeVisible();
   await summary.getByRole("button", { expanded: false }).click();
@@ -748,7 +748,7 @@ test("connection dialog visual evidence at 1440x900 and 390x844", async ({
     page.getByRole("heading", { name: "Router Model" }),
   ).toBeVisible();
   await page.getByRole("button", { name: "编辑 OpenRouter Primary" }).click();
-  const dialog = page.getByRole("dialog", { name: /编辑终端目标/ });
+  const dialog = page.getByRole("dialog", { name: /编辑服务连接/ });
   await expect(dialog).toBeVisible();
   await page.screenshot({
     path: "artifacts/evidence/connection-dialog-1440.png",
@@ -952,7 +952,7 @@ test("narrow 390x844 entry-model list keeps scope switch keyboard operable and l
   // 链接的可访问名称就是单元格里那几行出口文本本身，末尾跟一句 sr-only 的去向说明
   // ——整格 aria-label 会把出口文本从读屏里整段抹掉，所以这里按去向说明定位。
   const exitLink = page
-    .getByRole("link", { name: /，打开模型配置详情$/ })
+    .getByRole("link", { name: /，打开模型详情$/ })
     .first();
   await expect(exitLink).toBeVisible();
   await exitLink.focus();

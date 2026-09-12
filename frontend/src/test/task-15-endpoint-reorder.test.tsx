@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { http, HttpResponse } from "msw"
-import { beforeEach, describe, expect, it } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import { EndpointsFeaturePage } from "@/features/endpoints/EndpointsFeaturePage"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { LocaleProvider } from "@/i18n/LocaleProvider"
@@ -34,13 +34,13 @@ function referenceDetail(overrides?: Partial<EndpointReferenceDetail>): Endpoint
   }
 }
 
-function renderEndpointsPage() {
+function renderEndpointsPage(props: Parameters<typeof EndpointsFeaturePage>[0] = {}) {
   // 应用根在 main.tsx 里提供 TooltipProvider；纯图标行操作按钮现在带 tooltip，
   // harness 必须同样提供，否则 Radix 会在挂载时抛错。
   render(
     <LocaleProvider>
       <TooltipProvider>
-        <EndpointsFeaturePage />
+        <EndpointsFeaturePage {...props} />
       </TooltipProvider>
     </LocaleProvider>,
   )
@@ -62,7 +62,7 @@ describe("Endpoint direct-reference contract", () => {
     clearUserTimezonePreference()
   })
 
-  it("renders the compact table with fingerprint identity and no move controls", async () => {
+  it("renders saved key state and no move controls", async () => {
     const primary = endpoint(1, "Primary")
     const backup = endpoint(2, "Backup")
 
@@ -83,13 +83,13 @@ describe("Endpoint direct-reference contract", () => {
 
     expect(await screen.findAllByText("Primary")).not.toHaveLength(0)
     expect(screen.getAllByText("Backup").length).toBeGreaterThan(0)
-    // Fingerprint identity is visible.
-    expect(screen.getAllByText("fp_v1_ab12cd34ef56").length).toBeGreaterThan(0)
+    expect(screen.getAllByText("密钥已保存").length).toBeGreaterThan(0)
+    expect(screen.queryByText("fp_v1_ab12cd34ef56")).not.toBeInTheDocument()
     // No move controls exist in the new table.
     expect(screen.queryByRole("button", { name: /上移端点/ })).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: /下移端点/ })).not.toBeInTheDocument()
     // Zero direct references render as explicit zero, never as loading failure.
-    expect(await screen.findAllByText("无直接引用")).not.toHaveLength(0)
+    expect(await screen.findAllByText("尚未用于模型")).not.toHaveLength(0)
   })
 
   it("fails closed when the references batch returns 503: no fake zero, no delete confirm", async () => {
@@ -107,22 +107,22 @@ describe("Endpoint direct-reference contract", () => {
 
     // Endpoint identity still renders.
     expect(await screen.findAllByText("Primary")).not.toHaveLength(0)
-    // No fake zero: the reference cell reports failure, not "无直接引用".
+    // No fake zero: the reference cell reports failure, not "尚未用于模型".
     await waitFor(() => {
-      expect(screen.getAllByText("引用未知").length).toBeGreaterThan(0)
+      expect(screen.getAllByText("使用情况未知").length).toBeGreaterThan(0)
     })
-    expect(screen.queryByText("无直接引用")).not.toBeInTheDocument()
+    expect(screen.queryByText("尚未用于模型")).not.toBeInTheDocument()
     // The failing row carries its own recovery instead of only a page-wide one.
     expect(screen.getAllByRole("button", { name: "重试本行" }).length).toBeGreaterThan(0)
 
     // Delete opens the preflight but cannot confirm: check error keeps the
     // destructive submit hidden.
     const table = screen.getByTestId("endpoints-table-desktop")
-    await userEvent.click(within(table).getByRole("button", { name: /删除端点/ }))
+    await userEvent.click(within(table).getByRole("button", { name: /删除服务/ }))
     await waitFor(() => {
       expect(screen.queryByTestId("delete-endpoint-confirm")).not.toBeInTheDocument()
     })
-    expect(screen.getByText("无法检查引用状态，请重试。")).toBeInTheDocument()
+    expect(screen.getByText("无法确认哪些模型使用此服务，请重试。")).toBeInTheDocument()
   })
 
   it("opens a fresh preflight on delete and blocks when references exist", async () => {
@@ -168,7 +168,7 @@ describe("Endpoint direct-reference contract", () => {
 
     await screen.findAllByText("Primary")
     const table = screen.getByTestId("endpoints-table-desktop")
-    await userEvent.click(within(table).getByRole("button", { name: /删除端点/ }))
+    await userEvent.click(within(table).getByRole("button", { name: /删除服务/ }))
     expect(await screen.findByTestId("delete-blocked-heading")).toBeInTheDocument()
     const blockers = screen.getByTestId("delete-blockers")
     expect(within(blockers).getByText("Primary")).toBeInTheDocument()
@@ -193,7 +193,7 @@ describe("Endpoint direct-reference contract", () => {
 
     await screen.findAllByText("Primary")
     const table = screen.getByTestId("endpoints-table-desktop")
-    await userEvent.click(within(table).getByRole("button", { name: /删除端点/ }))
+    await userEvent.click(within(table).getByRole("button", { name: /删除服务/ }))
     await waitFor(() => {
       expect(screen.getByTestId("delete-endpoint-confirm")).toBeInTheDocument()
     })
@@ -202,4 +202,21 @@ describe("Endpoint direct-reference contract", () => {
       expect(screen.queryByTestId("delete-endpoint-confirm")).not.toBeInTheDocument()
     })
   })
+
+  it("opens the service named by a recovery link only after its current settings load", async () => {
+    const primary = endpoint(1, "Primary")
+    const onLocateHandled = vi.fn()
+    rewriteTestServer.use(
+      http.get("/api/endpoints", () => HttpResponse.json([primary])),
+      http.get("/api/settings/costing", () => HttpResponse.json({ report_currency_code: "USD", report_currency_symbol: "$", timezone_preference: "UTC", updated_at: "2026-01-01T00:00:00Z" })),
+      http.post("/api/endpoints/references/batch", () => HttpResponse.json({ items: [{ endpoint_id: 1, summary: referenceDetail().summary }] })),
+      http.get("/api/endpoints/1/references", () => HttpResponse.json(referenceDetail())),
+    )
+    renderEndpointsPage({ requestedEndpointId: 1, onLocateHandled })
+    const dialog = await screen.findByRole("dialog", { name: "修改服务" })
+    expect(within(dialog).getByRole("textbox", { name: /服务接入地址/ })).toHaveValue(primary.base_url)
+    expect(await within(dialog).findByText("0 个模型使用此服务")).toBeVisible()
+    expect(onLocateHandled).toHaveBeenCalledTimes(1)
+  })
+
 })

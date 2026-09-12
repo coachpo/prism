@@ -3,7 +3,7 @@
 // operator actually sees per the DESIGN.md honesty contract: real endpoint +
 // upstream identity for Terminal Targets, the logical id for Model Targets,
 // reasoned `—` for missing evidence, and textual (never color-only)
-// 入口同名/仅上游/未参与 states.
+// 名称相同/服务名称不同/未参与 states.
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
@@ -53,11 +53,11 @@ describe("ModelExitMappingCell", () => {
         }),
       ]),
     );
-    const decoupled = screen.getByText("仅上游");
+    const decoupled = screen.getByText("服务名称不同");
     expect(decoupled).toBeInTheDocument();
     expect(decoupled).toHaveAttribute(
       "title",
-      `上游模型 ID「entry-a」与入口模型 ID「${ENTRY_MODEL_ID}」精确比较不一致（区分大小写）。`,
+      `客户端使用「${ENTRY_MODEL_ID}」，Prism 请求此服务时使用「entry-a」。`,
     );
   });
 
@@ -67,10 +67,10 @@ describe("ModelExitMappingCell", () => {
         terminalTargetRow(11, 0, { upstreamModelId: "Entry-A" }),
       ]),
     );
-    const same = screen.getByText("入口同名");
+    const same = screen.getByText("名称相同");
     expect(same).toHaveAttribute(
       "title",
-      `上游模型 ID 与入口模型 ID 均为「${ENTRY_MODEL_ID}」（精确、区分大小写）。`,
+      `客户端与服务都使用模型名称「${ENTRY_MODEL_ID}」。`,
     );
   });
 
@@ -81,10 +81,10 @@ describe("ModelExitMappingCell", () => {
       ]),
       direct_request_enabled: false,
     });
-    expect(screen.queryByText("入口同名")).not.toBeInTheDocument();
-    expect(screen.getByText("仅上游")).toHaveAttribute(
+    expect(screen.queryByText("名称相同")).not.toBeInTheDocument();
+    expect(screen.getByText("服务名称不同")).toHaveAttribute(
       "title",
-      `模型配置「${ENTRY_MODEL_ID}」不可由客户端直接请求，因此上游模型 ID「${ENTRY_MODEL_ID}」仅作为上游身份。`,
+      `模型「${ENTRY_MODEL_ID}」仅供其他模型使用；请求此服务时使用名称「${ENTRY_MODEL_ID}」。`,
     );
   });
 
@@ -97,7 +97,7 @@ describe("ModelExitMappingCell", () => {
     const logical = screen.getByText("child-summary");
     expect(logical).toHaveAttribute(
       "title",
-      "模型目标 child-summary：逻辑目标；实际供应商出口由它解析到的终端目标持有。",
+      "请求会交给模型 child-summary，再使用它已配置的服务。可打开详情查看。",
     );
   });
 
@@ -118,11 +118,11 @@ describe("ModelExitMappingCell", () => {
     // Screen readers get the reason, sighted operators the tooltip.
     expect(
       screen.getByText(
-        "该终端目标没有可读的上游模型 ID 证据；不会用模型配置 ID 代填。",
+        "暂时无法确认此服务的模型名称，请打开模型详情检查连接设置。",
       ),
     ).toHaveClass("sr-only");
     expect(
-      screen.getByText("该终端目标行没有端点引用，因此无法显示端点。"),
+      screen.getByText("此连接没有关联的服务信息，请打开模型详情检查。"),
     ).toHaveClass("sr-only");
     expect(screen.queryByText(ENTRY_MODEL_ID)).not.toBeInTheDocument();
   });
@@ -180,23 +180,23 @@ describe("ModelExitMappingCell", () => {
     const dash = screen.getByText("—");
     expect(dash.closest("[data-slot=missing-value]")).not.toBeNull();
     expect(
-      screen.getByText("路由摘要读取失败，无法展示出口映射。"),
+      screen.getByText("路由摘要读取失败，无法展示使用的服务。"),
     ).toHaveClass("sr-only");
     expect(screen.queryByText(/启用 \//)).not.toBeInTheDocument();
   });
 
-  it("renders zero targets as the 缺访问目标 failing state", () => {
+  it("renders zero targets as the 尚未连接服务 failing state", () => {
     const model = entryModelListItem([]);
     model.routing_summary = routingSummary({
       enabled_access_target_count: 0,
       total_access_target_count: 0,
     });
     renderCell(model);
-    const badge = screen.getByText("缺访问目标");
+    const badge = screen.getByText("尚未连接服务");
     expect(badge).toBeInTheDocument();
     expect(badge).toHaveAttribute(
       "title",
-      "该模型没有任何访问目标，请求无法路由。",
+      "该模型没有任何服务或转发配置，请求无法路由。",
     );
   });
 });

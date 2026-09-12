@@ -252,7 +252,7 @@ describe("IngressChainsTable route attribution", () => {
 
     await user.click(
       within(summary).getByRole("button", {
-        name: "展开或收起入口请求 ingress-abc 的尝试链",
+        name: "展开或收起请求 ingress-abc 的尝试链",
       }),
     );
 
@@ -263,7 +263,7 @@ describe("IngressChainsTable route attribution", () => {
     expect(failed).toHaveTextContent("TT-B");
     expect(failed).toHaveTextContent("Endpoint B");
     expect(failed).toHaveTextContent("503");
-    expect(failed).toHaveTextContent("HTTP 失败");
+    expect(failed).toHaveTextContent("服务返回错误");
     expect(failed).toHaveTextContent("820 ms");
     expect(
       within(failed).getByTitle(
@@ -272,13 +272,13 @@ describe("IngressChainsTable route attribution", () => {
     ).toBeInTheDocument();
 
     const winner = screen.getByTestId("chain-row-113");
-    expect(winner).toHaveTextContent("故障转移");
+    expect(winner).toHaveTextContent("切换备用服务");
     expect(winner).toHaveTextContent("Model C");
     expect(winner).toHaveTextContent("provider/Model-C");
     expect(winner).toHaveTextContent("TT-C");
     expect(winner).toHaveTextContent("Endpoint C");
     expect(winner).toHaveTextContent("完成");
-    expect(winner).toHaveTextContent("胜出");
+    expect(winner).toHaveTextContent("最终采用");
     expect(winner).toHaveTextContent("610 ms");
     expect(winner).toHaveTextContent("120");
     expect(winner).toHaveTextContent("$0.0040");

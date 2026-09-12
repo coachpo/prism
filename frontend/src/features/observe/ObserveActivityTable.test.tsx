@@ -90,7 +90,7 @@ describe("ObserveActivityTable ingress attribution", () => {
     expect(row).toHaveTextContent(/入口\s+Model A/);
     expect(row).toHaveTextContent(/最终\s+Model C/);
     expect(within(row).getByText("2")).toBeInTheDocument();
-    expect(within(row).getByText("终端目标 #17")).toBeInTheDocument();
+    expect(within(row).queryByText("终端目标 #17")).not.toBeInTheDocument();
     expect(within(row).getByText("Endpoint C")).toBeInTheDocument();
     expect(within(row).getByText("$0.0050")).toBeInTheDocument();
     expect(
@@ -129,7 +129,7 @@ describe("ObserveActivityTable ingress attribution", () => {
   it("labels last-good empty activity when its context cannot refresh", async () => {
     mocks.observeActivity.mockResolvedValue({ ...response, items: [] });
     const { rerender } = render(<LocaleProvider><ObserveActivityTable preset="24h" queryContext="first" /></LocaleProvider>);
-    await screen.findByText("所选窗口内没有数据");
+    await screen.findByText("所选时间范围内没有数据");
     rerender(<LocaleProvider><ObserveActivityTable preset="24h" queryContext="first" contextError="context unavailable" /></LocaleProvider>);
     expect(screen.getByText("context unavailable")).toBeInTheDocument();
     expect(screen.getByText(/2026-08-08T00:00:00Z/)).toBeInTheDocument();

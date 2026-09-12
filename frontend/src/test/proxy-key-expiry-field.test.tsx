@@ -81,13 +81,16 @@ describe("ProxyKeyExpiryField timezone contract", () => {
     expect(setCall.preserved).toBe(false)
   })
 
-  it("shows explicit UTC with a timezone-unavailable label when the zone cannot be loaded", () => {
+  it("preserves expiry and explains why a new time cannot be set when timezone loading fails", () => {
     const onChange = vi.fn()
     render(
       <LocaleProvider>
         <ProxyKeyExpiryField mode="edit" timezone={null} timezoneLoading={false} currentInstant="2026-08-09T12:00:00Z" onChange={onChange} />
       </LocaleProvider>,
     )
-    expect(screen.getByText(/Settings 时区不可用/)).toBeTruthy()
+    expect(screen.getByText(/暂时无法读取时区/)).toBeVisible()
+    expect(screen.getByRole("radio", { name: "保留" })).toBeChecked()
+    expect(screen.getByRole("radio", { name: "设置" })).toBeDisabled()
+    expect(onChange).not.toHaveBeenCalled()
   })
 })

@@ -87,7 +87,7 @@ function cardRoleLabel(
     case "offpeak":
       return copy.cardOffpeak;
     default:
-      return role;
+      return copy.unknownRate;
   }
 }
 
@@ -97,7 +97,7 @@ function revisionSourceLabel(
 ): string {
   if (source === "catalog") return history.revisionSourceCatalog;
   if (source === "manual") return history.revisionSourceManual;
-  return history.revisionSourceUnknown(source);
+  return history.revisionSourceUnknown;
 }
 
 /**
@@ -156,18 +156,11 @@ function RevisionEvidence({
           )}
         </div>
       ))}
-      {/* Append-only provenance: which source authored this revision, and the
-          models.dev revision a catalog import replayed against. */}
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         <span>
           {history.revisionSourceLabel}:{" "}
           {revisionSourceLabel(history, revision.revision_source)}
         </span>
-        {revision.catalog_revision ? (
-          <span className="font-mono" title={revision.catalog_revision}>
-            {history.revisionCatalogRevisionLabel}: {revision.catalog_revision}
-          </span>
-        ) : null}
       </div>
       {revision.template_kind === "peak_valley" ? (
         <div className="text-xs text-muted-foreground">

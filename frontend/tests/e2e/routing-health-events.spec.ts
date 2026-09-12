@@ -54,13 +54,13 @@ test("routing health empty, stale and error states are distinguishable", async (
 
   // Initial 503: error + retry, never an empty state.
   await expect(page.getByText("加载失败")).toBeVisible();
-  await expect(page.getByText("所选时间没有已记录事件")).toHaveCount(0);
+  await expect(page.getByText("没有符合条件的连接变化记录")).toHaveCount(0);
 
   // Retry recovers into a true empty state (coverage complete).
   await page.getByRole("button", { name: "重试" }).first().click();
-  await expect(page.getByText("所选时间没有已记录事件")).toBeVisible();
-  await expect(page.getByText("覆盖不完整")).toHaveCount(0);
+  await expect(page.getByText("没有符合条件的连接变化记录")).toBeVisible();
+  await expect(page.getByText("记录可能不完整", { exact: true })).toHaveCount(0);
 
   // Current State with no configured targets is a non-error no_config state.
-  await expect(page.getByText("未配置目标")).toBeVisible();
+  await expect(page.getByText("尚未接入服务", { exact: true })).toBeVisible();
 });
