@@ -113,7 +113,7 @@ export function SetupCard({ state, collapsed, cardRef, onBlurCapture, onRetry, o
         {state.last_success_at && state.phase === "degraded" && <OperatorStalenessBadge label={messages.observe.staleDataNote} reason={copy.degradedDescription} />}
         <div className="flex flex-wrap items-center justify-between gap-3 pb-2" aria-live="polite">
           <p className="text-sm font-semibold">{headline}</p>
-          {state.phase === "degraded" || state.phase === "unknown" || state.phase === "error" ? (
+          {state.phase === "unknown" || (collapsed && (state.phase === "degraded" || state.phase === "error")) ? (
             <Button type="button" variant="outline" size="sm" onClick={onRetry}>{copy.retry}</Button>
           ) : null}
         </div>

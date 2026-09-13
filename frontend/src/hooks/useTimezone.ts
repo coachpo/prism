@@ -30,6 +30,9 @@ export function useTimezone() {
         const tz = await getUserTimezonePreference(timezoneKey);
         if (!mounted) return;
         setTimezone(tz ?? getBrowserTimezone());
+      } catch {
+        // Keep an unread preference unresolved; formatting already uses the
+        // browser timezone. Explicit refresh errors still belong to its caller.
       } finally {
         if (mounted) {
           setLoading(false);

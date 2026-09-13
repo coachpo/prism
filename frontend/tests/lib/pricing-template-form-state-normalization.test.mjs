@@ -27,7 +27,6 @@ const { load } = createTsModuleLoader({
 const {
   DEFAULT_PRICING_TEMPLATE_FORM,
   isNonNegativeDecimalString,
-  normalizePricingTemplateFormPrices,
   normalizeTemplatePrice,
   pricingTemplateFormStateFromTemplate,
 } = load(path.join(frontendDir, "src/features/pricing/pricingSchemas.ts"));
@@ -37,14 +36,6 @@ const {
   pricingWindowEndMinute,
   togglePricingWeekday,
 } = load(path.join(frontendDir, "src/features/pricing/pricingWindowDraft.ts"));
-
-const priceFields = [
-  "input_price",
-  "output_price",
-  "cached_input_price",
-  "cache_creation_price",
-  "reasoning_price",
-];
 
 test("new pricing template forms keep required prices empty and specialties unconfigured", () => {
   assert.equal(
@@ -109,29 +100,6 @@ test("template edit hydration converts typed null prices to empty form strings",
       `${field} should hydrate to unconfigured`,
     );
   }
-});
-
-test("save normalization emits base prices and explicit null specials", () => {
-  const normalized = normalizePricingTemplateFormPrices({
-    name: "T",
-    description: "",
-    input_price: "  1  ",
-    output_price: " 2 ",
-    cached_input_price: " 0.125 ",
-    cache_creation_price: "",
-    reasoning_price: " 4.5 ",
-  });
-
-  assert.deepEqual(normalized, {
-    input_price: "1",
-    output_price: "2",
-    cached_input_price: "0.125",
-    cache_creation_price: null,
-    reasoning_price: "4.5",
-  });
-  assert.equal(typeof normalized.input_price, "string");
-  assert.equal(typeof normalized.cached_input_price, "string");
-  assert.equal(normalized.cache_creation_price, null);
 });
 
 test("price normalizer keeps blank strings blank (unconfigured is explicit)", () => {

@@ -69,6 +69,7 @@ describe("runRuntimeSelfTestDirect", () => {
     expect(result.ingressRequestId).toBe("ingress-abc-123");
     expect(result.statusCode).toBe(200);
     expect(receivedHeaders.authorization).toBe("Bearer pm-1a2b3c4d5e6f7a8b9c0d1e2f9f3e");
+    expect(receivedHeaders["x-profile-id"]).toBeUndefined();
   });
 
   it("omits the credential header for an explicit no-key permissive test", async () => {

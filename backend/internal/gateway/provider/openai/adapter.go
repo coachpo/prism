@@ -181,10 +181,6 @@ func (adapter Adapter) ExtractUsage(_ context.Context, response provider.Upstrea
 	return usage, nil
 }
 
-func (adapter Adapter) EstimateTokens(context.Context, provider.ProviderRequest) (provider.TokenEstimate, error) {
-	return provider.TokenEstimate{}, nil
-}
-
 func (adapter Adapter) ClassifyOverflow(_ context.Context, response provider.UpstreamResponse) provider.OverflowClassification {
 	return ClassifyOverflowResponse(response.StatusCode, response.Body)
 }

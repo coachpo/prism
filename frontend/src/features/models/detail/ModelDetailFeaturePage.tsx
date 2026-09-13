@@ -563,8 +563,6 @@ export function ModelDetailFeaturePage({
         model={model}
       />
 
-      <RouteExplanationPanel key={model.id} modelId={model.id} apiFamily={model.api_family} />
-
       <AccessTargetsEditor
         onGeneratePricing={setPricingTarget}
         apiFamilyLabel={model.api_family}
@@ -596,6 +594,7 @@ export function ModelDetailFeaturePage({
           navigateTo(buildModelDetailPath(targetModelConfigId))
         }
       />
+      <RouteExplanationPanel key={model.id} modelId={model.id} apiFamily={model.api_family} />
       <ModelRoleMetrics
         failed={roleMetrics.metricsFailed}
         loading={roleMetrics.metricsLoading}

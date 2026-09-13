@@ -106,12 +106,6 @@ type UsageEnvelope struct {
 	NormalizationRejected bool
 }
 
-type TokenEstimate struct {
-	InputTokens  int
-	OutputTokens int
-	Source       string
-}
-
 type OverflowClassification struct {
 	Promotable bool
 	ErrorCode  string
@@ -160,7 +154,6 @@ type ProviderAdapter interface {
 	AdaptNonStreamResponse(context.Context, UpstreamResponse) (ClientResponse, error)
 	AdaptStream(context.Context, StreamRequest) (StreamResult, error)
 	ExtractUsage(context.Context, UpstreamResponse) (UsageEnvelope, error)
-	EstimateTokens(context.Context, ProviderRequest) (TokenEstimate, error)
 	ClassifyOverflow(context.Context, UpstreamResponse) OverflowClassification
 	CurrentBehavior(context.Context, Operation) (CurrentOperationBehavior, bool)
 }

@@ -99,6 +99,7 @@ test("profile scope helper keeps non-profile-scoped manifest rows and runtime ro
 
   for (const route of [
     "/v1/chat/completions",
+    "/v1/responses",
     "/v1beta/models/gemini:generateContent",
   ]) {
     assert.equal(

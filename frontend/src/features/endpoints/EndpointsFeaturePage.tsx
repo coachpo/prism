@@ -102,10 +102,10 @@ export function EndpointsFeaturePage({ requestedEndpointId, onLocateHandled }: {
   return (
     <OperatorPageShell data-testid="endpoints-feature-page">
       <OperatorPageHeader title={copy.title} description={copy.description}>
-        <Button onClick={() => data.setIsCreateOpen(true)}>
+        {data.isLoading || data.endpointLoadError || data.endpoints.length > 0 ? <Button onClick={() => data.setIsCreateOpen(true)}>
           <Plus data-icon="inline-start" />
           {copy.addEndpoint}
-        </Button>
+        </Button> : null}
       </OperatorPageHeader>
 
       {missingRequestedEndpoint ? <OperatorCallout intent="warning" role="alert" description={copy.requestedServiceMissing} action={<Button type="button" variant="outline" onClick={onLocateHandled}>{messages.endpointsUi.returnToServices}</Button>} /> : null}

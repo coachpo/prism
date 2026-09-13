@@ -129,22 +129,9 @@ Current deployments, retained-data commitments, and development tier are recorde
 
 #### 4.9.1 Token Usage Extraction
 
-Token usage is extracted from upstream responses using api-family-aware parsing:
+Prism records upstream token usage for supported generation and token-count operations, including native streaming usage when available. The [token extraction contract](architecture.md#27-token-usage-extraction) owns each operation's response fields, SSE events, and component normalization. Image byte payloads are excluded from audit content.
 
-- **OpenAI Chat Completions (non-streaming)**: Extracts from `usage.prompt_tokens`, `usage.completion_tokens`, and detail objects
-- **OpenAI Responses and Responses compact (non-streaming)**: Extracts from `usage.input_tokens`, `usage.output_tokens`, `usage.total_tokens`, and detail objects
-- **OpenAI Responses input_tokens (non-streaming)**: Extracts `input_tokens` and `total_tokens` from top-level token-count payloads
-- **Anthropic Messages (non-streaming)**: Extracts from `usage` object
-- **Anthropic count_tokens (non-streaming)**: Extracts `input_tokens` from top-level
-- **OpenAI (streaming)**: Accumulated from terminal SSE usage events for native Chat Completions or Responses streams
-- **Anthropic (streaming)**: Accumulated from SSE events (`message_start` and `message_delta`)
-- **Gemini generate/streamGenerateContent**: Extracts `usageMetadata`; cached prompt tokens are separated from base input, while candidate output and thought tokens remain distinct components
-- **Gemini countTokens**: Extracts top-level `totalTokens` and optional `cachedContentTokenCount`
-- **OpenAI Images (non-streaming and streaming)**: Extracts generation usage from the JSON response or terminal image SSE event; image byte payloads are excluded from audit content
-- **Fallback**: If token data cannot be extracted, all token fields are logged as `null`
-- **Null vs zero token semantics**:
-  - No upstream usage block: token fields remain `null`
-  - Missing component evidence remains nullable unless the operation-specific normalization establishes a zero; the presence of one usage field does not prove every other component is zero
+If token data cannot be extracted, token fields remain `null`. Missing component evidence stays nullable unless operation-specific normalization establishes a zero; the presence of one usage field does not prove every other component is zero.
 
 #### 4.9.2 Token Costing
 
@@ -429,7 +416,7 @@ Supported canonical query parameters:
 - Browse filters: `ingress_request_id`, `ingress_model_id`, `endpoint`, `terminal_target_id`, `client_rule_id`, `proxy_api_key_id`, `attempt_target_model_id`, `api_family`, `row_kind`, `status`, `status_code`, `stream_outcome`, `stream_error_kind`, `error_text`, `pricing_status`, `unpriced_reason`, `pricing_card_role`, `pricing_selection_state`, `ingress_final_result`, `confirmed_failover`, `time_range`, paired `from_time`/`to_time`; ingress chains additionally support `cost_segment_key`
 - Signed Observe filters: `query_context` plus repeated/comma-equivalent `final_result`, `outcome_detail`, `final_status_code`, `final_stream_outcome`, `final_stream_error_kind`, `final_target_model_id`, `final_endpoint_id`, `final_terminal_target_id`, `final_pricing_status`, `final_unpriced_reason`, `reporting_currency_epoch`, `attempt_trigger`, and `attempt_result`; server-generated Other links additionally use the bounded, typed `final_exclude` complement selector
 - View: `view` (`ingress_chains` default | `attempts`), `chain_cursor` for chain outer-page continuation
-- Sorting: `sort_by`, `sort_order` (chain view restricts `sort_by` to `created_at`)
+- Sorting: `sort_by`, `sort_order` (accepted values depend on the view; see the [request query contract](architecture.md#42-list-request-logs--ingress-chains))
 - Pagination: `limit`, `cursor` (attempt view)
 - Exact-investigation flow: `request_id`
 - Row selection without exact mode: `selected_request_id`

@@ -190,16 +190,16 @@ describe("Task 10 pricing feature contracts", () => {
     ).toThrow();
   });
 
-  it("builds create and CAS update payloads with backend snake_case fields", () => {
+  it.each(["", " \t "])("builds create and CAS update payloads with backend snake_case fields and blank specialty %j", (blankSpecialtyPrice) => {
     const values = {
       name: " Standard ",
       description: " optional ",
       template_kind: "standard" as const,
-      input_price: "1",
-      output_price: "2",
-      cached_input_price: "0.1",
-      cache_creation_price: " ",
-      reasoning_price: "3",
+      input_price: "  1  ",
+      output_price: " 2 ",
+      cached_input_price: " 0.125 ",
+      cache_creation_price: blankSpecialtyPrice,
+      reasoning_price: " 4.5 ",
       tier: {
         input_tokens_above: "",
         input_price: "",
@@ -232,9 +232,9 @@ describe("Task 10 pricing feature contracts", () => {
       card: {
         input_price: "1",
         output_price: "2",
-        cached_input_price: "0.1",
+        cached_input_price: "0.125",
         cache_creation_price: null,
-        reasoning_price: "3",
+        reasoning_price: "4.5",
       },
     });
     expect(

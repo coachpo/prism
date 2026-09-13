@@ -16,33 +16,15 @@ const fingerprintDomain = "prism:endpoint-api-key-fingerprint:v1"
 // plaintext, never derived from ciphertext, and must never be used for
 // authorization or equality decisions.
 func APIKeyFingerprint(secretEncryptionKey string, plaintext string) string {
-	digest := apiKeyDigest(secretEncryptionKey, plaintext)
+	digest := APIKeyDigest(secretEncryptionKey, plaintext)
 	return "fp_v1_" + hex.EncodeToString(digest[:6])
-}
-
-// fingerprintInput applies the §4.3 definition S = strings.TrimSpace(raw key).
-func fingerprintInput(value string) string {
-	return strings.TrimSpace(value)
 }
 
 // APIKeyDigest returns the full HMAC-SHA256 identity digest for a trimmed
 // plaintext API key under the instance secret-encryption key. The full digest
 // (not the 48-bit display token) is the equality basis for key identity.
 func APIKeyDigest(secretEncryptionKey string, plaintext string) [sha256.Size]byte {
-	return apiKeyDigest(secretEncryptionKey, plaintext)
-}
-
-// APIKeyIdentityMatches reports whether two trimmed plaintext API keys share
-// the same identity using constant-time comparison of full HMAC digests.
-// Display-token collisions never affect identity.
-func APIKeyIdentityMatches(secretEncryptionKey string, plaintextA string, plaintextB string) bool {
-	digestA := apiKeyDigest(secretEncryptionKey, plaintextA)
-	digestB := apiKeyDigest(secretEncryptionKey, plaintextB)
-	return hmac.Equal(digestA[:], digestB[:])
-}
-
-func apiKeyDigest(secretEncryptionKey string, plaintext string) [sha256.Size]byte {
-	normalized := fingerprintInput(plaintext)
+	normalized := strings.TrimSpace(plaintext)
 	rootKey := sha256.Sum256([]byte(secretEncryptionKey))
 	fingerprintKey := hmac.New(sha256.New, rootKey[:])
 	fingerprintKey.Write([]byte(fingerprintDomain))
@@ -51,6 +33,15 @@ func apiKeyDigest(secretEncryptionKey string, plaintext string) [sha256.Size]byt
 	var result [sha256.Size]byte
 	copy(result[:], digest.Sum(nil))
 	return result
+}
+
+// APIKeyIdentityMatches reports whether two trimmed plaintext API keys share
+// the same identity using constant-time comparison of full HMAC digests.
+// Display-token collisions never affect identity.
+func APIKeyIdentityMatches(secretEncryptionKey string, plaintextA string, plaintextB string) bool {
+	digestA := APIKeyDigest(secretEncryptionKey, plaintextA)
+	digestB := APIKeyDigest(secretEncryptionKey, plaintextB)
+	return hmac.Equal(digestA[:], digestB[:])
 }
 
 // SecretMetadata is the write-time secret contract shared by every Endpoint

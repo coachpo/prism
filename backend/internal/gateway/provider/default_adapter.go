@@ -45,10 +45,6 @@ func (adapter DefaultAdapter) ExtractUsage(_ context.Context, _ UpstreamResponse
 	return UsageEnvelope{}, nil
 }
 
-func (adapter DefaultAdapter) EstimateTokens(_ context.Context, _ ProviderRequest) (TokenEstimate, error) {
-	return TokenEstimate{}, nil
-}
-
 func (adapter DefaultAdapter) ClassifyOverflow(_ context.Context, _ UpstreamResponse) OverflowClassification {
 	return OverflowClassification{}
 }

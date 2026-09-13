@@ -9,7 +9,7 @@ import {
 } from "@/shared"
 import { rewriteTestServer } from "@/test"
 
-describe("profile-scope api and query contracts", () => {
+describe("api profile scope and query-key contracts", () => {
   it("attaches X-Profile-Id only to profile-scoped API calls", async () => {
     const observedHeaders: Array<string | null> = []
 
@@ -42,15 +42,20 @@ describe("profile-scope api and query contracts", () => {
       "1",
       "models",
     ])
-    expect(rewriteQueryKeys.selectedProfile(1).models()).toEqual([
-      "rewrite",
-      "selected-profile",
-      "1",
-      "models",
-    ])
 
     expect(rewriteQueryKeys.global.settingsAuth()).toEqual(["rewrite", "global", "settings", "auth"])
-    expect(rewriteQueryKeys.global.settingsAuth()).not.toContain("42")
+  })
+
+  it("uses runtime-bypass query keys that do not include selected-profile scope", () => {
+    expect(rewriteQueryKeys.runtimeBypass.operation("/v1/chat/completions")).toEqual([
+      "rewrite",
+      "runtime-bypass",
+      "operation",
+      "/v1/chat/completions",
+    ])
+    expect(rewriteQueryKeys.runtimeBypass.operation("/v1beta/models/gemini:generateContent")).not.toContain(
+      "selected-profile",
+    )
   })
 
   it("invalidates Default-profile cache without touching global cache", async () => {

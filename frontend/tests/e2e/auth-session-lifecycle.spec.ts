@@ -403,8 +403,20 @@ async function loginToProxyKeys(page: Page) {
 
 
 test.describe("auth session lifecycle", () => {
+  let pageErrors: string[];
+
   test.beforeEach(async ({ context }) => {
+    pageErrors = [];
+    const observeErrors = (page: Page) => {
+      page.on("pageerror", (error) => pageErrors.push(`${error.name}: ${error.message}`));
+    };
+    context.on("page", observeErrors);
+    context.pages().forEach(observeErrors);
     await installAuthLifecycleRoutes(context);
+  });
+
+  test.afterEach(() => {
+    expect(pageErrors, "Session transitions must not leak uncaught browser errors").toEqual([]);
   });
 
   test("shows the open-access explainer when auth is disabled", async ({ page }) => {

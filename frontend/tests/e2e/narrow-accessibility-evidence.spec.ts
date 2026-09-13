@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import type { GlobalCurrentStateResponse, ModelMetricsBatchResponse } from "../../src/lib/types";
 import { mockPrismRoutes } from "./request-log-dedicated-audit-fixtures";
 import {
   createUnavailablePiModelRead,
@@ -590,6 +591,11 @@ test("narrow viewport visual evidence captures", async ({ page }) => {
 test("connection dialog visual evidence at 1440x900 and 390x844", async ({
   page,
 }) => {
+  const browserErrors: string[] = [];
+  page.on("pageerror", (error) => browserErrors.push(`${error.name}: ${error.message}`));
+  page.on("console", (message) => {
+    if (message.type() === "error") browserErrors.push(message.text());
+  });
   const timestamp = "2026-08-08T12:00:00Z";
   const strategy = {
     id: 11,
@@ -716,6 +722,52 @@ test("connection dialog visual evidence at 1440x900 and 390x844", async ({
       return fulfillJson([connection]);
     if (pathname === "/api/models/5/targets")
       return fulfillJson(modelDetail.access_targets);
+    if (pathname === "/api/loadbalance/current-state")
+      return fulfillJson({
+        generated_at: timestamp,
+        scope: "process",
+        instance_id: "connection-dialog-instance",
+        configuration_revision: "1",
+        completeness: {
+          state: "unobserved",
+          complete: false,
+          configured_target_count: 1,
+          observed_target_count: 0,
+          unobserved_target_count: 1,
+          observed_subset_counts: {},
+        },
+        items: [{
+          model: { model_config_id: 5, id: "router-model", label: "Router Model", configured: true },
+          endpoint: { id: 1, label: "OpenRouter", configured: true },
+          terminal_target: { id: 1, label: "OpenRouter Primary", configured: true },
+          observation_state: "unobserved",
+          state: null,
+          available: null,
+          cycle_retry_attempts: null,
+          cumulative_retry_attempts: null,
+          next_retry_at: null,
+          last_retry_delay_ms: null,
+          ban_mode: null,
+          banned_until_at: null,
+          last_failure_kind: null,
+          last_success_at: null,
+          last_success_response_headers_latency_ms: null,
+          in_flight_stream: null,
+          in_flight_non_stream: null,
+          qps_window_started_at: null,
+          qps_window_request_count: null,
+          created_at: null,
+          updated_at: null,
+          routing_schedule: { configured: false, timezone: "", open: null, unresolved: false, next_open_at: null, next_open_at_known: false },
+        }],
+        has_more: false,
+        next_cursor: null,
+      } satisfies GlobalCurrentStateResponse);
+    if (pathname === "/api/stats/models/metrics")
+      return fulfillJson({
+        items: [],
+        coverage: { quality: {}, spending: {} },
+      } satisfies ModelMetricsBatchResponse);
     if (pathname === "/api/models/5/catalog" && request.method() === "GET")
       return fulfillJson(createUnboundModelsDevCatalog());
     if (pathname === "/api/models/5/pi" && request.method() === "GET")
@@ -739,7 +791,7 @@ test("connection dialog visual evidence at 1440x900 and 390x844", async ({
         operation_routes: [],
         configuration_warnings: [],
       });
-    return fulfillJson({});
+    throw new Error(`Unhandled API request: ${request.method()} ${pathname}`);
   });
 
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -765,6 +817,7 @@ test("connection dialog visual evidence at 1440x900 and 390x844", async ({
   await page.screenshot({
     path: "artifacts/evidence/connection-dialog-390.png",
   });
+  expect(browserErrors, "Connection editing must not hide failed fixture reads").toEqual([]);
 });
 
 /**

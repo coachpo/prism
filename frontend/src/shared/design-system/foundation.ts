@@ -62,9 +62,9 @@ export type OperatorCalloutIntent = (typeof operatorCalloutIntents)[number]
 /**
  * The token contract, as data.
  *
- * `foundation.test.ts` reads `src/index.css` and fails when a declared token is
- * missing, when a defined color token is declared nowhere here (dead token), or
- * when a measured pair falls under its required contrast ratio. Colors are
+ * `tests/lib/design_token_contract.test.mjs` reads `src/index.css` and fails when
+ * a declared token is missing, a color token is declared nowhere here (dead token),
+ * or a measured pair falls under its required contrast ratio. Colors are
  * never approved by eye.
  */
 export type OperatorColorToken = {
