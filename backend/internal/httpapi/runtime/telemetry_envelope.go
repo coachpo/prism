@@ -193,7 +193,7 @@ func (telemetry runtimeTelemetryEnvelopeContext) attemptContext(index int) runti
 	if attempt.LaunchOrdinal <= 0 {
 		isWinner = isFinal
 	}
-	attemptSuccess := attempt.StatusCode >= 200 && attempt.StatusCode <= 299
+	attemptSuccess := attempt.StatusCode >= 200 && attempt.StatusCode <= 299 && attempt.AttemptResult != attemptResultStreamError
 	attemptUnpricedReason := billingStateUnpricedOnly(attemptSuccess)
 	attemptCreatedAt := attempt.CompletedAt
 	if attemptCreatedAt.IsZero() || isFinal {
