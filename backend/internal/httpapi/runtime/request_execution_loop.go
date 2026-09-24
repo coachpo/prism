@@ -83,12 +83,13 @@ func (s *Service) handleSingleExecutionOutcome(ctx context.Context, plan request
 	if outcome.Launched {
 		state.recordLaunchedAttempt(outcome)
 	}
+	hasNextCandidate := index < len(plan.orderedTerminalAttempts())-1 && state.launchedAttempts < maxAttempts
 	if outcome.Err != nil {
 		state.lastError = upstreamFailureClass(outcome.Err)
 		if outcome.Launched && !outcome.SuppressTransportFeedback {
 			s.recordRuntimeTransportFailure(ctx, plan, outcome.Connection, outcome.TerminalAttempt.Strategy, outcome.Attempt.CompletedAt)
 		}
-		if outcome.FailoverEligible && index < len(plan.orderedTerminalAttempts())-1 && state.launchedAttempts < maxAttempts {
+		if outcome.FailoverEligible && hasNextCandidate {
 			state.recordRetry(outcome.RetryDecision.Reason)
 			return executionResult{}, false, nil
 		}
@@ -98,7 +99,7 @@ func (s *Service) handleSingleExecutionOutcome(ctx context.Context, plan request
 	if outcome.FailoverEligible && outcome.Launched {
 		s.recordRuntimeFailoverHTTPFailure(ctx, plan, outcome.Connection, outcome.TerminalAttempt.Strategy, outcome.Attempt.CompletedAt)
 	}
-	if (outcome.FailoverEligible || outcome.RerouteEligible) && index < len(plan.orderedTerminalAttempts())-1 && state.launchedAttempts < maxAttempts {
+	if (outcome.FailoverEligible || outcome.RerouteEligible) && hasNextCandidate {
 		state.lastError = safediag.HTTPFallbackCode(outcome.Response.StatusCode)
 		state.recordRetry(outcome.RetryDecision.Reason)
 		if outcome.RerouteEligible {
@@ -121,6 +122,9 @@ func (s *Service) handleSingleExecutionOutcome(ctx context.Context, plan request
 		return executionResult{}, false, nil
 	}
 	if outcome.Response.StatusCode >= 200 && outcome.Response.StatusCode <= 299 && outcome.Launched {
+		if hasNextCandidate && s.failOverStreamStartError(ctx, plan, state, &outcome) {
+			return executionResult{}, false, nil
+		}
 		s.recordRuntimeSuccess(ctx, plan, outcome.Connection, outcome.TerminalAttempt.Strategy, outcome.Attempt.ResponseHeadersLatencyMS, outcome.Attempt.CompletedAt)
 	}
 	return state.result(plan, outcome), true, nil
