@@ -25,6 +25,23 @@ const NARROW_VIEWPORT = { width: 390, height: 844 };
 async function expectScrollingTablesStayNavigable(
   page: import("@playwright/test").Page,
 ) {
+  // 容器靠 ResizeObserver 异步得知自己溢出，之后才补上 role/tabindex。刚改完
+  // 视口就量会抢在这次同步之前，所以先等每个容器的 data-overflowing 与实测一致。
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        [
+          ...document.querySelectorAll<HTMLElement>(
+            "[data-slot=table-container]",
+          ),
+        ].every(
+          (container) =>
+            (container.scrollWidth > container.clientWidth + 1) ===
+            container.hasAttribute("data-overflowing"),
+        ),
+      ),
+    )
+    .toBe(true);
   const report = await page.evaluate(() => {
     const offenders: string[] = [];
     let scrolling = 0;
