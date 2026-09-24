@@ -14,8 +14,8 @@ Use this adapter only when the requested deployment host is `capy` or the reques
 
 When provider smoke is separately authorized, the current profile is:
 
-- Chat Completions: `deepseek-v4-flash`, stream and non-stream, `max_tokens=256`.
-- Responses: `codex/gpt-5.5`, stream and non-stream, `max_output_tokens=32`.
+- Chat Completions: `deepseek-flash`, stream and non-stream, `max_tokens=256`.
+- Responses: `gpt-6-luna`, stream and non-stream, `max_output_tokens=32`.
 
 Require non-empty visible output, a normal stream terminal event, persisted request/usage attribution, and a non-empty allowed `upstream_model_id`. Retry only one 429/5xx. A 2xx response with reasoning-only output fails the smoke gate.
 
