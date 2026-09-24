@@ -5,7 +5,11 @@ import { describe, expect, it, vi } from "vitest"
 import { LocaleProvider } from "@/i18n/LocaleProvider"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import type { ManagedModelConfigListItem } from "@/lib/api/models"
-import { entryModelListItem } from "./modelExitMapping.test-fixtures"
+import {
+  entryModelListItem,
+  routingSummary,
+  terminalTargetRow,
+} from "./modelExitMapping.test-fixtures"
 import { ModelsTable } from "./ModelsTable"
 
 vi.mock("@tanstack/react-router", () => ({
@@ -67,5 +71,28 @@ describe("ModelsTable internal-model identity", () => {
     renderModels([], view)
     expect(screen.getByText(title)).toBeVisible()
   })
+})
 
+describe("ModelsTable routing coverage", () => {
+  it.each([
+    ["full", null],
+    ["partial", "部分覆盖"],
+    ["none", "不兼容"],
+  ] as const)("marks only coverage deviations (%s)", (coverage, expected) => {
+    renderModels(
+      [{
+        ...entryModelListItem([terminalTargetRow(11, 0)]),
+        routing_summary: routingSummary({
+          coverage,
+          enabled_access_target_count: 1,
+          total_access_target_count: 1,
+        }),
+      }],
+      "entries",
+    )
+
+    const row = within(screen.getByTestId("models-table-row-1"))
+    expect(row.queryByText("完整覆盖")).not.toBeInTheDocument()
+    if (expected) expect(row.getByText(expected)).toBeVisible()
+  })
 })

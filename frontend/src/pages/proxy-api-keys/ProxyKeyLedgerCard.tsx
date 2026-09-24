@@ -484,7 +484,6 @@ export function ProxyKeyLedgerCard({
                         {copy.capacitySnapshot(
                             formatNumber(capacity.used),
                             formatNumber(capacity.limit),
-                            formatNumber(capacity.remaining),
                         )}
                     </span>
                     <Progress

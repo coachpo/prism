@@ -1,8 +1,19 @@
 import { useState } from "react";
 
 import { api } from "@/lib/api";
-import type { LoadbalanceCurrentStateResetResponse } from "@/lib/types";
+import type {
+  GlobalCurrentStateItem,
+  LoadbalanceCurrentStateResetResponse,
+} from "@/lib/types";
 import type { PageReadKind } from "@/shared/table/paginationStates";
+
+/** Only a service waiting to retry or paused has anything for 恢复请求 to clear. */
+export function canResetCooldown(item: GlobalCurrentStateItem): boolean {
+  return (
+    item.observation_state === "observed" &&
+    (item.state === "retry_wait" || item.state === "banned")
+  );
+}
 
 interface UseRoutingHealthCurrentStateResetInput {
   applyResetSnapshot: (

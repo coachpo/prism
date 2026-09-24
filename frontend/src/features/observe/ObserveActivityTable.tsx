@@ -31,7 +31,6 @@ import {
   OperatorMissingValue,
   OperatorStalenessBadge,
   OperatorStatusBadge,
-  OperatorTypeBadge,
   type OperatorStatusTier,
 } from "@/shared/design-system";
 import {
@@ -51,6 +50,7 @@ import {
 } from "@/shared/table/paginationStates";
 import { RetryAfterCallout } from "@/features/observe/RetryAfterCallout";
 import { nextObserveActivityCursor } from "@/features/observe/observeActivityPagination";
+import { PricingStatusBadge } from "@/pages/request-logs/PricingStatusBadge";
 
 const ACTIVITY_PAGE_SIZE = 20;
 
@@ -72,7 +72,7 @@ const ACTIVITY_SCROLL_AREA = "max-h-[calc(100dvh-22rem)]";
  * the new one.
  */
 /** 表头是表的身份：加载态保留它，操作者才知道自己在等哪张表。 */
-const ACTIVITY_COLUMN_COUNT = 10;
+const ACTIVITY_COLUMN_COUNT = 9;
 
 function ActivityTableHead() {
   const { messages } = useLocale();
@@ -91,7 +91,6 @@ function ActivityTableHead() {
         </TableHead>
         <TableHead className="text-right">{messages.observe.tokens}</TableHead>
         <TableHead className="text-right">{messages.observe.cost}</TableHead>
-        <TableHead>{messages.observe.pricingStatus}</TableHead>
         <TableHead className="text-right">
           {messages.routingHealth.actionsColumn}
         </TableHead>
@@ -309,7 +308,7 @@ export function ObserveActivityTable({
   if (items.length === 0 && fragment.phase === "empty" && !fragment.reading) {
     return (
       <div className="flex flex-col gap-2 px-[var(--density-card-pad-x)]">
-        <ObserveFragmentStamp generatedAt={fragment.data.generated_at} from={fragment.data.coverage.from_time} to={fragment.data.coverage.to_time} />
+        <ObserveFragmentStamp generatedAt={fragment.data.generated_at} from={fragment.data.coverage.from_time} to={fragment.data.coverage.to_time} stale={fragment.stale || Boolean(contextError)} />
         {contextError && <OperatorStalenessBadge label={messages.observe.staleDataNote} reason={contextError} />}
         {fragment.stale ? (
           <OperatorStalenessBadge
@@ -347,7 +346,7 @@ export function ObserveActivityTable({
 
   return (
     <div className="flex flex-col gap-2">
-      <ObserveFragmentStamp generatedAt={fragment.data.generated_at} from={fragment.data.coverage.from_time} to={fragment.data.coverage.to_time} />
+      <ObserveFragmentStamp generatedAt={fragment.data.generated_at} from={fragment.data.coverage.from_time} to={fragment.data.coverage.to_time} stale={fragment.stale || Boolean(contextError)} />
       {contextError && <OperatorStalenessBadge label={messages.observe.staleDataNote} reason={contextError} />}
       {fragment.stale ? (
         <OperatorStalenessBadge
@@ -455,36 +454,6 @@ export function ObserveActivityTable({
   );
 }
 
-/** The backend's pricing enum never reaches the screen unlabelled. */
-function pricingStatusLabel(
-  status: string,
-  copy: ReturnType<typeof useLocale>["messages"]["observe"],
-): string {
-  switch (status) {
-    case "priced":
-      return copy.pricingPriced;
-    case "unpriced":
-      return copy.pricingUnpriced;
-    case "ineligible":
-      return copy.pricingIneligible;
-    default:
-      return copy.pricingUnknown;
-  }
-}
-
-function pricingStatusIntent(status: string) {
-  switch (status) {
-    case "priced":
-      return "healthy" as const;
-    case "unpriced":
-      return "degraded" as const;
-    case "ineligible":
-      return "idle" as const;
-    default:
-      return "failing" as const;
-  }
-}
-
 function ActivityRow({
   item,
   onOpenRequest,
@@ -578,18 +547,14 @@ function ActivityRow({
         )}
       </TableCell>
       <TableCell className="text-right font-mono tabular-nums">
-        {item.known_cost_micros === null ? (
-          <OperatorMissingValue reason={copy.noTrustedCostSample} />
-        ) : (
-          `${item.report_currency_symbol ?? "$"}${(Number(item.known_cost_micros) / 1_000_000).toFixed(4)}`
-        )}
-      </TableCell>
-      <TableCell>
-        <OperatorTypeBadge
-          intent={pricingStatusIntent(item.final_pricing_status)}
-          label={pricingStatusLabel(item.final_pricing_status, copy)}
-          preserveLabel
-        />
+        <div className="flex flex-wrap items-center justify-end gap-1.5">
+          {item.known_cost_micros === null ? (
+            <OperatorMissingValue reason={copy.noTrustedCostSample} />
+          ) : (
+            `${item.report_currency_symbol ?? "$"}${(Number(item.known_cost_micros) / 1_000_000).toFixed(4)}`
+          )}
+          <PricingStatusBadge status={item.final_pricing_status} />
+        </div>
       </TableCell>
       <TableCell className="text-right">
         <Button

@@ -1030,8 +1030,7 @@ test("narrow 390x844 entry-model list keeps scope switch keyboard operable and l
   await exitLink.focus();
   await expect(exitLink).toBeFocused();
   // The visible text truncates, so the full value lives in the tooltip. Scope
-  // to the mono value span: the 仅上游 badge's title also contains this string,
-  // and only the value span is the truncating one.
+  // to the mono value span: it is the one that truncates.
   const upstreamValue = page.locator(
     `span.font-mono[title="${longUpstreamModelId}"]`,
   );

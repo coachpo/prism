@@ -497,7 +497,6 @@ export function AccessTargetsEditor({
       description={copy.accessTargetsSummary(
         formatNumber(persistedTargets.length),
         formatNumber(enabledTargetCount),
-        formatApiFamily(apiFamilyLabel),
       )}
       actions={
         onRefreshRuntimeState ? (
@@ -1084,7 +1083,7 @@ export function AccessTargetsEditor({
             disabled={disabled || remainingModels.length === 0}
           >
             <SelectTrigger id="access-target-select" className="min-w-0">
-              <SelectValue placeholder={copy.selectSameFamilyModel} />
+              <SelectValue placeholder={copy.selectSameFamilyModelPlaceholder} />
             </SelectTrigger>
             {/* 14 个平铺候选没有任何相关性提示：按角色分组，每项带上
                 model_id 与「会形成循环」这类硬约束，选之前就能判断。 */}

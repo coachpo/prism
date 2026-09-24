@@ -557,7 +557,6 @@ export function ModelDetailFeaturePage({
       ) : null}
 
       <RouteReadinessCard
-        accessTargetSummary={data.accessTargetSummary}
         diagnosticsView={diagnosticsView}
         onRetryDiagnostics={refreshDiagnostics}
         model={model}

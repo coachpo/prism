@@ -2,6 +2,7 @@
 // DIRECT facts from the mixed access-target list, compare upstream identities
 // exactly (case-sensitive) against the entry model_id, and render unknown or
 // missing evidence honestly instead of backfilling the entry id.
+import type { ReactNode } from "react";
 import { render, screen } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -11,6 +12,12 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import type { Connection, ModelConfig } from "@/lib/types";
 import { RouteReadinessCard } from "@/pages/model-detail/RouteReadinessCard";
 import { rewriteTestServer } from "./msw/server";
+
+// The strategy fact links to the routing strategy page; no router is mounted here.
+vi.mock("@tanstack/react-router", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@tanstack/react-router")>()),
+  Link: ({ children }: { children: ReactNode }) => <a href="#strategy">{children}</a>,
+}));
 
 const ENTRY_MODEL_ID = "Entry-A";
 
@@ -170,5 +177,22 @@ describe("RouteReadinessCard direct identity summary", () => {
       makeTarget(2, "connection", makeConnection(12, "provider/Y")),
     ]));
     expect(missingIdentityNotice()).toBeNull();
+  });
+
+  it("states the service selection once and leaves target counts to the list below", () => {
+    renderCard({
+      ...makeModel([
+        makeTarget(1, "connection", makeConnection(11, "provider/X")),
+        makeTarget(2, "model", null),
+      ]),
+      loadbalance_strategy: {
+        id: 1,
+        name: "Default fill-first routing",
+        legacy_strategy_type: "fill-first",
+      },
+    } as unknown as ModelConfig);
+    expect(screen.getAllByText(/优先顺序/)).toHaveLength(1);
+    expect(screen.queryByText(/传统路由/)).toBeNull();
+    expect(screen.queryByText(/启用 \//)).toBeNull();
   });
 });

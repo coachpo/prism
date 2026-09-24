@@ -28,7 +28,8 @@ export function OperatorTableShell({
   const hasHeader = Boolean(summary || actions)
 
   return (
-    <Card className={cn("operator-table-shell gap-0 overflow-hidden rounded-lg", className)} {...props}>
+    // 没有卡头时表格贴住卡片上沿，否则卡片的上内边距会变成表头上方的一条空带。
+    <Card className={cn("operator-table-shell gap-0 overflow-hidden rounded-lg", !hasHeader && "pt-0", className)} {...props}>
       {hasHeader ? (
         <CardHeader className="min-h-[var(--density-control-h)] border-b py-2">
           {summary ? (

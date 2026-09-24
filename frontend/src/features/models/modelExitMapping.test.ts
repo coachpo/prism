@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import type { ManagedModelConfigListItem } from "@/lib/api/models"
 import type { Connection, ModelAccessTarget, ModelConfigListItem } from "@/lib/types"
 import { projectExitMapping } from "./modelExitMapping"
-import { hasModelTarget, isUpstreamDecoupled } from "./modelRoutingFlags"
+import { hasModelTarget } from "./modelRoutingFlags"
 
 const ENTRY_MODEL_ID = "Entry-A"
 
@@ -192,24 +192,7 @@ describe("projectExitMapping", () => {
   })
 })
 
-describe("identity flags", () => {
-  it("treats decoupling as exact, case-sensitive comparison against the entry id", () => {
-    expect(isUpstreamDecoupled(entryModel([terminalTarget(11, 0, { upstreamModelId: "Entry-A" })]))).toBe(false)
-    expect(isUpstreamDecoupled(entryModel([terminalTarget(11, 0, { upstreamModelId: "entry-a" })]))).toBe(true)
-    expect(isUpstreamDecoupled(entryModel([terminalTarget(11, 0, { upstreamModelId: "ENTRY-A" })]))).toBe(true)
-    expect(isUpstreamDecoupled(entryModel([terminalTarget(11, 0, { upstreamModelId: "Entry-B" })]))).toBe(true)
-  })
-
-  it("never claims decoupling from missing or blank identity evidence", () => {
-    expect(isUpstreamDecoupled(entryModel([terminalTarget(11, 0, { upstreamModelId: null })]))).toBe(false)
-    expect(isUpstreamDecoupled(entryModel([terminalTarget(11, 0, { upstreamModelId: "" })]))).toBe(false)
-    expect(isUpstreamDecoupled(entryModel([terminalTarget(11, 0, { upstreamModelId: "  " })]))).toBe(false)
-  })
-
-  it("ignores Model Target rows when judging upstream identity", () => {
-    expect(isUpstreamDecoupled(entryModel([modelTarget(9, 0)]))).toBe(false)
-  })
-
+describe("connection flags", () => {
   it("detects Model Target rows for the has_model_target flag", () => {
     expect(hasModelTarget(entryModel([modelTarget(9, 0)]))).toBe(true)
     expect(hasModelTarget(entryModel([terminalTarget(11, 0)]))).toBe(false)

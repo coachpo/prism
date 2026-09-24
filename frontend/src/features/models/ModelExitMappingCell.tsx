@@ -3,7 +3,6 @@ import type { ManagedModelConfigListItem } from "@/lib/api/models"
 import {
   OperatorMissingValue,
   OperatorStatusBadge,
-  OperatorTypeBadge,
 } from "@/shared/design-system"
 import { projectExitMapping } from "./modelExitMapping"
 
@@ -14,8 +13,9 @@ import { projectExitMapping } from "./modelExitMapping"
  *
  * Honesty rules from frontend/DESIGN.md apply per value: a missing endpoint or
  * upstream identity renders `—` with a reason and is never backfilled with the
- * owning `model_id`; identity and non-participation are textual states, never
- * color-only.
+ * owning `model_id`; non-participation is a textual state, never color-only.
+ * The cell shows the upstream identity itself and does not annotate whether
+ * it matches the client model name.
  */
 export function ModelExitMappingCell({ model }: { model: ManagedModelConfigListItem }) {
   const { formatNumber, messages } = useLocale()
@@ -52,23 +52,12 @@ export function ModelExitMappingCell({ model }: { model: ManagedModelConfigListI
             formatNumber(totalTargets),
           )}
         </span>
-        {firstItem ? (
-          <ExitMappingItemLine
-            directRequestEnabled={model.direct_request_enabled}
-            item={firstItem}
-            ownerModelId={model.model_id}
-          />
-        ) : null}
+        {firstItem ? <ExitMappingItemLine item={firstItem} /> : null}
       </span>
       {restItems.length > 0 || remainingCount > 0 ? (
         <span className="flex min-w-0 flex-wrap items-baseline gap-x-1.5">
           {restItems.map((item) => (
-            <ExitMappingItemLine
-              directRequestEnabled={model.direct_request_enabled}
-              item={item}
-              key={item.accessTargetId}
-              ownerModelId={model.model_id}
-            />
+            <ExitMappingItemLine item={item} key={item.accessTargetId} />
           ))}
           {remainingCount > 0 ? (
             <span className="text-xs text-muted-foreground">
@@ -82,13 +71,9 @@ export function ModelExitMappingCell({ model }: { model: ManagedModelConfigListI
 }
 
 function ExitMappingItemLine({
-  directRequestEnabled,
   item,
-  ownerModelId,
 }: {
-  directRequestEnabled: boolean
   item: ReturnType<typeof projectExitMapping>["visible"][number]
-  ownerModelId: string
 }) {
   const { messages } = useLocale()
   const copy = messages.modelsPage
@@ -126,7 +111,6 @@ function ExitMappingItemLine({
   }
 
   const { endpointName, upstreamModelId } = item.identity
-  const entrySame = directRequestEnabled && upstreamModelId === ownerModelId
   return (
     <span className="flex min-w-0 items-center gap-1 text-xs">
       {endpointName ? (
@@ -155,27 +139,6 @@ function ExitMappingItemLine({
           reason={copy.exitUpstreamMissingReason}
         />
       )}
-      {upstreamModelId ? (
-        entrySame ? (
-          <span
-            className="shrink-0 text-xs text-muted-foreground"
-            title={copy.exitEntrySameReason(ownerModelId)}
-          >
-            {copy.exitEntrySame}
-          </span>
-        ) : (
-          <OperatorTypeBadge
-            intent="accent"
-            label={copy.exitUpstreamOnly}
-            preserveLabel
-            title={
-              directRequestEnabled
-                ? copy.exitUpstreamOnlyReason(ownerModelId, upstreamModelId)
-                : copy.exitUpstreamOnlyNonEntryReason(ownerModelId, upstreamModelId)
-            }
-          />
-        )
-      ) : null}
       {!item.isEnabled ? (
         <span
           className="shrink-0 text-muted-foreground"

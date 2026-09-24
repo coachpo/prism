@@ -255,7 +255,7 @@ function MatchingStream({
 
   return (
     <div className="flex min-w-0 flex-col gap-2">
-      <ObserveFragmentStamp generatedAt={fragment.data.generated_at} from={fragment.data.coverage.from_time} to={fragment.data.coverage.to_time} />
+      <ObserveFragmentStamp generatedAt={fragment.data.generated_at} from={fragment.data.coverage.from_time} to={fragment.data.coverage.to_time} stale={fragment.stale || Boolean(contextError)} />
       {(fragment.stale || contextError) && <OperatorStalenessBadge label={copy.staleDataNote} reason={fragment.error ?? contextError ?? undefined} />}
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         <OperatorTypeBadge

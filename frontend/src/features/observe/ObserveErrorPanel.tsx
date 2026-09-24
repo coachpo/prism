@@ -149,7 +149,7 @@ export function ObserveErrorPanel({
   const data = fragment.data;
   return (
     <section className="flex flex-col gap-4" data-testid="observe-error-panel">
-      <ObserveFragmentStamp generatedAt={data.generated_at} from={data.coverage.from_time} to={data.coverage.to_time} />
+      <ObserveFragmentStamp generatedAt={data.generated_at} from={data.coverage.from_time} to={data.coverage.to_time} stale={fragment.stale || Boolean(contextError)} />
       {(fragment.stale || contextError) && <OperatorStalenessBadge label={messages.observe.staleDataNote} reason={fragment.error ?? contextError ?? undefined} />}
       <div className="flex flex-wrap gap-2 text-sm">
         <span className="rounded-md bg-inset px-2 py-1 tabular-nums" data-testid="error-http-count">

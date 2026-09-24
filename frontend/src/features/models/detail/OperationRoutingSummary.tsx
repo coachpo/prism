@@ -32,11 +32,7 @@ export function OperationRoutingSummary({ diagnostics }: { diagnostics: RoutingD
           {diagnostics.openai_accepted_format ? (
             <OperatorTypeBadge intent="accent" label={modeLabel(diagnostics.openai_accepted_format, copy)} preserveLabel />
           ) : null}
-          {diagnostics.strategy ? (
-            <span className="text-xs text-muted-foreground">
-              {copy.routingStrategyLabel}: {strategyLabel(diagnostics.strategy.type, copy)}
-            </span>
-          ) : null}
+          {/* 服务选择方式由同卡的事实区给出，这里不再重复。 */}
         </div>
         <ul className="flex flex-col gap-1" data-testid="routing-operation-list">
           {buildOperationGroups(routes).map((group) => (
@@ -168,12 +164,5 @@ function modeLabel(mode: string, copy: ObserveCopy): string {
   if (mode === "dual_native") return copy.modeDual ?? "双模式";
   if (mode === "chat_completions_only") return copy.modeChat ?? "仅 Chat Completions";
   if (mode === "responses_only") return copy.modeResponses ?? "仅 Responses";
-  return copy.routingUnknownOperationLabel;
-}
-
-function strategyLabel(type: string, copy: ObserveCopy): string {
-  if (type === "single") return copy.strategySingle ?? "单一";
-  if (type === "fill-first") return copy.strategyFillFirst ?? "优先填满";
-  if (type === "round-robin") return copy.strategyRoundRobin ?? "轮询";
   return copy.routingUnknownOperationLabel;
 }

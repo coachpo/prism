@@ -110,7 +110,7 @@ export function RoutingHealthEntryCard() {
         </Button>
       }
     >
-      <ObserveFragmentStamp generatedAt={state.generatedAt} />
+      <ObserveFragmentStamp generatedAt={state.generatedAt} stale={state.phase === "error" && state.data !== null} />
       {state.phase === "error" && state.data && <OperatorStalenessBadge label={copy.staleDataNote} reason={state.error ?? undefined} />}
       {state.phase === "error" && !state.data ? (
         <OperatorErrorState

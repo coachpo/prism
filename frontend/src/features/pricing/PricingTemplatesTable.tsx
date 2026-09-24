@@ -3,7 +3,6 @@ import type { ReactNode } from "react";
 import {
   ChevronDown,
   ChevronRight,
-  Coins,
   MoreHorizontal,
   Pencil,
   Trash2,
@@ -72,7 +71,7 @@ import {
 } from "./usePricingListFacts";
 
 const PRICING_PAGE_SIZES = [10, 25, 50] as const;
-const PRICING_COLUMN_COUNT = 13;
+const PRICING_COLUMN_COUNT = 12;
 
 /**
  * 把展开面板钉在表格滚动视口上。
@@ -114,7 +113,6 @@ type PricingSortColumn =
   | "currency"
   | "input"
   | "output"
-  | "version"
   | "updated";
 export type PricingFilter =
   | "all"
@@ -240,7 +238,6 @@ function getSortValue(
   const card = representativeCard(template);
   if (column === "input") return priceSortValue(card?.input_price);
   if (column === "output") return priceSortValue(card?.output_price);
-  if (column === "version") return template.version;
   return template.updated_at;
 }
 
@@ -355,21 +352,20 @@ export function PricingTemplatesTable({
       data-testid="pricing-templates-table"
     >
       <CardHeader className="border-b pb-3">
+        {/* 模板数量由概览卡与分页行给出，卡头不再重复计数。 */}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <p
-            className="flex items-center gap-2 text-xs text-muted-foreground"
-            data-testid="pricing-templates-summary"
-          >
-            <Coins aria-hidden="true" className="size-3.5" />
-            {copy.tableSummary(formatNumber(pricingTemplates.length))}
-            {facts.failed ? (
+          {facts.failed ? (
+            <p
+              className="flex items-center gap-2 text-xs text-muted-foreground"
+              data-testid="pricing-templates-summary"
+            >
               <OperatorStalenessBadge
                 label={copy.referencesUnavailable}
                 reason={copy.referencesUnavailableReason}
               />
-            ) : null}
-          </p>
-          <div className="flex items-center gap-2">
+            </p>
+          ) : null}
+          <div className="flex items-center gap-2 sm:ml-auto">
             {filter !== "all" ? (
               <Button
                 type="button"
@@ -416,7 +412,7 @@ export function PricingTemplatesTable({
             {/* The per-1M-token unit is stated once, on the rate group. */}
             <TableRow>
               <TableHead className="w-8" />
-              <TableHead colSpan={4}>{copy.groupIdentity}</TableHead>
+              <TableHead colSpan={3}>{copy.groupIdentity}</TableHead>
               <TableHead colSpan={5} className="text-center">
                 {/* 单位与口径都只在分组表头写一次：阶梯与峰谷并列两档，
                     排序取首档，全文说明挂在可聚焦的帮助按钮上。 */}
@@ -452,13 +448,6 @@ export function PricingTemplatesTable({
                 onSort={updateSort}
               >
                 {copy.columnCurrency}
-              </SortableTableHead>
-              <SortableTableHead
-                sortKey="version"
-                sort={sort}
-                onSort={updateSort}
-              >
-                {copy.columnVersion}
               </SortableTableHead>
               <TableHead>{copy.columnTier}</TableHead>
               <SortableTableHead
@@ -564,12 +553,6 @@ export function PricingTemplatesTable({
                         <TableCell className="align-top">
                           <OperatorValueBadge
                             label={template.pricing_currency_code}
-                            className="text-xs"
-                          />
-                        </TableCell>
-                        <TableCell className="align-top">
-                          <OperatorValueBadge
-                            label={`v${template.version}`}
                             className="text-xs"
                           />
                         </TableCell>

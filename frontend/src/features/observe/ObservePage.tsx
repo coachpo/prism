@@ -1,4 +1,5 @@
 import { ObserveFragmentStamp } from "./ObserveFragmentStamp";
+import { ObservePageGeneratedAtProvider, observePageGeneratedAt } from "./observeStampReference";
 import { useAuth } from "@/context/useAuth";
 import { useObserveReadCycle } from "./observeReadCycleContext";
 import { ObserveReadCycleProvider } from "./ObserveReadCycleProvider";
@@ -223,6 +224,12 @@ function ObservePageContent() {
   const effectiveInterval = seriesFragment.data?.interval ?? null;
 
   const configurationReady = setup.state.route_configured_count === 4;
+  // 配置完成后，这张卡剩下的事是请用户用真实请求确认连接。所选时间范围内已有
+  // 成功完成的请求时，它已无事可确认；汇总读取失败时无法作证，照旧显示。
+  const setupStillUseful =
+    fragments.summary.data !== null
+      ? fragments.summary.data.completed_count === 0
+      : fragments.summary.phase === "error";
   const setupCard = (
     <SetupCard
         state={setup.state}
@@ -235,6 +242,7 @@ function ObservePageContent() {
   );
 
   return (
+    <ObservePageGeneratedAtProvider value={observePageGeneratedAt(fragments.now, fragments.summary)}>
     <div
       data-testid="observe-page"
       className="flex flex-col gap-[var(--density-page-gap)]"
@@ -284,7 +292,6 @@ function ObservePageContent() {
           </SelectGroup></SelectContent>
         </Select>
         {refreshInterval > 0 && <span role="status" className="text-xs text-muted-foreground">{visible ? messages.observe.autoRefreshWaiting : messages.observe.autoRefreshPaused}</span>}
-        <button type="button" className="text-sm text-primary underline-offset-4 hover:underline" onClick={() => setView("activity")}>{messages.observe.recentActivityEntry}</button>
       </div>
 
       {!configurationReady ? setupCard : null}
@@ -431,7 +438,7 @@ function ObservePageContent() {
               ) : null}
             </OperatorCallout>
           ) : null}
-          <ObserveFragmentStamp generatedAt={seriesFragment.data?.generated_at} from={seriesFragment.data?.coverage.from_time} to={seriesFragment.data?.coverage.to_time} />
+          <ObserveFragmentStamp generatedAt={seriesFragment.data?.generated_at} from={seriesFragment.data?.coverage.from_time} to={seriesFragment.data?.coverage.to_time} stale={seriesFragment.stale} />
           <ObserveMainChart
             fragment={seriesFragment}
             metric={metric}
@@ -531,8 +538,9 @@ function ObservePageContent() {
       </OperatorSectionCard>
       ) : null}
       <RoutingHealthEntryCard />
-      {configurationReady ? setupCard : null}
+      {configurationReady && setupStillUseful ? setupCard : null}
     </div>
+    </ObservePageGeneratedAtProvider>
   );
 }
 
