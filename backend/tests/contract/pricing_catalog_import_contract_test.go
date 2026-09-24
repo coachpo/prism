@@ -276,8 +276,9 @@ func TestCatalogPricingPreviewCarriesFullSourceEvidence(t *testing.T) {
 		t.Fatalf("reasoning price must be previewed: %+v", card)
 	}
 
-	// A tiered offering surfaces its threshold verbatim, and an offering with
-	// no specialty components reports them as null rather than zero.
+	// A tiered offering surfaces its threshold verbatim. Omitted cache components
+	// stay null rather than zero, while an omitted reasoning price follows each
+	// card's own output price.
 	tierImported := catalogPreview(t, harness, map[string]any{
 		"model_config_id": modelConfigID, "provider_id": "openai", "catalog_model_id": "gpt-long", "connection_ids": []int{},
 	})
@@ -289,8 +290,9 @@ func TestCatalogPricingPreviewCarriesFullSourceEvidence(t *testing.T) {
 		t.Fatalf("tier threshold must appear verbatim: %v", tierPlan["tier_input_tokens_above"])
 	}
 	tierCard := catalogPlanCards(t, tierImported.preview, "tier_base")
-	if tierCard["reasoning_price"] != nil {
-		t.Fatalf("missing reasoning price must stay null: %+v", tierCard)
+	aboveCard := catalogPlanCards(t, tierImported.preview, "tier_above")
+	if tierCard["reasoning_price"] != "180" || aboveCard["reasoning_price"] != "270" {
+		t.Fatalf("omitted reasoning must follow each card's output price: %+v / %+v", tierCard, aboveCard)
 	}
 	if tierCard["cached_input_price"] != nil {
 		t.Fatalf("missing cache read must stay null: %+v", tierCard)

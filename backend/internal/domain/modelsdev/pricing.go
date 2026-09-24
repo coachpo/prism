@@ -36,7 +36,8 @@ const (
 )
 
 // PriceCard is one five-component price card in canonical decimal form.
-// Missing specialty components stay nil; explicit catalog zeros are "0".
+// Missing cache components stay nil; explicit catalog zeros are "0". A planned
+// card always carries a reasoning price (see BuildPricePlan).
 type PriceCard struct {
 	InputPrice         string
 	OutputPrice        string
@@ -82,7 +83,25 @@ func (plan PricePlan) Committable() bool {
 // size, legacy context_over_200k without explicit tiers, conflicting duplicate
 // tier evidence, and base/tier specialty shape mismatches all produce a stable
 // reason and zero writes.
+//
+// A catalog row without cost.reasoning bills reasoning output at that row's
+// output price, the convention models.dev consumers apply; an explicit value,
+// including zero, is kept. The fallback is applied only after every check has
+// judged the raw rows, so it never hides reasoning evidence present on one
+// tiered row but not the other.
 func BuildPricePlan(offering Offering, model *Model, reportingCurrencyCode string) PricePlan {
+	plan := buildEvidencePricePlan(offering, model, reportingCurrencyCode)
+	for role, card := range plan.Cards {
+		if card.ReasoningPrice == nil {
+			output := card.OutputPrice
+			card.ReasoningPrice = &output
+			plan.Cards[role] = card
+		}
+	}
+	return plan
+}
+
+func buildEvidencePricePlan(offering Offering, model *Model, reportingCurrencyCode string) PricePlan {
 	plan := PricePlan{Kind: "standard", Cards: map[string]PriceCard{}}
 	addIncompatibility := func(field, reason string) {
 		plan.Incompatibilities = append(plan.Incompatibilities, Incompatibility{Field: field, Reason: reason})

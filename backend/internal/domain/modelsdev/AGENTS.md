@@ -6,4 +6,5 @@
 - Parse prices losslessly through `json.Number`; explicit zero is configured data. Invalid schemas remain unavailable instead of yielding partial catalogs.
 - Auto-binding requires one exact canonical-provider match. Do not auto-select aggregator providers outside that mapping or turn ambiguity into an arbitrary first match.
 - Keep `BuildPricePlan` non-committable for unsupported, incomplete, non-USD, conflicting-tier, audio, or specialty-mismatched evidence. `CatalogPriceCurrency` declares USD; no currency conversion belongs here.
+- A row without `cost.reasoning` plans reasoning at that row's output price, because runtime costing treats reasoning output as a separate component. Apply this only after the fail-closed checks have judged the raw rows. Keep explicit values, including zero.
 - Update the matching local client, schema, matching, or pricing tests; fixtures live in `modelsdev_testdata_test.go` and must remain independent of the live catalog.

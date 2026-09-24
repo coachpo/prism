@@ -21,15 +21,15 @@ func TestBuildPricePlanStandardMapping(t *testing.T) {
 	if card.CacheCreationPrice == nil || *card.CacheCreationPrice != "3.75" {
 		t.Fatalf("cache_write must map to cache_creation_price: %v", card.CacheCreationPrice)
 	}
-	if card.ReasoningPrice != nil {
-		t.Fatal("absent reasoning must map to null")
+	if card.ReasoningPrice == nil || *card.ReasoningPrice != "15" {
+		t.Fatalf("absent reasoning must follow the output price: %v", card.ReasoningPrice)
 	}
 }
 
 // TestBuildPricePlanKeepsExplicitZeroDistinctFromAbsent pins the C3/C7 zero and
 // null contract at the domain boundary: a catalog zero is a configured price and
-// must survive as "0", while an omitted component stays null. Reasoning is the
-// fifth component and maps when present.
+// must survive as "0", while an omitted cache component stays null. An omitted
+// reasoning price follows the output price; an explicit reasoning zero stays "0".
 func TestBuildPricePlanKeepsExplicitZeroDistinctFromAbsent(t *testing.T) {
 	catalog := loadFixtureCatalog(t)
 	model, found := catalog.Find("openai", "gpt-test")
@@ -47,8 +47,12 @@ func TestBuildPricePlanKeepsExplicitZeroDistinctFromAbsent(t *testing.T) {
 	if card.CacheCreationPrice == nil || *card.CacheCreationPrice != "1.25" {
 		t.Fatalf("cache_write = %v", card.CacheCreationPrice)
 	}
-	if card.ReasoningPrice != nil {
-		t.Fatalf("absent reasoning must stay null, got %v", *card.ReasoningPrice)
+	if card.ReasoningPrice == nil || *card.ReasoningPrice != "10" {
+		t.Fatalf("absent reasoning must follow the output price: %v", card.ReasoningPrice)
+	}
+	explicitZero := &Model{Cost: &Cost{Base: TierPrices{Input: "1", Output: "4", Reasoning: pointer("0")}}}
+	if got := BuildPricePlan(Offering{ProviderID: "openai", ModelID: "free-reasoning"}, explicitZero, "USD").Cards[RoleStandard].ReasoningPrice; got == nil || *got != "0" {
+		t.Fatalf("explicit reasoning zero must stay \"0\": %v", got)
 	}
 	if CatalogPriceCurrency != "USD" {
 		t.Fatalf("the only catalog price currency is USD, got %q", CatalogPriceCurrency)
@@ -71,6 +75,9 @@ func TestBuildPricePlanOpenAISingleContextTierMapsSizeVerbatim(t *testing.T) {
 	}
 	if base.CachedInputPrice != nil || above.CachedInputPrice != nil {
 		t.Fatal("both cards omit cache_read so both must stay null")
+	}
+	if base.ReasoningPrice == nil || *base.ReasoningPrice != "180" || above.ReasoningPrice == nil || *above.ReasoningPrice != "270" {
+		t.Fatalf("each card must price omitted reasoning at its own output: %v / %v", base.ReasoningPrice, above.ReasoningPrice)
 	}
 
 	cachedModel, _ := catalog.Find("openai", "gpt-tiered-cache")
@@ -187,15 +194,18 @@ func TestBuildPricePlanFailClosedReasons(t *testing.T) {
 		}
 	})
 	t.Run("specialty shape mismatch between base and tier", func(t *testing.T) {
-		model := &Model{Cost: &Cost{
-			Base: TierPrices{Input: "1", Output: "2", CachedInput: pointer("0.5")},
-			Tiers: []CostTier{
+		for _, base := range []TierPrices{
+			{Input: "1", Output: "2", CachedInput: pointer("0.5")},
+			// The reasoning fallback must not paper over evidence on one row only.
+			{Input: "1", Output: "2", Reasoning: pointer("2")},
+		} {
+			model := &Model{Cost: &Cost{Base: base, Tiers: []CostTier{
 				{Type: "context", Size: 272000, Prices: TierPrices{Input: "2", Output: "3"}},
-			},
-		}}
-		plan := BuildPricePlan(Offering{ProviderID: "openai", ModelID: "parity"}, model, "USD")
-		if !hasReason(plan, ReasonSpecialtyShapeMismatch) {
-			t.Fatalf("specialty mismatch must fail closed: %+v", plan.Incompatibilities)
+			}}}
+			plan := BuildPricePlan(Offering{ProviderID: "openai", ModelID: "parity"}, model, "USD")
+			if !hasReason(plan, ReasonSpecialtyShapeMismatch) {
+				t.Fatalf("specialty mismatch must fail closed: %+v", plan.Incompatibilities)
+			}
 		}
 	})
 	t.Run("price outside Prism storage representation", func(t *testing.T) {
