@@ -28,6 +28,13 @@ func TestBatchPricingLocksProfileBeforeTargets(t *testing.T) {
 	// handler. While it waits for profile serialization it must hold no target.
 	deadline := time.Now().Add(5 * time.Second)
 	for {
+		// PostgreSQL snapshots pg_stat_activity at its first read in a
+		// transaction. This poll runs inside the lock-holding transaction, so drop
+		// the snapshot each time or a first read taken before the handler blocked
+		// hides the wait until the deadline.
+		if _, err := tx.Exec(t.Context(), `SELECT pg_stat_clear_snapshot()`); err != nil {
+			t.Fatal(err)
+		}
 		var waiting bool
 		err := tx.QueryRow(t.Context(), `SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid() AND wait_event_type='Lock' AND query LIKE 'SELECT id FROM profiles%')`).Scan(&waiting)
 		if err != nil {
