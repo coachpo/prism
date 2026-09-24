@@ -2,7 +2,7 @@
 
 ## Lifecycle
 
-Active development at version 1.1.14. The operator's day-to-day use of the running home-LAN instances drives priorities. Upgrade work prefers clean architecture and the best current implementation; legacy shapes are preserved only when explicitly requested.
+Active development at version 1.1.17. The operator's day-to-day use of the running home-LAN instances drives priorities. Upgrade work prefers clean architecture and the best current implementation; legacy shapes are preserved only when explicitly requested.
 
 Development Tier: MVP
 
@@ -12,14 +12,14 @@ The existing tier remains the development default. The retained-data and authori
 
 Prism is a personal home-LAN deployment, not a public internet service. Development and deployment convenience takes priority over security hardening; optional operator login and proxy keys, plaintext bootstrap ownership, and operator-managed network exposure remain the established posture. This does not relax the retained-data policy.
 
-Both instances were deployed and verified on 2026-09-10 at 21:42 UTC through the `capy` SSH adapter, selected Docker/Compose fields, PostgreSQL metadata, and the health, client-export readiness, route-explanation, and ingress-ranking APIs:
+Both instances were deployed and verified on 2026-09-24 at 14:11 UTC through the `capy` SSH adapter, selected Docker/Compose fields, PostgreSQL metadata, and the health, Requests, `/v1/models`, and catalog pricing preview APIs:
 
 | Instance | Dashboard | App / PostgreSQL health | App version | Latest migration |
 | --- | --- | --- | --- | --- |
-| `prism-a` | [Observe A](http://192.168.1.222:8087/observe?tab=overview&metric=requests&scope=ingress&group_by=none&interval=auto) | healthy / healthy | 1.1.14 | `000034_retention_coverage_statement_trigger` |
-| `prism-b` | [Observe B](http://192.168.1.222:8088/observe?tab=overview&metric=requests&scope=ingress&group_by=none&interval=auto) | healthy / healthy | 1.1.14 | `000034_retention_coverage_statement_trigger` |
+| `prism-a` | [Observe A](http://192.168.1.222:8087/observe?tab=overview&metric=requests&scope=ingress&group_by=none&interval=auto) | healthy / healthy | 1.1.17 | `000034_retention_coverage_statement_trigger` |
+| `prism-b` | [Observe B](http://192.168.1.222:8088/observe?tab=overview&metric=requests&scope=ingress&group_by=none&interval=auto) | healthy / healthy | 1.1.17 | `000034_retention_coverage_statement_trigger` |
 
-Both run PostgreSQL 16.15 and the same app image, `ghcr.io/coachpo/prism:v1.1.14@sha256:8dd34526ce80ee924bd7965fc6592b62e1db0f82bb67b5481b5f1fa093b591df`, with independent databases and bind-mounted plaintext bootstrap files. Both app restart counters were zero at observation. Quiesced PostgreSQL and matching bootstrap backups were verified before each update; schema history, entity counts, and config hashes were preserved. The operator explicitly waived the 300-second observation interval; immediate health checks passed. No real-provider smoke was performed. These are observation-time facts, not continuous health guarantees.
+Both run PostgreSQL 16.15 and the same app image, `ghcr.io/coachpo/prism:v1.1.17@sha256:6828634d038af18ab322ed93b015addbcba04a01c301241d429d33de12a44489`, pinned in each instance's Compose env file, with independent databases and bind-mounted plaintext bootstrap files. Only the app containers were recreated; PostgreSQL kept running. Both app restart counters were zero at observation. Quiesced PostgreSQL and matching bootstrap backups were verified before each update; schema history, entity counts, and config hashes were preserved. Each instance passed a 300-second observation with 30 samples. No real-provider smoke was performed. Tag `v1.1.16` has no published image and was never deployed. These are observation-time facts, not continuous health guarantees.
 
 The repository supports the root Compose app-plus-PostgreSQL bundle, the single app image with an external PostgreSQL, and the local `start.sh` launcher. [README.md](README.md#quick-start) owns ordinary startup; [architecture.md](docs/architecture.md#23-local-tooling-and-build-workflow) owns the packaging model.
 
