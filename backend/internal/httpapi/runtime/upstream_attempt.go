@@ -27,6 +27,7 @@ type executionOutcome struct {
 	UnbannedRecord            *loadbalance.RuntimeConnectionState
 	RetryDecision             gatewayrouting.RetryDecision
 	FailoverEligible          bool
+	RerouteEligible           bool
 	Definitive                bool
 	SuppressTransportFeedback bool
 	FatalError                error
@@ -147,9 +148,10 @@ func (s *Service) executeSingleAttempt(ctx context.Context, method string, plan 
 			outcome.SuppressTransportFeedback = true
 		}
 	}
+	retryPolicy := gatewayrouting.RetryPolicy{FailoverStatusCodes: terminalAttempt.Strategy.FailoverStatusCodes(), RerouteStatusCodes: terminalAttempt.Strategy.RerouteStatusCodes}
 	if requestErr != nil {
 		requestContextErr := ctx.Err()
-		outcome.RetryDecision = gatewayrouting.RetryPolicy{FailoverStatusCodes: terminalAttempt.Strategy.FailoverStatusCodes()}.ClassifyTransportError(requestContextErr, requestErr)
+		outcome.RetryDecision = retryPolicy.ClassifyTransportError(requestContextErr, requestErr)
 		outcome.FailoverEligible = outcome.RetryDecision.Retryable
 		outcome.Definitive = !outcome.FailoverEligible
 		if requestContextErr != nil {
@@ -167,10 +169,11 @@ func (s *Service) executeSingleAttempt(ctx context.Context, method string, plan 
 		}
 		return outcome
 	}
-	outcome.RetryDecision = gatewayrouting.RetryPolicy{FailoverStatusCodes: terminalAttempt.Strategy.FailoverStatusCodes()}.ClassifyHTTPStatus(response.StatusCode)
+	outcome.RetryDecision = retryPolicy.ClassifyHTTPStatus(response.StatusCode)
 	outcome.FailoverEligible = outcome.RetryDecision.Retryable
-	outcome.Definitive = !outcome.FailoverEligible
-	if launched && outcome.FailoverEligible {
+	outcome.RerouteEligible = outcome.RetryDecision.Reroutable
+	outcome.Definitive = !outcome.FailoverEligible && !outcome.RerouteEligible
+	if launched && (outcome.FailoverEligible || outcome.RerouteEligible) {
 		outcome.Attempt.AttemptResult = attemptResultHTTPError
 	}
 	return outcome

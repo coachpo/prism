@@ -479,6 +479,10 @@ export const zhCNMessages = {
     // 十个码在单元格里要换三行；列里只留个数，完整名单进 OperatorHelpHint。
     failureStatusCodesCount: (count: MessageArg) => `${count} 个失败状态码`,
     failureStatusCodesNone: "未限定失败状态码",
+    rerouteStatusCodes: (codes: MessageArg) => `被拒后改道 ${codes}`,
+    rerouteStatusCodesNone: "被拒不改道",
+    previewReroute: (codes: MessageArg) =>
+      `服务以 ${codes} 拒绝某次请求时，这次请求直接改用下一个服务，不计入上面的失败。`,
 
     // 效果预览：页内横向时间线，选中行即推演。
     previewTitle: "效果预览",
@@ -548,6 +552,9 @@ export const zhCNMessages = {
     // 分隔符与合法范围是这个自由文本框唯一的格式约束，不写清楚就只能靠提交后报错试出来。
     failureStatusCodesDescription:
       "指定会触发失败反馈（重试窗口与封禁计数）的 HTTP 状态码。用英文逗号或空格分隔，每个码须是 100–599 之间的整数，且不能重复。",
+    rerouteStatusCodesLabel: "请求级改道状态码",
+    rerouteStatusCodesDescription:
+      "服务用这些状态码拒绝当前这一次请求时（例如给只收文本的模型发了图片），直接改用下一个服务；不计入失败，这个服务之后照常优先使用。只能填 400–499 之间的整数（429 除外），不能与失败状态码重复，用英文逗号或空格分隔；留空表示不改道。",
     baseDelayLabel: "基础延迟（毫秒）",
     baseDelayDescription: "记录失败状态后使用的初始重试窗口延迟。",
     multiplierLabel: "退避倍数",
@@ -627,6 +634,11 @@ export const zhCNMessages = {
     statusCodeInvalid:
       "失败状态码必须是 100–599 之间的整数，用英文逗号或空格分隔。",
     statusCodeDuplicate: "失败状态码不能重复，请删掉重复的码。",
+    rerouteStatusCodeInvalid:
+      "改道状态码必须是 400–499 之间的整数（429 除外），用英文逗号或空格分隔。",
+    rerouteStatusCodeDuplicate: "改道状态码不能重复，请删掉重复的码。",
+    rerouteOverlapsFailure:
+      "同一个状态码不能既是失败状态码又是改道状态码，请从其中一处删掉。",
     baseDelayInteger: "基础延迟必须是整数毫秒。",
     baseDelayRange: "基础延迟需在 0–86400000 毫秒之间。",
     multiplierRange: "退避倍数需在 1–10 之间。",
@@ -3845,6 +3857,7 @@ export const zhCNMessages = {
     attemptTriggerRetrySameTarget: "同一服务重试",
     attemptTriggerHedge: "同时尝试备用服务",
     attemptTriggerFailover: "切换备用服务",
+    attemptTriggerReroute: "被拒后改道",
     attemptTriggerUnavailable: "触发原因不可用",
     attemptResultCompleted: "完成",
     attemptResultHttpError: "服务返回错误",

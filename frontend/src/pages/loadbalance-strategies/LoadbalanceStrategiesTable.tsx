@@ -22,6 +22,7 @@ import { LoadMoreControl } from "@/shared/table/paginationControls";
 import {
     banBadges,
     failureStatusCodeSummary,
+    rerouteStatusCodeLabel,
     retryBadges,
 } from "./strategyValueBadges";
 import { useLocale } from "@/i18n/useLocale";
@@ -611,6 +612,9 @@ function StrategyRow(props: StrategyRowProps) {
                                     />
                                 </span>
                             ) : null}
+                            <OperatorValueBadge
+                                label={rerouteStatusCodeLabel(strategy)}
+                            />
                         </div>
                         {retryIsBalanced ? (
                             <span className="text-xs text-muted-foreground">

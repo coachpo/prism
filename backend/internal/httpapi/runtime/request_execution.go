@@ -127,6 +127,12 @@ type requestExecutionState struct {
 	// executor evidence, not inferred later from display fields.
 	lastLaunchedConnectionID int
 	lastLaunchedTrigger      string
+	// lastLaunchRerouted marks that the previous launch was rejected for this
+	// request only, so the next launch is a reroute rather than a failover.
+	lastLaunchRerouted bool
+	// rejected is the latest request-scoped rejection kept with its body, still
+	// returnable when no later candidate produces a response.
+	rejected *executionOutcome
 }
 
 var errHedgeLoserCanceled = errors.New("hedge loser canceled")
@@ -143,8 +149,8 @@ func newRequestExecutionState(plan requestPlan) requestExecutionState {
 
 // nextLaunchTrigger classifies the trigger for the next launch from persisted
 // executor evidence: the first launch is `initial`; a later launch to the same
-// connection is `retry_same_target`; a hedge launch is `hedge`; any other
-// later launch is `failover`. The winner's entry lineage is classified at the
+// connection is `retry_same_target`; a hedge launch is `hedge`; a launch after a
+// request-scoped rejection is `reroute`; any other later launch is `failover`. The winner's entry lineage is classified at the
 // launch site, never inferred from completion order. The immutable launch
 // ordinal is stamped only when the attempt actually launches.
 func (state *requestExecutionState) nextLaunchTrigger(plan requestPlan, index int, terminalAttempt runtimeTerminalAttempt) string {
@@ -155,6 +161,8 @@ func (state *requestExecutionState) nextLaunchTrigger(plan requestPlan, index in
 	case state.launchedAttempts > 0:
 		if state.lastLaunchedConnectionID == terminalAttempt.Connection.ID {
 			trigger = attemptTriggerRetrySameTarget
+		} else if state.lastLaunchRerouted {
+			trigger = attemptTriggerReroute
 		} else {
 			trigger = attemptTriggerFailover
 		}
@@ -201,6 +209,7 @@ func runtimeExecutionRouteReason(reason gatewaycore.RouteReason) gatewaycore.Rou
 		gatewaycore.RouteReasonRetryHTTP,
 		gatewaycore.RouteReasonRetryConnectTimeout,
 		gatewaycore.RouteReasonRetryTransport,
+		gatewaycore.RouteReasonRerouteHTTP,
 		gatewaycore.RouteReasonCircuitOpenSkip,
 		gatewaycore.RouteReasonNoHealthyUpstream,
 		gatewaycore.RouteReasonPolicyReject:
@@ -247,6 +256,7 @@ func (state *requestExecutionState) recordRetry(reason gatewaycore.RouteReason) 
 
 func (state *requestExecutionState) recordLaunchedAttempt(outcome executionOutcome) {
 	state.launchedAttempts++
+	state.lastLaunchRerouted = outcome.RerouteEligible
 	if outcome.Attempt.LaunchOrdinal >= state.nextLaunchOrdinal {
 		state.nextLaunchOrdinal = outcome.Attempt.LaunchOrdinal + 1
 	}

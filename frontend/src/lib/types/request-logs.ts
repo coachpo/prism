@@ -224,7 +224,8 @@ export type AttemptTrigger =
   | "initial"
   | "retry_same_target"
   | "hedge"
-  | "failover";
+  | "failover"
+  | "reroute";
 
 export type AttemptResult =
   | "completed"
@@ -382,6 +383,7 @@ export interface FinalizedSummary {
     | "initial"
     | "failover"
     | "hedge"
+    | "reroute"
     | "unknown"
     | null;
 }

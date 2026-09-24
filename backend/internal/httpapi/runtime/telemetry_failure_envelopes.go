@@ -204,7 +204,7 @@ func finalTargetEntryTriggerForAttempts(attempts []executionAttempt, connectionI
 		return nil
 	}
 	switch first.AttemptTrigger {
-	case attemptTriggerInitial, attemptTriggerFailover, attemptTriggerHedge:
+	case attemptTriggerInitial, attemptTriggerFailover, attemptTriggerHedge, attemptTriggerReroute:
 		return stringPtr(first.AttemptTrigger)
 	default:
 		return stringPtr(attemptResultUnknown)

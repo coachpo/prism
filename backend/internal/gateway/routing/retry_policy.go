@@ -11,26 +11,35 @@ import gatewaycore "github.com/coachpo/prism/backend/internal/gateway/core"
 type RetryFailureClass string
 
 const (
-	RetryFailureNone           RetryFailureClass = "none"
-	RetryFailureProvider429    RetryFailureClass = "provider_429"
-	RetryFailureProvider5xx    RetryFailureClass = "provider_5xx"
-	RetryFailureProviderHTTP   RetryFailureClass = "provider_http"
-	RetryFailureConnectTimeout RetryFailureClass = "connect_timeout"
-	RetryFailureTransport      RetryFailureClass = "transport"
+	RetryFailureNone            RetryFailureClass = "none"
+	RetryFailureProvider429     RetryFailureClass = "provider_429"
+	RetryFailureProvider5xx     RetryFailureClass = "provider_5xx"
+	RetryFailureProviderHTTP    RetryFailureClass = "provider_http"
+	RetryFailureConnectTimeout  RetryFailureClass = "connect_timeout"
+	RetryFailureTransport       RetryFailureClass = "transport"
+	RetryFailureRequestRejected RetryFailureClass = "request_rejected"
 )
 
+// RetryPolicy classifies an upstream outcome. FailoverStatusCodes are target
+// failures that also feed the target's retry window; RerouteStatusCodes reject
+// only the current request and move it on without touching target health.
 type RetryPolicy struct {
 	FailoverStatusCodes []int
+	RerouteStatusCodes  []int
 }
 
 type RetryDecision struct {
-	Class     RetryFailureClass
-	Retryable bool
-	Reason    gatewaycore.RouteReason
+	Class      RetryFailureClass
+	Retryable  bool
+	Reroutable bool
+	Reason     gatewaycore.RouteReason
 }
 
 func (policy RetryPolicy) ClassifyHTTPStatus(statusCode int) RetryDecision {
 	if !slices.Contains(policy.FailoverStatusCodes, statusCode) {
+		if slices.Contains(policy.RerouteStatusCodes, statusCode) {
+			return RetryDecision{Class: RetryFailureRequestRejected, Reroutable: true, Reason: gatewaycore.RouteReasonRerouteHTTP}
+		}
 		return RetryDecision{Class: RetryFailureNone}
 	}
 	if statusCode == http.StatusTooManyRequests {

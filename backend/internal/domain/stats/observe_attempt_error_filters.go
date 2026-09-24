@@ -60,7 +60,7 @@ func attemptErrorWhere(profileID int, bounds QueryBounds, params UsageErrorsPara
 		add(*params.TerminalTargetID, "connection_id = $%d")
 	}
 	attemptResults := map[string]struct{}{"completed": {}, "http_error": {}, "stream_error": {}, "transport_error": {}, "cancelled": {}, "client_disconnected": {}, "unknown": {}}
-	attemptTriggers := map[string]struct{}{"initial": {}, "retry_same_target": {}, "hedge": {}, "failover": {}}
+	attemptTriggers := map[string]struct{}{"initial": {}, "retry_same_target": {}, "hedge": {}, "failover": {}, "reroute": {}}
 	streamOutcomes := map[string]struct{}{
 		"not_streaming": {}, "completed": {}, "gateway_timeout": {}, "provider_incomplete": {}, "client_disconnected": {},
 		"upstream_read_error": {}, "upstream_ended_without_terminal": {}, "unknown": {},

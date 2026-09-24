@@ -259,6 +259,17 @@ export function BanPolicyDialog({ editingStrategy, initialValues, open, saving, 
                   <FieldDescription id="strategy-status-codes-description">{copy.failureStatusCodesDescription}</FieldDescription>
                   {form.formState.errors.failure_status_codes_input ? <FieldError id="strategy-status-codes-error">{form.formState.errors.failure_status_codes_input.message}</FieldError> : null}
                 </Field>
+                <Field data-invalid={Boolean(form.formState.errors.reroute_status_codes_input)}>
+                  <FieldLabel htmlFor="strategy-reroute-codes">{copy.rerouteStatusCodesLabel}</FieldLabel>
+                  <Input
+                    id="strategy-reroute-codes"
+                    aria-describedby={describedBy("strategy-reroute-codes", true, Boolean(form.formState.errors.reroute_status_codes_input))}
+                    aria-invalid={Boolean(form.formState.errors.reroute_status_codes_input) || undefined}
+                    {...registerField(form, "reroute_status_codes_input")}
+                  />
+                  <FieldDescription id="strategy-reroute-codes-description">{copy.rerouteStatusCodesDescription}</FieldDescription>
+                  {form.formState.errors.reroute_status_codes_input ? <FieldError id="strategy-reroute-codes-error">{form.formState.errors.reroute_status_codes_input.message}</FieldError> : null}
+                </Field>
               </FieldSet>
 
               {/* 三个预设是最快的配置路径，排在九个裸数字之前：先给一键起点，

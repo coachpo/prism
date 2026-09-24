@@ -15,6 +15,7 @@ type RuntimeStrategy struct {
 	Name                               string
 	LegacyStrategyType                 *string
 	FailureStatusCodes                 []int
+	RerouteStatusCodes                 []int
 	BanMode                            string
 	RetryBaseDelayMS                   int
 	RetryBackoffMultiplier             float64
@@ -36,6 +37,11 @@ type ConnectionOrderCandidate struct {
 // without ever trying them, and without recording anything against that
 // connection's health.
 var defaultRuntimeFailoverStatusCodes = []int{401, 403, 408, 422, 429, 500, 502, 503, 504, 529}
+
+// 400 is how providers answer a request this target cannot serve, such as an
+// image sent to a text-only model. Another target may accept the same request,
+// and the rejection says nothing about this target's health.
+var defaultRuntimeRerouteStatusCodes = []int{400}
 
 type runtimeFeedbackPolicy struct {
 	Enabled                            bool
@@ -64,9 +70,10 @@ func LoadRuntimeStrategy(ctx context.Context, exec queryExecutor, profileID int,
 	record := RuntimeStrategy{}
 	var legacyStrategyType string
 	var failureStatusCodes []int32
+	var rerouteStatusCodes []int32
 	err := exec.QueryRow(
 		ctx,
-		`SELECT id, name, legacy_strategy_type, failure_status_codes, ban_mode,
+		`SELECT id, name, legacy_strategy_type, failure_status_codes, reroute_status_codes, ban_mode,
 			retry_base_delay_ms, retry_backoff_multiplier, retry_jitter_ratio,
 			retry_max_delay_ms, cycle_retry_attempt_limit, ban_cumulative_retry_attempt_threshold, ban_duration_seconds
 		FROM loadbalance_strategies
@@ -79,6 +86,7 @@ func LoadRuntimeStrategy(ctx context.Context, exec queryExecutor, profileID int,
 		&record.Name,
 		&legacyStrategyType,
 		&failureStatusCodes,
+		&rerouteStatusCodes,
 		&record.BanMode,
 		&record.RetryBaseDelayMS,
 		&record.RetryBackoffMultiplier,
@@ -96,6 +104,7 @@ func LoadRuntimeStrategy(ctx context.Context, exec queryExecutor, profileID int,
 	}
 	record.LegacyStrategyType = &legacyStrategyType
 	record.FailureStatusCodes = intSliceFromInt32(failureStatusCodes)
+	record.RerouteStatusCodes = intSliceFromInt32(rerouteStatusCodes)
 	return record, true, nil
 }
 

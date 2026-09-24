@@ -52,6 +52,14 @@ export function banBadges(strategy: LoadbalanceStrategy): StrategyValueBadge[] {
   return badges
 }
 
+export function rerouteStatusCodeLabel(strategy: LoadbalanceStrategy): string {
+  const copy = getStaticMessages().routingStrategyTable
+  if (strategy.reroute_status_codes.length === 0) {
+    return copy.rerouteStatusCodesNone
+  }
+  return copy.rerouteStatusCodes(strategy.reroute_status_codes.join("、"))
+}
+
 /**
  * 十个状态码逐字排进单元格要占三行，把行高撑到标准档的两倍多。列里只留个数，
  * 完整名单交给调用点的 OperatorHelpHint —— 详情仍然键盘与读屏可达。

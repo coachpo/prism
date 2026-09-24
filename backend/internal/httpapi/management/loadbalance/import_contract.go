@@ -14,6 +14,7 @@ type ImportedStrategyDocument struct {
 	Name                               string
 	LegacyStrategyType                 *string
 	FailureStatusCodes                 []int
+	RerouteStatusCodes                 *[]int
 	BanMode                            *string
 	RetryBaseDelayMS                   *int
 	RetryBackoffMultiplier             *float64
@@ -28,6 +29,7 @@ type CanonicalImportedStrategy struct {
 	Name                               string
 	LegacyStrategyType                 *string
 	FailureStatusCodes                 []int
+	RerouteStatusCodes                 []int
 	BanMode                            string
 	RetryBaseDelayMS                   int
 	RetryBackoffMultiplier             float64
@@ -66,6 +68,10 @@ func CanonicalizeImportedStrategyDocument(document ImportedStrategyDocument) (Ca
 	if err != nil {
 		return CanonicalImportedStrategy{}, err
 	}
+	rerouteStatusCodes, err := normalizeRerouteStatusCodes(document.RerouteStatusCodes, failureStatusCodes)
+	if err != nil {
+		return CanonicalImportedStrategy{}, err
+	}
 
 	policy := importedStrategyPolicyPayload{
 		BanMode:                            resolvedString(document.BanMode, defaultBanMode),
@@ -85,6 +91,7 @@ func CanonicalizeImportedStrategyDocument(document ImportedStrategyDocument) (Ca
 		Name:                               name,
 		LegacyStrategyType:                 &legacyStrategyType,
 		FailureStatusCodes:                 append([]int(nil), failureStatusCodes...),
+		RerouteStatusCodes:                 rerouteStatusCodes,
 		BanMode:                            policy.BanMode,
 		RetryBaseDelayMS:                   policy.RetryBaseDelayMS,
 		RetryBackoffMultiplier:             policy.RetryBackoffMultiplier,

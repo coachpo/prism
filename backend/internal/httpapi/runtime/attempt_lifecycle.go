@@ -13,6 +13,7 @@ const (
 	attemptTriggerRetrySameTarget = "retry_same_target"
 	attemptTriggerHedge           = "hedge"
 	attemptTriggerFailover        = "failover"
+	attemptTriggerReroute         = "reroute"
 
 	attemptResultCompleted          = "completed"
 	attemptResultHTTPError          = "http_error"
@@ -35,11 +36,11 @@ type runtimeAttemptLifecycle struct {
 	AttemptTrigger string
 }
 
-// validateAttemptTrigger ensures only the four fixed trigger values are
-// persisted for new upstream rows.
+// validateAttemptTrigger ensures only the fixed trigger values are persisted
+// for new upstream rows.
 func validateAttemptTrigger(trigger string) bool {
 	switch trigger {
-	case attemptTriggerInitial, attemptTriggerRetrySameTarget, attemptTriggerHedge, attemptTriggerFailover:
+	case attemptTriggerInitial, attemptTriggerRetrySameTarget, attemptTriggerHedge, attemptTriggerFailover, attemptTriggerReroute:
 		return true
 	default:
 		return false

@@ -48,6 +48,7 @@ func DefaultStrategyPayload(spec CanonicalStrategySpec) RuntimeStrategy {
 		Name:                               spec.Name,
 		LegacyStrategyType:                 &legacyStrategyType,
 		FailureStatusCodes:                 append([]int(nil), defaultRuntimeFailoverStatusCodes...),
+		RerouteStatusCodes:                 append([]int(nil), defaultRuntimeRerouteStatusCodes...),
 		BanMode:                            canonicalBanMode,
 		RetryBaseDelayMS:                   canonicalRetryBaseDelayMS,
 		RetryBackoffMultiplier:             canonicalRetryBackoffMultiplier,
@@ -81,7 +82,8 @@ func StrategyMatchesCanonical(strategy RuntimeStrategy, spec CanonicalStrategySp
 		strategy.BanDurationSeconds != expected.BanDurationSeconds {
 		return false
 	}
-	return slices.Equal(strategy.FailureStatusCodes, expected.FailureStatusCodes)
+	return slices.Equal(strategy.FailureStatusCodes, expected.FailureStatusCodes) &&
+		slices.Equal(strategy.RerouteStatusCodes, expected.RerouteStatusCodes)
 }
 
 // CanonicalPayloadNames returns the canonical names in canonical order.

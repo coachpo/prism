@@ -36,6 +36,8 @@ func (s Service) seedStrategyDefaults(ctx context.Context, conn *pgx.Conn) error
 				payload := loadbalancedomain.DefaultStrategyPayload(spec)
 				isDefault := spec.LegacyStrategyType == "fill-first"
 				legacyStrategyType := *payload.LegacyStrategyType
+				// reroute_status_codes takes its column default, which is the canonical
+				// set; staged migration-dir tests seed schemas that predate the column.
 				failureStatusCodes := make([]int32, 0, len(payload.FailureStatusCodes))
 				for _, code := range payload.FailureStatusCodes {
 					failureStatusCodes = append(failureStatusCodes, int32(code))

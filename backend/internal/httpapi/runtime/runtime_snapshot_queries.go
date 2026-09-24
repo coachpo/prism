@@ -230,7 +230,7 @@ func listAccessTargetsForProfile(ctx context.Context, tx pgx.Tx, profileID int) 
 func listRuntimeStrategiesForProfile(ctx context.Context, tx pgx.Tx, profileID int) (map[int]loadbalance.RuntimeStrategy, error) {
 	rows, err := tx.Query(
 		ctx,
-		`SELECT id, name, legacy_strategy_type, failure_status_codes, ban_mode,
+		`SELECT id, name, legacy_strategy_type, failure_status_codes, reroute_status_codes, ban_mode,
 			retry_base_delay_ms, retry_backoff_multiplier, retry_jitter_ratio,
 			retry_max_delay_ms, cycle_retry_attempt_limit, ban_cumulative_retry_attempt_threshold, ban_duration_seconds
 		FROM loadbalance_strategies
@@ -247,12 +247,14 @@ func listRuntimeStrategiesForProfile(ctx context.Context, tx pgx.Tx, profileID i
 	for rows.Next() {
 		var legacyStrategyType string
 		var failureStatusCodes []int32
+		var rerouteStatusCodes []int32
 		item := loadbalance.RuntimeStrategy{}
 		if err := rows.Scan(
 			&item.ID,
 			&item.Name,
 			&legacyStrategyType,
 			&failureStatusCodes,
+			&rerouteStatusCodes,
 			&item.BanMode,
 			&item.RetryBaseDelayMS,
 			&item.RetryBackoffMultiplier,
@@ -266,6 +268,7 @@ func listRuntimeStrategiesForProfile(ctx context.Context, tx pgx.Tx, profileID i
 		}
 		item.LegacyStrategyType = &legacyStrategyType
 		item.FailureStatusCodes = intSliceFromInt32(failureStatusCodes)
+		item.RerouteStatusCodes = intSliceFromInt32(rerouteStatusCodes)
 		items[item.ID] = item
 	}
 	if err := rows.Err(); err != nil {

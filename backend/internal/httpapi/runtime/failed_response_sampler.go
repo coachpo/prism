@@ -144,8 +144,8 @@ func (sampler *failedResponseSampler) run() {
 		sampler.result.markFallback(errorSourceUpstream, failureStageUpstreamResponse, "", "")
 		return
 	}
-	extraction := safediag.ExtractProviderErrorEnvelope(raw, sampler.contentType, sampler.extraRules...)
-	if !extraction.Recognized {
+	diagnostic, recognized := extractFailedResponseDiagnostic(raw, sampler.response.StatusCode, sampler.contentType, sampler.extraRules)
+	if !recognized {
 		// Unrecognized failure body: the stable code fallback is applied at
 		// persistence, and the detail falls back to a bounded generic safe
 		// message so a non-2xx failure never persists a null error_detail
@@ -154,18 +154,29 @@ func (sampler *failedResponseSampler) run() {
 		sampler.result.markFallback(errorSourceUpstream, failureStageUpstreamResponse, "", fallbackDetail)
 		return
 	}
+	sampler.result.markExtracted(diagnostic)
+}
+
+// extractFailedResponseDiagnostic projects a bounded failed-response sample to
+// the safe attempt diagnostic; false means the body is not a recognized
+// provider error envelope.
+func extractFailedResponseDiagnostic(raw []byte, statusCode int, contentType string, extraRules []safediag.SensitiveNameRule) (attemptFailureDiagnostics, bool) {
+	extraction := safediag.ExtractProviderErrorEnvelope(raw, contentType, extraRules...)
+	if !extraction.Recognized {
+		return attemptFailureDiagnostics{}, false
+	}
 	code := extraction.Code
 	if code == "" {
-		code = safediag.HTTPFallbackCode(sampler.response.StatusCode)
+		code = safediag.HTTPFallbackCode(statusCode)
 	}
-	sampler.result.markExtracted(attemptFailureDiagnostics{
+	return attemptFailureDiagnostics{
 		Source:    errorSourceUpstream,
 		Stage:     failureStageUpstreamResponse,
 		Code:      code,
 		Detail:    extraction.Detail,
 		Redacted:  extraction.Redacted,
 		Truncated: extraction.Truncated,
-	})
+	}, true
 }
 
 // startFailedResponseSampler begins the bounded failed-response sampler for an

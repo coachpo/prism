@@ -1,6 +1,8 @@
 package loadbalance
 
 import (
+	"net/http"
+	"slices"
 	"sort"
 	"strings"
 
@@ -8,6 +10,8 @@ import (
 )
 
 var defaultFailureStatusCodes = []int{401, 403, 408, 422, 429, 500, 502, 503, 504, 529}
+
+var defaultRerouteStatusCodes = []int{400}
 
 const (
 	defaultBanMode                            = "off"
@@ -38,6 +42,7 @@ func strategyPayloadFromRuntimeStrategy(strategy loadbalancedomain.RuntimeStrate
 		Name:                               strategy.Name,
 		LegacyStrategyType:                 legacyStrategyType,
 		FailureStatusCodes:                 append([]int(nil), strategy.FailureStatusCodes...),
+		RerouteStatusCodes:                 slices.Clone(strategy.RerouteStatusCodes),
 		BanMode:                            strategy.BanMode,
 		RetryBaseDelayMS:                   strategy.RetryBaseDelayMS,
 		RetryBackoffMultiplier:             strategy.RetryBackoffMultiplier,
@@ -72,12 +77,17 @@ func canonicalizeStrategyPolicyFields(requestBody loadbalanceStrategyRequest) (s
 	if err != nil {
 		return strategyPersistedPayload{}, err
 	}
+	rerouteStatusCodes, err := normalizeRerouteStatusCodes(requestBody.RerouteStatusCodes, failureStatusCodes)
+	if err != nil {
+		return strategyPersistedPayload{}, err
+	}
 	banMode := resolvedString(requestBody.BanMode, defaultBanMode)
 	cycleRetryAttemptLimit := resolvedInt(requestBody.CycleRetryAttemptLimit, defaultCycleRetryAttemptLimit)
 	payload := strategyPersistedPayload{
 		Name:                               strings.TrimSpace(requestBody.Name),
 		LegacyStrategyType:                 legacyStrategyType,
 		FailureStatusCodes:                 failureStatusCodes,
+		RerouteStatusCodes:                 rerouteStatusCodes,
 		BanMode:                            banMode,
 		RetryBaseDelayMS:                   resolvedInt(requestBody.RetryBaseDelayMS, defaultRetryBaseDelayMS),
 		RetryBackoffMultiplier:             resolvedFloat(requestBody.RetryBackoffMultiplier, defaultRetryBackoffMultiplier),
@@ -115,6 +125,40 @@ func normalizeStatusCodes(values []int, defaults []int) ([]int, error) {
 		}
 		if _, ok := seen[value]; ok {
 			return nil, &domainError{StatusCode: 400, Detail: "failure_status_codes must not contain duplicates"}
+		}
+		seen[value] = struct{}{}
+		items = append(items, value)
+	}
+	sort.Ints(items)
+	return items, nil
+}
+
+// normalizeRerouteStatusCodes validates the request-scoped reroute set. Only
+// 4xx statuses qualify, and never 429: throttling is target health, which the
+// failure codes own. An omitted set takes the default minus any code the
+// strategy already treats as a target failure, so a strategy that fails over
+// on 400 keeps doing so; an explicit empty set disables rerouting.
+func normalizeRerouteStatusCodes(values *[]int, failureStatusCodes []int) ([]int, error) {
+	if values == nil {
+		items := make([]int, 0, len(defaultRerouteStatusCodes))
+		for _, value := range defaultRerouteStatusCodes {
+			if !slices.Contains(failureStatusCodes, value) {
+				items = append(items, value)
+			}
+		}
+		return items, nil
+	}
+	seen := map[int]struct{}{}
+	items := make([]int, 0, len(*values))
+	for _, value := range *values {
+		if value < 400 || value > 499 || value == http.StatusTooManyRequests {
+			return nil, &domainError{StatusCode: 400, Detail: "reroute_status_codes must contain only 4xx HTTP status codes other than 429"}
+		}
+		if _, ok := seen[value]; ok {
+			return nil, &domainError{StatusCode: 400, Detail: "reroute_status_codes must not contain duplicates"}
+		}
+		if slices.Contains(failureStatusCodes, value) {
+			return nil, &domainError{StatusCode: 400, Detail: "reroute_status_codes must not overlap failure_status_codes"}
 		}
 		seen[value] = struct{}{}
 		items = append(items, value)
@@ -207,10 +251,15 @@ func strategyResponseFromRow(row strategyRow) (loadbalanceStrategyResponse, erro
 	if err != nil {
 		return loadbalanceStrategyResponse{}, err
 	}
+	rerouteStatusCodes, err := normalizeRerouteStatusCodes(&row.RerouteStatusCodes, failureStatusCodes)
+	if err != nil {
+		return loadbalanceStrategyResponse{}, err
+	}
 	payload := strategyPersistedPayload{
 		Name:                               row.Name,
 		LegacyStrategyType:                 legacyStrategyType,
 		FailureStatusCodes:                 failureStatusCodes,
+		RerouteStatusCodes:                 rerouteStatusCodes,
 		BanMode:                            strings.ToLower(strings.TrimSpace(row.BanMode)),
 		RetryBaseDelayMS:                   row.RetryBaseDelayMS,
 		RetryBackoffMultiplier:             row.RetryBackoffMultiplier,
@@ -230,6 +279,7 @@ func strategyResponseFromRow(row strategyRow) (loadbalanceStrategyResponse, erro
 		LegacyStrategyType:                 payload.LegacyStrategyType,
 		IsDefault:                          row.IsDefault,
 		FailureStatusCodes:                 append([]int(nil), payload.FailureStatusCodes...),
+		RerouteStatusCodes:                 slices.Clone(payload.RerouteStatusCodes),
 		BanMode:                            payload.BanMode,
 		RetryBaseDelayMS:                   payload.RetryBaseDelayMS,
 		RetryBackoffMultiplier:             payload.RetryBackoffMultiplier,
@@ -249,6 +299,7 @@ func strategyMatchesCanonicalDefault(response loadbalanceStrategyResponse, expec
 		Name:                               response.Name,
 		LegacyStrategyType:                 &response.LegacyStrategyType,
 		FailureStatusCodes:                 append([]int(nil), response.FailureStatusCodes...),
+		RerouteStatusCodes:                 slices.Clone(response.RerouteStatusCodes),
 		BanMode:                            response.BanMode,
 		RetryBaseDelayMS:                   response.RetryBaseDelayMS,
 		RetryBackoffMultiplier:             response.RetryBackoffMultiplier,

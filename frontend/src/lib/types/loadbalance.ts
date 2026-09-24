@@ -25,6 +25,7 @@ export type LoadbalanceAdmissionReason =
 export interface LoadbalanceBanPolicyFields {
   legacy_strategy_type: LegacyLoadbalanceStrategyType;
   failure_status_codes: number[];
+  reroute_status_codes: number[];
   ban_mode: LoadbalanceBanMode;
   retry_base_delay_ms: number;
   retry_backoff_multiplier: number;

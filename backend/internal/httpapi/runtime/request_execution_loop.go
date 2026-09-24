@@ -52,7 +52,7 @@ func (s *Service) executeRequest(ctx context.Context, method string, plan reques
 			return result, nil
 		}
 	}
-	result, err := state.failureResult(plan)
+	result, err := state.exhaustedResult(plan)
 	return result, err
 }
 
@@ -92,15 +92,21 @@ func (s *Service) handleSingleExecutionOutcome(ctx context.Context, plan request
 			state.recordRetry(outcome.RetryDecision.Reason)
 			return executionResult{}, false, nil
 		}
-		result, err := state.failureResult(plan)
+		result, err := state.exhaustedResult(plan)
 		return result, true, err
 	}
 	if outcome.FailoverEligible && outcome.Launched {
 		s.recordRuntimeFailoverHTTPFailure(ctx, plan, outcome.Connection, outcome.TerminalAttempt.Strategy, outcome.Attempt.CompletedAt)
 	}
-	if outcome.FailoverEligible && index < len(plan.orderedTerminalAttempts())-1 && state.launchedAttempts < maxAttempts {
+	if (outcome.FailoverEligible || outcome.RerouteEligible) && index < len(plan.orderedTerminalAttempts())-1 && state.launchedAttempts < maxAttempts {
 		state.lastError = safediag.HTTPFallbackCode(outcome.Response.StatusCode)
 		state.recordRetry(outcome.RetryDecision.Reason)
+		if outcome.RerouteEligible {
+			// A request-scoped rejection moves on without runtime feedback; the
+			// target's retry window and ban state stay as they were.
+			state.keepRejectedResponse(plan, outcome)
+			return executionResult{}, false, nil
+		}
 		// Intermediate retry/failover: the bounded sampler owns the failed
 		// response body; the next launch never waits for it.
 		s.startFailedResponseSampler(ctx, plan, &outcome)

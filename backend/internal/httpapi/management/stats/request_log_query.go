@@ -237,7 +237,7 @@ func parseRequestLogListParams(r *http.Request, profileID int, observabilitySign
 	}
 	_, attemptTriggers, attemptTriggerIsNull := parseRepeatedStringOrNull(r, "attempt_trigger")
 	attemptTriggers = lowerSelectorValues(attemptTriggers)
-	if err := validateSelectorValues("attempt_trigger", attemptTriggers, "initial", "retry_same_target", "hedge", "failover"); err != nil {
+	if err := validateSelectorValues("attempt_trigger", attemptTriggers, "initial", "retry_same_target", "hedge", "failover", "reroute"); err != nil {
 		return statsdomain.RequestLogListParams{}, err
 	}
 	_, attemptResults, attemptResultIsNull := parseRepeatedStringOrNull(r, "attempt_result")

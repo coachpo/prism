@@ -38,6 +38,7 @@ function createStrategyRow({
     legacy_strategy_type: legacyStrategyType,
     is_default: isDefault,
     failure_status_codes: [403, 422, 429, 500, 502, 503, 504, 529],
+    reroute_status_codes: [400],
     ban_mode: banMode,
     retry_base_delay_ms: 60000,
     retry_backoff_multiplier: 2,
@@ -85,7 +86,7 @@ test("routing strategy dialog links ban fields with provenance and keeps user ed
     }
     if (pathname === "/api/loadbalance/strategies/preview" && request.method() === "POST") {
       return fulfillJson({
-        normalized_policy: { name: "", legacy_strategy_type: "fill-first", failure_status_codes: [403, 422, 429, 500, 502, 503, 504, 529], ban_mode: "off", retry_base_delay_ms: 60000, retry_backoff_multiplier: 2, retry_jitter_ratio: 0.2, retry_max_delay_ms: 900000, cycle_retry_attempt_limit: 3, ban_cumulative_retry_attempt_threshold: 0, ban_duration_seconds: 0 },
+        normalized_policy: { name: "", legacy_strategy_type: "fill-first", failure_status_codes: [403, 422, 429, 500, 502, 503, 504, 529], reroute_status_codes: [400], ban_mode: "off", retry_base_delay_ms: 60000, retry_backoff_multiplier: 2, retry_jitter_ratio: 0.2, retry_max_delay_ms: 900000, cycle_retry_attempt_limit: 3, ban_cumulative_retry_attempt_threshold: 0, ban_duration_seconds: 0 },
         steps: [
           { failure_ordinal: 1, cycle_retry_attempt: 1, cumulative_retry_attempt: 1, nominal_delay_ms: 60000, jitter_min_delay_ms: 48000, jitter_max_delay_ms: 72000, cycle_exhausted: false, ban_transition: null },
           { failure_ordinal: 2, cycle_retry_attempt: 2, cumulative_retry_attempt: 2, nominal_delay_ms: 120000, jitter_min_delay_ms: 96000, jitter_max_delay_ms: 144000, cycle_exhausted: false, ban_transition: null },

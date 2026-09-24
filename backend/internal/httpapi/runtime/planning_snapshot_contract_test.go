@@ -52,8 +52,8 @@ func TestBuildPlanningSnapshotFreezesRoutingAssemblyContract(t *testing.T) {
 	if !ok || strategy.ID != 303 || strategy.LegacyStrategyType == nil || *strategy.LegacyStrategyType != "round-robin" {
 		t.Fatalf("expected model strategy to be mapped by model id, got ok=%v strategy=%+v", ok, strategy)
 	}
-	if len(strategy.FailureStatusCodes) != 2 || strategy.FailureStatusCodes[0] != 429 || strategy.FailureStatusCodes[1] != 500 {
-		t.Fatalf("expected strategy status codes to survive snapshot assembly, got %+v", strategy.FailureStatusCodes)
+	if len(strategy.FailureStatusCodes) != 2 || strategy.FailureStatusCodes[0] != 429 || strategy.FailureStatusCodes[1] != 500 || len(strategy.RerouteStatusCodes) != 1 || strategy.RerouteStatusCodes[0] != 400 {
+		t.Fatalf("expected strategy status codes to survive snapshot assembly, got failure=%+v reroute=%+v", strategy.FailureStatusCodes, strategy.RerouteStatusCodes)
 	}
 
 	targets := snapshot.AccessTargetsBySourceModelID[model.ID]
@@ -205,7 +205,7 @@ func (tx *runtimePlanningSnapshotFakeTx) Query(_ context.Context, query string, 
 	case strings.Contains(query, "FROM model_access_targets"):
 		return newRuntimePlanningRows([]any{501, 42, 11, runtimeAccessTargetTypeConnection, sql.NullInt32{}, sql.NullString{}, sql.NullInt32{}, sql.NullString{}, sql.NullBool{}, sql.NullInt32{Int32: 901, Valid: true}, sql.NullInt32{Int32: 42, Valid: true}, sql.NullString{String: "openai", Valid: true}, sql.NullString{String: providerauth.OpenAITextCapabilityChatCompletionsOnly, Valid: true}, sql.NullString{}, 2, true}), nil
 	case strings.Contains(query, "FROM loadbalance_strategies"):
-		return newRuntimePlanningRows([]any{303, "contract round robin", "round-robin", []int32{429, 500}, "temporary", 25, 2.0, 0.1, 1000, 3, 5, 60}), nil
+		return newRuntimePlanningRows([]any{303, "contract round robin", "round-robin", []int32{429, 500}, []int32{400}, "temporary", 25, 2.0, 0.1, 1000, 3, 5, 60}), nil
 	case strings.Contains(query, "FROM connections") && strings.Contains(query, "JOIN endpoints"):
 		return tx.connectionRows(), nil
 	case strings.Contains(query, "FROM connection_routing_windows"):

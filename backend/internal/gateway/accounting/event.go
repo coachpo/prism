@@ -191,6 +191,7 @@ func NormalizeRouteReason(reason gatewaycore.RouteReason) gatewaycore.RouteReaso
 		gatewaycore.RouteReasonRetryHTTP,
 		gatewaycore.RouteReasonRetryConnectTimeout,
 		gatewaycore.RouteReasonRetryTransport,
+		gatewaycore.RouteReasonRerouteHTTP,
 		gatewaycore.RouteReasonCircuitOpenSkip,
 		gatewaycore.RouteReasonNoHealthyUpstream,
 		gatewaycore.RouteReasonPolicyReject:

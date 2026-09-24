@@ -439,6 +439,33 @@ func TestRetryPolicyClassifiesOnlyPreCommitRetryCategories(t *testing.T) {
 	}
 }
 
+func TestRetryPolicyClassifiesRequestScopedRerouteApartFromFailover(t *testing.T) {
+	policy := RetryPolicy{FailoverStatusCodes: []int{408, 503}, RerouteStatusCodes: []int{400, 404}}
+
+	cases := []struct {
+		name       string
+		statusCode int
+		retryable  bool
+		reroutable bool
+	}{
+		{name: "reroute 400", statusCode: http.StatusBadRequest, reroutable: true},
+		{name: "reroute 404", statusCode: http.StatusNotFound, reroutable: true},
+		{name: "failover stays health-driven", statusCode: http.StatusServiceUnavailable, retryable: true},
+		{name: "unconfigured stays definitive", statusCode: http.StatusUnprocessableEntity},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			decision := policy.ClassifyHTTPStatus(test.statusCode)
+			if decision.Retryable != test.retryable || decision.Reroutable != test.reroutable {
+				t.Fatalf("status %d: expected retryable=%t reroutable=%t, got %+v", test.statusCode, test.retryable, test.reroutable, decision)
+			}
+			if test.reroutable && (decision.Class != RetryFailureRequestRejected || decision.Reason != gatewaycore.RouteReasonRerouteHTTP) {
+				t.Fatalf("status %d: expected request_rejected/reroute_http, got %+v", test.statusCode, decision)
+			}
+		})
+	}
+}
+
 type testRetryTimeoutError struct{}
 
 func (testRetryTimeoutError) Error() string { return "connect timeout" }
