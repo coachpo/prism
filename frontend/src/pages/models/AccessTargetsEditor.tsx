@@ -1248,7 +1248,7 @@ function DeleteAccessTargetDialog({
           : copy.targetRemoveModelDescription
       }
       cancelLabel={messages.settingsDialogs.cancel}
-      confirmLabel={copy.targetRemoveConfirmAction(name)}
+      confirmLabel={copy.targetRemoveConfirmAction}
       confirmingLabel={messages.common.saving}
       confirming={confirming}
       cancelDisabled={confirming}

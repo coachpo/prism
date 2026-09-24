@@ -288,9 +288,10 @@ describe("AccessTargetsEditor mixed ordering", () => {
     );
     // 菜单项本身不是确认：物理删除只能来自确认对话框。
     expect(handlers.onDeleteTarget).not.toHaveBeenCalled();
-    await user.click(
-      await screen.findByTestId("delete-access-target-confirm"),
-    );
+    const confirm = await screen.findByTestId("delete-access-target-confirm");
+    // 目标名已在标题里；按钮只命名动作，长名字不会把按钮撑出对话框。
+    expect(confirm).toHaveAccessibleName("移除目标");
+    await user.click(confirm);
     expect(handlers.onDeleteTarget).toHaveBeenCalledExactlyOnceWith(503);
 
     await user.click(

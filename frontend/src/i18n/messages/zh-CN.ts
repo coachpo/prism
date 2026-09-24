@@ -3142,7 +3142,7 @@ export const zhCNMessages = {
       "这条服务连接的连接行及其级联配置（限流、请求头、自定义参数、路由时段、价格绑定）会一并删除，不可撤销。服务本身保留，可被其它服务连接继续复用。",
     targetRemoveModelDescription:
       "只解除本模型对该目标模型的引用，不可撤销。目标模型本身保留。",
-    targetRemoveConfirmAction: (name: MessageArg) => `移除 ${name}`,
+    targetRemoveConfirmAction: "移除目标",
     targetRemoveLastEnabledWarning:
       "这是当前唯一启用的可用服务与备用模型。移除后本模型没有可路由的出口，入口请求会全部失败。",
     targetRemoveFieldPosition: "当前位置",
