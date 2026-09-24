@@ -2,6 +2,7 @@ import { useTimezone } from "@/hooks/useTimezone";
 import { useLocale } from "@/i18n/useLocale";
 import type { DashboardNowResponse, UsageSummaryResponse } from "@/lib/api/observability";
 import type { FragmentState } from "@/features/observe/useObserveFragments";
+import { observePageGeneratedAt } from "@/features/observe/observeStampReference";
 import {
   OperatorClippedBadge,
   OperatorFreshnessBar,
@@ -32,7 +33,7 @@ export function ObserveFreshnessBar({
   const { format } = useTimezone();
   const copy = messages.freshness;
 
-  const generatedAt = nowFragment.data?.generated_at ?? summaryFragment.data?.generated_at ?? null;
+  const generatedAt = observePageGeneratedAt(nowFragment, summaryFragment);
   const health = nowFragment.data?.health;
 
   const coverageIncomplete = summaryFragment.data?.coverage.complete === false;

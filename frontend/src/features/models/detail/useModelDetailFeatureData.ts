@@ -10,8 +10,6 @@ import type {
   PricingTemplate,
 } from "@/lib/types"
 import {
-  type AccessTargetSummary,
-  buildAccessTargetSummary,
   getAccessTargetModelsForApiFamily,
   getOwnedModelConnections,
   getSameFamilyConnections,
@@ -276,7 +274,6 @@ export function useModelDetailFeatureData({
     () => getSameFamilyConnections(allConnections, effectiveTargetApiFamily, modelConfigId),
     [allConnections, effectiveTargetApiFamily, modelConfigId],
   )
-  const accessTargetSummary = useMemo<AccessTargetSummary>(() => buildAccessTargetSummary(model), [model])
   const setFocusSearchParams = useCallback<SetURLSearchParams>(
     (nextInit, options) => {
       setSearchParams(resolveSearchParamsInit(nextInit, new URLSearchParams(searchParams)), options)
@@ -375,7 +372,6 @@ export function useModelDetailFeatureData({
     setCustomRequestParametersError,
     upstreamModelIdError,
     setUpstreamModelIdError,
-    accessTargetSummary,
     endpointSourceDefaultName,
     openConnectionDialog,
     handleConnectionSubmit,

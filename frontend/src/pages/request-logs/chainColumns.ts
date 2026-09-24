@@ -21,8 +21,8 @@ export function getChainColumns(): ChainColumnDef[] {
     { key: "ttft", label: copy.ttft },
     { key: "token_rate", label: copy.tokenRate },
     { key: "tokens", label: copy.chainColumnTokens },
+    // 定价状态并进已知成本列：已计价不占列，其余状态跟在金额旁。
     { key: "cost", label: copy.chainColumnCost },
-    { key: "pricing", label: copy.chainColumnPricing },
   ];
 }
 

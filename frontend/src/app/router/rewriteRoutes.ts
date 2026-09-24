@@ -334,16 +334,15 @@ export const modelsListSearchSchema = z.object({
   // 配置链上一环回链到这里用的定位参数：路由策略页的「已绑定模型配置」计数
   // 点进来就是这一批。非法值折回全部，不把列表打空。
   strategy_id: z.coerce.number().int().min(1).optional().catch(undefined),
-  // Identity filters: upstream_decoupled matches entry models whose direct
-  // Terminal Targets hold a persisted upstream identity differing from the
-  // entry model_id (case-sensitive); has_model_target matches entries with at
-  // least one Model Target row. `all` never persists to the URL.
+  // has_model_target matches entries with at least one Model Target row.
+  // Whether a service model name differs from the client name is not a
+  // filter: an old `upstream_decoupled` link falls back to the full list.
+  // `all` never persists to the URL.
   flag: z
     .enum([
       "all",
       "needs_target",
       "single_truncated",
-      "upstream_decoupled",
       "has_model_target",
     ])
     .optional()

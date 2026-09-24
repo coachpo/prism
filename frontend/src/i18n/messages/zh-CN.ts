@@ -412,12 +412,7 @@ export const zhCNMessages = {
   routingStrategyTable: {
     actions: "操作",
     addStrategy: "新建策略",
-    tableSummary: (total: MessageArg, banEnabled: MessageArg) =>
-      `共 ${total} 条策略 · ${banEnabled} 条开启封禁`,
-    tableSummaryDefault: (name: MessageArg) => `新模型默认 ${name}`,
-    tableSummaryNoDefault: "尚未设置新模型默认",
     completeBuiltInStrategies: "补齐内置策略",
-    builtInComplete: "内置策略已齐全",
     attachedModels: "已绑定模型配置",
     attachedModelsLink: (name: MessageArg) =>
       `查看绑定在路由策略「${name}」上的模型配置`,
@@ -443,15 +438,12 @@ export const zhCNMessages = {
       cycle: MessageArg,
     ) =>
       `基础 ${base}ms，最大 ${max}ms，${multiplier} 倍退避，抖动 ${jitter}，每轮 ${cycle} 次`,
-    // 同一行的两列各自说自己那半边，否则两处逐字相同、不携带任何区分信息。
-    retryBalancedDefault: "重试为均衡默认值",
     banSummaryColumn: "封禁摘要",
     banOff: "不封禁",
     banTemporary: (threshold: MessageArg, duration: MessageArg) =>
       `累计 ${threshold} 次后临时封禁 ${duration} 秒`,
     banUntilReset: (threshold: MessageArg) =>
       `累计 ${threshold} 次后封禁直到重置`,
-    banBalancedDefault: "封禁为均衡默认值",
     routingBehaviorColumn: "策略与路由行为",
     nameLabel: "策略名称",
 
@@ -781,16 +773,12 @@ export const zhCNMessages = {
     resetCooldownConfirmDescription: (target: MessageArg) =>
       `将结束 ${target} 的重试等待或暂停限制，使其可以再次接收请求。这不会修复服务本身；如果问题仍在，后续请求可能再次失败并暂停。`,
     resetCooldownConfirmAction: "恢复请求",
-    resetCooldownDisabledUnobserved: "尚无该服务的请求记录，没有需要解除的等待或暂停",
-    resetCooldownDisabledNoCooldown: "此服务没有等待或暂停限制，无需恢复",
     cancel: "取消",
     currentStateDescriptionDetails:
       "显示已启用模型服务的连接记录。暂无记录时，实际连接情况仍需验证。",
     eventsTitle: "连接变化记录",
     eventsDescription:
       "查看重试、暂停和恢复记录。可从记录查看前后各 15 分钟的请求，进一步了解失败原因。",
-    sourceBoundaryNote:
-      "部分重试和切换记录可能未被保存。这里没有记录，不代表从未发生故障；具体失败请结合请求记录判断。",
     refresh: "刷新",
     retry: "重试",
     loadMore: "加载更多",
@@ -1706,8 +1694,6 @@ export const zhCNMessages = {
     routeReadinessTitle: "连接准备情况",
     routeReadinessDescription:
       "检查已配置的服务是否满足模型要求。连接能否实际成功，还需结合请求结果确认。",
-    targetsCount: (enabled: MessageArg, total: MessageArg) =>
-      `${enabled} 启用 / ${total} 总计`,
     strategyLabel: "服务选择方式",
     strategyUnassignedReason: "该模型没有绑定服务选择方式。",
 
@@ -1720,12 +1706,6 @@ export const zhCNMessages = {
       unknown: MessageArg,
     ) => `上游标识 ${distinct} 种 · 解耦 ${decoupled} · 未知 ${unknown}`,
     configurationUpdatedAt: (time: MessageArg) => `配置修改于 ${time}`,
-    upstreamIdentityDistinctLabel: "不同上游标识",
-    upstreamIdentityDistinctReason:
-      "直接连接到此模型的服务；转发到其他模型的服务不在此计数。",
-    upstreamDecoupledLabel: "上游解耦",
-    upstreamDecoupledReason:
-      "与客户端模型名称 精确比较（区分大小写）不一致的直接服务连接数；缺失证据不计入。",
     upstreamUnknownLabel: "未知上游标识",
     upstreamUnknownReason:
       "这些直接服务连接没有可读的服务模型名称，既不能算一致也不能算解耦。",
@@ -2432,7 +2412,6 @@ export const zhCNMessages = {
     flagAll: "不筛选",
     flagNeedsTarget: "尚未连接服务",
     flagSingleTruncated: "备用连接未使用",
-    flagUpstreamDecoupled: "服务模型名称不同",
     flagHasModelTarget: "转发到其他模型",
     clearFilters: "清除筛选",
     viewLabel: "模型视图",
@@ -2523,14 +2502,6 @@ export const zhCNMessages = {
     exitSummaryUnavailable: "路由摘要读取失败，无法展示使用的服务。",
     exitRemainder: (count: MessageArg) => `还有 ${count} 项，见详情`,
     exitModelTargetPrefix: "转发到模型 →",
-    exitEntrySame: "名称相同",
-    exitEntrySameReason: (entry: MessageArg) =>
-      `客户端与服务都使用模型名称「${entry}」。`,
-    exitUpstreamOnly: "服务名称不同",
-    exitUpstreamOnlyReason: (entry: MessageArg, upstream: MessageArg) =>
-      `客户端使用「${entry}」，Prism 请求此服务时使用「${upstream}」。`,
-    exitUpstreamOnlyNonEntryReason: (model: MessageArg, upstream: MessageArg) =>
-      `模型「${model}」仅供其他模型使用；请求此服务时使用名称「${upstream}」。`,
     exitNotParticipating: "未参与",
     exitNotParticipatingReason: "该目标未启用，不参与路由。",
     exitUpstreamMissingReason:
@@ -2588,7 +2559,6 @@ export const zhCNMessages = {
     connectionInactive: "服务连接未启用",
     connectionTarget: "服务连接",
     modelTarget: "转发到其他模型",
-    coverageFull: "完整覆盖",
     coverageNone: "不兼容",
     coveragePartial: "部分覆盖",
     customHeaders: "自定义请求头",
@@ -3014,11 +2984,9 @@ export const zhCNMessages = {
       "模型与连接服务将在一起保存中一起创建；任一步失败都不会留下半成品。",
     removeHeader: "删除请求头",
     accessTargets: "可用服务与备用模型",
-    accessTargetsSummary: (
-      total: MessageArg,
-      enabled: MessageArg,
-      apiFamily: MessageArg,
-    ) => `${total} 个目标 · ${enabled} 启用 · 当前 接口类型 ${apiFamily}`,
+    // 接口类型已在上方连接准备情况卡里写过一次。
+    accessTargetsSummary: (total: MessageArg, enabled: MessageArg) =>
+      `${total} 个目标 · ${enabled} 启用`,
     accessTargetsEmptyTitle: "缺可用服务与备用模型：还没有附加任何出口",
     accessTargetsEmptyEnabledDescription:
       "模型已启用但没有目标，入口请求无法路由。先添加一个服务连接，或在下方添加同接口类型的转发到其他模型作为兜底。",
@@ -3124,6 +3092,8 @@ export const zhCNMessages = {
     routingTypeDescription: "选择此模型在目标之间失败重试与轮换的方式。",
     save: "保存",
     selectSameFamilyModel: "添加转发到其他模型",
+    // 标签与按钮已写明动作；占位符只提示去选，避免同一句在一行里出现三次。
+    selectSameFamilyModelPlaceholder: "选择模型",
     strategyNotConfigured: "未配置策略",
     terminalTargets: "服务连接",
     targetMoveDown: (name: MessageArg) => `将目标 ${name} 下移`,
@@ -3222,7 +3192,6 @@ export const zhCNMessages = {
 
     actions: "操作",
     addTemplate: "新增价格模板",
-    tableSummary: (total: MessageArg) => `共 ${total} 个价格模板`,
     filterTemplates: "筛选价格模板",
     close: "关闭",
     currency: "货币",
@@ -3623,12 +3592,9 @@ export const zhCNMessages = {
     verifyAccessMissingKey: "请粘贴密钥，或选择不带密钥测试。",
     verifyAccessNoModel: "还没有可供客户端调用的模型。先添加并启用一个模型，再回来验证。",
 
-    // 容量：全页只在密钥列表卡头出现一次。
-    capacitySnapshot: (
-      used: MessageArg,
-      limit: MessageArg,
-      remaining: MessageArg,
-    ) => `${used} / ${limit} · 剩余 ${remaining}`,
+    // 容量：全页只在密钥列表卡头出现一次；剩余名额由进度条表达，不再另写。
+    capacitySnapshot: (used: MessageArg, limit: MessageArg) =>
+      `${used} / ${limit}`,
     capacityCountedAt: (when: MessageArg) => `密钥数量更新于 ${when}`,
     capacityQuotaAria: (used: MessageArg, limit: MessageArg) =>
       `已使用 ${used} / ${limit} 个密钥名额`,
@@ -3813,9 +3779,6 @@ export const zhCNMessages = {
     // 同一件事只用一个名字：令牌数与已知成本在两个视图里必须叫同一个词。
     chainColumnTokens: "令牌数",
     chainColumnCost: "已知成本",
-    chainColumnPricing: "定价状态",
-    // 请求行里同一个模型 ID 曾经渲染四次；完全同名时只留这一个短标记。
-    chainSameAsIngress: "与入口同名",
     // 请求只能按 created_at 排序（后端 chain_sort_unsupported），不写出来的话
     // 「其它列点不动」会被读成界面坏了。
     chainSortBasis:
@@ -4545,7 +4508,6 @@ export const zhCNMessages = {
     autoRefresh60: "每 60 秒",
     autoRefreshWaiting: "按所选频率自动更新",
     autoRefreshPaused: "后台已暂停",
-    recentActivityEntry: "查看近期请求",
     fragmentSampled: "数据更新时间",
     fragmentRange: "数据范围",
     setupReadCompleted: "检查时间",
@@ -4656,7 +4618,6 @@ export const zhCNMessages = {
     retryAfterNotice: (seconds: MessageArg) =>
       `服务暂不可用（过载保护），请在约 ${seconds} 秒后重试。`,
     routingSummaryTitle: "已配置的接口",
-    routingStrategyLabel: "策略",
     routingNotAccepted: "未开启",
     routingRoutable: "配置已就绪",
     routingConfiguredButIneligible: "已配置但当前不参与",
@@ -4796,7 +4757,6 @@ export const zhCNMessages = {
     cacheReadShareCreation: "缓存创建",
     cacheReadShareUncached: "未缓存输入",
     samples: "样本",
-    pricingStatus: "定价状态",
     nowUnavailable: "此刻数据不可用",
     windowUnavailable: "用量与费用读取失败",
     queryContextUnavailable: "暂时无法读取所选范围的数据",
@@ -4896,7 +4856,6 @@ export const zhCNMessages = {
     activityAdjustWindowHint: "可扩大时间范围，查看更早的请求。",
     activityWidestWindowHint: "已显示全部保留时间；已删除的历史不会用零值补回。",
     widenWindowAction: (range: MessageArg) => `查看最近${range}`,
-    buckets: "个统计时段",
     activityPageRange: (page: MessageArg, rows: MessageArg) =>
       `第 ${page} 页 · ${rows} 条（总数未知）`,
     httpSuccessShort: "成功",

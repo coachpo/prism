@@ -81,41 +81,47 @@ function catalogRevision(
       } as PricingTemplateRevision;
 }
 
+function templatesTable(pricingTemplates: PricingTemplate[]) {
+      return (
+            <LocaleProvider>
+                  {/* 费率列的口径说明是 OperatorHelpHint，需要 TooltipProvider 才能挂载。 */}
+                  <TooltipProvider>
+                        <PricingTemplatesTable
+                              detailHistory={[]}
+                              detailHistoryError={null}
+                              detailHistoryLoading={false}
+                              detailUsage={[]}
+                              detailUsageError={null}
+                              detailUsageLoading={false}
+                              facts={
+                                    {
+                                          byId: new Map(),
+                                          failed: false,
+                                          loading: false,
+                                          refresh: vi.fn(),
+                                    } as never
+                              }
+                              filter="all"
+                              onDelete={vi.fn()}
+                              onEdit={vi.fn()}
+                              onFilterChange={vi.fn()}
+                              onLoadHistory={vi.fn()}
+                              onLoadUsage={vi.fn()}
+                              onRetry={vi.fn()}
+                              pricingTemplateError={null}
+                              pricingTemplatePreparingEditId={null}
+                              pricingTemplates={pricingTemplates}
+                              pricingTemplatesLoading={false}
+                        />
+                  </TooltipProvider>
+            </LocaleProvider>
+      );
+}
+
 describe("pricing template source provenance", () => {
       it("shows the offering coordinate under a source-linked template row", () => {
             const { rerender } = render(
-                  <LocaleProvider>
-                        {/* 费率列的口径说明是 OperatorHelpHint，需要 TooltipProvider 才能挂载。 */}
-                        <TooltipProvider>
-                              <PricingTemplatesTable
-                                    detailHistory={[]}
-                                    detailHistoryError={null}
-                                    detailHistoryLoading={false}
-                                    detailUsage={[]}
-                                    detailUsageError={null}
-                                    detailUsageLoading={false}
-                                    facts={
-                                          {
-                                                byId: new Map(),
-                                                failed: false,
-                                                loading: false,
-                                                refresh: vi.fn(),
-                                          } as never
-                                    }
-                                    filter="all"
-                                    onDelete={vi.fn()}
-                                    onEdit={vi.fn()}
-                                    onFilterChange={vi.fn()}
-                                    onLoadHistory={vi.fn()}
-                                    onLoadUsage={vi.fn()}
-                                    onRetry={vi.fn()}
-                                    pricingTemplateError={null}
-                                    pricingTemplatePreparingEditId={null}
-                                    pricingTemplates={[sourceLinkedTemplate()]}
-                                    pricingTemplatesLoading={false}
-                              />
-                        </TooltipProvider>
-                  </LocaleProvider>,
+                  templatesTable([sourceLinkedTemplate()]),
             );
 
             expect(
@@ -124,51 +130,29 @@ describe("pricing template source provenance", () => {
 
             // A manual template carries no coordinate and must not render a placeholder.
             rerender(
-                  <LocaleProvider>
-                        {/* 费率列的口径说明是 OperatorHelpHint，需要 TooltipProvider 才能挂载。 */}
-                        <TooltipProvider>
-                              <PricingTemplatesTable
-                                    detailHistory={[]}
-                                    detailHistoryError={null}
-                                    detailHistoryLoading={false}
-                                    detailUsage={[]}
-                                    detailUsageError={null}
-                                    detailUsageLoading={false}
-                                    facts={
-                                          {
-                                                byId: new Map(),
-                                                failed: false,
-                                                loading: false,
-                                                refresh: vi.fn(),
-                                          } as never
-                                    }
-                                    filter="all"
-                                    onDelete={vi.fn()}
-                                    onEdit={vi.fn()}
-                                    onFilterChange={vi.fn()}
-                                    onLoadHistory={vi.fn()}
-                                    onLoadUsage={vi.fn()}
-                                    onRetry={vi.fn()}
-                                    pricingTemplateError={null}
-                                    pricingTemplatePreparingEditId={null}
-                                    pricingTemplates={[
-                                          sourceLinkedTemplate({
-                                                id: 42,
-                                                name: "Manual",
-                                                catalog_provider_id: null,
-                                                catalog_model_id: null,
-                                                revision_source: "manual",
-                                                catalog_revision: null,
-                                          }),
-                                    ]}
-                                    pricingTemplatesLoading={false}
-                              />
-                        </TooltipProvider>
-                  </LocaleProvider>,
+                  templatesTable([
+                        sourceLinkedTemplate({
+                              id: 42,
+                              name: "Manual",
+                              catalog_provider_id: null,
+                              catalog_model_id: null,
+                              revision_source: "manual",
+                              catalog_revision: null,
+                        }),
+                  ]),
             );
             expect(
                   screen.queryByTestId("pricing-template-source-42"),
             ).not.toBeInTheDocument();
+      });
+
+      it("keeps the internal revision number out of the template list", () => {
+            render(templatesTable([sourceLinkedTemplate()]));
+
+            expect(
+                  screen.queryByRole("columnheader", { name: /版本/ }),
+            ).not.toBeInTheDocument();
+            expect(screen.queryByText("v2")).not.toBeInTheDocument();
       });
 
       it("labels each revision's source without exposing its internal catalog token", () => {

@@ -55,7 +55,10 @@ import {
 } from "@/shared/table/paginationStates";
 import { GlobalCurrentStateRow } from "./GlobalCurrentStateRow";
 import type { useRoutingHealthCurrentStateRead } from "./useRoutingHealthCurrentStateRead";
-import type { useRoutingHealthCurrentStateReset } from "./useRoutingHealthCurrentStateReset";
+import {
+  canResetCooldown,
+  type useRoutingHealthCurrentStateReset,
+} from "./useRoutingHealthCurrentStateReset";
 
 type CurrentStateRead = ReturnType<typeof useRoutingHealthCurrentStateRead>;
 type CurrentStateReset = ReturnType<typeof useRoutingHealthCurrentStateReset>;
@@ -100,6 +103,7 @@ export function GlobalCurrentStatePresentation({
   const foldsUnobserved = unobservedCount > 0 && observedRows.length > 0;
   const visibleRows =
     foldsUnobserved && !unobservedExpanded ? observedRows : rows;
+  const showActions = visibleRows.some(canResetCooldown);
   const showPendingRows = shouldShowPendingRows(fragment);
   const showCommittedRows = keepsCommittedRows(fragment) && rows.length > 0;
   const showTableShell = showPendingRows || showCommittedRows;
@@ -132,9 +136,6 @@ export function GlobalCurrentStatePresentation({
                 formatNumber(bannedCount),
                 formatNumber(retryWaitCount),
               )}
-              {unobservedCount > 0
-                ? ` · ${copy.currentStateSummaryUnobserved(formatNumber(unobservedCount))}`
-                : ""}
             </span>
           ) : null}
         </>
@@ -343,14 +344,16 @@ export function GlobalCurrentStatePresentation({
                 </TableHead>
                 <TableHead>{copy.nextRetryColumn}</TableHead>
                 <TableHead>{copy.banUntilColumn}</TableHead>
-                <TableHead className="sticky right-0 z-20 bg-inset text-right shadow-[inset_1px_0_0_0_var(--color-border)]">
-                  {copy.actionsColumn}
-                </TableHead>
+                {showActions ? (
+                  <TableHead className="sticky right-0 z-20 bg-inset text-right shadow-[inset_1px_0_0_0_var(--color-border)]">
+                    {copy.actionsColumn}
+                  </TableHead>
+                ) : null}
               </TableRow>
             </TableHeader>
             <TableBody>
               {showPendingRows ? (
-                <OperationalTableSkeletonRows columns={8} rows={5} />
+                <OperationalTableSkeletonRows columns={showActions ? 8 : 7} rows={5} />
               ) : (
                 visibleRows.map((item) => (
                   <GlobalCurrentStateRow
@@ -360,6 +363,7 @@ export function GlobalCurrentStatePresentation({
                       reset.resettingTargetId === item.terminal_target.id
                     }
                     onRequestReset={() => setConfirmTarget(item)}
+                    showActions={showActions}
                     formatTime={formatTime}
                     formatNumber={formatNumber}
                     copy={copy}

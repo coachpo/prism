@@ -39,11 +39,7 @@ import { ModelDialog } from "@/pages/models/ModelDialog";
 import { ModelsTable } from "./ModelsTable";
 import { ModelsMetricsScopeSwitch } from "./ModelsMetricsScopeSwitch";
 import { ModelInventoryViewSwitch } from "./ModelInventoryViewSwitch";
-import {
-  hasModelTarget,
-  isSingleTruncated,
-  isUpstreamDecoupled,
-} from "./modelRoutingFlags";
+import { hasModelTarget, isSingleTruncated } from "./modelRoutingFlags";
 import { filterModelsByInventoryView, type ModelInventoryView } from "./modelView";
 import { useModelsPageData } from "@/pages/models/useModelsPageData";
 import { modelStrategyLabel } from "@/pages/models/modelStrategyLabel";
@@ -147,8 +143,6 @@ export function ModelsFeaturePage() {
         )
           return false;
         if (flagFilter === "single_truncated" && !isSingleTruncated(model))
-          return false;
-        if (flagFilter === "upstream_decoupled" && !isUpstreamDecoupled(model))
           return false;
         if (flagFilter === "has_model_target" && !hasModelTarget(model))
           return false;
@@ -573,9 +567,6 @@ export function ModelsFeaturePage() {
                     </SelectItem>
                     <SelectItem value="single_truncated">
                       {copy.flagSingleTruncated}
-                    </SelectItem>
-                    <SelectItem value="upstream_decoupled">
-                      {copy.flagUpstreamDecoupled}
                     </SelectItem>
                     <SelectItem value="has_model_target">
                       {copy.flagHasModelTarget}

@@ -1542,16 +1542,17 @@ test("entry-model list journey: navigation, scope switch, and identity filters",
     }),
   ).toBeVisible();
 
-  // Identity flag filter: upstream_decoupled matches the case-sensitive
-  // decoupled entry and URL round-trips.
+  // Whether a service model name differs from the client name is not a
+  // filter option; wait for the open list so the absence is not vacuous.
   await page.getByRole("combobox", { name: "连接筛选" }).click();
-  await page.getByRole("option", { name: "服务模型名称不同" }).click();
-  await expect(page).toHaveURL(/[?&]flag=upstream_decoupled/);
-  await expect(page.getByTestId("models-table-row-1")).toBeVisible();
-  await expect(page.getByTestId("models-table-row-2")).toHaveCount(0);
+  await expect(
+    page.getByRole("option", { name: "转发到其他模型" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("option", { name: "服务模型名称不同" }),
+  ).toHaveCount(0);
 
   // The model-target filter matches the entry carrying a Model Target row.
-  await page.getByRole("combobox", { name: "连接筛选" }).click();
   await page.getByRole("option", { name: "转发到其他模型" }).click();
   await expect(page).toHaveURL(/[?&]flag=has_model_target/);
   await expect(page.getByTestId("models-table-row-1")).toBeVisible();

@@ -6,9 +6,8 @@ import { formatApiFamily } from "@/components/apiFamilyPresentation";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useLocale } from "@/i18n/useLocale";
 import type { ModelConfig } from "@/lib/types";
-import { getLoadbalanceStrategyDetailLabel } from "@/lib/loadbalanceRoutingPolicy";
 import {
-  OperatorHelpHint,
+  OperatorCallout,
   OperatorInsetPanel,
   OperatorMissingValue,
   OperatorSectionCard,
@@ -19,13 +18,9 @@ import {
 import { useTimezone } from "@/hooks/useTimezone";
 import { OperationRoutingSummary } from "@/features/models/detail/OperationRoutingSummary";
 import type { DiagnosticsView } from "@/features/models/detail/ModelDetailFeaturePage";
-import {
-  buildUpstreamIdentitySummary,
-  type AccessTargetSummary,
-} from "./modelAccessTargetProjection";
+import { buildUpstreamIdentitySummary } from "./modelAccessTargetProjection";
 
 interface RouteReadinessCardProps {
-  accessTargetSummary?: AccessTargetSummary;
   diagnosticsView: DiagnosticsView;
   onRetryDiagnostics: () => void;
   model: ModelConfig;
@@ -38,12 +33,10 @@ interface RouteReadinessCardProps {
  * access-target list: Terminal Target rows carry the actual upstream identity,
  * Model Target rows are logical edges that never contribute identities, and
  * nothing here follows them recursively or repeats the full mapping — the
- * ordered target list below owns that. Upstream identity comparison against
- * the entry `model_id` is exact and case-sensitive; missing identities are
- * unknown evidence, never backfilled from the entry id.
+ * ordered target list below owns that, including the enabled/total counts.
+ * Missing identities are unknown evidence, never backfilled from the entry id.
  */
 export function RouteReadinessCard({
-  accessTargetSummary,
   diagnosticsView,
   onRetryDiagnostics,
   model,
@@ -51,14 +44,7 @@ export function RouteReadinessCard({
   const { formatNumber, messages } = useLocale();
   const { format: formatDateTime } = useTimezone();
   const copy = messages.modelDetail;
-  const modelsUiCopy = messages.modelsUi;
   const apiFamily = model.api_family ?? "openai";
-  const strategyDetail = model.loadbalance_strategy
-    ? getLoadbalanceStrategyDetailLabel(
-        model.loadbalance_strategy,
-        messages.loadbalanceStrategyCopy,
-      )
-    : null;
   const upstreamIdentity = buildUpstreamIdentitySummary(model);
 
   return (
@@ -96,7 +82,8 @@ export function RouteReadinessCard({
         />
       ) : null}
 
-      <div className="grid gap-3 grid-cols-2 xl:grid-cols-4">
+      {/* 服务选择方式只在这里写一次；各类目标的启用数由下方目标列表给出。 */}
+      <div className="grid gap-3 sm:grid-cols-2">
         <ReadinessFact label={messages.modelsUi.apiFamilyLabel}>
           <span className="flex items-center gap-1.5">
             <ApiFamilyIcon apiFamily={apiFamily} size={14} />
@@ -108,63 +95,27 @@ export function RouteReadinessCard({
 
         <ReadinessFact label={copy.strategyLabel}>
           {model.loadbalance_strategy ? (
-            <span className="flex min-w-0 flex-col">
-              {/* 配置链上下相邻的两页之间要能一步走到：这里原来只是一段死文本，
-                  要改这条策略得自己回到侧栏再找一次。 */}
-              <Link
-                to="/route/ban-policies"
-                className="truncate text-sm font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-              >
-                {modelStrategyLabel(model.loadbalance_strategy)}
-              </Link>
-              {strategyDetail ? (
-                <span className="truncate text-xs text-muted-foreground">
-                  {strategyDetail}
-                </span>
-              ) : null}
-            </span>
+            // 配置链上下相邻的两页之间要能一步走到：这里原来只是一段死文本，
+            // 要改这条策略得自己回到侧栏再找一次。
+            <Link
+              to="/route/ban-policies"
+              className="truncate text-sm font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            >
+              {modelStrategyLabel(model.loadbalance_strategy)}
+            </Link>
           ) : (
             <OperatorMissingValue reason={copy.strategyUnassignedReason} />
           )}
         </ReadinessFact>
-
-        <ReadinessFact
-          label={modelsUiCopy.terminalTargets}
-          reason={copy.upstreamIdentityDistinctReason}
-          caption={
-            upstreamIdentity.unknownUpstreamModelIdCount > 0
-              ? copy.upstreamUnknownCount(formatNumber(upstreamIdentity.unknownUpstreamModelIdCount))
-              : undefined
-          }
-        >
-          {accessTargetSummary ? (
-            <span className="font-mono text-sm tabular-nums">
-              {copy.targetsCount(
-                formatNumber(accessTargetSummary.enabledTerminalTargetCount),
-                formatNumber(accessTargetSummary.totalTerminalTargetCount),
-              )}
-            </span>
-          ) : (
-            <OperatorMissingValue />
-          )}
-        </ReadinessFact>
-
-        <ReadinessFact label={modelsUiCopy.modelFallbackTargets}>
-          {accessTargetSummary ? (
-            <span className="font-mono text-sm tabular-nums">
-              {copy.targetsCount(
-                formatNumber(
-                  accessTargetSummary.enabledModelFallbackTargetCount,
-                ),
-                formatNumber(accessTargetSummary.totalModelTargetCount),
-              )}
-            </span>
-          ) : (
-            <OperatorMissingValue />
-          )}
-        </ReadinessFact>
-
       </div>
+
+      {upstreamIdentity.unknownUpstreamModelIdCount > 0 ? (
+        <OperatorCallout intent="warning">
+          {copy.upstreamUnknownCount(
+            formatNumber(upstreamIdentity.unknownUpstreamModelIdCount),
+          )}
+        </OperatorCallout>
+      ) : null}
 
       {!upstreamIdentity.hasDirectTerminalTargets ? (
         <OperatorStatusBadge
@@ -183,26 +134,18 @@ export function RouteReadinessCard({
 }
 
 function ReadinessFact({
-  caption,
   children,
   label,
-  reason,
 }: {
-  caption?: React.ReactNode;
   children: React.ReactNode;
   label: string;
-  reason?: string;
 }) {
   return (
     <OperatorInsetPanel className="gap-1 p-2.5">
-      <p className="flex items-center gap-0.5 text-[11px] font-medium tracking-[0.04em] text-muted-foreground">
+      <p className="text-[11px] font-medium tracking-[0.04em] text-muted-foreground">
         {label}
-        {reason ? <OperatorHelpHint label={reason} /> : null}
       </p>
       {children}
-      {caption ? (
-        <p className="text-xs text-muted-foreground">{caption}</p>
-      ) : null}
     </OperatorInsetPanel>
   );
 }

@@ -47,9 +47,6 @@ export function RoutingHealthTab({
         search={search}
         onSearchChange={onSearchChange}
       />
-      <p className="text-xs text-muted-foreground">
-        {messages.routingHealth.sourceBoundaryNote}
-      </p>
     </div>
   );
 }

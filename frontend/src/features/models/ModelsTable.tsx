@@ -618,8 +618,10 @@ export function ModelsTable({
                         <OperatorMissingValue className="text-xs" reason={copy.strategyMissingReason} />
                       )}
                       {/* 覆盖度是配置事实而不是运行观测：满屏绿点会让人以为
-                          这些模型正在正常服务。只有「无法路由」保留运行态语气。 */}
-                      {model.routing_summary ? (
+                          这些模型正在正常服务。只有「无法路由」保留运行态语气。
+                          完整覆盖是常态，不占徽章；只标出偏离。 */}
+                      {model.routing_summary &&
+                      model.routing_summary.coverage !== "full" ? (
                         model.routing_summary.coverage === "none" ? (
                           <OperatorStatusBadge
                             intent="failing"
@@ -635,11 +637,9 @@ export function ModelsTable({
                             }
                             preserveLabel
                             label={
-                              model.routing_summary.coverage === "full"
-                                ? messages.routing.coverageFull
-                                : model.routing_summary.coverage === "partial"
-                                  ? messages.routing.coveragePartial
-                                  : messages.common.notApplicable
+                              model.routing_summary.coverage === "partial"
+                                ? messages.routing.coveragePartial
+                                : messages.common.notApplicable
                             }
                           />
                         )

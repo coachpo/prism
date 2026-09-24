@@ -201,44 +201,47 @@ const chain: ChainIngressItem = {
   ],
 };
 
+function renderTable(chains: ChainIngressItem[]) {
+  return renderWithRouter(
+    <IngressChainsTable
+      chains={chains}
+      total={chains.length}
+      hasPreviousChains={false}
+      hasMoreChains={false}
+      chainPageStart={0}
+      chainPageCounts={{ ingress: chains.length, attempts: 2, rows: 2 }}
+      replacing={false}
+      chainRowReads={{}}
+      onLoadPreviousChains={() => {}}
+      onLoadNextChains={() => {}}
+      onLoadMoreRows={() => {}}
+      onSelectRow={() => {}}
+      loading={false}
+      retentionClipped={false}
+      visibleColumns={[
+        "time",
+        "result",
+        "requested_model",
+        "final_target",
+        "endpoint",
+        "attempts",
+        "ttft",
+        "token_rate",
+        "tokens",
+        "cost",
+      ]}
+      pageSize={20}
+      onPageSizeChange={() => {}}
+      sortOrder="desc"
+      onSortOrderChange={() => {}}
+    />,
+  );
+}
+
 describe("IngressChainsTable route attribution", () => {
   it("separates final model from the actual outlet and explains both attempts", async () => {
     const user = userEvent.setup();
-    renderWithRouter(
-      <IngressChainsTable
-        chains={[chain]}
-        total={1}
-        hasPreviousChains={false}
-        hasMoreChains={false}
-        chainPageStart={0}
-        chainPageCounts={{ ingress: 1, attempts: 2, rows: 2 }}
-        replacing={false}
-        chainRowReads={{}}
-        onLoadPreviousChains={() => {}}
-        onLoadNextChains={() => {}}
-        onLoadMoreRows={() => {}}
-        onSelectRow={() => {}}
-        loading={false}
-        retentionClipped={false}
-        visibleColumns={[
-          "time",
-          "result",
-          "requested_model",
-          "final_target",
-          "endpoint",
-          "attempts",
-          "ttft",
-          "token_rate",
-          "tokens",
-          "cost",
-          "pricing",
-        ]}
-        pageSize={20}
-        onPageSizeChange={() => {}}
-        sortOrder="desc"
-        onSortOrderChange={() => {}}
-      />,
-    );
+    renderTable([chain]);
 
     // 路由渲染是异步的，先等这一行落地再断言。
     const summary = await screen.findByTestId("chain-summary-ingress-abc");
@@ -288,5 +291,49 @@ describe("IngressChainsTable route attribution", () => {
         screen.queryByText(leaked, { exact: true }),
       ).not.toBeInTheDocument();
     }
+  });
+
+  it("shows the final model value itself when it matches the entry model", async () => {
+    renderTable([
+      {
+        ...chain,
+        finalized_summary: {
+          ...chain.finalized_summary!,
+          ingress_model: { id: "entry-a", label: "entry-a" },
+          final_target_model: { id: "entry-a", label: "entry-a" },
+          final_upstream_model_id: "entry-a",
+        },
+      },
+    ]);
+
+    const summary = await screen.findByTestId("chain-summary-ingress-abc");
+    // Requested and final model columns each carry the value; no badge
+    // comments on whether the two match.
+    expect(within(summary).getAllByText("entry-a")).toHaveLength(2);
+    expect(within(summary).queryByText("与入口同名")).not.toBeInTheDocument();
+  });
+
+  it("marks only a non-priced request beside its cost", async () => {
+    renderTable([
+      chain,
+      {
+        ...chain,
+        ingress_request_id: "ingress-unpriced",
+        finalized_summary: {
+          ...chain.finalized_summary!,
+          request_log_id: "213",
+          total_cost_user_currency_micros: null,
+          final_pricing_status: "unpriced",
+        },
+      },
+    ]);
+
+    const priced = await screen.findByTestId("chain-summary-ingress-abc");
+    expect(within(priced).getByText("$0.0040")).toBeInTheDocument();
+    expect(within(priced).queryByText("已计价")).not.toBeInTheDocument();
+
+    const unpriced = screen.getByTestId("chain-summary-ingress-unpriced");
+    expect(within(unpriced).getByText("未计价")).toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "定价状态" })).not.toBeInTheDocument();
   });
 });

@@ -5,11 +5,6 @@ import {
   TableCell,
   TableRow,
 } from "@/components/ui/table";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { useLocale } from "@/i18n/useLocale";
 import type { GlobalCurrentStateItem } from "@/lib/types";
 import {
@@ -20,6 +15,7 @@ import {
 import { requestServiceLabel } from "@/pages/request-logs/requestFailurePresentation";
 import { cn } from "@/lib/utils";
 import { operationalRowStripe } from "@/shared/table/operationalTable";
+import { canResetCooldown } from "./useRoutingHealthCurrentStateReset";
 
 type RoutingHealthCopy = ReturnType<
   typeof useLocale
@@ -32,6 +28,7 @@ export function GlobalCurrentStateRow({
   item,
   onRequestReset,
   resetting,
+  showActions,
 }: {
   copy: RoutingHealthCopy;
   formatNumber: (value: number) => string;
@@ -39,19 +36,14 @@ export function GlobalCurrentStateRow({
   item: GlobalCurrentStateItem;
   onRequestReset: () => void;
   resetting: boolean;
+  /** The table carries an actions column only while some row can be reset. */
+  showActions: boolean;
 }) {
   const observed = item.observation_state === "observed";
   const hasAttemptCounters =
     item.cycle_retry_attempts !== null &&
     item.cumulative_retry_attempts !== null;
   const tier = stateTier(item);
-  const hasCooldown =
-    observed && (item.state === "retry_wait" || item.state === "banned");
-  const disabledReason = !observed
-    ? copy.resetCooldownDisabledUnobserved
-    : !hasCooldown
-      ? copy.resetCooldownDisabledNoCooldown
-      : null;
 
   return (
     <TableRow
@@ -117,53 +109,27 @@ export function GlobalCurrentStateRow({
           />
         )}
       </TableCell>
-      <TableCell className="sticky right-0 z-10 bg-panel text-right shadow-[inset_1px_0_0_0_var(--color-border)]">
-        {disabledReason ? (
-          // 「为什么不能重置」是这一页唯一需要解释的状态。原来的写法把它挂在
-          // 只有打开时才挂载的 TooltipContent 上，而 disabled 按钮又不可聚焦，
-          // 于是这条解释对键盘和读屏完全不存在，外面那层无名 span 还多出一个
-          // 停靠点。改成 aria-disabled（可聚焦、无动作），理由常驻在 sr-only
-          // 节点上，aria-describedby 永远指向真实存在的元素。
-          <>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  aria-disabled="true"
-                  aria-describedby={`reset-reason-${item.terminal_target.id}`}
-                  className="aria-disabled:opacity-50"
-                >
-                  {copy.resetCooldown}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>{disabledReason}</TooltipContent>
-            </Tooltip>
-            <span
-              id={`reset-reason-${item.terminal_target.id}`}
-              className="sr-only"
+      {showActions ? (
+        <TableCell className="sticky right-0 z-10 bg-panel text-right shadow-[inset_1px_0_0_0_var(--color-border)]">
+          {/* 没有等待或暂停的服务无事可恢复，不再每行放一个点不动的按钮。 */}
+          {canResetCooldown(item) ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={resetting}
+              aria-busy={resetting}
+              onClick={onRequestReset}
+              className="opacity-0 transition-opacity focus-visible:opacity-100 group-hover/row:opacity-100"
             >
-              {disabledReason}
-            </span>
-          </>
-        ) : (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={resetting}
-            aria-busy={resetting}
-            onClick={onRequestReset}
-            className="opacity-0 transition-opacity focus-visible:opacity-100 group-hover/row:opacity-100"
-          >
-            {resetting ? (
-              <Loader2 data-icon="inline-start" className="animate-spin" />
-            ) : null}
-            {copy.resetCooldown}
-          </Button>
-        )}
-      </TableCell>
+              {resetting ? (
+                <Loader2 data-icon="inline-start" className="animate-spin" />
+              ) : null}
+              {copy.resetCooldown}
+            </Button>
+          ) : null}
+        </TableCell>
+      ) : null}
     </TableRow>
   );
 }

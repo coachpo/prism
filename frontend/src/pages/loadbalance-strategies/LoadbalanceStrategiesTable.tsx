@@ -30,7 +30,6 @@ import type { LoadbalanceStrategy } from "@/lib/types";
 import type { SetDefaultState } from "@/features/loadbalance/useBanPolicyMutations";
 import type { StrategyImpactState } from "@/features/loadbalance/useStrategyImpactPager";
 import type { FragmentState } from "@/features/loadbalance/strategyFragmentState";
-import { BAN_POLICY_PRESETS } from "@/features/loadbalance/banPolicySchemas";
 import {
     OperatorCallout,
     OperatorEmptyState,
@@ -115,47 +114,12 @@ export function LoadbalanceStrategiesTable({
         }
     });
 
-    // Card headers carry a state summary, not the page title.
     const defaultStrategy =
         strategies.find((strategy) => strategy.is_default) ?? null;
-    const banEnabledCount = strategies.filter(
-        (strategy) => strategy.ban_mode !== "off",
-    ).length;
-    const strategySummary =
-        strategies.length > 0 ? (
-            <>
-                <span>
-                    {copy.tableSummary(
-                        formatNumber(strategies.length),
-                        formatNumber(banEnabledCount),
-                    )}
-                </span>
-                <span aria-hidden="true">·</span>
-                <span>
-                    {defaultStrategy
-                        ? copy.tableSummaryDefault(defaultStrategy.name)
-                        : copy.tableSummaryNoDefault}
-                </span>
-                {/* 内置策略是否齐全也是这张表的状态，与条数同属摘要行，
-          不再单独占一条横贯卡片的说明带。 */}
-                {defaultsCompleteness.complete ? (
-                    <>
-                        <span aria-hidden="true">·</span>
-                        <span
-                            className="inline-flex items-center gap-1"
-                            data-testid="built-in-complete"
-                        >
-                            <Star className="size-3.5" />
-                            {copy.builtInComplete}
-                        </span>
-                    </>
-                ) : null}
-            </>
-        ) : null;
 
+    // 条数、开启封禁数与新模型默认已由页头概览卡给出，卡头只留补齐内置策略的动作。
     return (
         <OperatorTableShell
-            summary={strategySummary}
             actions={
                 !defaultsCompleteness.complete ? (
                     <Button
@@ -436,17 +400,6 @@ function StrategyRow(props: StrategyRowProps) {
         strategy,
         props.strategyCopy,
     );
-    const balancedPreset = BAN_POLICY_PRESETS.balanced;
-    const retryIsBalanced =
-        strategy.retry_base_delay_ms === balancedPreset.retry_base_delay_ms &&
-        strategy.retry_max_delay_ms === balancedPreset.retry_max_delay_ms &&
-        strategy.cycle_retry_attempt_limit ===
-            balancedPreset.cycle_retry_attempt_limit;
-    const banIsBalanced =
-        strategy.ban_mode === balancedPreset.ban_mode &&
-        strategy.ban_cumulative_retry_attempt_threshold ===
-            balancedPreset.ban_cumulative_retry_attempt_threshold &&
-        strategy.ban_duration_seconds === balancedPreset.ban_duration_seconds;
     const statusCodes = failureStatusCodeSummary(strategy);
 
     return (
@@ -612,11 +565,6 @@ function StrategyRow(props: StrategyRowProps) {
                                 </span>
                             ) : null}
                         </div>
-                        {retryIsBalanced ? (
-                            <span className="text-xs text-muted-foreground">
-                                {props.copy.retryBalancedDefault}
-                            </span>
-                        ) : null}
                     </div>
                 </TableCell>
 
@@ -636,11 +584,6 @@ function StrategyRow(props: StrategyRowProps) {
                                 ))}
                             </div>
                         )}
-                        {banIsBalanced ? (
-                            <span className="text-xs text-muted-foreground">
-                                {props.copy.banBalancedDefault}
-                            </span>
-                        ) : null}
                     </div>
                 </TableCell>
 

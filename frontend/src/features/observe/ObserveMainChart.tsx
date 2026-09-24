@@ -613,14 +613,6 @@ export function ObserveMainChart({
           </div>
         </>
       )}
-      {/* Only where buckets were actually read. A failed read leaves chartData
-          empty, and "0 个时间桶" under the error card would state a count the
-          window never reported. */}
-      {chartData.length > 0 ? (
-        <p className="text-xs text-muted-foreground">
-          {formatNumber(chartData.length)} {copy.buckets}
-        </p>
-      ) : null}
     </section>
   );
 }

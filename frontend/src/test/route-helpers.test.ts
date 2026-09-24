@@ -94,13 +94,11 @@ describe("rewrite route helpers", () => {
     expect(modelsListSearchSchema.parse({ scope: "route_attempt" })).toEqual({ scope: "route_attempt" })
     expect(modelsListSearchSchema.parse({ action: "create", endpoint_id: "12" })).toEqual({ action: "create", endpoint_id: 12 })
     expect(modelsListSearchSchema.parse({ action: "invalid", endpoint_id: "-1" })).toEqual({ action: undefined, endpoint_id: undefined })
-    // Identity flags: the two new flags parse alongside the retained ones and
-    // survive a URL round-trip; `all` is a valid input but the list page never
-    // persists it (patchSearch drops "all" values from the URL).
+    // Connection flags survive a URL round-trip; `all` is a valid input but the
+    // list page never persists it (patchSearch drops "all" values from the URL).
     for (const flag of [
       "needs_target",
       "single_truncated",
-      "upstream_decoupled",
       "has_model_target",
     ] as const) {
       const parsed = modelsListSearchSchema.parse({ flag })
@@ -108,11 +106,13 @@ describe("rewrite route helpers", () => {
       expect(modelsListSearchSchema.parse(parsed)).toEqual(parsed)
     }
     expect(modelsListSearchSchema.parse({ flag: "all" })).toEqual({ flag: "all" })
+    // The retired name-comparison filter falls back to the full list.
+    expect(modelsListSearchSchema.parse({ flag: "upstream_decoupled" })).toEqual({ flag: undefined })
     // A full filtered view round-trips: scope + flag + sort + paging survive
     // parse(serialize(parse(input))) unchanged.
     const filteredView = {
       scope: "route_attempt",
-      flag: "upstream_decoupled",
+      flag: "has_model_target",
       status: "enabled",
       api_family: "openai",
       sort_by: "targets",

@@ -57,6 +57,7 @@ import {
 } from "./requestLogMetricPresentation";
 import type { ChainRowReadState } from "./useRequestLogIngressChains";
 import { UpstreamModelIdValue } from "./UpstreamModelIdValue";
+import { PricingStatusBadge } from "./PricingStatusBadge";
 
 type ChainSortColumn = "time" | "elapsed_ms" | "total_cost_user_currency_micros";
 
@@ -262,9 +263,6 @@ export function IngressChainsTable({
 								{visible.has("cost") ? (
 									<TableHead className="text-right">{copy.chainColumnCost}</TableHead>
 								) : null}
-								{visible.has("pricing") ? (
-									<TableHead>{copy.chainColumnPricing}</TableHead>
-								) : null}
 								<TableHead className="text-right">
 									{copy.chainRowActions}
 								</TableHead>
@@ -426,19 +424,6 @@ function resultTier(summary: FinalizedSummary | null): OperatorStatusTier {
 	return "failing";
 }
 
-function pricingIntent(status: string) {
-	switch (status) {
-		case "priced":
-			return "healthy" as const;
-		case "unpriced":
-			return "degraded" as const;
-		case "ineligible":
-			return "idle" as const;
-		default:
-			return "failing" as const;
-	}
-}
-
 /**
  * The chain's own request-log row: the finalized winner when the backend named
  * one, otherwise the winning retained row, otherwise the first retained row.
@@ -483,16 +468,11 @@ function ChainSummaryRow({
 	const { formatNumber, messages } = useLocale();
 	const { format } = useTimezone();
 	const copy = messages.requestLogs;
-	const observe = messages.observe;
 	const summary = chain.finalized_summary;
 	const tier = resultTier(summary);
 	const requestLogId = chainRequestLogId(chain);
-	// 一行里把同一个模型 ID 渲染四次，吃掉 45% 表宽，把「定价状态」挤出屏幕。
-	// 完全同名时只留一个短标记，省出的宽度还给真正携带信息的列。
-	const finalTargetSameAsIngress =
-		summary !== null &&
-		summary.final_target_model?.label === summary.ingress_model?.label &&
-		summary.final_upstream_model_id === (summary.ingress_model?.id ?? null);
+	// 服务要求的模型名称与最终模型同值时不再重复一行，省出的宽度还给
+	// 真正携带信息的列；是否与入口同名不另作标记，值本身已经在两列里。
 	const upstreamIdRepeatsLabel =
 		summary !== null &&
 		summary.final_upstream_model_id !== null &&
@@ -601,12 +581,6 @@ function ChainSummaryRow({
 				<TableCell className="max-w-52">
 					{summary === null ? (
 						<OperatorMissingValue reason={missingReason} />
-					) : finalTargetSameAsIngress ? (
-						// 与入口完全同名：短标记代替第二、第三次渲染同一个 ID。
-						<OperatorTypeBadge
-							label={copy.chainSameAsIngress}
-							preserveLabel
-						/>
 					) : (
 						<div className="flex min-w-0 flex-col gap-0.5">
 							<span className="truncate" title={summary.final_target_model?.label}>
@@ -728,27 +702,18 @@ function ChainSummaryRow({
 
 			{visible.has("cost") ? (
 			<TableCell className="text-right font-mono tabular-nums">
-				{summary?.total_cost_user_currency_micros == null ? (
-					<OperatorMissingValue reason={missingReason} />
-				) : (
-					`${summary.report_currency_symbol ?? summary.report_currency_code ?? ""}${(
-						summary.total_cost_user_currency_micros / 1_000_000
-					).toFixed(4)}`
-				)}
-			</TableCell>
-			) : null}
-
-			{visible.has("pricing") ? (
-			<TableCell>
-				{summary ? (
-					<OperatorTypeBadge
-						intent={pricingIntent(summary.final_pricing_status)}
-						label={pricingLabel(summary.final_pricing_status, observe)}
-						preserveLabel
-					/>
-				) : (
-					<OperatorMissingValue reason={missingReason} />
-				)}
+				<div className="flex flex-wrap items-center justify-end gap-1.5">
+					{summary?.total_cost_user_currency_micros == null ? (
+						<OperatorMissingValue reason={missingReason} />
+					) : (
+						`${summary.report_currency_symbol ?? summary.report_currency_code ?? ""}${(
+							summary.total_cost_user_currency_micros / 1_000_000
+						).toFixed(4)}`
+					)}
+					{summary ? (
+						<PricingStatusBadge status={summary.final_pricing_status} />
+					) : null}
+				</div>
 			</TableCell>
 			) : null}
 
@@ -812,22 +777,6 @@ function ChainSummaryRow({
 			</TableCell>
 		</TableRow>
 	);
-}
-
-function pricingLabel(
-	status: string,
-	copy: ReturnType<typeof useLocale>["messages"]["observe"],
-): string {
-	switch (status) {
-		case "priced":
-			return copy.pricingPriced;
-		case "unpriced":
-			return copy.pricingUnpriced;
-		case "ineligible":
-			return copy.pricingIneligible;
-		default:
-			return copy.pricingUnknown;
-	}
 }
 
 /** Row-kind enums always pass through the localized label dictionary. */

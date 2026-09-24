@@ -2,8 +2,8 @@
 // projection logic lives in modelExitMapping.test.ts; this suite pins what the
 // operator actually sees per the DESIGN.md honesty contract: real endpoint +
 // upstream identity for Terminal Targets, the logical id for Model Targets,
-// reasoned `—` for missing evidence, and textual (never color-only)
-// 名称相同/服务名称不同/未参与 states.
+// reasoned `—` for missing evidence, and a textual (never color-only) 未参与
+// state. Whether the upstream name matches the client name is not annotated.
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
@@ -44,48 +44,23 @@ describe("ModelExitMappingCell", () => {
     expect(screen.queryByText(ENTRY_MODEL_ID)).not.toBeInTheDocument();
   });
 
-  it("marks a case-sensitive upstream-only identity with the full reason", () => {
+  it("shows upstream identities without annotating whether they match the client name", () => {
     renderCell(
       entryModelListItem([
         terminalTargetRow(11, 0, {
-          endpointName: "OpenAI Primary",
+          endpointName: "ep-same",
+          upstreamModelId: ENTRY_MODEL_ID,
+        }),
+        terminalTargetRow(12, 1, {
+          endpointName: "ep-other",
           upstreamModelId: "entry-a",
         }),
       ]),
     );
-    const decoupled = screen.getByText("服务名称不同");
-    expect(decoupled).toBeInTheDocument();
-    expect(decoupled).toHaveAttribute(
-      "title",
-      `客户端使用「${ENTRY_MODEL_ID}」，Prism 请求此服务时使用「entry-a」。`,
-    );
-  });
-
-  it("marks an exact matching-case upstream identity as entry-same", () => {
-    renderCell(
-      entryModelListItem([
-        terminalTargetRow(11, 0, { upstreamModelId: "Entry-A" }),
-      ]),
-    );
-    const same = screen.getByText("名称相同");
-    expect(same).toHaveAttribute(
-      "title",
-      `客户端与服务都使用模型名称「${ENTRY_MODEL_ID}」。`,
-    );
-  });
-
-  it("keeps an exact same-id upstream as upstream-only for a non-entry config", () => {
-    renderCell({
-      ...entryModelListItem([
-        terminalTargetRow(11, 0, { upstreamModelId: ENTRY_MODEL_ID }),
-      ]),
-      direct_request_enabled: false,
-    });
+    expect(screen.getByTitle(ENTRY_MODEL_ID)).toHaveTextContent(ENTRY_MODEL_ID);
+    expect(screen.getByTitle("entry-a")).toHaveTextContent("entry-a");
     expect(screen.queryByText("名称相同")).not.toBeInTheDocument();
-    expect(screen.getByText("服务名称不同")).toHaveAttribute(
-      "title",
-      `模型「${ENTRY_MODEL_ID}」仅供其他模型使用；请求此服务时使用名称「${ENTRY_MODEL_ID}」。`,
-    );
+    expect(screen.queryByText("服务名称不同")).not.toBeInTheDocument();
   });
 
   it("shows a Model Target row as the logical target, not an exit", () => {

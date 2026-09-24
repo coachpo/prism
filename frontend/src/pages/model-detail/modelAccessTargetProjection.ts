@@ -117,43 +117,6 @@ export function getOwnedModelConnections(
   );
 }
 
-export interface AccessTargetSummary {
-  totalTargetCount: number;
-  enabledTargetCount: number;
-  totalModelTargetCount: number;
-  totalTerminalTargetCount: number;
-  enabledModelFallbackTargetCount: number;
-  enabledTerminalTargetCount: number;
-}
-
-export function buildAccessTargetSummary(
-  model: ModelConfig | null,
-): AccessTargetSummary {
-  const targets = model?.access_targets ?? [];
-  const enabledTargets = targets.filter((target) => target.is_enabled);
-  const modelTargets = targets.filter(
-    (target) => target.target_type === "model",
-  );
-  const terminalTargets = targets.filter((target) =>
-    isTerminalTargetAccessTargetType(target.target_type),
-  );
-  const enabledModelFallbackTargets = enabledTargets.filter(
-    (target) => target.target_type === "model",
-  );
-  const enabledTerminalTargets = enabledTargets.filter((target) =>
-    isTerminalTargetAccessTargetType(target.target_type),
-  );
-
-  return {
-    totalTargetCount: targets.length,
-    enabledTargetCount: enabledTargets.length,
-    totalModelTargetCount: modelTargets.length,
-    totalTerminalTargetCount: terminalTargets.length,
-    enabledModelFallbackTargetCount: enabledModelFallbackTargets.length,
-    enabledTerminalTargetCount: enabledTerminalTargets.length,
-  };
-}
-
 /**
  * Read-only projection of the upstream identities held by this model config's
  * DIRECT Terminal Targets. Model Target rows are logical edges and never

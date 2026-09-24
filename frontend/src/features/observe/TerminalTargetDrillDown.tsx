@@ -1,5 +1,6 @@
 import { useId } from "react";
 import { useTerminalTargetDetails, type TerminalTargetScope } from "./useTerminalTargetDetails";
+import { stampRepeatsPage, useObservePageGeneratedAt } from "./observeStampReference";
 import { useTimezone } from "@/hooks/useTimezone";
 import { Link } from "@tanstack/react-router";
 import { ChevronDown, ChevronRight, RefreshCw } from "lucide-react";
@@ -56,6 +57,7 @@ export function TerminalTargetDrillDown({
   const scopeLabelId = useId();
   const { endpoints, endpointsFailed, retryEndpoints, expanded, details, load, toggleEndpoint } = useTerminalTargetDetails(preset, scope);
   const { format } = useTimezone();
+  const pageGeneratedAt = useObservePageGeneratedAt();
   const changeScope = (nextScope: TerminalTargetScope) => { if (nextScope !== scope) onScopeChange(nextScope); };
 
   return (
@@ -123,6 +125,11 @@ export function TerminalTargetDrillDown({
           // 否则读屏用户知道「已展开」，却没法从触发器跳到被展开的内容。
           const panelId = `tt-panel-${endpoint.id}`;
           const panelLabelId = `tt-panel-label-${endpoint.id}`;
+          // 与页头同一次读取的时间不再重复；过期或另读的结果仍标出自己的时间。
+          const stampShown =
+            detail?.response != null &&
+            (detail.phase === "error" ||
+              !stampRepeatsPage(detail.response.generated_at, pageGeneratedAt));
           return (
             <div key={endpoint.id} className="rounded-lg border border-border">
               <button
@@ -144,7 +151,7 @@ export function TerminalTargetDrillDown({
                 {detail?.response ? (
                   <span className="flex flex-col items-end gap-1">
                     <EndpointSummary response={detail.response} scope={scope} />
-                    <span className="text-xs text-muted-foreground">{messages.observe.fragmentSampled}：<span className="font-mono tabular-nums">{format(detail.response.generated_at)}</span></span>
+                    {stampShown ? <span className="text-xs text-muted-foreground">{messages.observe.fragmentSampled}：<span className="font-mono tabular-nums">{format(detail.response.generated_at)}</span></span> : null}
                     {detail.phase === "error" && <OperatorStalenessBadge label={messages.observe.staleDataNote} reason={detail.error ?? undefined} />}
                   </span>
                 ) : null}
@@ -159,7 +166,7 @@ export function TerminalTargetDrillDown({
                   aria-labelledby={panelLabelId}
                   className="border-t border-border px-3 py-2"
                 >
-                  {detail?.response && <p className="text-xs text-muted-foreground">{messages.observe.fragmentSampled}：{format(detail.response.generated_at)}；{format(detail.response.coverage.effective_from_time)} — {format(detail.response.coverage.effective_to_time)}</p>}
+                  {detail?.response && (stampShown || detail.response.coverage.complete === false) && <p className="text-xs text-muted-foreground">{messages.observe.fragmentSampled}：{format(detail.response.generated_at)}；{format(detail.response.coverage.effective_from_time)} — {format(detail.response.coverage.effective_to_time)}</p>}
                   {detail?.phase === "error" && detail.response && <OperatorStalenessBadge label={messages.observe.staleDataNote} reason={detail.error ?? undefined} />}
                   {!detail || (detail.phase === "loading" && !detail.response) ? (
                     <p
