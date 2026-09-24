@@ -45,7 +45,7 @@ func loadStrategyRecordsByIDs(ctx context.Context, exec queryExecutor, profileID
 		return map[int]strategyRecord{}, nil
 	}
 	args := []any{profileID, int32ArrayArg(strategyIDs)}
-	query := `SELECT id, name, legacy_strategy_type, is_default, failure_status_codes, ban_mode, retry_base_delay_ms, retry_backoff_multiplier, retry_jitter_ratio, retry_max_delay_ms, cycle_retry_attempt_limit, ban_cumulative_retry_attempt_threshold, ban_duration_seconds FROM loadbalance_strategies WHERE profile_id = $1 AND id = ANY($2) ORDER BY id ASC`
+	query := `SELECT id, name, legacy_strategy_type, is_default, failure_status_codes, reroute_status_codes, ban_mode, retry_base_delay_ms, retry_backoff_multiplier, retry_jitter_ratio, retry_max_delay_ms, cycle_retry_attempt_limit, ban_cumulative_retry_attempt_threshold, ban_duration_seconds FROM loadbalance_strategies WHERE profile_id = $1 AND id = ANY($2) ORDER BY id ASC`
 	rows, err := exec.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query strategies by id for profile %d: %w", profileID, err)
@@ -80,6 +80,7 @@ func ensureLoadbalanceStrategyExists(ctx context.Context, exec queryExecutor, pr
 
 func scanStrategyRecord(scanner interface{ Scan(...any) error }) (strategyRecord, error) {
 	var failureStatusCodes []int32
+	var rerouteStatusCodes []int32
 	record := strategyRecord{}
 	if err := scanner.Scan(
 		&record.ID,
@@ -87,6 +88,7 @@ func scanStrategyRecord(scanner interface{ Scan(...any) error }) (strategyRecord
 		&record.LegacyStrategyType,
 		&record.IsDefault,
 		&failureStatusCodes,
+		&rerouteStatusCodes,
 		&record.BanMode,
 		&record.RetryBaseDelayMS,
 		&record.RetryBackoffMultiplier,
@@ -99,5 +101,6 @@ func scanStrategyRecord(scanner interface{ Scan(...any) error }) (strategyRecord
 		return strategyRecord{}, err
 	}
 	record.FailureStatusCodes = intSliceFromInt32(failureStatusCodes)
+	record.RerouteStatusCodes = intSliceFromInt32(rerouteStatusCodes)
 	return record, nil
 }

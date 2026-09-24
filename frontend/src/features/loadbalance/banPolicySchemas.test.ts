@@ -27,8 +27,9 @@ describe("Ban Policy strategy schema", () => {
       name: "Until reset",
       legacy_strategy_type: "round-robin",
       failure_status_codes: [429, 500, 503],
+      reroute_status_codes: [400],
       ban_mode: "until_reset",
-      retry_base_delay_ms: 60000,
+      retry_base_delay_ms: 5000,
       retry_backoff_multiplier: 2,
       retry_jitter_ratio: 0.2,
       retry_max_delay_ms: 900000,
@@ -39,11 +40,29 @@ describe("Ban Policy strategy schema", () => {
   })
 
   it("maps persisted strategy responses into form values", () => {
-    const form = banPolicyFormValuesFromStrategy({ id: 77, profile_id: 71, name: "Temporary policy", legacy_strategy_type: "fill-first", is_default: false, failure_status_codes: [529, 429, 529], ban_mode: "temporary", retry_base_delay_ms: 250, retry_backoff_multiplier: 1.5, retry_jitter_ratio: 0.3, retry_max_delay_ms: 3000, cycle_retry_attempt_limit: 2, ban_cumulative_retry_attempt_threshold: 4, ban_duration_seconds: 120, attached_model_count: 1, created_at: "2026-06-11T00:00:00Z", updated_at: "2026-06-11T00:00:00Z" })
+    const form = banPolicyFormValuesFromStrategy({ id: 77, profile_id: 71, name: "Temporary policy", legacy_strategy_type: "fill-first", is_default: false, failure_status_codes: [529, 429, 529], reroute_status_codes: [404, 400], ban_mode: "temporary", retry_base_delay_ms: 250, retry_backoff_multiplier: 1.5, retry_jitter_ratio: 0.3, retry_max_delay_ms: 3000, cycle_retry_attempt_limit: 2, ban_cumulative_retry_attempt_threshold: 4, ban_duration_seconds: 120, attached_model_count: 1, created_at: "2026-06-11T00:00:00Z", updated_at: "2026-06-11T00:00:00Z" })
     expect(form.failure_status_codes_input).toBe("429, 529")
+    expect(form.reroute_status_codes_input).toBe("400, 404")
     expect(form.ban_mode).toBe("temporary")
     expect(form.cycle_retry_attempt_limit).toBe(2)
     expect(form.ban_cumulative_retry_attempt_threshold).toBe(4)
+  })
+
+  it.each([
+    ["5xx", "500", /400–499/],
+    ["429", "429", /400–499/],
+    ["duplicates", "400, 400", /不能重复/],
+    ["overlap with failure codes", "400, 408", /既是失败状态码又是改道状态码/],
+  ])("rejects reroute codes: %s", (_case, reroute, message) => {
+    const result = banPolicyFormSchema.safeParse(validForm({ reroute_status_codes_input: reroute }))
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.error.issues.find((issue) => issue.path.join(".") === "reroute_status_codes_input")?.message).toMatch(message)
+    }
+  })
+
+  it("accepts an empty reroute set to disable rerouting", () => {
+    expect(buildBanPolicyPayload(validForm({ reroute_status_codes_input: "" })).reroute_status_codes).toEqual([])
   })
 })
 
@@ -77,6 +96,10 @@ describe("routing strategy presets and provenance", () => {
       ban_cumulative_retry_attempt_threshold: 0,
       ban_duration_seconds: 0,
     })
+  })
+
+  it("opens a new strategy on the balanced preset, the backend canonical payload", () => {
+    expect(presetMatchingValues(DEFAULT_BAN_POLICY_FORM_VALUES)).toBe("balanced")
   })
 
   it("presets never change the name or routing type", () => {

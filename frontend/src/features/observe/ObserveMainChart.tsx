@@ -630,6 +630,7 @@ function localizedSeriesLabel(
         retry_same_target: copy.attemptTriggerRetrySameTarget,
         hedge: copy.attemptTriggerHedge,
         failover: copy.attemptTriggerFailover,
+        reroute: copy.attemptTriggerReroute,
       }[key] ?? copy.attemptTriggerUnavailable
     );
   }

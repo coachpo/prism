@@ -67,6 +67,7 @@ function strategy() {
     legacy_strategy_type: "fill-first",
     is_default: true,
     failure_status_codes: [429, 500],
+    reroute_status_codes: [400],
     ban_mode: "off",
     retry_base_delay_ms: 1000,
     retry_backoff_multiplier: 2,

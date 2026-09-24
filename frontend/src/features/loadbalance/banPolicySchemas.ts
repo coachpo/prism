@@ -82,6 +82,7 @@ export type BanPolicyFormValues = {
   name: string
   legacy_strategy_type: LegacyLoadbalanceStrategyType
   failure_status_codes_input: string
+  reroute_status_codes_input: string
   ban_mode: LoadbalanceBanMode
   retry_base_delay_ms: number
   retry_backoff_multiplier: number
@@ -92,8 +93,8 @@ export type BanPolicyFormValues = {
   ban_duration_seconds: number
 }
 
-function parseFailureStatusCodes(value: string): number[] {
-  return normalizeFailureStatusCodes(value.split(/[\s,]+/).map((token) => Number(token.trim())).filter(Number.isFinite))
+function parseStatusCodes(value: string): number[] {
+  return normalizeFailureStatusCodes(value.split(/[\s,]+/).filter(Boolean).map((token) => Number(token.trim())).filter(Number.isFinite))
 }
 
 // 这些消息原样进 FieldError，界面是简体中文单一 locale，校验串同样走 messages。
@@ -124,10 +125,28 @@ const statusCodeTokenSchema = z.string().superRefine((value, context) => {
   }
 })
 
+// 改道码只收 4xx：这类响应拒绝的是这一次请求，与服务健康无关；429 是限流，
+// 属于失败状态码。留空表示不改道，所以与失败状态码不同，允许为空。
+const rerouteStatusCodeTokenSchema = z.string().superRefine((value, context) => {
+  const seen = new Set<number>()
+  for (const token of value.split(/[\s,]+/).map((item) => item.trim()).filter(Boolean)) {
+    const code = Number(token)
+    if (!/^\d+$/.test(token) || code < 400 || code > 499 || code === 429) {
+      context.addIssue({ code: "custom", message: validation().rerouteStatusCodeInvalid })
+      continue
+    }
+    if (seen.has(code)) {
+      context.addIssue({ code: "custom", message: validation().rerouteStatusCodeDuplicate })
+    }
+    seen.add(code)
+  }
+})
+
 export const banPolicyFormSchema = z.object({
   name: z.string().trim().min(1, { error: () => validation().nameRequired }),
   legacy_strategy_type: z.enum(banPolicyRoutingTypes),
   failure_status_codes_input: statusCodeTokenSchema,
+  reroute_status_codes_input: rerouteStatusCodeTokenSchema,
   ban_mode: z.enum(banPolicyModes),
   retry_base_delay_ms: z.coerce.number().int({ error: () => validation().baseDelayInteger }).min(0, { error: () => validation().baseDelayRange }).max(86_400_000, { error: () => validation().baseDelayRange }),
   retry_backoff_multiplier: z.coerce.number().min(1, { error: () => validation().multiplierRange }).max(10, { error: () => validation().multiplierRange }),
@@ -137,6 +156,10 @@ export const banPolicyFormSchema = z.object({
   ban_cumulative_retry_attempt_threshold: z.coerce.number().int({ error: () => validation().thresholdInteger }).min(0, { error: () => validation().thresholdMin }),
   ban_duration_seconds: z.coerce.number().int({ error: () => validation().durationInteger }).min(0, { error: () => validation().durationMin }),
 }).superRefine((value, context) => {
+  const failureStatusCodes = new Set(parseStatusCodes(value.failure_status_codes_input))
+  if (parseStatusCodes(value.reroute_status_codes_input).some((code) => failureStatusCodes.has(code))) {
+    context.addIssue({ code: "custom", path: ["reroute_status_codes_input"], message: validation().rerouteOverlapsFailure })
+  }
   if (value.ban_mode === "off" && value.ban_cumulative_retry_attempt_threshold !== 0) {
     context.addIssue({ code: "custom", path: ["ban_cumulative_retry_attempt_threshold"], message: validation().thresholdOffMustBeZero })
   }
@@ -162,6 +185,7 @@ export const DEFAULT_BAN_POLICY_FORM_VALUES: BanPolicyFormValues = {
   name: "",
   legacy_strategy_type: "fill-first",
   failure_status_codes_input: DEFAULT_BAN_POLICY_FIELDS.failure_status_codes.join(", "),
+  reroute_status_codes_input: DEFAULT_BAN_POLICY_FIELDS.reroute_status_codes.join(", "),
   ban_mode: DEFAULT_BAN_POLICY_FIELDS.ban_mode,
   retry_base_delay_ms: DEFAULT_BAN_POLICY_FIELDS.retry_base_delay_ms,
   retry_backoff_multiplier: DEFAULT_BAN_POLICY_FIELDS.retry_backoff_multiplier,
@@ -177,6 +201,7 @@ export function banPolicyFormValuesFromStrategy(strategy: LoadbalanceStrategy): 
     name: strategy.name,
     legacy_strategy_type: strategy.legacy_strategy_type,
     failure_status_codes_input: normalizeFailureStatusCodes(strategy.failure_status_codes).join(", "),
+    reroute_status_codes_input: normalizeFailureStatusCodes(strategy.reroute_status_codes).join(", "),
     ban_mode: strategy.ban_mode,
     retry_base_delay_ms: strategy.retry_base_delay_ms,
     retry_backoff_multiplier: strategy.retry_backoff_multiplier,
@@ -217,7 +242,7 @@ export function presetMatchingValues(values: BanPolicyFormValues): BanPolicyPres
       preset.cycle_retry_attempt_limit === values.cycle_retry_attempt_limit &&
       preset.ban_cumulative_retry_attempt_threshold === values.ban_cumulative_retry_attempt_threshold &&
       preset.ban_duration_seconds === values.ban_duration_seconds &&
-      preset.failure_status_codes.join(",") === parseFailureStatusCodes(values.failure_status_codes_input).join(",")) {
+      preset.failure_status_codes.join(",") === parseStatusCodes(values.failure_status_codes_input).join(",")) {
       return key
     }
   }
@@ -229,7 +254,8 @@ export function buildBanPolicyPayload(values: BanPolicyFormValues): LoadbalanceS
   return {
     name: parsed.name,
     legacy_strategy_type: parsed.legacy_strategy_type,
-    failure_status_codes: parseFailureStatusCodes(parsed.failure_status_codes_input),
+    failure_status_codes: parseStatusCodes(parsed.failure_status_codes_input),
+    reroute_status_codes: parseStatusCodes(parsed.reroute_status_codes_input),
     ban_mode: parsed.ban_mode,
     retry_base_delay_ms: parsed.retry_base_delay_ms,
     retry_backoff_multiplier: parsed.retry_backoff_multiplier,
@@ -257,7 +283,8 @@ export function buildBanPolicyPreviewPayload(values: BanPolicyFormValues): Strat
   const payload = parsed.data
   return {
     legacy_strategy_type: payload.legacy_strategy_type,
-    failure_status_codes: parseFailureStatusCodes(payload.failure_status_codes_input),
+    failure_status_codes: parseStatusCodes(payload.failure_status_codes_input),
+    reroute_status_codes: parseStatusCodes(payload.reroute_status_codes_input),
     ban_mode: payload.ban_mode,
     retry_base_delay_ms: payload.retry_base_delay_ms,
     retry_backoff_multiplier: payload.retry_backoff_multiplier,

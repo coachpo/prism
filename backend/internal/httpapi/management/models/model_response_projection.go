@@ -35,7 +35,7 @@ func buildModelDetailResponse(record modelRecord, strategies map[int]strategyRec
 }
 
 func strategySummaryFromRecord(record strategyRecord) *loadbalanceStrategySummary {
-	return &loadbalanceStrategySummary{ID: record.ID, Name: record.Name, LegacyStrategyType: record.LegacyStrategyType, IsDefault: record.IsDefault, FailureStatusCodes: cloneIntSlice(record.FailureStatusCodes), BanMode: record.BanMode, RetryBaseDelayMS: record.RetryBaseDelayMS, RetryBackoffMultiplier: record.RetryBackoffMultiplier, RetryJitterRatio: record.RetryJitterRatio, RetryMaxDelayMS: record.RetryMaxDelayMS, CycleRetryAttemptLimit: record.CycleRetryAttemptLimit, BanCumulativeRetryAttemptThreshold: record.BanCumulativeRetryAttemptThreshold, BanDurationSeconds: record.BanDurationSeconds}
+	return &loadbalanceStrategySummary{ID: record.ID, Name: record.Name, LegacyStrategyType: record.LegacyStrategyType, IsDefault: record.IsDefault, FailureStatusCodes: cloneIntSlice(record.FailureStatusCodes), RerouteStatusCodes: cloneIntSlice(record.RerouteStatusCodes), BanMode: record.BanMode, RetryBaseDelayMS: record.RetryBaseDelayMS, RetryBackoffMultiplier: record.RetryBackoffMultiplier, RetryJitterRatio: record.RetryJitterRatio, RetryMaxDelayMS: record.RetryMaxDelayMS, CycleRetryAttemptLimit: record.CycleRetryAttemptLimit, BanCumulativeRetryAttemptThreshold: record.BanCumulativeRetryAttemptThreshold, BanDurationSeconds: record.BanDurationSeconds}
 }
 
 func accessTargetResponsesFromRecords(records []accessTargetRecord, now time.Time) []modelAccessTargetResponse {

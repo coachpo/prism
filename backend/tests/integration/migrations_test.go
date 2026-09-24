@@ -53,6 +53,7 @@ var expectedPrismMigrationVersions = []string{
 	"000032_model_direct_request_enabled",
 	"000033_retained_history_index_slimming",
 	"000034_retention_coverage_statement_trigger",
+	"000035_request_scoped_reroute",
 }
 
 func TestSingleBaselineAppliesToFreshDatabase(t *testing.T) {
@@ -518,7 +519,39 @@ func assertHistoryVersionMissing(t *testing.T, ctx context.Context, conn *pgx.Co
 
 func assertMigratedSchemaGolden(t *testing.T, ctx context.Context, harness postgresHarness, databaseName string) {
 	t.Helper()
-	actual := normalizeSchemaDump(runDockerCommandOrFail(
+	actual := migratedSchemaDump(t, ctx, harness, databaseName)
+
+	path := migrationSchemaGoldenPath
+	if os.Getenv(updateMigrationSchemaGoldenEnv) != "" {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("create migration schema golden dir: %v", err)
+		}
+		if err := os.WriteFile(path, []byte(actual+"\n"), 0o644); err != nil {
+			t.Fatalf("update migration schema golden: %v", err)
+		}
+	}
+	assertSchemaMatchesGolden(t, actual)
+}
+
+var migrationSchemaGoldenPath = filepath.Join("testdata", "migrations", "schema.sql")
+
+// assertSchemaMatchesGolden compares a normalized dump with the fresh-schema
+// golden without ever rewriting it.
+func assertSchemaMatchesGolden(t *testing.T, actual string) {
+	t.Helper()
+	rawExpected, err := os.ReadFile(migrationSchemaGoldenPath)
+	if err != nil {
+		t.Fatalf("read migration schema golden %s: %v", migrationSchemaGoldenPath, err)
+	}
+	expected := strings.TrimSpace(string(rawExpected))
+	if actual != expected {
+		t.Fatalf("migration schema golden mismatch\n%s\n\nset %s=1 to update", firstSchemaDiff(expected, actual), updateMigrationSchemaGoldenEnv)
+	}
+}
+
+func migratedSchemaDump(t *testing.T, ctx context.Context, harness postgresHarness, databaseName string) string {
+	t.Helper()
+	return normalizeSchemaDump(runDockerCommandOrFail(
 		t,
 		ctx,
 		"exec",
@@ -537,25 +570,6 @@ func assertMigratedSchemaGolden(t *testing.T, ctx context.Context, harness postg
 		"--no-security-labels",
 		"--no-tablespaces",
 	))
-
-	path := filepath.Join("testdata", "migrations", "schema.sql")
-	if os.Getenv(updateMigrationSchemaGoldenEnv) != "" {
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			t.Fatalf("create migration schema golden dir: %v", err)
-		}
-		if err := os.WriteFile(path, []byte(actual+"\n"), 0o644); err != nil {
-			t.Fatalf("update migration schema golden: %v", err)
-		}
-	}
-
-	rawExpected, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read migration schema golden %s: %v", path, err)
-	}
-	expected := strings.TrimSpace(string(rawExpected))
-	if actual != expected {
-		t.Fatalf("migration schema golden mismatch\n%s\n\nset %s=1 to update", firstSchemaDiff(expected, actual), updateMigrationSchemaGoldenEnv)
-	}
 }
 
 func normalizeSchemaDump(value string) string {

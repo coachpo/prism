@@ -26,6 +26,7 @@ func listStrategyRows(ctx context.Context, exec queryExecutor, profileID int) ([
 			loadbalance_strategies.legacy_strategy_type,
 			loadbalance_strategies.is_default,
 			loadbalance_strategies.failure_status_codes,
+			loadbalance_strategies.reroute_status_codes,
 			loadbalance_strategies.ban_mode,
 			loadbalance_strategies.retry_base_delay_ms,
 			loadbalance_strategies.retry_backoff_multiplier,
@@ -65,7 +66,7 @@ func listStrategyRows(ctx context.Context, exec queryExecutor, profileID int) ([
 }
 
 func loadStrategyRow(ctx context.Context, exec queryExecutor, profileID int, strategyID int, forUpdate bool) (strategyRow, bool, error) {
-	query := `SELECT id, profile_id, name, legacy_strategy_type, is_default, failure_status_codes, ban_mode,
+	query := `SELECT id, profile_id, name, legacy_strategy_type, is_default, failure_status_codes, reroute_status_codes, ban_mode,
 			retry_base_delay_ms, retry_backoff_multiplier, retry_jitter_ratio,
 			retry_max_delay_ms, cycle_retry_attempt_limit, ban_cumulative_retry_attempt_threshold, ban_duration_seconds,
 			created_at, updated_at, 0 AS attached_model_count
@@ -125,11 +126,11 @@ func strategyNameExists(ctx context.Context, exec queryExecutor, profileID int, 
 func insertStrategy(ctx context.Context, exec queryExecutor, profileID int, payload strategyPersistedPayload, isDefault bool, currentTime time.Time) (strategyRow, error) {
 	item, err := scanStrategyRow(exec.QueryRow(
 		ctx,
-		`INSERT INTO loadbalance_strategies (profile_id, name, legacy_strategy_type, is_default, failure_status_codes, ban_mode,
+		`INSERT INTO loadbalance_strategies (profile_id, name, legacy_strategy_type, is_default, failure_status_codes, reroute_status_codes, ban_mode,
 			retry_base_delay_ms, retry_backoff_multiplier, retry_jitter_ratio,
 			retry_max_delay_ms, cycle_retry_attempt_limit, ban_cumulative_retry_attempt_threshold, ban_duration_seconds, created_at, updated_at)
-		 VALUES ($1, $2, $3, $4, $5::integer[], $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-		 RETURNING id, profile_id, name, legacy_strategy_type, is_default, failure_status_codes, ban_mode,
+		 VALUES ($1, $2, $3, $4, $5::integer[], $6::integer[], $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+		 RETURNING id, profile_id, name, legacy_strategy_type, is_default, failure_status_codes, reroute_status_codes, ban_mode,
 			retry_base_delay_ms, retry_backoff_multiplier, retry_jitter_ratio,
 			retry_max_delay_ms, cycle_retry_attempt_limit, ban_cumulative_retry_attempt_threshold, ban_duration_seconds,
 			created_at, updated_at, 0 AS attached_model_count`,
@@ -138,6 +139,7 @@ func insertStrategy(ctx context.Context, exec queryExecutor, profileID int, payl
 		payload.LegacyStrategyType,
 		isDefault,
 		int32ArrayArg(payload.FailureStatusCodes),
+		int32ArrayArg(payload.RerouteStatusCodes),
 		payload.BanMode,
 		payload.RetryBaseDelayMS,
 		payload.RetryBackoffMultiplier,
@@ -162,17 +164,18 @@ func updateStrategy(ctx context.Context, exec queryExecutor, strategyID int, pay
 		 SET name = $2,
 		     legacy_strategy_type = $3,
 		     failure_status_codes = $4::integer[],
-		     ban_mode = $5,
-		     retry_base_delay_ms = $6,
-		     retry_backoff_multiplier = $7,
-		     retry_jitter_ratio = $8,
-		     retry_max_delay_ms = $9,
-		     cycle_retry_attempt_limit = $10,
-		     ban_cumulative_retry_attempt_threshold = $11,
-		     ban_duration_seconds = $12,
-		     updated_at = $13
+		     reroute_status_codes = $5::integer[],
+		     ban_mode = $6,
+		     retry_base_delay_ms = $7,
+		     retry_backoff_multiplier = $8,
+		     retry_jitter_ratio = $9,
+		     retry_max_delay_ms = $10,
+		     cycle_retry_attempt_limit = $11,
+		     ban_cumulative_retry_attempt_threshold = $12,
+		     ban_duration_seconds = $13,
+		     updated_at = $14
 		 WHERE id = $1
-		 RETURNING id, profile_id, name, legacy_strategy_type, is_default, failure_status_codes, ban_mode,
+		 RETURNING id, profile_id, name, legacy_strategy_type, is_default, failure_status_codes, reroute_status_codes, ban_mode,
 			retry_base_delay_ms, retry_backoff_multiplier, retry_jitter_ratio,
 			retry_max_delay_ms, cycle_retry_attempt_limit, ban_cumulative_retry_attempt_threshold, ban_duration_seconds,
 			created_at, updated_at, 0 AS attached_model_count`,
@@ -180,6 +183,7 @@ func updateStrategy(ctx context.Context, exec queryExecutor, strategyID int, pay
 		payload.Name,
 		payload.LegacyStrategyType,
 		int32ArrayArg(payload.FailureStatusCodes),
+		int32ArrayArg(payload.RerouteStatusCodes),
 		payload.BanMode,
 		payload.RetryBaseDelayMS,
 		payload.RetryBackoffMultiplier,
@@ -205,6 +209,7 @@ func deleteStrategy(ctx context.Context, exec queryExecutor, strategyID int) err
 
 func scanStrategyRow(scanner interface{ Scan(...any) error }) (strategyRow, error) {
 	var failureStatusCodes []int32
+	var rerouteStatusCodes []int32
 	var attachedModelCount sql.NullInt64
 	item := strategyRow{}
 	if err := scanner.Scan(
@@ -214,6 +219,7 @@ func scanStrategyRow(scanner interface{ Scan(...any) error }) (strategyRow, erro
 		&item.LegacyStrategyType,
 		&item.IsDefault,
 		&failureStatusCodes,
+		&rerouteStatusCodes,
 		&item.BanMode,
 		&item.RetryBaseDelayMS,
 		&item.RetryBackoffMultiplier,
@@ -229,6 +235,7 @@ func scanStrategyRow(scanner interface{ Scan(...any) error }) (strategyRow, erro
 		return strategyRow{}, err
 	}
 	item.FailureStatusCodes = intSliceFromInt32(failureStatusCodes)
+	item.RerouteStatusCodes = intSliceFromInt32(rerouteStatusCodes)
 	if attachedModelCount.Valid {
 		item.AttachedModelCount = int(attachedModelCount.Int64)
 	}
@@ -265,7 +272,7 @@ func lockProfileStrategyDefaults(ctx context.Context, exec queryExecutor, profil
 }
 
 func loadCurrentDefaultStrategyRow(ctx context.Context, exec queryExecutor, profileID int) (strategyRow, bool, error) {
-	query := `SELECT id, profile_id, name, legacy_strategy_type, is_default, failure_status_codes, ban_mode,
+	query := `SELECT id, profile_id, name, legacy_strategy_type, is_default, failure_status_codes, reroute_status_codes, ban_mode,
 			retry_base_delay_ms, retry_backoff_multiplier, retry_jitter_ratio,
 			retry_max_delay_ms, cycle_retry_attempt_limit, ban_cumulative_retry_attempt_threshold, ban_duration_seconds,
 			created_at, updated_at, 0 AS attached_model_count

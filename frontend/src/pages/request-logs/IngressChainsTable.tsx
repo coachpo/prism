@@ -928,6 +928,7 @@ function attemptTriggerLabel(
 		case "retry_same_target": return copy.attemptTriggerRetrySameTarget;
 		case "hedge": return copy.attemptTriggerHedge;
 		case "failover": return copy.attemptTriggerFailover;
+		case "reroute": return copy.attemptTriggerReroute;
 		default: return copy.attemptTriggerUnavailable;
 	}
 }

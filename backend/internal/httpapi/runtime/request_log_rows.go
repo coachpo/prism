@@ -119,6 +119,19 @@ func applyRuntimeRequestRowFailureFields(requestLog *requestLogInsert, telemetry
 		requestLog.ErrorDetailRedacted = diagnostic.Redacted
 		requestLog.ErrorDetailTruncated = diagnostic.Truncated
 		return
+	case attemptFacts.AttemptResult == attemptResultStreamError && attemptFacts.Diagnostics != nil:
+		// A 2xx stream abandoned for the next candidate because its first
+		// event was a provider error (stream_start_inspection.go).
+		diagnostic := *attemptFacts.Diagnostics
+		requestLog.AttemptResult = stringPtr(attemptResultStreamError)
+		requestLog.StreamOutcome = runtimeStreamOutcomeProviderIncomplete
+		requestLog.ErrorSource = stringPtr(diagnostic.Source)
+		requestLog.FailureStage = stringPtr(diagnostic.Stage)
+		requestLog.ErrorCode = stringPtr(diagnostic.Code)
+		requestLog.StreamErrorDetail = optionalTrimmedStringPointer(diagnostic.Detail)
+		requestLog.StreamErrorDetailRedacted = diagnostic.Redacted
+		requestLog.StreamErrorDetailTruncated = diagnostic.Truncated
+		return
 	}
 
 	// Non-transport rows: complete the attempt result from response evidence

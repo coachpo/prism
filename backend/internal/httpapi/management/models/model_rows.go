@@ -61,6 +61,7 @@ type strategyRecord struct {
 	LegacyStrategyType                 string
 	IsDefault                          bool
 	FailureStatusCodes                 []int
+	RerouteStatusCodes                 []int
 	BanMode                            string
 	RetryBaseDelayMS                   int
 	RetryBackoffMultiplier             float64

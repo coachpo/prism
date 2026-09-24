@@ -13,6 +13,7 @@ type loadbalanceStrategyResponse struct {
 	LegacyStrategyType                 string    `json:"legacy_strategy_type"`
 	IsDefault                          bool      `json:"is_default"`
 	FailureStatusCodes                 []int     `json:"failure_status_codes"`
+	RerouteStatusCodes                 []int     `json:"reroute_status_codes"`
 	BanMode                            string    `json:"ban_mode"`
 	RetryBaseDelayMS                   int       `json:"retry_base_delay_ms"`
 	RetryBackoffMultiplier             float64   `json:"retry_backoff_multiplier"`
@@ -64,6 +65,7 @@ type strategyPolicyFieldsResponse struct {
 	Name                               string  `json:"name,omitempty"`
 	LegacyStrategyType                 string  `json:"legacy_strategy_type"`
 	FailureStatusCodes                 []int   `json:"failure_status_codes"`
+	RerouteStatusCodes                 []int   `json:"reroute_status_codes"`
 	BanMode                            string  `json:"ban_mode"`
 	RetryBaseDelayMS                   int     `json:"retry_base_delay_ms"`
 	RetryBackoffMultiplier             float64 `json:"retry_backoff_multiplier"`
@@ -87,6 +89,7 @@ type loadbalanceStrategyRequest struct {
 	Name                               string   `json:"name"`
 	LegacyStrategyType                 *string  `json:"legacy_strategy_type"`
 	FailureStatusCodes                 []int    `json:"failure_status_codes"`
+	RerouteStatusCodes                 *[]int   `json:"reroute_status_codes"`
 	BanMode                            *string  `json:"ban_mode"`
 	RetryBaseDelayMS                   *int     `json:"retry_base_delay_ms"`
 	RetryBackoffMultiplier             *float64 `json:"retry_backoff_multiplier"`
@@ -101,6 +104,7 @@ type strategyPersistedPayload struct {
 	Name                               string
 	LegacyStrategyType                 string
 	FailureStatusCodes                 []int
+	RerouteStatusCodes                 []int
 	BanMode                            string
 	RetryBaseDelayMS                   int
 	RetryBackoffMultiplier             float64
@@ -118,6 +122,7 @@ type strategyRow struct {
 	LegacyStrategyType                 string
 	IsDefault                          bool
 	FailureStatusCodes                 []int
+	RerouteStatusCodes                 []int
 	BanMode                            string
 	RetryBaseDelayMS                   int
 	RetryBackoffMultiplier             float64

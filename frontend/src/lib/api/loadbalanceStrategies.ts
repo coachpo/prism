@@ -19,6 +19,7 @@ import { buildQuery, request } from "./request";
 type RawLoadbalanceBanPolicyFields = {
   legacy_strategy_type?: unknown;
   failure_status_codes?: unknown;
+  reroute_status_codes?: unknown;
   ban_mode?: unknown;
   retry_base_delay_ms?: unknown;
   retry_backoff_multiplier?: unknown;
@@ -86,12 +87,12 @@ function normalizeBanMode(value: unknown): LoadbalanceBanMode {
   unsupportedLoadbalanceStrategy("ban_mode");
 }
 
-function normalizeStatusCodes(value: unknown) {
+function normalizeStatusCodes(value: unknown, field: string) {
   if (
     !Array.isArray(value) ||
     value.some((statusCode) => typeof statusCode !== "number")
   ) {
-    unsupportedLoadbalanceStrategy("failure_status_codes");
+    unsupportedLoadbalanceStrategy(field);
   }
 
   return normalizeFailureStatusCodes(value);
@@ -116,7 +117,8 @@ function normalizeLoadbalanceBanPolicyFields(
     legacy_strategy_type: normalizeLegacyStrategyType(
       strategy.legacy_strategy_type,
     ),
-    failure_status_codes: normalizeStatusCodes(strategy.failure_status_codes),
+    failure_status_codes: normalizeStatusCodes(strategy.failure_status_codes, "failure_status_codes"),
+    reroute_status_codes: normalizeStatusCodes(strategy.reroute_status_codes, "reroute_status_codes"),
     ban_mode: normalizeBanMode(strategy.ban_mode),
     retry_base_delay_ms: normalizeInteger(
       strategy.retry_base_delay_ms,

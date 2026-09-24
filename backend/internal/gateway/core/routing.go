@@ -16,6 +16,7 @@ const (
 	RouteReasonRetryHTTP           RouteReason = "retry_http"
 	RouteReasonRetryConnectTimeout RouteReason = "retry_connect_timeout"
 	RouteReasonRetryTransport      RouteReason = "retry_transport"
+	RouteReasonRerouteHTTP         RouteReason = "reroute_http"
 	RouteReasonCircuitOpenSkip     RouteReason = "circuit_open_skip"
 	RouteReasonNoHealthyUpstream   RouteReason = "no_healthy_upstream"
 	RouteReasonPolicyReject        RouteReason = "policy_reject"

@@ -20,6 +20,7 @@ function createStrategy() {
     name: "Default fill-first routing",
     legacy_strategy_type: "fill-first",
     failure_status_codes: [429, 500],
+    reroute_status_codes: [400],
     ban_mode: "off",
     retry_base_delay_ms: 1000,
     retry_backoff_multiplier: 2,

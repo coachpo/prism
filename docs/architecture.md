@@ -214,12 +214,15 @@ Client -> POST /v1/chat/completions {model: "gpt-4o", stream: true}
   -> Access-target resolution, route planning, adapter request build, and admission finish before downstream commit
   -> Executor claims a streaming lease before opening the upstream stream
   -> ProxyService opens streaming connection to the selected upstream endpoint
+  -> While a later candidate remains, a `2xx` SSE response is read up to its first event (at most 32 KiB) before selection; a provider error first event fails over to the next candidate, otherwise the buffered head is replayed unchanged
   -> SSE chunks stream back to the client after provider-adapter stream classification allows the operation
   -> Internal buffering is automatic for rewrite or hook-safety cases before downstream commit
   -> First downstream byte/event commits the stream boundary
   -> After commit: no retry, redirect, or hedge replay can start
   -> On stream finalization or cancellation: release the stream lease, finalize the accepted telemetry outbox payload when possible, and record runtime feedback
 ```
+
+Stream-start error failover (`stream_start_inspection.go`): a provider error first event is an SSE `error` event, or a JSON payload that declares `"type": "error"` or carries a non-null top-level `error` member. The executor closes that upstream, applies the same Ban Policy feedback as a failover-triggering status, and continues with the next candidate. No failure status code gates this. The abandoned attempt persists as `attempt_result = stream_error`, `stream_outcome = provider_incomplete`, `failure_stage = stream`, and `success_flag = false`. Its error code is the recognized provider code, with `stream_provider_incomplete` as the fallback. The last candidate is not inspected, so its stream, including an error first event, passes through unchanged. While a later candidate remains, the client receives response headers only after the upstream's first event.
 
 Streaming OpenAI usage instrumentation: for `openai.chat_completions` requests whose body sets `stream: true`, the OpenAI adapter injects `stream_options.include_usage = true` into the upstream body before transport. OpenAI-compatible upstreams emit the final usage chunk only when the caller asks for it, so without the injection every streaming attempt persists NULL token components and `pricing_status = unpriced` / `unpriced_reason = MISSING_TOKEN_USAGE`. Caller intent wins: a client-supplied `stream_options` object that already declares `include_usage` is forwarded unchanged; a missing key or an explicit JSON `null` is treated as unset and receives the injected object. The injection is scoped to Chat Completions - `openai.responses` reports usage in its `response.completed` event, and Anthropic and Gemini streams carry usage natively, so none of them are modified. The injected upstream body is what audit body capture stores, and the extra `choices: []` usage chunk is forwarded to the client verbatim.
 
@@ -3354,9 +3357,10 @@ Response `200`:
       "profile_id": 1,
       "name": "Default fill-first routing",
       "legacy_strategy_type": "fill-first",
-      "failure_status_codes": [403, 422, 429, 500, 502, 503, 504, 529],
+      "failure_status_codes": [401, 403, 408, 422, 429, 500, 502, 503, 504, 529],
+      "reroute_status_codes": [400],
       "ban_mode": "off",
-      "retry_base_delay_ms": 60000,
+      "retry_base_delay_ms": 5000,
       "retry_backoff_multiplier": 2.0,
       "retry_jitter_ratio": 0.2,
       "retry_max_delay_ms": 900000,
@@ -3387,7 +3391,8 @@ Request:
 {
   "name": "round-robin-primary",
   "legacy_strategy_type": "round-robin",
-  "failure_status_codes": [403, 422, 429, 500, 502, 503, 504, 529],
+  "failure_status_codes": [401, 403, 408, 422, 429, 500, 502, 503, 504, 529],
+  "reroute_status_codes": [400],
   "ban_mode": "temporary",
   "retry_base_delay_ms": 45000,
   "retry_backoff_multiplier": 3.5,
@@ -3406,6 +3411,7 @@ Validation rules:
 - `name` must be unique within the effective profile scope.
 - `legacy_strategy_type` must be `single`, `fill-first`, or `round-robin`.
 - `failure_status_codes` values must be unique valid HTTP status integers (`100..599`); the backend sorts them before persistence and response serialization.
+- `reroute_status_codes` values must be unique 4xx integers (`400..499`) other than `429`, disjoint from `failure_status_codes`; the backend sorts them. Omitted, the set is `[400]` minus any code already in `failure_status_codes`; an explicit `[]` disables rerouting. A reroute status moves the same request to the next candidate without runtime failure feedback: no retry-window write, no retry or ban counting. When no later candidate produces a response, the client receives the last rejection's original status, headers, and body (kept within the failed-response sampler bounds), and the launch after a rejection carries `attempt_trigger = reroute`.
 - Retry-window delay, backoff, jitter, max delay, and cycle retry attempt limit must stay within backend bounds.
 - `cycle_retry_attempt_limit` is optional; omitted create/update payloads default it to `3`. When provided, it must be from `1` to `50`.
 - `ban_mode` is `off`, `temporary`, or `until_reset`.
@@ -3442,7 +3448,8 @@ Strategy responses include the persisted explicit Ban Policy strategy document:
   "profile_id": 1,
   "name": "round-robin-primary",
   "legacy_strategy_type": "round-robin",
-  "failure_status_codes": [403, 422, 429, 500, 502, 503, 504, 529],
+  "failure_status_codes": [401, 403, 408, 422, 429, 500, 502, 503, 504, 529],
+  "reroute_status_codes": [400],
   "ban_mode": "temporary",
   "retry_base_delay_ms": 45000,
   "retry_backoff_multiplier": 3.5,
@@ -4007,6 +4014,7 @@ Reusable explicit Ban Policy strategy objects attached by models within one prof
 | name | VARCHAR(200) | NOT NULL | Strategy name (profile-unique) |
 | legacy_strategy_type | VARCHAR(32) | NOT NULL, CHECK IN (`single`, `fill-first`, `round-robin`) | Routing subtype |
 | failure_status_codes | INTEGER[] | NOT NULL | Status codes that count as retry-window failures |
+| reroute_status_codes | INTEGER[] | NOT NULL, DEFAULT `{400}`, CHECK 4xx except `429`, CHECK disjoint from `failure_status_codes` | Request-scoped rejection codes that move the same request to the next candidate without runtime failure feedback |
 | ban_mode | VARCHAR(20) | NOT NULL | `off`, `temporary`, or `until_reset` |
 | retry_base_delay_ms | INTEGER | NOT NULL | First retry-window delay in milliseconds |
 | retry_backoff_multiplier | DOUBLE PRECISION | NOT NULL | Backoff multiplier |
@@ -4024,6 +4032,7 @@ Constraints and lifecycle rules:
 - Effective runtime policy resolves once per request from the attached strategy row.
 - Supported routing families are `single`, `fill-first`, and `round-robin`.
 - Ban Policy fields carry failure status codes, retry-window delay/backoff/jitter tuning, `cycle_retry_attempt_limit`, `ban_cumulative_retry_attempt_threshold`, and ban duration semantics.
+- `reroute_status_codes` is request-scoped routing, not Ban Policy: it never writes runtime state. Migration `000035` gave retained strategies `{400}`, or `{}` when their failure status codes already contained `400`.
 - Retry-cycle exhaustion is inclusive at `cycle_retry_attempts >= cycle_retry_attempt_limit`.
 - Ban creation is inclusive at `cumulative_retry_attempts >= ban_cumulative_retry_attempt_threshold`; Prism does not derive the ban threshold from the cycle limit.
 - `ban_mode = off` requires threshold and duration `0`; `temporary` requires threshold `>= cycle_retry_attempt_limit` plus positive duration; `until_reset` requires threshold `>= cycle_retry_attempt_limit` plus duration `0`.
@@ -4230,7 +4239,7 @@ Telemetry rows have immutable profile attribution captured at request start. Cap
 | legacy_status_code | INTEGER | NULLABLE | Legacy un-scoped projection kept only for pre-v2 rows |
 | attempt_duration_ms | INTEGER | NULLABLE | Real attempt wall-clock duration for `upstream` rows |
 | legacy_duration_ms | INTEGER | NULLABLE | Legacy mixed projection kept only for pre-v2 rows |
-| attempt_trigger | VARCHAR(32) | NULLABLE | Launch trigger: `initial`, `retry_same_target`, `hedge`, or `failover` |
+| attempt_trigger | VARCHAR(32) | NULLABLE | Launch trigger: `initial`, `retry_same_target`, `hedge`, `failover`, or `reroute` (launched after a request-scoped rejection) |
 | attempt_result | VARCHAR(32) | NULLABLE | Attempt result: `completed`, `http_error`, `stream_error`, `transport_error`, `cancelled`, `client_disconnected`, or `unknown` |
 | is_winner | BOOLEAN | NULLABLE | Whether this attempt produced the final response |
 | error_source | VARCHAR(20) | NULLABLE | `prism`, `upstream`, `transport`, `client`, or `unknown` |
@@ -4361,11 +4370,11 @@ Usage-event rows are the finalized source for the unified statistics snapshot. T
 | status_code | INTEGER | NOT NULL | Final HTTP status code |
 | success_flag | BOOLEAN | NOT NULL | Success indicator |
 | final_attempt_number | INTEGER | NULLABLE | Winning attempt ordinal |
-| final_attempt_trigger | VARCHAR(32) | NULLABLE | Winning attempt trigger (`initial`, `retry_same_target`, `hedge`, `failover`) |
-| final_target_entry_trigger | VARCHAR(32) | NULLABLE | Winning target's first entry trigger |
+| final_attempt_trigger | VARCHAR(32) | NULLABLE | Winning attempt trigger (`initial`, `retry_same_target`, `hedge`, `failover`, `reroute`) |
+| final_target_entry_trigger | VARCHAR(32) | NULLABLE | Winning target's first entry trigger (`initial`, `failover`, `hedge`, `reroute`, `unknown`) |
 | same_target_retry_occurred | BOOLEAN | NOT NULL, DEFAULT FALSE | Routing evidence: same-target retry happened |
 | hedge_occurred | BOOLEAN | NOT NULL, DEFAULT FALSE | Routing evidence: parallel hedge happened |
-| failover_occurred | BOOLEAN | NOT NULL, DEFAULT FALSE | Routing evidence: confirmed failover happened |
+| failover_occurred | BOOLEAN | NOT NULL, DEFAULT FALSE | Routing evidence: confirmed failover happened; a `reroute` launch does not set it |
 | routing_evidence_complete | BOOLEAN | NULLABLE | Whether routing evidence is complete |
 | final_error_code | VARCHAR(120) | NULLABLE | Gateway terminal code (e.g. `attempt_budget_exhausted`) |
 | ingress_started_at | TIMESTAMPTZ | NULLABLE | Ingress wall-clock start from finalized evidence |

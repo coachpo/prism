@@ -11,11 +11,13 @@ export const LOADBALANCE_LEGACY_STRATEGY_TYPES = [
 ] as const;
 export const LOADBALANCE_BAN_MODES = ["off", "temporary", "until_reset"] as const;
 export const DEFAULT_FAILURE_STATUS_CODES = [401, 403, 408, 422, 429, 500, 502, 503, 504, 529];
+export const DEFAULT_REROUTE_STATUS_CODES = [400];
 
 export const DEFAULT_BAN_POLICY_FIELDS = {
   failure_status_codes: [...DEFAULT_FAILURE_STATUS_CODES],
+  reroute_status_codes: [...DEFAULT_REROUTE_STATUS_CODES],
   ban_mode: "off" as LoadbalanceBanMode,
-  retry_base_delay_ms: 60_000,
+  retry_base_delay_ms: 5_000,
   retry_backoff_multiplier: 2,
   retry_jitter_ratio: 0.2,
   retry_max_delay_ms: 900_000,

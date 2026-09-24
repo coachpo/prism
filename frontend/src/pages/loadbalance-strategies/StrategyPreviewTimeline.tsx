@@ -46,6 +46,7 @@ export function StrategyPreviewTimeline({ strategy }: StrategyPreviewTimelinePro
       .preview({
         legacy_strategy_type: strategy.legacy_strategy_type,
         failure_status_codes: strategy.failure_status_codes,
+        reroute_status_codes: strategy.reroute_status_codes,
         ban_mode: strategy.ban_mode,
         retry_base_delay_ms: strategy.retry_base_delay_ms,
         retry_backoff_multiplier: strategy.retry_backoff_multiplier,
@@ -138,6 +139,9 @@ function PreviewSteps({ data }: { data: StrategyPreviewResponse }) {
 
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         {data.has_more ? <span>{copy.previewHasMore}</span> : null}
+        {data.normalized_policy.reroute_status_codes.length > 0 ? (
+          <span>{copy.previewReroute(data.normalized_policy.reroute_status_codes.join("、"))}</span>
+        ) : null}
         {data.ban_projection.mode !== "off" ? (
           <OperatorValueBadge
             label={

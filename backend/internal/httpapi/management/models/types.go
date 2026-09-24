@@ -203,6 +203,7 @@ type loadbalanceStrategySummary struct {
 	LegacyStrategyType                 string  `json:"legacy_strategy_type"`
 	IsDefault                          bool    `json:"is_default"`
 	FailureStatusCodes                 []int   `json:"failure_status_codes"`
+	RerouteStatusCodes                 []int   `json:"reroute_status_codes"`
 	BanMode                            string  `json:"ban_mode"`
 	RetryBaseDelayMS                   int     `json:"retry_base_delay_ms"`
 	RetryBackoffMultiplier             float64 `json:"retry_backoff_multiplier"`

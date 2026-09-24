@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -517,6 +518,7 @@ func (s *Service) handlePreviewStrategy(w http.ResponseWriter, r *http.Request) 
 		Name:                               persisted.Name,
 		LegacyStrategyType:                 &persisted.LegacyStrategyType,
 		FailureStatusCodes:                 append([]int(nil), persisted.FailureStatusCodes...),
+		RerouteStatusCodes:                 slices.Clone(persisted.RerouteStatusCodes),
 		BanMode:                            persisted.BanMode,
 		RetryBaseDelayMS:                   persisted.RetryBaseDelayMS,
 		RetryBackoffMultiplier:             persisted.RetryBackoffMultiplier,
@@ -532,6 +534,7 @@ func (s *Service) handlePreviewStrategy(w http.ResponseWriter, r *http.Request) 
 			Name:                               persisted.Name,
 			LegacyStrategyType:                 persisted.LegacyStrategyType,
 			FailureStatusCodes:                 append([]int(nil), persisted.FailureStatusCodes...),
+			RerouteStatusCodes:                 slices.Clone(persisted.RerouteStatusCodes),
 			BanMode:                            persisted.BanMode,
 			RetryBaseDelayMS:                   persisted.RetryBaseDelayMS,
 			RetryBackoffMultiplier:             persisted.RetryBackoffMultiplier,
