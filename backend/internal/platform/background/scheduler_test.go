@@ -175,15 +175,22 @@ func TestSchedulerStopsRetryingAtMaxAttempts(t *testing.T) {
 	if got := scheduler.Submit(context.Background(), JobRequest{Worker: "retry-exhaust"}); got.Status != SubmitAccepted {
 		t.Fatalf("submit retry worker status = %s", got.Status)
 	}
-	if first := <-attempts; first != 1 {
-		t.Fatalf("first attempt = %d", first)
+	// Retries are only scheduled while the scheduler is running, so every
+	// attempt must arrive before Drain switches it to draining.
+	got := make([]int, 0, 3)
+	for len(got) < 3 {
+		select {
+		case attempt := <-attempts:
+			got = append(got, attempt)
+		case <-time.After(5 * time.Second):
+			t.Fatalf("attempts before drain = %+v, want [1 2 3]", got)
+		}
+	}
+	if !reflect.DeepEqual(got, []int{1, 2, 3}) {
+		t.Fatalf("attempts = %+v", got)
 	}
 	if result := scheduler.Drain(context.Background(), time.Now().Add(time.Second)); result.Completed != 0 || result.Failed != 1 || result.TimedOut {
 		t.Fatalf("unexpected drain result: %+v", result)
-	}
-	got := []int{1, <-attempts, <-attempts}
-	if !reflect.DeepEqual(got, []int{1, 2, 3}) {
-		t.Fatalf("attempts = %+v", got)
 	}
 	select {
 	case extra := <-attempts:
