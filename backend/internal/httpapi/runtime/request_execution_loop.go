@@ -122,7 +122,7 @@ func (s *Service) handleSingleExecutionOutcome(ctx context.Context, plan request
 		return executionResult{}, false, nil
 	}
 	if outcome.Response.StatusCode >= 200 && outcome.Response.StatusCode <= 299 && outcome.Launched {
-		if hasNextCandidate && s.failOverStreamStartError(ctx, plan, state, &outcome) {
+		if hasNextCandidate && s.rerouteStreamStartError(plan, state, &outcome) {
 			return executionResult{}, false, nil
 		}
 		s.recordRuntimeSuccess(ctx, plan, outcome.Connection, outcome.TerminalAttempt.Strategy, outcome.Attempt.ResponseHeadersLatencyMS, outcome.Attempt.CompletedAt)

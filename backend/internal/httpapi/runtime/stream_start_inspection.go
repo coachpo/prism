@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"io"
 	"strings"
@@ -150,13 +149,14 @@ func (reader streamStartReadError) Read([]byte) (int, error) {
 	return 0, reader.err
 }
 
-// failOverStreamStartError inspects a 2xx event stream before the executor
-// selects it while another candidate remains. When the first upstream event
-// is a provider error, the attempt is recorded as a failed stream attempt,
-// the connection receives failover HTTP failure feedback, and the caller
-// moves on to the next candidate. Otherwise the buffered head is replayed so
-// the selected stream reaches the client unchanged.
-func (s *Service) failOverStreamStartError(ctx context.Context, plan requestPlan, state *requestExecutionState, outcome *executionOutcome) bool {
+// rerouteStreamStartError inspects a 2xx event stream before the executor
+// selects it while another candidate remains. A provider error first event is
+// treated as an in-band rejection of this request: the attempt is recorded as
+// a failed stream attempt and the caller reroutes to the next candidate
+// without runtime feedback, like a reroute status, so the target's retry
+// window and ban state stay as they were. Otherwise the buffered head is
+// replayed so the selected stream reaches the client unchanged.
+func (s *Service) rerouteStreamStartError(plan requestPlan, state *requestExecutionState, outcome *executionOutcome) bool {
 	if !responseUsesSSEProxy(plan, outcome.Response) {
 		return false
 	}
@@ -175,8 +175,8 @@ func (s *Service) failOverStreamStartError(ctx context.Context, plan requestPlan
 	outcome.Attempt.AttemptDurationMS += inspectionMS
 	outcome.Attempt.CompletedAt = inspectedAt
 	state.attempts[len(state.attempts)-1] = outcome.Attempt
-	s.recordRuntimeFailoverHTTPFailure(ctx, plan, outcome.Connection, outcome.TerminalAttempt.Strategy, inspectedAt)
+	state.lastLaunchRerouted = true
 	state.lastError = diagnostic.Code
-	state.recordRetry(gatewaycore.RouteReasonRetryHTTP)
+	state.recordRetry(gatewaycore.RouteReasonRerouteHTTP)
 	return true
 }
