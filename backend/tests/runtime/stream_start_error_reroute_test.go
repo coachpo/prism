@@ -21,7 +21,9 @@ type streamStartAttemptRow struct {
 	AttemptTrigger string
 }
 
-func TestRuntimeStreamStartErrorFailsOverToNextCandidate(t *testing.T) {
+// A provider error first event is an in-band rejection of this request: it
+// reroutes to the next candidate and leaves the rejecting target healthy.
+func TestRuntimeStreamStartErrorReroutesToNextCandidate(t *testing.T) {
 	chatBody := func(model string) any {
 		return map[string]any{"model": model, "stream": true, "messages": []map[string]any{{"role": "user", "content": "hi"}}}
 	}
@@ -68,9 +70,10 @@ func TestRuntimeStreamStartErrorFailsOverToNextCandidate(t *testing.T) {
 			if len(primary.requestsSnapshot()) != 1 || len(secondary.requestsSnapshot()) != 1 {
 				t.Fatalf("expected one request per candidate, got primary=%d secondary=%d", len(primary.requestsSnapshot()), len(secondary.requestsSnapshot()))
 			}
+			assertTargetHealthUntouched(t, harness, profileID, route.connectionIDs[0])
 			want := []streamStartAttemptRow{
 				{AttemptResult: "stream_error", StreamOutcome: "provider_incomplete", FailureStage: "stream", ErrorCode: test.wantCode, AttemptTrigger: "initial"},
-				{AttemptResult: "completed", SuccessFlag: true, StreamOutcome: "completed", AttemptTrigger: "failover"},
+				{AttemptResult: "completed", SuccessFlag: true, StreamOutcome: "completed", AttemptTrigger: "reroute"},
 			}
 			if got := loadStreamStartAttemptRows(t, harness, profileID, len(want)); !reflect.DeepEqual(got, want) {
 				t.Fatalf("unexpected attempt rows:\n got %+v\nwant %+v", got, want)
