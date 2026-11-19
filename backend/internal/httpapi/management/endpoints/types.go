@@ -37,7 +37,7 @@ type endpointUpdateRequest struct {
 	BaseURL optionalString `json:"base_url"`
 	APIKey  optionalString `json:"api_key"`
 	// ExpectedUpdatedAt is the optimistic-concurrency guard, mirroring the
-	// pricing-template expected_updated_at contract (architecture.md:1145).
+	// pricing-template expected_updated_at contract (docs/management-api.md, Update Pricing Template).
 	// RFC3339; a mismatch against the stored row returns 409 endpoint_stale.
 	ExpectedUpdatedAt *string `json:"expected_updated_at"`
 }

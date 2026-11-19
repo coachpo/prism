@@ -35,7 +35,7 @@ Split boundary when it fails: if a conjunction is required, each side of it is a
 
 **2. Do the dependencies stay within their permitted layers?**
 
-Do the file's imports cross only the layers permitted by `docs/architecture.md`? A file that directly depends on a transport framework, a persistence implementation, domain models, and an external SDK at once has already crossed layers, however short it is.
+Do the file's imports cross only the layers permitted by `ARCHITECTURE.md`? A file that directly depends on a transport framework, a persistence implementation, domain models, and an external SDK at once has already crossed layers, however short it is.
 
 Split boundary when it fails: the out-of-layer dependencies and the code that calls them are what must be extracted — into the permitted layer, or into a new module with an explicit interface.
 
@@ -45,7 +45,7 @@ Do the caller sets of the file's exported symbols overlap? If the callers of sym
 
 Split boundary when it fails: group the exported symbols by caller set; each disjoint group is a split boundary.
 
-If a file cannot pass one of these questions for a verifiable structural reason over the long term, record that exception and its rationale in `docs/architecture.md`; an exception must not rewrite these general rules.
+If a file cannot pass one of these questions for a verifiable structural reason over the long term, record that exception and its rationale in `ARCHITECTURE.md`; an exception must not rewrite these general rules.
 
 ## Size Review Signals
 
@@ -83,8 +83,8 @@ The following mechanical splits are prohibited:
 
 Before starting to code:
 
-1. Read `docs/architecture.md`, `docs/development-rules.md`, and these rules;
-2. Confirm the target module, the permitted dependency directions, and the existing implementation; a new file must have an explicit owning module in `docs/architecture.md` — settle that placement before implementing;
+1. Read `ARCHITECTURE.md`, `docs/development-rules.md`, and these rules;
+2. Confirm the target module, the permitted dependency directions, and the existing implementation; a new file must have an explicit owning module in `ARCHITECTURE.md` — settle that placement before implementing;
 3. Check the current size and responsibility of the files you plan to modify or add.
 
 While coding:

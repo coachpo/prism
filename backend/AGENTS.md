@@ -1,6 +1,6 @@
 # Backend Guide
 
-The Go entrypoint is `cmd/prism-backend/main.go`. Read [internal ownership](internal/AGENTS.md) before implementation changes and [test boundaries](tests/AGENTS.md) before adding regressions. Shared contracts and engineering requirements live in [Architecture](../docs/architecture.md) and [Development Rules](../docs/development-rules.md).
+The Go entrypoint is `cmd/prism-backend/main.go`. Read [internal ownership](internal/AGENTS.md) before implementation changes and [test boundaries](tests/AGENTS.md) before adding regressions. Shared contracts and engineering requirements live in [Architecture](../ARCHITECTURE.md) and [Development Rules](../docs/development-rules.md).
 
 - Keep SQL schema changes under `migrations/` and apply them through `internal/platform/migrate/`. Baseline/history and migration-specific guards protect retained data; an error asking for a rebuild does not authorize a reset.
 - Keep bootstrap settings separate from PostgreSQL-backed product settings. Bootstrap ownership is [platform/config](internal/platform/config/AGENTS.md); startup sequencing is [platform/startup](internal/platform/startup/AGENTS.md).

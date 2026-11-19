@@ -187,7 +187,7 @@ func AnalyzeRouteWitnessSnapshotWithOperations(graph *DiagnosticsGraph, generati
 	// tier: every model's own reachable terminal targets first, so that a
 	// model target row can then consume the child's complete witness set.
 	// Model Target and Terminal Target rows are type-neutral peers to the
-	// strategy — see docs/architecture.md — and both passes therefore skip
+	// strategy — see docs/runtime-routing.md — and both passes therefore skip
 	// rows the strategy does not reach.
 	for _, model := range graph.ModelsByID {
 		if !model.IsEnabled {

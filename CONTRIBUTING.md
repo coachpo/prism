@@ -78,22 +78,84 @@ This check loads Prism-rendered files with omitted and synthetic manually entere
 ## Development Workflow
 
 - Prism is one repository: backend, frontend, launcher, release helper, and CI are versioned together. Read the owning AGENTS hierarchy before editing a surface.
-- Use [STATUS.md](STATUS.md) for current lifecycle, deployment, data, and compatibility facts and [docs/product.md](docs/product.md) for delivery scope. The selected static development strategy below does not override them.
-- Follow [docs/development-rules.md](docs/development-rules.md), [docs/architecture.md](docs/architecture.md), and [docs/source-code-size-and-responsibility-rules.md](docs/source-code-size-and-responsibility-rules.md). UI work follows [frontend/DESIGN.md](frontend/DESIGN.md) and the checked-in `frontend/components.json`; add primitives through that existing shadcn registry into `frontend/src/components/ui/`.
+- Use [STATUS.md](STATUS.md) for current lifecycle, deployment, data, and compatibility facts and [docs/product-contract.md](docs/product-contract.md) for delivery scope. The selected static development strategy below does not override them.
+- Follow [docs/development-rules.md](docs/development-rules.md), [ARCHITECTURE.md](ARCHITECTURE.md), and [docs/source-code-size-and-responsibility-rules.md](docs/source-code-size-and-responsibility-rules.md). UI work follows [frontend/DESIGN.md](frontend/DESIGN.md) and the checked-in `frontend/components.json`; add primitives through that existing shadcn registry into `frontend/src/components/ui/`.
 - Keep active plans and execution evidence under ignored `artifacts/`, while canonical docs describe the implemented product and contracts.
+
+## 设计与实现
+
+- 围绕当前核心业务流程和正确结果设计。不为假设中的需求增加功能；已确认适用于当前工作的强制义务或约束仍须满足。适用性按实际业务判断，尚未确认不等于不适用；记录义务也不等于立即实现所有相关功能。
+- 按正常、正当使用设计。保留安全、隐私和运行方面已接受的要求；额外的限流、防滥用或最坏情况处理应有明确需求或实际证据，而非默认加入。
+- 不为不可能发生的情况添加错误处理、兜底或校验。信任内部代码和框架的保证，只在系统边界（如用户输入、外部 API）做校验。
+- 改动只包含必要的内容，不夹带无关清理；任务结束前移除为它创建的临时文件和调试代码。
+- 修复已经核实的根因，不围绕未经验证的假设搭建绕行方案。
+- 设计或审查公共 API 时，从调用方的角度评估可发现性、抗误用、错误处理、配置和演进。
+- 注释解释当前的、不自明的理由、不变量、安全约束或外部系统的怪癖，不复述代码，也不记录变更历史。公共 API 文档描述契约。
+- 不围绕假想套餐或配额预先收紧设计。以官方支持的宽松选项作为工作假设，注明什么观察会触发复核，不把假设写成实测事实；若具体限制决定已接受需求能否实现，在目标环境核实。
+
+## 运营背景
+
+- 不代项目假定经营主体、经营地点或上线市场。信息未定时保持设计与市场无关；已知地点不等于要求本地化或分析该市场的合规问题。
+- 只有用户要求，或为判断、履行本次工作涉及的强制义务或已接受的约束确有必要时，才分析特定市场或运营安排。
+
+## 兼容与迁移
+
+- 默认不为假想调用方保留旧实现、别名、回退、双读写或格式转换。明确要求的兼容性，以及仍受支持的调用方、升级或恢复契约必须保留。
+- 替换实现时，在授权范围内同步调用方、配置、派生契约、测试和文档，移除已退役路径；不借机扩大清理范围。
+- 已确认尚无生产部署，且无升级、恢复或保留义务依赖历史时，可在获准修改迁移的任务中重写、合并或重新生成基线。出现生产部署配置、部署作业、生产环境文件、发布记录或用户说明时，重新核对前提。
+- 已有生产部署时，保证在生产运行的迁移正确，不改写或合并已发布的迁移。本地库可丢弃不代表可以删除迁移历史。更新部署事实本身不改变现行迁移政策。
+
+Prism’s running LAN databases are retained data. The [project data and compatibility policy](STATUS.md#data) controls changes that could lose state. Apply direct schema changes to disposable development data only when the migration and restore contracts allow it.
+
+## 验证改动
+
+- 优先运行能覆盖改动行为的最小范围检查。用户或项目要求全量回归，或更窄的检查不足以验证改动时，再运行全套。通过后，只有后续修改、失败或尚未解决的实质风险才需要重跑或扩大范围。
+- 写通用且正确的实现，不写只能让检查通过的实现：不硬编码测试期望值，不为让检查通过而削弱测试、屏蔽真实错误或删除必要行为。测试本身有错，或要求不合理、不可行时，直接指出，不绕过。
+- 优先在可观察的行为边界上复用已有覆盖。不写只复述实现或只为提高覆盖率的测试，除非该行为本身是契约。
+- 修复缺陷时，若能在可观察的行为边界上复现，补一个修复前失败的回归测试。
+- 预期行为有意改变时，同步更新对应测试；这不属于削弱测试。
+- 测试结果须确定，不依赖执行顺序，也不依赖外部服务，除非被测对象就是该集成。
+- 不添加或保留只为证明某次编辑、删除或清理已完成的测试，例如搜索源码文本，或检查某个路径、字段、符号已不存在；这类工作靠审查或任务结束前删除的临时检查确认。表达持久可观察契约的负向测试要保留，例如鉴权、拒绝非法输入、禁止的副作用和兼容性保证。
+
+Use [the project test-ownership rules](docs/development-rules.md#test-ownership) to choose the regression layer, then run the [affected checks](#tests-checks-and-builds).
+
+## 界面文案
+
+- 删掉一句话若不会让用户做错事，也不会丢失同屏其他地方找不到的信息，就不必保留。同一事实只说一次，放在最接近相关操作的位置。
+- 只有会改变用户行动时才显示提示。正常状态不挂横幅；空区块和未启用功能的区块不渲染。
+- 不在界面解释数据模型、校验顺序、配置名、内部标识或算法；标签足够清楚时，不另加文字解说控件。
+- 精简解释，不删保护措施。保留不可逆操作或金融操作的明确确认、同屏唯一展示的值，以及承担实际功能的文字。
+
+The [design system](frontend/DESIGN.md) owns required empty, unavailable, and recovery states, including the cues that let operators act.
+
+## 提交约定
+
+- 每个提交只包含相关改动，保持可独立审查。
+- 使用 Conventional Commits：`<type>: <description>`。类型为 `feat`、`fix`、`chore`、`refactor`、`docs`、`test`、`build`、`ci` 或 `perf`。仅在有助于理解时加 scope，写作 `<type>(<scope>): <description>`。
+- 描述仅反映实际差异，使用英文小写祈使语气，末尾不加句号。主题尽量不超过 72 个字符；一般只写主题，必要时再加正文。
+
+## 拉取请求（PR）
+
+- 标题沿用项目的提交主题格式；包含多个提交时，选最能概括整体变更的表述。提交格式含类型时，类型以整体变更为准。
+- 正文用英文，按以下顺序组织，省略没有内容的部分：
+  - `Summary`：一至三句话说明改了什么及原因。
+  - `Changes`：列出主要变更，必要时按领域分组。明确指出数据模式、迁移、配置、环境变量和公共 API 的变化；破坏性变更以 `**Breaking:**` 开头。
+  - `Testing`：列出实际运行的命令及结果；未运行检查时写 `Not tested`。与本次改动无关的失败，写明失败项与现象。
+  - `Notes`：仅写审查者需要了解的限制、合并后的手动步骤或需重点审查的事项。
+- 仅依据分支差异和提交撰写正文；只在分支名、提交或请求提及时引用关联议题。不写工期、工作量估算或人员安排。
 
 ## Releases
 
 `./release.sh patch --dry-run` previews a release. Live `./release.sh patch` (or `minor`, `major`, or an explicit version) requires release authorization: it keeps `VERSION`, `backend/VERSION`, `frontend/VERSION`, and `frontend/package.json` aligned, verifies backend version metadata and the frontend build, commits, tags, and pushes the root release. The helper requires clean, current `main` and a forward version; it does not deploy an instance.
 
-`.github/workflows/docker-images.yml` publishes only `ghcr.io/coachpo/prism` for `linux/arm64`. A `v*` tag requires green CI for its commit and moves `latest`; manual workflow dispatch does not move `latest`. `.github/workflows/cleanup.yml` only prunes untagged single-image container versions. Instance inspection, backup/restore, and authorized rollout procedures are indexed in [docs/README.md](docs/README.md#specialized-documents).
+`.github/workflows/docker-images.yml` publishes only `ghcr.io/coachpo/prism` for `linux/arm64`. A `v*` tag requires green CI for its commit and moves `latest`; manual workflow dispatch does not move `latest`. `.github/workflows/cleanup.yml` only prunes untagged single-image container versions. See [Operations](docs/operations.md) for deployed-instance inspection, backup, upgrades, and recovery.
 
 <!-- write-project-docs:shared-contributing:start -->
 ## Current Development Strategy
 
 **Development tier: `MVP`**
 
-Complete the smallest observable end-to-end loop around the confirmed core value, scope, non-goals, acceptance conditions, and exit conditions in [`docs/product.md`](docs/product.md). This tier permanently forgoes active investment in security, privacy, data, credential and key management, compatibility, audit/monitoring/SLO, and regulatory compliance requirements.
+Complete the smallest observable end-to-end loop around the confirmed core value, scope, non-goals, acceptance conditions, and exit conditions in [`docs/product-contract.md`](docs/product-contract.md). This tier permanently forgoes active investment in security, privacy, data, credential and key management, compatibility, audit/monitoring/SLO, and regulatory compliance requirements.
 
 ### Must Complete at This Tier
 
@@ -141,7 +203,7 @@ While satisfying functional scope, architectural boundaries, correctness, securi
 
 Search for an existing implementation before adding new code. Do not pull in a large dependency for a small feature; do not create abstraction, extension, or compatibility layers for hypothetical future requirements; keep custom implementations local, simple, and testable.
 
-Implementations must comply with the project architecture facts in [`docs/architecture.md`](docs/architecture.md), the project- and technology-specific rules in [`docs/development-rules.md`](docs/development-rules.md), and the unified size and responsibility rules in [`docs/source-code-size-and-responsibility-rules.md`](docs/source-code-size-and-responsibility-rules.md).
+Implementations must comply with the project architecture facts in [`ARCHITECTURE.md`](ARCHITECTURE.md), the project- and technology-specific rules in [`docs/development-rules.md`](docs/development-rules.md), and the unified size and responsibility rules in [`docs/source-code-size-and-responsibility-rules.md`](docs/source-code-size-and-responsibility-rules.md).
 
 ## Definition of Done
 

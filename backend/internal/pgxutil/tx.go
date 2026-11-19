@@ -50,7 +50,7 @@ func inTxValue[T any](ctx context.Context, beginner Beginner, label string, opti
 		return value, err
 	}
 	// Runtime-cache generation bumps are writes and must land in the same
-	// transaction as the primary state change (architecture.md:140). A
+	// transaction as the primary state change (docs/observability-and-retention.md, Priority Enforcement). A
 	// read-only transaction can never be that transaction, so the hook is
 	// skipped there instead of failing the request or advancing generations
 	// ahead of the write.

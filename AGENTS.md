@@ -15,7 +15,7 @@ Prism is a self-hosted LLM proxy gateway. `backend/` and `frontend/` are root-ow
 - [STATUS.md](STATUS.md) owns data and compatibility policy. Upgrade work prefers clean architecture over compatibility shims, but retained PostgreSQL history and plaintext bootstrap files are not disposable. A change that cannot carry data forward needs explicit authorization and a verified backup.
 - Follow [Development Rules](docs/development-rules.md) for implementation and test ownership. Keep runtime contracts grounded in `backend/internal/httpapi/runtime/operations.go`, not broad `/v1` or `/v1beta` passthrough assumptions.
 - Management scope is frozen to Default profile id `1`; `X-Profile-Id` never selects proxy traffic. Runtime model lookup, provider attempts, and telemetry use the frozen request snapshot.
-- OpenAI text modes require strict equality across authored model/target relations and runtime gates; operation-coverage diagnostics do not relax this rule. Image capability uses its independent containment rule. See [the native operation contract](docs/architecture.md#22b-openai-native-mode-equality-strict).
+- OpenAI text modes require strict equality across authored model/target relations and runtime gates; operation-coverage diagnostics do not relax this rule. Image capability uses its independent containment rule. See [the native operation contract](docs/runtime-api.md#22b-openai-native-mode-equality-strict).
 - `start.sh` owns local PostgreSQL on `15432` and frontend on `5173`, preserves valid selected bootstrap files, and follows their backend port. Full mode unsets `VITE_API_BASE` and enables same-origin Vite proxying; keep launcher changes and docs aligned.
 - The root Compose file is the only checked-in local/self-hosted bundle. The root Dockerfile builds one app image with Go, React assets, and Nginx; PostgreSQL remains separate. Container changes must preserve or explicitly update the non-root `1000:1000` and `/app/config/config.json` contract, its docs, and `backend/tests/integration/dockerfile_contract_test.go`.
 - `release.sh` owns all four version surfaces. `.github/workflows/docker-images.yml` publishes one ARM64 GHCR image; tag releases require green CI. Do not invent separate frontend/backend releases or images.
@@ -27,9 +27,9 @@ Prism is a self-hosted LLM proxy gateway. `backend/` and `frontend/` are root-ow
 Before starting related work, read the authoritative documents that cover the scope of the task:
 
 - [Project Status](STATUS.md)
-- [Documentation Index](docs/README.md)
-- [Product Overview](docs/product.md)
-- [Architecture Overview](docs/architecture.md)
+- [Documentation Index](README.md#documentation)
+- [Product Overview](docs/product-contract.md)
+- [Architecture Overview](ARCHITECTURE.md)
 - [Development Rules](docs/development-rules.md)
 - [Source Code Size and Responsibility Rules](docs/source-code-size-and-responsibility-rules.md)
 - [Contributing Guide](CONTRIBUTING.md)
@@ -52,9 +52,9 @@ Use the narrowest matching row. Read the linked authority before changing code a
 
 | Trigger | Authority | Invariant IDs | Validation entry |
 | --- | --- | --- | --- |
-| `backend`: Changing Go entrypoints, configuration, toolchain, dependencies, generated inputs, tests, or release artifacts | [docs/architecture.md](docs/architecture.md#inv-go-229d2b017a9b) | [INV-GO-229D2B017A9B](docs/architecture.md#inv-go-229d2b017a9b) | cd backend && go build ./cmd/prism-backend && go test ./internal/... ./cmd/... |
-| `backend`: Changing Context chains, goroutines, connections, commands, servers, workers, admission, or shutdown | [docs/architecture.md](docs/architecture.md#inv-go-2d7d34ee6112) | [INV-GO-2D7D34EE6112](docs/architecture.md#inv-go-2d7d34ee6112) | cd backend && go test -timeout 30m ./internal/platform/lifecycle ./tests/contract ./tests/integration ./tests/runtime ./tests/priority/... |
-| `backend`: Changing transactions, migrations, messages, caches, remote calls, retries, or cross-resource writes | [docs/architecture.md](docs/architecture.md#inv-go-2e9f9d48ab43) | [INV-GO-2E9F9D48AB43](docs/architecture.md#inv-go-2e9f9d48ab43) | cd backend && go test -timeout 30m ./tests/contract ./tests/integration |
-| `backend`: Changing package dependencies, synchronous calls, authoritative facts, shared state, or goroutine ownership | [docs/architecture.md](docs/architecture.md#inv-go-a392eb849715) | [INV-GO-A392EB849715](docs/architecture.md#inv-go-a392eb849715) | cd backend && go vet ./internal/... && go test ./internal/... |
-| `backend`: Changing HTTP, CLI, file, identity, secret, diagnostic, limit, or public-error boundaries | [docs/architecture.md](docs/architecture.md#inv-go-fd5b268343ae) | [INV-GO-FD5B268343AE](docs/architecture.md#inv-go-fd5b268343ae) | cd backend && go test -timeout 30m ./tests/runtime |
+| `backend`: Changing Go entrypoints, configuration, toolchain, dependencies, generated inputs, tests, or release artifacts | [ARCHITECTURE.md](ARCHITECTURE.md#inv-go-229d2b017a9b) | [INV-GO-229D2B017A9B](ARCHITECTURE.md#inv-go-229d2b017a9b) | cd backend && go build ./cmd/prism-backend && go test ./internal/... ./cmd/... |
+| `backend`: Changing Context chains, goroutines, connections, commands, servers, workers, admission, or shutdown | [ARCHITECTURE.md](ARCHITECTURE.md#inv-go-2d7d34ee6112) | [INV-GO-2D7D34EE6112](ARCHITECTURE.md#inv-go-2d7d34ee6112) | cd backend && go test -timeout 30m ./internal/platform/lifecycle ./tests/contract ./tests/integration ./tests/runtime ./tests/priority/... |
+| `backend`: Changing transactions, migrations, messages, caches, remote calls, retries, or cross-resource writes | [ARCHITECTURE.md](ARCHITECTURE.md#inv-go-2e9f9d48ab43) | [INV-GO-2E9F9D48AB43](ARCHITECTURE.md#inv-go-2e9f9d48ab43) | cd backend && go test -timeout 30m ./tests/contract ./tests/integration |
+| `backend`: Changing package dependencies, synchronous calls, authoritative facts, shared state, or goroutine ownership | [ARCHITECTURE.md](ARCHITECTURE.md#inv-go-a392eb849715) | [INV-GO-A392EB849715](ARCHITECTURE.md#inv-go-a392eb849715) | cd backend && go vet ./internal/... && go test ./internal/... |
+| `backend`: Changing HTTP, CLI, file, identity, secret, diagnostic, limit, or public-error boundaries | [ARCHITECTURE.md](ARCHITECTURE.md#inv-go-fd5b268343ae) | [INV-GO-FD5B268343AE](ARCHITECTURE.md#inv-go-fd5b268343ae) | cd backend && go test -timeout 30m ./tests/runtime |
 <!-- write-agent-guides:engineering-router:end -->
