@@ -99,7 +99,7 @@ The backend requires one side-effect timeout field and seeds it automatically: `
 
 Everything else — models, endpoints, load-balance strategies, pricing templates, proxy keys — is managed from the dashboard and stored in PostgreSQL. Schema migrations run automatically on startup.
 
-To back up an instance, retain a consistent PostgreSQL dump and the matching `config.json`; see the [backup/restore procedure](.agents/skills/prism-backup-restore/SKILL.md) and the [retained-data policy](STATUS.md#data).
+To back up an instance, retain a consistent PostgreSQL dump and the matching `config.json`. See the [retained-data policy](STATUS.md#data).
 
 ## Development
 

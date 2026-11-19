@@ -18,11 +18,8 @@ The canonical Prism documentation is maintained in English. Each fact or policy 
 
 - [Frontend design system](../frontend/DESIGN.md): UI/UX authority, semantic tokens, operator components, density, accessibility, and honest evidence presentation.
 - [Direct-entry reclassification runbook](operations/direct-request-entry-reclassification.md): the operator-invoked 12-entry/four-mapping procedure, hash-bound to [versioned SQL](../scripts/operations/direct-request-entry-reclassification.sql) and its [disposable acceptance test](../backend/tests/integration/direct_request_entry_reclassification_plan_test.go).
-- [Prism operations inspection](../.agents/skills/prism-ops-inspect/SKILL.md): read-only repository and deployment snapshot procedure with the deployment adapter and evidence contract.
-- [Prism backup and restore](../.agents/skills/prism-backup-restore/SKILL.md): backup creation, validation, retention, and recovery procedures.
-- [Prism release and deploy](../.agents/skills/prism-release-deploy/SKILL.md): explicitly authorized release and staged rollout procedure, with immutable image and recovery evidence.
 
-These operator skills retain their own references and scripts; they are executable workflows, not competing product or architecture documents. Active plans and observation artifacts belong under ignored `artifacts/plans/` and `artifacts/evidence/`.
+Active plans and observation artifacts belong under ignored `artifacts/plans/` and `artifacts/evidence/`.
 
 ## Agent Guidance
 
