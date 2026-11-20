@@ -1,7 +1,7 @@
 # Typed management clients
 
 - `profileScope.ts` alone decides which management routes receive the pinned `X-Profile-Id` header.
-- Keep the profile matcher aligned with backend `managementRouteSpecs` and its generated `backend/internal/platform/http/management_route_contract.json`; the profile-scope seam test checks drift. Changes to that artifact belong to the backend generator.
+- The profile-scope seam test checks the profile matcher for drift from the backend route contract.
 - Keep resource implementations in their existing modules and expose them through `../api.ts`. Use `buildQuery()` and typed parameters; forward caller AbortSignals. Runtime proxy operations remain outside this management client.
 - `models.ts` validates required `direct_request_enabled`, incoming-reference count, and configuration warnings; an absent qualification must not become an enabled client entry.
 - `modelExport.ts` alone owns Pi source/render/search/binding transport. It uses the literal `/api/models/exports/pi/*` and `/api/models/{id}/pi*` routes, `cache: "no-store"`, and types from `../types/model-export.ts`. Feature callers use `api.modelExport`; refresh commits retain the `PiRefreshCommitRequest` `expected_*` payload.

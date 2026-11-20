@@ -1,6 +1,6 @@
 # Startup Sequencing
 
-- Keep migration, pricing-transition, observability-upgrade, OpenAI text-mode check, and retention-cutover gates before ordinary seeds.
+- Keep the startup gates before ordinary seeds in the [documented order](../../../../ARCHITECTURE.md#process-lifecycle).
 - `profiles.go` preserves Default profile id `1`. `seeds.go` normalizes endpoint secret metadata using `../../endpointdomain/` primitives.
 - `observability_upgrade.go` owns the exclusive offline v1 telemetry drain and three-domain scrub backfill. These are synchronous startup steps with durable per-batch checkpoints, not scheduler background work.
 - Preserve `000011` finalize guards until v1 drain and all backfill domains are ready; retain raw-shadow null gating. Use the `safediag` scrub/cap boundary, stream-accepted tombstones, and legacy redaction rather than resurrecting raw headers.

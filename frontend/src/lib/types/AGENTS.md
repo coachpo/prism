@@ -7,4 +7,3 @@
 - Request-log entry, attempt, and final model fields remain distinct. Pricing selection state and card role are independent nullable evidence; peak schedule evidence is independently nullable.
 - `model-stats.ts` retains all three scoped blocks and nullable trusted cost/coverage. `currency-migration.ts` retains complete role-keyed cards and explicit template kinds, rather than a projected base/offpeak scalar.
 
-Cross-check affected backend structs and contract tests when changing these types; do not repair a mismatch by inventing frontend aliases.

@@ -55,8 +55,8 @@ On shutdown Prism runs these phases in order: HTTP server shutdown, side-effect 
 ## Trust Boundaries
 
 - **Operator Authentication**: Optional cookie-backed authentication for management APIs (`/api/*`). Supports username/password.
-- **Proxy API Keys**: Optional API key enforcement for supported runtime operations mounted under `/v1` and `/v1beta`. Keys are issued and managed through the dashboard.
-- **Auth Bifurcation**: Management auth (session cookies) and runtime auth (proxy API keys) are separate enforcement paths.
+- **Proxy API Keys**: Optional API key enforcement for supported runtime operations mounted under `/v1` and `/v1beta`. Keys are issued and managed through the dashboard. They are global instance credentials, separate from the Default management profile scope.
+- **Auth Bifurcation**: Management auth (session cookies) and runtime auth (proxy API keys) are separate enforcement paths. A runtime proxy-key failure, including a `401` on `/v1` or `/v1beta`, never expires or invalidates the management session.
 - **Data at Rest**: API keys and secrets are stored in PostgreSQL. Endpoint secrets are encrypted at rest.
 - **CORS**: Local browser traffic stays same-origin through the launcher-local Vite proxy in `full` mode; standalone frontend workflows can still target an explicit backend base URL.
 - **Safe failure diagnostics**: Failed attempts persist a scrubbed, 4 KiB-bounded error summary through the fixed `safediag` bottom line (Bearer/Basic/JWT/API-key-like/key=value/URL-secret redaction, control-character and whitespace normalization, metadata field scrubbing with provenance arrays) plus request-time Header Blocklist additions; stream failures keep an independent scrubbed `stream_error_detail`. Raw provider bodies are never stored in `error_detail`. The raw upstream error sample the summary is derived from is itself bounded at 32 KiB per attempt (`safediag.MaxUpstreamErrorSampleBytes`, applied as the attempt-lifecycle failed-response sample cap) and stays in memory for that derivation only: it never enters the telemetry outbox or any table. Both caps are code-fixed constants, not settings.

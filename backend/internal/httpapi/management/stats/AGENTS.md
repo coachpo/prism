@@ -1,6 +1,6 @@
 # Statistics Handler Guidance
 
-- Resolve Requests attempt, ingress-chain, and CSV `time_range` bounds through the same actual-coverage owner used by SQL. `all` uses the owner's earliest bound; a complete empty domain stays explicitly empty. Do not infer completeness from page size, policy days, row minima, or browser time.
+- Resolve Requests attempt, ingress-chain, and CSV `time_range` bounds through the same actual-coverage owner used by SQL. `all` uses the owner's earliest bound; a complete empty domain stays explicitly empty.
 - Preserve `known|legacy_unknown` coverage and explicit gaps for dirty/stale owner materialization. An append-only coverage change does not revoke an already sealed Observe predicate.
 - Scope is `ingress|final_execution|route_attempt`, with the domain's scope-specific group/filter grammar. Query contexts bind scope and frozen usage/request/event owners; fragment parameters cannot override token scope.
 - Reject present malformed timestamps, ids, limits, cursors, metrics, groups, or filters with typed errors. Defaults apply only to absent fields. Ordinary Requests triage is unsigned; true Observe final/attempt selectors consume `query_context` on list and export.
