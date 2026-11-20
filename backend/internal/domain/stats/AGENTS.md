@@ -1,6 +1,6 @@
 # Statistics Read Models
 
-`scope.go` owns the public scope/metric/group/filter catalog and caliber/sample/coverage contract. Keep HTTP parsing and response writing in [management/stats](../../httpapi/management/stats/AGENTS.md). Product semantics are documented in [Observability and Retention](../../../../docs/observability-and-retention.md).
+`scope.go` owns the public scope/metric/group/filter catalog and caliber/sample/coverage contract. Keep HTTP parsing and response writing in [management/stats](../../httpapi/management/stats/AGENTS.md). Product semantics are documented in [Request Statistics](../../../../docs/statistics.md).
 
 - Use retained `request_logs`, `usage_request_events`, and endpoint-label snapshots. Do not infer missing historical `upstream_model_id`/`final_upstream_model_id` from current configuration or logical model identity; project non-positive retained attribution IDs as null without rewriting history.
 - Keep `ingress`, `final_execution`, and `route_attempt` grains distinct. Canonical money requires `pricing_status=priced` and trusted pricing evidence; ingress/final groupings are non-additive projections of one served-final fact and attempts make no cost claim. Trusted zero has a sample and a non-null zero; no trusted sample is null.

@@ -13,5 +13,3 @@
 - `detail/requestLogPayloadDocuments.ts`, `detail/payloadDocumentViewModel.ts`, `detail/sseFraming.ts`, and `detail/streamTranscript.ts` own content-aware payload views. Decode the actual retained format into readable conversation content. Raw protocol envelopes, JSON events, headers, and diagnostic SSE remain outside product views; unsupported, incomplete, invalid, and binary content retain explicit states without manufactured messages.
 - `streamTelemetry.ts` owns TTFT/rate/outcome presentation. `useRequestLogProxyApiKeyOptions.ts` owns independent option-query state and selected-option reconciliation.
 - Copy actions reuse shared clipboard helpers. `RequestLogDetailSheet.tsx` supplies a fallback root inside the sheet's focus scope; do not replace it with a global DOM/download workaround. Keep `detail/` covered by this guide.
-
-Use colocated filter/lifecycle/payload tests and `../../../tests/e2e/request-log-dedicated-audit-page.spec.ts` or `../../../tests/e2e/request-log-streaming-payloads.spec.ts` for the affected investigation boundary.

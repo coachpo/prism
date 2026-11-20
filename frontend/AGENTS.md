@@ -11,6 +11,6 @@ Read [DESIGN.md](DESIGN.md) before any UI/UX work. It owns visual, interaction, 
 - Bootstrap settings remain file-backed. Frontend environment variables are transport/build wiring; `vite.config.ts` owns optional same-origin proxying. Production serving belongs to the root Dockerfile and Nginx bundle.
 - `package.json` pins Node `>=24` and pnpm. Type-check with `pnpm exec tsc -b` or `pnpm run build`; `tsc --noEmit -p tsconfig.json` checks no application files because the root config contains only references.
 
-Run the affected existing test layer, then applicable build/lint gates from `frontend/`: `pnpm exec vitest run`, `pnpm run test:lib`, `pnpm run test:e2e`, `pnpm run build`, and `pnpm run lint`. Runner-specific guidance lives in [tests/AGENTS.md](tests/AGENTS.md).
+- Keep reusable widgets in `src/components/` presentation-focused; route-specific data, filters, and mutation state stay with feature/page owners. Extend the shared API-family icon/label owners (`ApiFamilyIcon.tsx`, `apiFamilyPresentation.ts`, `ApiFamilySelect.tsx`) instead of copying provider labels into pages.
 
-Local guidance covers [routing](src/app/AGENTS.md), [features](src/features/AGENTS.md), [page domains](src/pages/AGENTS.md), [components](src/components/AGENTS.md), [contexts](src/context/AGENTS.md), [locale](src/i18n/AGENTS.md), [shared helpers](src/shared/AGENTS.md), and [API/browser infrastructure](src/lib/AGENTS.md). Follow the narrowest owning guide rather than copying its rules into a parent.
+Run the affected test layer, then the applicable build/lint gates; the commands are in [CONTRIBUTING.md](../CONTRIBUTING.md#tests-checks-and-builds) and runner boundaries in [tests/AGENTS.md](tests/AGENTS.md).

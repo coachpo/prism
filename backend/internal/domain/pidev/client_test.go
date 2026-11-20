@@ -327,7 +327,7 @@ func TestParseCatalogRejectsNonPositiveLimits(t *testing.T) {
 	}
 }
 
-// qwen3Dot8FlashFixture is the pi.dev directory shape docs/product-contract.md §4.20
+// qwen3Dot8FlashFixture is the pi.dev directory shape docs/catalog-and-export.md (Client Model Configuration Export)
 // documents as the confirmed multi-candidate example: qwen3.8-flash has two
 // exact Chat candidates, one exact Anthropic candidate, no Responses
 // candidate, and one decoy under a different exact id that must never match.

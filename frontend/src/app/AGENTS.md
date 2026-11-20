@@ -6,5 +6,3 @@
 - Model configuration/detail/export use `/route/models`, `/route/models/$modelId`, and `/route/models/export`; `/models` and `/models/$modelId` are redirects. Keep entity remount keyed to `modelId` so drafts cannot survive under a different model URL.
 - Keep feature modules lazy-loaded at this boundary. Resource queries and form state belong to their feature/domain owners.
 - `providers/queryClient.ts` disables query/mutation retries and uses zero query stale time. `forms/rewriteProfileScopeForm.ts` accepts only Default profile id `1`.
-
-Route/gate behavior is covered by `../test/route-helpers.test.ts`, `../test/rewrite-harness.test.tsx`, and `../../tests/lib/profile_scope_header_contract.test.mjs`.

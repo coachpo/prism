@@ -10,5 +10,3 @@ Keep management session enforcement in `management_auth_middleware.go` and runti
 - Proxy-key rotation updates the same row so retained attribution keeps a stable logical key id. Preserve serialized capacity, presence-aware expiry (omitted preserves, null clears), and private/no-store one-time create/rotate responses.
 - Auth-off runtime traffic still carries honest `identified|none|unknown` attribution with per-request `AuthEnforced`. Optional lookup failure permits execution with unknown identity; enforcement failure rejects. A proxy-key 401 is never management session expiry.
 - Keep cookies, tokens, request tokens, and key helpers here. Return only metadata or newly generated one-time values and reuse `../../proxykeyusage/` for usage persistence.
-
-Local regression seams are `routes_test.go`, `store_test.go`, `runtime_cache_test.go`, and `runtime_middleware_matrix_test.go`.

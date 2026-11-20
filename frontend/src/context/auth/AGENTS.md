@@ -6,5 +6,3 @@
 - Keep proactive/visibility refresh rules in `refresh.ts`; passive refresh waits while login/logout mutations are active.
 - `crossTab.ts` broadcasts only generation/auth-state signals. New identity or auth-mode changes cause re-bootstrap; never place session secrets in the broadcast or browser storage.
 - Blocking phases render `../../app/router/GlobalAccessLayer.tsx` through the route gates, without exposing stale authenticated pages or page-level 401 toasts.
-
-Use the colocated coordinator tests and `../../../tests/e2e/auth-session-lifecycle.spec.ts` for changes across provider/request/gate boundaries.

@@ -12,5 +12,3 @@ The shared `catalog/` import serves `/route/pricing` and model-detail Terminal T
 - Discovery may advance one exact match to preview, but ambiguous/absent matches require explicit selection; commits always require an operator action. The pricing route preselects no Terminal Target, while model detail locks the current target. Importing prices does not bind the model.
 - `catalog/CatalogPricingDialog.tsx` owns both surfaces. Keep discovery alongside preview, display commit blockers, lock mutable controls during commit, and use the response's stored template name for success copy.
 - Success drops pricing-template/connection reference caches and re-reads. `catalog/catalogPricingPresentation.ts` owns role/component ordering and localized incompatibility reasons; unknown reasons remain visible with their code.
-
-Use the existing form/lib seams, `catalog/catalogPricingComponents.test.tsx`, and `../../../tests/e2e/model-catalog-pricing.spec.ts` for the affected boundary.

@@ -2,7 +2,6 @@
 
 Keep these packages HTTP-neutral: handlers, authentication, profile selection, and response serialization belong in `../httpapi/`; process composition and lane allocation belong in `../platform/`. Domain stores may use injected query/partition interfaces without owning infrastructure lifecycle.
 
-Read the local guides for [loadbalance](loadbalance/AGENTS.md), [models.dev](modelsdev/AGENTS.md), [safe diagnostics](safediag/AGENTS.md), and [statistics](stats/AGENTS.md).
 
 - `modelrouting/` owns graph diagnostics and route witnesses. Keep all configured nodes available for recursive Model Targets; `direct_request_enabled` gates client-entry roots and representative witnesses only.
 - `terminaltarget/upstream_model_id.go` is the shared trim/non-blank/200-rune wire-identity validator. `custom_request_parameters.go` is the shared parser, validator, and shallow overlay; consumers must not fork its protected keys, limits, or canonicalization rules.

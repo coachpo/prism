@@ -7,5 +7,3 @@
 - Save-and-verify commits first, then verifies the committed `config_revision`. A failed verification keeps the saved Endpoint and renders its outcome; stale results must not claim the current configuration was verified.
 - Key fields start empty. Replace local DTOs with server responses and use returned key identity timestamps/fingerprint to distinguish unchanged keys from rotation.
 - Keep table shell, rows, and reference disclosure in `EndpointTable.tsx`, `EndpointRows.tsx`, and `EndpointReferenceDisclosure.tsx`; retained delete/orphan/attach dialogs live under `../../pages/endpoints/`.
-
-Reference and mutation regressions are covered by `../../test/endpoint-reference-lifecycles.test.tsx` and colocated hook tests.

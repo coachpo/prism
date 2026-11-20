@@ -97,18 +97,18 @@ func TestDirectRequestEntryReclassificationPlan(t *testing.T) {
 }
 
 func assertC7SourceContract(t *testing.T, root string, sqlBytes []byte) {
-	paths := []string{"docs/operations/direct-request-entry-reclassification.md", "scripts/operations/direct-request-entry-reclassification.sql", "backend/tests/integration/direct_request_entry_reclassification_plan_test.go"}
+	paths := []string{"docs/operations.md", "scripts/operations/direct-request-entry-reclassification.sql", "backend/tests/integration/direct_request_entry_reclassification_plan_test.go"}
 	for _, path := range paths {
 		c7Require(t, exec.Command("git", "-C", root, "ls-files", "--error-unmatch", "--", path).Run() == nil, "C7 source is not Git-visible: %s", path)
 	}
 	runbook, err := os.ReadFile(filepath.Join(root, paths[0]))
 	c7Require(t, err == nil, "read C7 runbook: %v", err)
-	status, err := os.ReadFile(filepath.Join(root, "STATUS.md"))
-	c7Require(t, err == nil, "read STATUS: %v", err)
+	status, err := os.ReadFile(filepath.Join(root, "CONTRIBUTING.md"))
+	c7Require(t, err == nil, "read CONTRIBUTING: %v", err)
 	hash := fmt.Sprintf("%x", sha256.Sum256(sqlBytes))
 	c7Require(t, hash == c7SQLSHA256 && bytes.Contains(runbook, []byte("SQL SHA-256: "+hash)), "reviewed SQL/runbook hash binding changed: %s", hash)
 	c7Require(t, bytes.Contains(runbook, []byte(paths[1])) && bytes.Contains(runbook, []byte(paths[2])), "runbook omits canonical SQL or acceptance-test path")
-	c7Require(t, !bytes.Contains(status, []byte("Git-ignored local bundle")) && !bytes.Contains(status, []byte("not shipped in release source")), "STATUS still describes C7 as ignored or unshipped")
+	c7Require(t, !bytes.Contains(status, []byte("Git-ignored local bundle")) && !bytes.Contains(status, []byte("not shipped in release source")), "CONTRIBUTING still describes C7 as ignored or unshipped")
 	for _, id := range append(append([]string{}, c7DirectModels...), c7InternalModels...) {
 		c7Require(t, bytes.Contains(sqlBytes, []byte(id)) && bytes.Contains(runbook, []byte(id)), "C7 identity omitted: %s", id)
 	}

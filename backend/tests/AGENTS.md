@@ -1,6 +1,6 @@
 # Backend Test Boundaries
 
-Follow [shared test ownership rules](../../docs/development-rules.md#test-ownership). Choose one observable boundary for each regression:
+Follow [shared test ownership rules](../../CONTRIBUTING.md#test-ownership). Choose one observable boundary for each regression:
 
 - [Contract](contract/AGENTS.md): management HTTP/persistence contracts for one API surface.
 - [Integration](integration/AGENTS.md): startup, migration, launcher/container, retention, and cross-service contracts.
@@ -14,4 +14,4 @@ Go-specific rules:
 - Migration regressions use the checked-in runner and normalized schema snapshots. Direct-entry changes need management omission/null/boolean, recursive routing versus entry rejection, witness/setup roots, model list/export/self-test selectors, and retained-row preservation coverage at their owning layers.
 - Keep bootstrap, launcher, partition retention, and Dockerfile regressions when changing their shipped contracts. Runtime allowlist absence and the container ownership/path contract remain permanent guards.
 
-Full backend commands are in [backend guidance](../AGENTS.md) and [CONTRIBUTING](../../CONTRIBUTING.md). Keep CI discovery glob-based and use the narrowest owning suite first.
+Keep CI discovery glob-based and use the narrowest owning suite first.

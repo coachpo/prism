@@ -1,18 +1,18 @@
 # Observability API
 
-This reference covers statistics, Requests, Audit, and durable retention jobs. It follows the [shared HTTP contract](api-reference.md). See [observability and retention](observability-and-retention.md) for attribution, persistence, and capture semantics.
+This reference covers statistics, Requests, Audit, and durable retention jobs. It follows the [shared HTTP contract](api-reference.md). See [request statistics](statistics.md), [audit](audit.md), and [log retention](log-retention.md) for attribution, persistence, and capture semantics.
 
-## 4. Statistics API
+## Statistics API
 
 Stats APIs are pinned to Default profile id `1`; `X-Profile-Id` is accepted for compatibility and ignored.
 
-### 4.0 Dashboard Stats
+### Dashboard Stats
 
 ```
 GET /api/stats/dashboard
 ```
 
-This mounted aggregate API returns one backend-computed, stats-only aggregate snapshot for the effective profile, including overview metrics, API-family rows, top-spending models, and a `routing_health_map` response field. It does not include recent request rows, request-log IDs, or request-log cursor data. Recent activity is served by `GET /api/stats/dashboard/recent-activity`. The current Observe UI uses the separate query-context fragments in §3.8 and does not consume this aggregate or render `routing_health_map`.
+This mounted aggregate API returns one backend-computed, stats-only aggregate snapshot for the effective profile, including overview metrics, API-family rows, top-spending models, and a `routing_health_map` response field. It does not include recent request rows, request-log IDs, or request-log cursor data. Recent activity is served by `GET /api/stats/dashboard/recent-activity`. The current Observe UI uses the separate query-context fragments in [the Observe read contract](statistics.md#dashboard-and-analytics-rest-polling) and does not consume this aggregate or render `routing_health_map`.
 
 Query parameters: none. Legacy `window` query values are ignored. The endpoint always returns the canonical aggregate snapshot and does not expose the old top-level `window`, `covers`, `freshness`, or `metrics` shape. Snapshot freshness is ordered by lexicographic `snapshot_revision`; `source_watermark` is diagnostic only.
 
@@ -75,7 +75,7 @@ Response `200`:
 
 In `metric_snapshot`, `avg_latency`, `error_rate`, `p95_latency`, and `success_rate` are `null` when the window has zero traffic; the counts (`total_requests` etc.) stay numeric. Recent-activity items carry nullable `status_code` / `response_time_ms` (null for rows without a resolved duration), and `response_time_ms` is the end-to-end duration including stream finalization.
 
-### 4.0A Dashboard Recent Activity
+### Dashboard Recent Activity
 
 ```
 GET /api/stats/dashboard/recent-activity?limit=N
@@ -120,7 +120,7 @@ Response `200`:
 
 Recent activity links into request-log investigation by `request_log_id`. It does not define snapshot freshness, and activity publication does not force a dashboard snapshot rebuild.
 
-### 4.1 Usage Snapshot
+### Usage Snapshot
 
 ```
 GET /api/stats/usage-snapshot
@@ -140,11 +140,11 @@ The snapshot is aggregated from persisted usage-event rows. Endpoint aggregates 
 
 Response `200` includes `latency_trends` alongside `request_trends`, `token_usage_trends`, `token_type_breakdown`, and `cost_overview`. `latency_trends.hourly[]` and `latency_trends.daily[]` use the same series key/label shape as request trends; each point exposes `bucket_start`, `p50_ms`, and `p95_ms`. Empty latency buckets keep the bucket and return `null` percentile values.
 
-`overview` token fields use the canonical disjoint caliber described in [Request Statistics](observability-and-retention.md#7-request-statistics): `input_tokens` excludes cache-read and cache-creation input, `output_tokens` excludes reasoning output, and `cached_tokens` is the derived cache-read plus cache-creation aggregate. `token_component_basis` names that caliber (`"disjoint"`), and `uncategorized_tokens` reports `total_tokens` minus the sum of the components, clamped at zero. A positive `uncategorized_tokens` means upstreams supplied provider totals that the components cannot reconstruct - typically usage payloads carrying only a total - so the components and the total are expected not to add up in that case.
+`overview` token fields use the canonical disjoint caliber described in [Request Statistics](statistics.md#request-statistics): `input_tokens` excludes cache-read and cache-creation input, `output_tokens` excludes reasoning output, and `cached_tokens` is the derived cache-read plus cache-creation aggregate. `token_component_basis` names that caliber (`"disjoint"`), and `uncategorized_tokens` reports `total_tokens` minus the sum of the components, clamped at zero. A positive `uncategorized_tokens` means upstreams supplied provider totals that the components cannot reconstruct - typically usage payloads carrying only a total - so the components and the total are expected not to add up in that case.
 
 `GET /api/stats/requests/operations` is not part of the current management API.
 
-### 4.1A Endpoint Model Statistics
+### Endpoint Model Statistics
 
 ```
 GET /api/stats/endpoints/{endpoint_id}/models
@@ -160,7 +160,7 @@ Query parameters:
 
 Response `200` is an envelope `{items, scope, caliber, coverage, samples}` rather than a bare array. Each item supplies P50/P95 latency, priced/unpriced counts, trusted cost (including trusted zero), token totals and output-rate samples for the requested supported scope; missing samples remain null with explicit sample/missing counts.
 
-### 4.2 List Request Logs / Ingress Chains
+### List Request Logs / Ingress Chains
 
 ```
 GET /api/stats/requests?view=attempts
@@ -413,13 +413,13 @@ Ordinary Requests triage (`ingress_final_result`, `confirmed_failover`) needs no
 
 Exact single-request investigation now lives on `GET /api/stats/requests/{request_id}` (v2 detail) instead of the paginated list-query surface.
 
-### 4.2A Full Filtered CSV Export
+### Full Filtered CSV Export
 
 ```
 GET /api/stats/requests/export
 ```
 
-Server-side full filtered CSV export ([Requests requirements](requests.md#6-data-and-api-requirements)). It reuses the non-pagination attempt/chain filter projection, including requested/attempt/final identities, API family, row kind, status/error, pricing, signed `query_context`, and final selectors. `view=attempts` exports the flat attempt cohort; `view=ingress_chains` exports all retained rows of the server-selected chain cohort, including finalized pricing/cost-segment and row-filter semantics. Signed final selectors retain their frozen request-domain bounds, while ordinary triage remains tokenless. The export:
+Server-side full filtered CSV export ([Requests requirements](requests.md#data-and-api-requirements)). It reuses the non-pagination attempt/chain filter projection, including requested/attempt/final identities, API family, row kind, status/error, pricing, signed `query_context`, and final selectors. `view=attempts` exports the flat attempt cohort; `view=ingress_chains` exports all retained rows of the server-selected chain cohort, including finalized pricing/cost-segment and row-filter semantics. Signed final selectors retain their frozen request-domain bounds, while ordinary triage remains tokenless. The export:
 
 The CSV places `upstream_model_id` immediately after
 `attempt_target_model_id`; the cell is the immutable attempt snapshot or empty
@@ -432,7 +432,7 @@ protection as every other exported text cell.
 - Spools to a 0600 temp file (128 MiB cap), computes a SHA-256 digest, then streams with `Content-Type: text/csv`, `Cache-Control: private, no-store`, and `Digest: sha-256=...`. Any spool/digest failure returns a typed rejection, never a partial success file.
 - Rejects every attempts/chain/row pagination key before opening the export snapshot.
 
-### 4.3 Get Request Log Detail
+### Get Request Log Detail
 
 ```
 GET /api/stats/requests/{request_id}
@@ -611,7 +611,7 @@ The request-log sheet consumes this grouped detail contract as overview-only dat
 
 The request-history, spending, throughput, usage-snapshot, model-metrics, connection-success-rate, and dashboard aggregate APIs in this section remain product-facing PostgreSQL-backed surfaces. Prism no longer starts metrics or tracing exporters and does not surface a backend-local `/metrics` compatibility route.
 
-### 4.4 Get Aggregated Statistics
+### Get Aggregated Statistics
 
 ```
 GET /api/stats/summary
@@ -679,7 +679,7 @@ Response `200`:
 
 Ingress and final-execution summaries read finalized usage events; final-execution latency also uses retained request logs. Route-attempt summaries read only `row_kind=upstream` request-log rows and use `attempt_result` plus raw `attempt_duration_ms`.
 
-### 4.5 Model Metrics (Batch)
+### Model Metrics (Batch)
 
 ```
 POST /api/stats/models/metrics
@@ -697,7 +697,7 @@ Request:
 
 Response `200` returns each requested model once with `ingress`, `final_execution`, and `route_attempt` metric blocks. Each block contains `request_count`, nullable `success_rate`, nullable `p95_latency_ms`, nullable `known_cost_micros`, `caliber`, and sample/missing counts. Route-attempt cost is always null with `cost_basis=none`. Response-level quality coverage carries usage and request datasets; spending coverage carries usage evidence. Ingress and final-execution cost are non-additive groupings of the same served-final trusted fact.
 
-### 4.6 Get Connection Success Rates
+### Get Connection Success Rates
 
 ```
 GET /api/stats/connection-success-rates
@@ -741,7 +741,7 @@ Fields:
 - `error_count` (int): Requests with non-2xx status codes
 - `success_rate` (float | null): Success percentage (0-100), `null` if no requests
 
-### 4.7 Get Throughput Report
+### Get Throughput Report
 
 ```
 GET /api/stats/throughput
@@ -764,7 +764,7 @@ Query parameters:
 
 Response `200`: Throughput summary plus time buckets (`average_rpm`, `peak_rpm`, `current_rpm`, `total_requests`, `time_window_seconds`, `buckets[]`) and the selected caliber, dataset coverage, and sample counts.
 
-### 4.8 Global Log Retention Settings
+### Global Log Retention Settings
 
 ```
 GET /api/settings/log-retention
@@ -813,7 +813,7 @@ Preflight (`POST /api/maintenance/log-retention/preflights`) is a read-only, sin
 
 Retention drops whole daily child partitions whose upper bound is `<= cutoff/purge_to_time`, never current/future partitions; only the single child partition that overlaps the cutoff receives a bounded row delete, followed by `VACUUM (ANALYZE, PROCESS_TOAST TRUE)` on that boundary child. Audit rows keep weak request metadata; request-log retention never clears `request_log_id`, `request_log_created_at`, or `ingress_request_id`.
 
-### 4.8A Global Log Retention Data Model
+### Global Log Retention Data Model
 
 - `log_retention_settings`: singleton `global` row with the four policy fields, monotonic `revision`, and `1..36500` `NOT VALID` CHECKs (finalizer-validated).
 - `log_retention_policy_resources`: one row per dataset carrying `policy_generation`, separate semantic `fence_generation`, `settings_revision`, `configured_logical_cutoff` (UTC day-aligned, never `now - N*24h`), `published_retention_floor`, `retention_revocation_epoch`, `purge_state` (`idle|running|recovery_required|published|rolled_back`), `physical_reclaim_state`, and `desired_work_identity`. This row is the single retention source consumed by Observe query contexts, ordinary Requests reads, Audit coverage, manual purge final publish, and the Settings projection; consumers never re-derive a floor from policy days or `MIN(created_at)`.
@@ -827,7 +827,7 @@ Retention drops whole daily child partitions whose upper bound is `<= cutoff/pur
 
 Scheduled request/usage/loadbalance protection uses the Observe 24h token TTL + 24h grace; audit retention uses its own fence projection and never inherits a fixed 48h claim.
 
-### 4.9 Get Spending Reports
+### Get Spending Reports
 
 ```
 GET /api/stats/spending
@@ -913,11 +913,11 @@ Unpriced reasons distinguish pricing configuration gaps from observed usage gaps
 
 ---
 
-## 5. Audit API
+## Audit API
 
 Audit APIs are pinned to Default profile id `1`; `X-Profile-Id` is accepted for compatibility and ignored.
 
-### 5.0 API-Family Audit Settings
+### API-Family Audit Settings
 
 ```
 GET /api/settings/audit
@@ -955,7 +955,7 @@ Request:
 
 Body capture is valid only when audit is enabled for that API family. Runtime loads the selected policy by profile and model `api_family` into request planning snapshots, then persists the request-time booleans in existing `audit_enabled_at_request` and `audit_capture_bodies_at_request` fields.
 
-### 5.1 List Audit Logs
+### List Audit Logs
 
 ```
 GET /api/audit/logs
@@ -1043,7 +1043,7 @@ The list API returns `request_body_preview` instead of the full body. It keeps a
 If body capture was off at request time, `request_body_preview` is `null` even though the audit metadata still exists. `response_body_stored` means captured response bytes were stored, independent of `is_stream`; rows with `response_body_stored=false` have no stored response body. Audit rows preserve `request_log_id`, `request_log_created_at`, and `ingress_request_id` after request-log retention. `request_log_missing=true` means both request-log link fields are present but the `(profile_id, request_log_id, request_log_created_at)` tuple no longer resolves. If either link field is null, `request_log_missing` is false.
 Rows are ordered by `(created_at DESC, id DESC)`. Pagination is keyset-based: when `has_more=true`, pass the returned `next_cursor` with the same window, sort, and filters. The audit list response does not include `total` or `offset`.
 
-### 5.2 Get Audit Log Detail
+### Get Audit Log Detail
 
 ```
 GET /api/audit/logs/{id}
@@ -1057,7 +1057,7 @@ Every audited attempt may retain its request body; only the final attempt retain
 
 A missing row returns `404`. Disabled request-time audit returns `409` with `Audit capture unavailable for this request`; evidence below the published retention floor returns `410 audit_evidence_revoked`.
 
-### 5.2A Raw Body Downloads
+### Raw Body Downloads
 
 ```
 GET /api/audit/logs/{log_id}/body/request
@@ -1066,7 +1066,7 @@ GET /api/audit/logs/{log_id}/body/response
 
 Returns the exact stored BYTEA prefix byte-for-byte with `Content-Length`, `Content-Disposition: attachment; filename=<safe-name>`, `Content-Type: application/octet-stream`, `X-Content-Type-Options: nosniff`, `Cache-Control: private, no-store`, `Content-Security-Policy: sandbox`, and the `X-Prism-Body-Truncated`/`X-Prism-Body-Bytes-Observed`/`X-Prism-Body-Bytes-Stored`/`X-Prism-Body-Capture-End-State` headers. Invalid UTF-8, NUL, and mid-codepoint truncation round-trip byte-for-byte. The current raw-body loader does not provide original content-type evidence. Missing rows return `404`; a retained row with no stored capture returns zero bytes, disabled request-time audit returns `409`, and revoked evidence returns `410 audit_evidence_revoked`.
 
-### 5.3 Audit Log Retention
+### Audit Log Retention
 
 Audit log list and detail APIs remain pinned to Default profile id `1`. Normal audit-log cleanup is global: the stored `audit_logs_retention_days` value from `/api/settings/log-retention` plans automatic v2 jobs; one-time cleanup uses a manual-cleanup preflight plus sealed job under `/api/maintenance/log-retention/*`.
 
@@ -1074,7 +1074,7 @@ The retired audit cleanup endpoints are not part of the current API. Retention j
 
 Audit rows retain weak request metadata in `request_log_id`, `request_log_created_at`, and `ingress_request_id`; retention does not clear those fields. `request_log_missing=true` requires both request-log link fields and reports that the `(profile_id, request_log_id, request_log_created_at)` tuple no longer resolves, so a request detail link can be unavailable after request-log retention expires before audit-log retention.
 
-### 5.3A Management Job Status and Cancel
+### Management Job Status and Cancel
 
 ```
 GET /api/management/jobs
@@ -1119,16 +1119,16 @@ POST /api/management/jobs/{job_id}/cancel
 
 `GET /api/management/jobs/{job_id}` and `POST /api/management/jobs/{job_id}/cancel` accept the same global scope/type witness for v2 retention jobs. Queued manual jobs can be cancelled; running manual purges return `409 purge_not_cancellable`; automatic jobs accept `cancel_requested`. A worker-side preflight mismatch terminalizes the job with `preflight_stale_before_execution` before acquiring the purge fence, so a new server preflight is required. Unknown or out-of-scope jobs return `404`.
 
-### 5.4 Redaction Rules
+### Redaction Rules
 
 Header values are scrubbed at write time with the fixed safe-diagnostic matcher (`safediag`: exact sensitive names plus fragment-sensitive names, Bearer/Basic/JWT/API-key-like/key=value/URL-secret redaction) and stored as canonical sorted `[{name,value}]` entries with per-direction `request_headers_scrub_provenance`/`response_headers_scrub_provenance`. Legacy rows that predate the v2 scrubber are rewritten at upgrade time with `[REDACTED-LEGACY]` values (`legacy_all_values_redacted` or `legacy_rescrubbed` provenance); no raw legacy header value is served after the v2 upgrade.
 
-Captured text request and response bodies can contain user-provided secrets or PII; image-operation bodies apply the payload redaction in [Request Audit Logging](observability-and-retention.md#81-concept). Body capture is request-time provenance via `audit_capture_bodies_at_request`; when disabled, stored bodies and their public `*_body_base64` projections are `null`.
+Captured text request and response bodies can contain user-provided secrets or PII; image-operation bodies apply the payload redaction in [Request Audit Logging](audit.md#audit-concept). Body capture is request-time provenance via `audit_capture_bodies_at_request`; when disabled, stored bodies and their public `*_body_base64` projections are `null`.
 
-### 5.5 Body Size Limits
+### Body Size Limits
 
 When body capture is enabled, Prism can store the captured request body for each audited upstream attempt and the captured response body for the final attempt only. Audit list previews are limited to the first 4096 Unicode code points without an appended truncation marker; detail bodies are not truncated by this preview helper.
 
-Body capture is bounded: the per-body cap is 4 MiB enforced during the copy (observed counts all bytes, stored retains the first 4 MiB prefix), request bodies share a 12 MiB per-ingress budget with a separate 4 MiB final-response reservation (16 MiB aggregate), and capture statuses are typed (`captured|truncated|omitted_ingress_budget` with observed/stored counts). Stored bodies are BYTEA prefixes; exact bytes are served by the raw download routes in §5.2A.
+Body capture is bounded: the per-body cap is 4 MiB enforced during the copy (observed counts all bytes, stored retains the first 4 MiB prefix), request bodies share a 12 MiB per-ingress budget with a separate 4 MiB final-response reservation (16 MiB aggregate), and capture statuses are typed (`captured|truncated|omitted_ingress_budget` with observed/stored counts). Stored bodies are BYTEA prefixes; exact bytes are served by the raw download routes in [Raw Body Downloads](#raw-body-downloads).
 
 ---

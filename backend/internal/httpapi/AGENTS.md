@@ -6,5 +6,3 @@ Keep handler ownership separate from server assembly: management handlers live i
 - Keep management session/cookie/token helpers in `management/auth/`; runtime proxy authentication uses that package's distinct runtime middleware and published cache.
 - Keep HTTP parsing and response shaping here; shared audit, statistics, routing, and value semantics belong in `../domain/`.
 - Retained statistics and audit reads are management APIs. Do not add a second runtime observability or bootstrap-configuration CRUD surface.
-
-For implementation checks, use the affected package tests under `internal/httpapi/` and the matching [regression suite](../../tests/AGENTS.md); the backend validation commands remain in [CONTRIBUTING.md](../../../CONTRIBUTING.md).

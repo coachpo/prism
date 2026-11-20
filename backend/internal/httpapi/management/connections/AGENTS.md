@@ -16,5 +16,3 @@ Pricing authoring remains in this package:
 - JSON import uses the schema-3 typed shape and preview-hash/atomic-commit flow in `pricing_template_import.go`. Card roles, thresholds, and window digest participate in identity and invalidation.
 - Catalog pricing previews fetch models.dev outside transactions; commits use the confirmed snapshot and one transaction, including target assignment CAS under sorted locks. Preserve drift confirmation, source provenance, live-row offering uniqueness, unchanged-template reuse, and private/no-store headers (`pricing_catalog_*.go`).
 - Settings currency migration consumes the bounded owner page in `pricing_list_page.go` and all required card roles. Do not add unbounded active-template scans or substitute legacy evidence for current cards.
-
-Local checks include `routes_test.go`, `pricing_template_shape_test.go`, and `pricing_readiness_test.go`. Composite creation and transactional batch copies are covered in [composite create/copy contract tests](../../../../tests/contract/composite_create_copy_contract_test.go).

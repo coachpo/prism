@@ -1,0 +1,142 @@
+# Request Statistics and Dashboard Reads
+
+For public query and management endpoints, see the [Observability API](observability-api.md). The [data model](data-model.md) describes retained tables and ownership. [Audit](audit.md) and [log retention](log-retention.md) own the audit and retention contracts.
+
+## Request Statistics
+
+### Statistics Concept
+
+Materialized runtime activity creates retained, product-facing request history for analytics, debugging, spending, and dashboard views. The ingress and final-execution scopes use finalized usage events; route-attempt scope uses actual upstream request-log rows. Dataset coverage remains independent, so missing final-attempt history produces a missing latency sample rather than a fabricated value. This is not a guarantee that every ingress request or every upstream transport failure will have history.
+
+### Logging Flow
+
+```
+Client -> Operation registry -> Router / Planner -> Terminal target -> Endpoint -> Upstream
+                                                         ↓
+                                              Applicable telemetry handoff
+                                                         ↓
+  Buffered 2xx: completed durable outbox row before response commit
+  Passthrough SSE or non-SSE 2xx: durable accepted row before first flush, then final payload update
+  Captured non-2xx: bounded in-memory side-effect queue, then outbox attempt
+  Eligible PlanningFailure or terminal execution error: bounded side-effect queue, then outbox attempt
+                                                         ↓
+                              Background materializer transaction:
+                                - Write request_logs rows
+                                - Write audit_logs rows when audit was enabled
+                                - Write usage_request_events and proxy-key usage
+                                - Delete the durable outbox row
+```
+
+Unsupported routes and wrong methods are rejected before telemetry. Early request/planning errors such as malformed bodies, unknown models, and API-family mismatches do not carry `PlanningFailure` and therefore do not create synthetic history. Eligible planning failures, captured non-`2xx` activity, and terminal execution errors use the bounded scheduler handoff and can be lost before they reach the outbox. A final all-transport-failures `502` preserves each launched attempt and its safe diagnostic in that handoff; a zero-launch execution failure uses a synthetic admission row. Retained history is therefore a materialized record, not a guaranteed ledger of every ingress.
+
+### Data Captured
+
+- Profile ID attribution, requested model ID, final logical target model ID, the Terminal Target's frozen `upstream_model_id`, API family, Terminal Target compatibility ID, endpoint base URL, and endpoint description
+- Prism `ingress_request_id`, per-request `attempt_number`, persisted ingress `operation_name`, additive `upstream_operation_name`, `operation_translation_mode`, `upstream_request_path`, and best-effort `provider_correlation_id`
+- Scoped HTTP status (`upstream_status_code`/`gateway_status_code`/`legacy_status_code`) and scoped duration (`COALESCE(completion_duration_ms, attempt_duration_ms)` for upstream rows; `legacy_duration_ms` for other rows); the old un-scoped `status_code`/`response_time_ms` are nullable legacy projections only and are never written by the current runtime writer
+- `row_kind` (`planning|admission|upstream|legacy_unknown`), `attempt_trigger`/`attempt_result`/`is_winner` lifecycle facts, and the unified failure projection: `error_source`/`error_code`/`failure_stage` plus a scrubbed, 4 KiB-bounded `error_detail` and an independent `stream_error_kind`/`stream_error_detail` with redacted/truncated flags
+- Token usage (input, output, total), extracted by native upstream operation response or stream hooks
+- Flat final-target attribution, including requested model, resolved target model, selected terminal target, endpoint, operation, upstream operation, current-or-historical translation mode, and sanitized upstream request path.
+- Four-state pricing (`pricing_status`), `unpriced_reason`, canonical `pricing_resolution_kind`/`missing_price_components`, `pricing_evidence_trust`, template identity snapshots, reporting-currency epoch, and `cost_segment_key`; `priced_flag`/`billable_flag` are not part of the current contract
+- Stream flag, ingress request path, sanitized upstream request path, error details, scrub provenance arrays (`metadata_redacted_fields`/`metadata_truncated_fields`), and `url_scrub_provenance`
+
+Request-log semantics are per-materialized attempt: one incoming runtime request can create multiple request-log rows when failover or retries occur. `ingress_request_id` groups those rows while `request_id` remains the unique identifier for one stored attempt row. Final usage ownership stays with the final returned response. The default Requests view is the server-side retained ingress chain (`view=ingress_chains`): finalized usage evidence (`usage_request_events`), expected/retained counts, routing evidence flags (`same_target_retry_occurred`/`hedge_occurred`/`failover_occurred`), and signed opaque chain/row cursors that never split an ingress across pages.
+
+### Query Capabilities
+
+- Filter by model, final target model, caller client rule, endpoint, api family, status family/exact status, error text, pricing status (`priced|unpriced|ineligible|unknown`), unpriced reason, and time range; unknown query keys return `422 unknown_query_key` (the old `priced` boolean alias is rejected)
+- Attempt view (`view=attempts`) with scoped status/duration filters and `sort_by` over `created_at|display_status|ttft_ms|total_tokens|total_cost_user_currency_micros`; rows with no value for the selected key (no TTFT on a non-stream row, no cost on an unpriced row) sort last in both directions, and `created_at`/`id` break ties so offset pages stay stable
+- Ingress-chain view (`view=ingress_chains`, default) with cohort filters (`ingress_final_result`, `confirmed_failover`, pricing cohort), whole-ingress outer pagination via signed chain cursors, and bounded retained-row inner pages with row cursors; the ordinary ingress set is the finalized usage events merged with the chains that have retained rows but no usage event (request-only chains stay visible with an unavailable finalized summary), and rows with a NULL `ingress_request_id` never form a chain
+- Server-side full filtered CSV export (`GET /api/stats/requests/export`) from a single `REPEATABLE READ` snapshot with 100,000-row/128 MiB/31-day bounds, formula-injection escaping, SHA-256 digest verification, and no partial files
+- Exact v2 detail (`GET /api/stats/requests/{request_id}`) with scoped statuses, the unified failure projection, canonical terminal-target/endpoint refs, routing provenance, pricing layers, and `legacy_pricing_evidence` for legacy-untrusted rows
+- Cost segment catalogue (`GET /api/stats/cost-segments`, `GET /api/stats/cost-segments/{segment_key}/symbols`) with canonical `e.N`/`l.AAA`/`l.__unknown__` keys
+- Aggregated statistics with grouping by model/api family/endpoint using stored endpoint label snapshots
+- Pagination for request log listing
+
+All Requests list/detail/chain/export responses send `Cache-Control: private, no-store` with profile-sensitive `Vary`. These query APIs intentionally remain product-facing retained-history surfaces for the UI and operators. Prism no longer exposes local metrics or tracing exporters.
+
+### Dashboard And Analytics REST Polling
+
+The Observe page reads independent REST fragments on initial load, relevant URL or filter changes, and explicit refresh. `frontend/src/features/observe/useObserveFragments.ts` owns the fixed-ingress query context, usage summary and Now strip. `useObserveAnalysisContext` and `useObserveSeries.ts` own the selected-scope analysis context and chart. Superseded reads are aborted and generation-fenced.
+
+The Observe feature owns a page-local read-cycle counter shared by its query contexts, summary, Now, chart, setup, activity, errors, current-state summary and previously loaded Terminal Target details. A whole-page refresh starts only after those reads settle; signed-context consumers reload from the newly issued context. The mounted interval is `0`, `30` or `60` seconds, defaults to `0`, pauses while the document is hidden and resets on route exit or auth epoch change. Resource AbortControllers combine with the existing management epoch signal. Same-basis refresh failures retain last-good responses with their original timestamps; scope/preset changes withdraw incompatible data. Stable error-category selection survives a refresh only when the new server projection still contains it, and its request-filter conjunction and signed context are updated together.
+
+```text
+Proxy execution or response capture
+  -> Durable success handoff or scheduler-owned failure handoff
+  -> Background materialization writes retained request logs and usage events
+  -> Observe obtains query contexts from the owning retained-coverage projections
+  -> Independent summary, Now, chart, errors and activity reads consume those facts
+```
+
+- `GET /api/stats/query-context` resolves a preset/custom window into signed opaque `query_context` (HMAC subkey derived from the server secret encryption key, 24h TTL) using the Observe owner actual-coverage projections for request logs, usage events, and loadbalance events. The token freezes per-domain requested/effective bounds, retention epoch/generation/fence, source revision, coverage revision/hash, materialization cut, freshness, and gaps; `all` uses the owner earliest bound and an empty half-open interval when no retained intersection exists. Fragments never re-parse presets or synthesize a policy-day window. Fragment validation re-reads the owning retention source: a running/recovery purge fails closed with the owning 503 and a manual-purge final publish revokes older tokens with `410 dataset_snapshot_revoked`.
+- `GET /api/stats/usage-summary?query_context=` consumes the frozen token bounds directly, including `all` windows longer than 30 days; it never reinterprets them as a browser `custom` preset. Its scope-discriminated response initializes arrays/maps, names the correct outcome and latency basis, carries trusted-zero-aware cost samples only where the scope owns cost, preserves selected-card `pricing_card_role_breakdown`, and distinguishes zero from missing evidence.
+- `GET /api/stats/usage-series?query_context=&metric=&group_by=&interval=` returns the scoped main chart with 24–120 buckets and Top entities plus a re-aggregated Other. Counts and raw latency samples are conserved before percentile calculation; exact capacity is not `truncated`. Endpoint/Terminal Target labels use the catalog/retained identity resolver rather than bare numeric IDs. A zero-length owner-complete `all` interval returns an empty chart, not an invalid-range error.
+- `GET /api/stats/usage-errors?query_context=&group_by=&limit=` validates every scope/filter enum before SQL, binds all values as parameters, and uses the same outcome classifier as summary and Requests. Route-attempt mode reads upstream attempts only, distinguishes HTTP/stream/transport/disconnect outcomes, honors scope filters and limit, emits non-null replayable `request_filters`, and computes Other from the full denominator.
+- `GET /api/stats/dashboard/now` returns the Now strip: 30-minute rolling RPM/TPM with token sample coverage plus enabled model count.
+- `GET /api/loadbalance/events` accepts an optional `model_id` (empty selects the profile global timeline).
+- The outcome classifier (`completed / http_error / stream_error / client_disconnected` detail and `completed / failed / client_disconnected` final result) and the pricing four-state classifier are implemented once and shared by all read models; SQL CASE expressions mirror the Go pure functions.
+- Failures never produce synthetic zeros: fragments keep independent loading/ready/error states, 422/410 typed errors for invalid/expired query contexts, and null values for missing samples. Scoped request coverage is presented independently from the fixed-ingress usage lane, and JSON export carries per-fragment scope, bounds, caliber and dataset coverage rather than one mixed top-level claim.
+- Fragment list fields (series, timeline, error rankings, stream error kinds, coverage gaps) are always JSON arrays: an empty aggregate serializes as `[]`, never `null`. Fragment coverage also carries the retention floor and gaps frozen in the query-context domain snapshot rather than re-deriving them.
+
+
+The mounted `GET /api/stats/dashboard`, `/dashboard/recent-activity`, `/usage-snapshot`, and endpoint-model drilldown APIs remain available for their own consumers. Their snapshot revision and feed-watermark fields describe those APIs; they do not govern the current Observe fragment lifecycle. Window KPI success is `completed_count / request_count`, with absent denominators shown as unavailable.
+
+
+## Product Behavior
+
+### Request Statistics & Analytics
+
+- Local `GET /v1/models` produces no runtime telemetry. Provider-forwarded operations create retained history only when activity reaches a telemetry handoff: successful `2xx` responses use the durable response-path handoff; captured non-`2xx` responses, telemetry-eligible `PlanningFailure`, and terminal execution failures use scheduled activity handoff, preserving actual attempts when present and otherwise using diagnostic rows. Registry rejections and the earlier planning errors listed above do not create request history.
+- Each retained request-log row captures: profile ID attribution, requested `model_id`, final `resolved_target_model_id` when an access-target path is selected, `api_family`, Terminal Target used through connection attribution (ID, endpoint base URL, description), Prism `ingress_request_id` (UUIDv4), `attempt_number`/`attempt_trigger`/`attempt_result`/`is_winner`, best-effort `provider_correlation_id`, caller and upstream client display, scoped HTTP status (`upstream_status_code`/`gateway_status_code`/`legacy_status_code`), scoped duration, token usage when available from upstream response, whether the request was streamed, selected Terminal Target, operation names, translation mode, timestamp, and a unified failure projection (`error_source`/`error_code`/`failure_stage`/scrubbed `error_detail` plus independent `stream_error_kind`/`stream_error_detail` with redacted/truncated flags). Old un-scoped `status_code` and mixed `response_time_ms` are only retained as nullable legacy projections and are never written by the current runtime writer.
+- Retained upstream duration prefers recorded completion duration and otherwise uses attempt duration; non-upstream rows use their retained legacy duration. A completed stream therefore uses its completion timing when available rather than response-header timing. The exact duration and status projections belong to the [request-log API contract](observability-api.md#get-request-log-detail).
+- A normal upstream attempt is represented by one request-log row; telemetry-eligible planning/admission activity adds a diagnostic row with `row_kind=planning|admission` and a gateway status. `ingress_request_id` groups retained rows from one incoming runtime request; the default Requests view is the server-side retained ingress chain (`view=ingress_chains`) with finalized usage evidence, expected/retained counts, routing evidence flags, and signed outer/row cursors. The current detail sheet shows the request path and routing fields, while operation names, translation mode, and upstream path are persisted and returned by the detail API but are not rendered in that sheet. Each request also carries backend-authoritative output-rate evidence (`output_rate_state`/`output_rate_reason`/`output_delivery_event_count`/`output_delivery_span_ms`, 000030): the Requests table and detail sheet render the persisted measured tok/s or an explained `—` (unmeasurable/not-applicable reason, historical unknown), never a browser-recomputed rate; the TTFT and completion-duration facts remain unchanged.
+
+#### Token Usage Extraction
+
+Prism records upstream token usage for supported generation and token-count operations, including native streaming usage when available. The [token extraction contract](runtime-api.md#token-usage-extraction) owns each operation's response fields, SSE events, and component normalization. Image byte payloads are excluded from audit content.
+
+If token data cannot be extracted, token fields remain `null`. Missing component evidence stays nullable unless operation-specific normalization establishes a zero; the presence of one usage field does not prove every other component is zero.
+
+#### Token Costing
+
+The gateway computes the cost of each request based on the extracted token usage and the connection's assigned pricing template.
+
+- **Pricing Templates**: Pricing is profile-scoped and reusable. Connections reference templates via `pricing_template_id` instead of storing inline price fields.
+- **Pricing behavior**: Every pricing template has exactly one user-selected kind: `standard`, `tiered`, or `peak_valley`. Each kind owns complete five-component price cards. `tiered` switches the entire request from `tier_base` to `tier_above` only when the disjoint input basis is strictly above the configured threshold. `peak_valley` owns independent `peak` and `offpeak` cards plus user-authored half-open windows and an IANA timezone; the window union selects peak and its complement selects offpeak. `peak` is a role label, not a promise that the rate is higher. Explicit JSON `null` means an unconfigured specialty price; explicit `"0"` means configured free pricing.
+- **Pricing read honesty**: list, setup-readiness, and currency-archive reads use the same base input/output readiness contract while the list separately reports missing specialty components. Broken kind/card/window/digest data is an error or explicit missing state, never an empty-history or zero-cost claim; edits show the existing impact preflight before save, and revision history preserves each version's role prices and concrete windows.
+- **Semantic Note**: Explicit `"0"` means configured free pricing. `MISSING_PRICE_DATA` is reserved for absent, unusable, or invalid pricing snapshots, or missing FX data. Token costing uses canonical disjoint components: base input, cache-read input, cache-creation input, base output, and reasoning output; aggregate `cached_tokens` is derived-only for presentation. Token-count operations have no generation output usage, so they select the applicable input card and charge only observed input/cache components; the absent output component contributes zero and is not treated as missing usage.
+- **Cache-read share**: The Window KPI card and the per-request detail row report prompt tokens served from cache as `cache_read / (input + cache_read + cache_creation)`, computed once in the frontend over the disjoint components without re-deriving totals. Upstream ingestion already normalizes to disjoint semantics, so `input_tokens` never includes cache components; `cache_creation` is structurally absent for OpenAI/Gemini and coalesces to zero, while a null `input` or `cache_read` excludes the row (the two are not interchangeable). The window aggregate is computed backend-side in one SQL statement under a single `cache_basis_eligible` predicate that also requires a non-null `operation_name` outside `anthropic.count_tokens`, `gemini.count_tokens`, `openai.images.generations`, and `openai.images.edits` — token-count and image operations are excluded from this generation-comparison cohort, and a null operation name is indeterminate. Real zero, no comparable rows, an empty window, a failed read, and partial coverage are presented as mutually distinguishable states; none is shown as a fabricated `0%`.
+- **Historical costing provenance**: Request-log details retain and display report currency, original/source currency, FX rate and source, pricing unit, pricing configuration version, template identity snapshots, reporting-currency epoch, `cost_segment_key`, and all five pricing snapshot components. Lists and CSV use each row's stored report-currency symbol rather than recomputing historical requests from the current settings. Pricing is a four-state classifier (`priced|unpriced|ineligible|unknown`) with canonical `missing_price_components` and `pricing_evidence_trust`; the old `priced_flag`/`billable_flag` boolean surfaces are not part of the current contract. Non-2xx rows are `ineligible`. Legacy-untrusted rows keep canonical cost null and expose raw values only through the exact detail `legacy_pricing_evidence` block.
+
+- The `/observe` dashboard presents a rolling Now strip, fixed-ingress Window KPI cards, and the Trend, Errors, Activity, and Terminal Targets views described in [Web UI](dashboard.md#web-ui-management-dashboard) and [Three-Scope Observability](#three-scope-observability). Its final-completion card uses finalized `completed_count / request_count`; HTTP success remains a separate backend statistic.
+- Activity is a paginated finalized-ingress feed that links into the Requests chain view. Routing health has its own current-state and events page, linked from Observe and Ban Policies.
+- Dedicated request investigation UI at `/observe/requests` with server-backed requested-model, attempt-target, caller-client, scoped status and four-state pricing filters; signed final-owner drill-downs; a default retained ingress-chain view with cohort-bound cursors; a failure-first detail sheet; and a dedicated full audit page with byte-exact raw body downloads
+- REST API for querying statistics remains available for API callers and debugging:
+  - List request logs with pagination and filters
+  - Get the stats-only dashboard snapshot and separate dashboard recent activity feed
+  - Get aggregated statistics (counts, averages, totals) with grouping
+  - Get the usage snapshot and endpoint model statistics directly when needed
+- Observe loads on entry and on relevant URL changes or explicit refresh/retry. It uses an ingress query context for Window KPIs and Activity, an independent selected-scope context for Trend and Errors, and a separate rolling Now read. Automatic refresh is off by default; the operator may choose 30 or 60 seconds for the mounted page. A hidden tab starts no scheduled read, slow reads prevent overlapping refresh cycles, and leaving the route or changing identity cancels reads and resets the interval. A refresh retains last-good data with an explicit stale marker on failure, while each fragment keeps its own sampling time and effective range. Recent Activity uses retained finalized ingress events, not an inferred all-time last-use value.
+
+#### Retention Coverage And Analysis Windows
+
+The analysis window presets and the retention policies are independent surfaces. Long windows stay available regardless of how little history an instance keeps, and the mismatch is reported by the coverage contract instead of by removing options.
+
+- The window presets (`1h`, `6h`, `24h`, `7d`, `30d`, `all`) are a fixed product surface. They are never narrowed, hidden, or rewritten to match the configured retention.
+- Retention length is an instance-level configuration choice, not a product default. All four managed policies (`request_logs`, `audit_logs`, `statistics`, `loadbalance_events`) are `NULL` at the database level, which means no scheduled cleanup at all; setting a policy to N days (minimum 1) is what enables day-based logical cleanup through the partitioned-log maintenance worker.
+- Every observability query answers with a coverage projection alongside the data: the requested preset, the effective window, the retention floor that applies, whether the answer is served from raw or rollup sources, a `complete` flag, and the concrete gaps with their reasons. When coverage is not complete, the Observe surfaces raise a retention-coverage warning that links directly to the instance retention settings, and the loadbalance events timeline raises its own callouts for incomplete source coverage and for recorded gaps.
+- Deleted history is never backfilled with zeros. Results are trimmed to the published retention floor and labeled as trimmed, so a short series reads as "this is what is retained" rather than as a drop in traffic.
+- Pricing coverage (`complete|partial|no_trusted_cost|no_eligible`) is a separate axis reported next to the spend figures it qualifies; it describes cost trust, not data retention, and the two are not merged.
+- Consequence, and the expected behavior: on an instance that keeps one day of statistics, the `7d`, `30d`, and `all` windows legitimately show only the retained range. This is not a defect and not a reason to remove the presets; the retention settings page states the same consequence, namely that a retention policy governs future visible coverage and never restores history that has already been cleaned up.
+
+### Three-Scope Observability
+
+- Every metric declares one scope with an authoritative ordered catalog owned by `backend/internal/domain/stats/scope.go`: `ingress` has `requests|errors|ttft|output_rate|tokens|cache_read_share|cost` (default `requests`); `final_execution` has `requests|errors|final_attempt_latency|tokens|cache_read_share|cost` (default `requests`); and `route_attempt` has `attempts|errors|attempt_latency` (default `attempts`). An omitted metric resolves to the scope default before validation; an explicit incompatible metric returns `422 metric_invalid` with no cross-scope alias. Ingress counts each finalized request once by its requested model, final execution uses the resolved leaf and actual winning Terminal Target, and route attempt counts each real upstream attempt by its attempt target and actual Terminal Target.
+- Ingress and final-execution cost are non-additive projections of the same served-final fact. Canonical sums include only `priced` plus `trusted` evidence. Route-attempt aggregates make no cost claim, and the UI distinguishes trusted zero from no trusted sample.
+- Latency is scope-specific: ingress TTFT, final-attempt latency joined by `final_attempt_number`, and per-route-attempt duration. Missing request-log evidence reduces samples without removing the finalized request or filling a zero.
+- Public statistics responses expose scope-specific caliber, dataset coverage, and observation/latency/cost sample and missing counts. Endpoint-specific group/filter capability is explicit; an unsupported key returns typed `422` instead of a 200 no-op, all/Other fabrication, or SQL failure. Top-N series and Errors preserve the full denominator through a real Other bucket and only report `truncated` when a remainder exists.
+- Observe shares the URL-backed selected scope between Trend and Errors and keeps Activity explicitly ingress-scoped. An illegal or cross-scope URL metric is normalized with `replace` to that scope's default before the first series request, and the metric toggle shows only the current scope catalog. Query-context and series fragments are keyed by their complete preset/scope and token/metric/group/interval identities so stale ready data is withdrawn on a key change. Trend/Errors show scoped request-log coverage separately from the fixed usage KPI lane, and JSON export describes each fragment's own scope/bounds/coverage instead of assigning one mixed top-level window. Errors deep links use signed `view=attempts` selectors and route-attempt links additionally pin `row_kind=upstream`; Activity opens the exact ingress chain with the selected time range and no query context.
+- Requests keeps ingress chains as the default investigation unit. Attempts, chains, full CSV and detail use the same non-pagination cohort contract; ordinary triage requires no token, while Observe `final_*`/attempt deep links carry a signed request-domain context. Same-key multi-values are OR, different keys are AND, and `__null__` means an explicitly unattributed value. Exact ingress lookup without an explicit window uses retained `all` bounds across chain, attempts and CSV.
+- The additive resolved-target indexes are introduced by `000026_resolved_target_indexes.sql`; existing retained history is not rewritten, and non-positive historical identities project as unattributed.
+

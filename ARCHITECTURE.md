@@ -35,12 +35,12 @@ flowchart LR
 - The management plane resolves profile-owned objects against Default profile id `1`. Runtime requests independently freeze that profile's model, route, provider, and attribution snapshot for the full execution. `X-Profile-Id` cannot switch proxy traffic.
 - The runtime matches an exact operation and model binding, resolves the direct-entry model, walks ordered Model Targets and Terminal Targets, and dispatches native calls. Container routing and client-visible backend URLs are described in [Operations](docs/operations.md). The [runtime routing contract](docs/runtime-routing.md) covers attempt order, ingress checks, provider selection, streaming, overlays, and Ban Policy.
 - PostgreSQL and its durable generation counters own published configuration. Runtime cache reads validate the required generation vector. Per-process admission, retry windows, latency signals, and round-robin cursors belong to the active process and reset when it restarts.
-- Accepted upstream results pass through runtime telemetry handoffs before history materialization. The statistics, capture, and retention contracts distinguish ingress, final execution, and route attempts. See [observability and retention](docs/observability-and-retention.md) and the [data model](docs/data-model.md).
-- Browser routes use the typed management client. Resource-specific stores own their API reads, and the browser holds personal preferences separately from server-backed settings. See [operator workflows](docs/workflows.md) and the [Requests workflow contract](docs/requests.md).
+- Accepted upstream results pass through runtime telemetry handoffs before history materialization. The statistics, capture, and retention contracts distinguish ingress, final execution, and route attempts. See [request statistics](docs/statistics.md), [audit](docs/audit.md), [log retention](docs/log-retention.md), and the [data model](docs/data-model.md).
+- Browser routes use the typed management client. Resource-specific stores own their API reads, and the browser holds personal preferences separately from server-backed settings. See [dashboard contract](docs/dashboard.md) and the [Requests workflow contract](docs/requests.md).
 
 ## Dependency Direction
 
-HTTP handlers resolve the request boundary before delegating to domain or gateway logic. Domain and gateway code use explicitly owned state and persistence boundaries. The platform owns shared connections, worker admission, and application lifecycles. PostgreSQL migrations and recoverability policy live in the [data model](docs/data-model.md#startup-migrations-and-retained-state) and [STATUS.md](STATUS.md#data).
+HTTP handlers resolve the request boundary before delegating to domain or gateway logic. Domain and gateway code use explicitly owned state and persistence boundaries. The platform owns shared connections, worker admission, and application lifecycles. PostgreSQL migrations and recoverability policy live in the [data model](docs/data-model.md#startup-migrations-and-retained-state) and the [retained-data policy](CONTRIBUTING.md#retained-data-and-compatibility-policy).
 
 ## Process Lifecycle
 
@@ -62,9 +62,9 @@ On shutdown Prism runs these phases in order: HTTP server shutdown, side-effect 
 - **Safe failure diagnostics**: Failed attempts persist a scrubbed, 4 KiB-bounded error summary through the fixed `safediag` bottom line (Bearer/Basic/JWT/API-key-like/key=value/URL-secret redaction, control-character and whitespace normalization, metadata field scrubbing with provenance arrays) plus request-time Header Blocklist additions; stream failures keep an independent scrubbed `stream_error_detail`. Raw provider bodies are never stored in `error_detail`. The raw upstream error sample the summary is derived from is itself bounded at 32 KiB per attempt (`safediag.MaxUpstreamErrorSampleBytes`, applied as the attempt-lifecycle failed-response sample cap) and stays in memory for that derivation only: it never enters the telemetry outbox or any table. Both caps are code-fixed constants, not settings.
 - **Bounded audit capture**: Audit bodies are BYTEA prefixes capped at 4 MiB per body during the copy with a 12 MiB shared request-body budget per ingress plus a 4 MiB final-response reservation; scrub provenance, observed/stored counts, and typed capture statuses are persisted. Raw downloads are byte-exact with attachment/nosniff/no-store/sandbox headers.
 - **Cache safety**: All Requests/Audit list, detail, chain, body, and export responses send `Cache-Control: private, no-store` and preserve auth/profile-sensitive `Vary`; safe failure detail may still contain prompt/PII and must not enter shared caches.
-- **Management CSRF**: the management browser-write guard rejects cross-origin and non-JSON `/api/*` writes (`403 management_cross_origin_write_blocked` / `415 management_unsupported_media_type`) independent of operator auth; see the [management request boundary](docs/api-reference.md#10-request-boundary).
+- **Management CSRF**: the management browser-write guard rejects cross-origin and non-JSON `/api/*` writes (`403 management_cross_origin_write_blocked` / `415 management_unsupported_media_type`) independent of operator auth; see the [management request boundary](docs/api-reference.md#request-boundary).
 - **Browser response headers**: the container nginx always sends `X-Frame-Options: DENY`, `Content-Security-Policy: frame-ancestors 'none'`, `X-Content-Type-Options: nosniff`, and `Referrer-Policy: no-referrer` on the SPA, API, and health surfaces; the CSP currently covers only `frame-ancestors`.
-- **Upstream boundary**: outbound client headers are blocklisted (see [Custom Header Injection](docs/runtime-routing.md#36-custom-header-injection)) and upstream response headers are allowlisted before relay; transport failures surface only fixed classification labels (`upstream_connect_failed` / `upstream_tls_failed` / `upstream_dns_failed` / `upstream_timeout` / `client_disconnected` / `upstream_http_<status>` / `unknown_upstream_failure`) so callers never learn upstream host, port, path, or the refused-vs-unreachable distinction.
+- **Upstream boundary**: outbound client headers are blocklisted (see [Custom Header Injection](docs/runtime-routing.md#custom-header-injection)) and upstream response headers are allowlisted before relay; transport failures surface only fixed classification labels (`upstream_connect_failed` / `upstream_tls_failed` / `upstream_dns_failed` / `upstream_timeout` / `client_disconnected` / `upstream_http_<status>` / `unknown_upstream_failure`) so callers never learn upstream host, port, path, or the refused-vs-unreachable distinction.
 - **Network**: Prism does not terminate TLS and does not enforce a LAN-only boundary. Deployment exposure is the operator's responsibility: use firewall rules, reverse-proxy access controls, container or host network policy, and TLS termination appropriate to the environment.
 
 ## API Contracts
@@ -74,12 +74,27 @@ On shutdown Prism runs these phases in order: HTTP server shutdown, side-effect 
 - [Management API](docs/management-api.md) covers authored models, catalog and client export, endpoints, targets, pricing, settings, routing, and authentication.
 - [Observability API](docs/observability-api.md) covers statistics, Requests, Audit, and retention jobs.
 
-## Related References
+## Product, Data, and Operations Contracts
 
-- [Product contract](docs/product-contract.md) covers users, feature scope, and requirements.
-- [Operations](docs/operations.md) covers operating the app and its dependencies, including the [direct-entry runbook](docs/operations/direct-request-entry-reclassification.md).
-- [Contributing guide](CONTRIBUTING.md), [project development rules](docs/development-rules.md), and [source responsibility rules](docs/source-code-size-and-responsibility-rules.md) govern repository changes.
-- [Architecture decision records](docs/adr/0001-keep-stream-start-rejections-request-scoped.md) document evidenced design decisions.
+- [Runtime routing](docs/runtime-routing.md) covers request planning, provider attempts, streaming, and Ban Policy.
+- [Data model](docs/data-model.md) covers PostgreSQL schemas, ownership, lifecycle, and migration boundaries.
+- [Request statistics](docs/statistics.md) covers telemetry, scopes, coverage, and the Observe read lifecycle. [Audit](docs/audit.md) covers audit capture and redaction. [Log retention](docs/log-retention.md) covers retention jobs and batch deletion. [Priority enforcement](docs/priority-enforcement.md) covers lanes, admission, and operator-facing failure modes.
+- [Model and Terminal Target configuration](docs/model-configuration.md) and [load balancing](docs/load-balancing.md) cover shipped configuration, routing, failover, and schedule behavior. [Catalog, pricing import, and client export](docs/catalog-and-export.md) covers models.dev and Pi/OpenCode behavior.
+- [Dashboard](docs/dashboard.md) covers browser route, session, and preference contracts. [Requests](docs/requests.md) covers the investigation and audit-content workflows.
+- [Operations](docs/operations.md) covers operating the app and its dependencies, including the [direct-entry runbook](docs/operations.md#direct-request-entry-reclassification).
+- [Contributing guide](CONTRIBUTING.md), [project engineering rules](CONTRIBUTING.md#project-engineering-rules), and [source responsibility rules](CONTRIBUTING.md#source-code-size-and-responsibility-rules) govern repository changes. [Product scope](CONTRIBUTING.md#product-scope) covers users, requirements, and exclusions.
+- [Architecture decision records](docs/adr/) document evidenced design decisions.
+
+## Tech Stack
+
+| Component | Technology |
+| --- | --- |
+| Backend | Go 1.26.6, chi, pgx |
+| HTTP Client | Go `net/http` streaming transport |
+| Database | PostgreSQL via pgx |
+| Frontend | React 19, Vite 8, TypeScript, Tailwind CSS 4, shadcn/ui, TanStack Router |
+| API Contract | [HTTP API references](#api-contracts) |
+| Communication | REST API with JSON and SSE for streaming proxy responses |
 
 ## Go Engineering Invariants
 

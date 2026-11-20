@@ -9,5 +9,3 @@ Keep global retention policy/preflight/job acceptance here; execution belongs to
 - Retention enablement (`null -> N`), shortening, and manual cleanup require a fresh preflight and keyword confirmation. Keep token scope and owner/principal/revision checks sealed; durable replay is checked before rejecting an already consumed token.
 - Manual acceptance queues a durable job and does not revoke coverage. Only the platform executor's final publish advances the deletion floor/epoch; HTTP handlers never delete rows or partitions inline.
 - Keep shared operation identity and flat typed settings errors in `settings_operations.go`, `settings_request_identity.go`, and `problems.go` rather than adding branch-specific replay or error conventions.
-
-`routes_test.go` covers local HTTP contracts. Currency cutover belongs in [currency migration contract tests](../../../../tests/contract/s11_currency_migration_contract_test.go); coverage handoff and retention fencing belong in [management integration tests](../../../../tests/integration/management_audit_stats_phase7_test.go).

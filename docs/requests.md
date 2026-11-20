@@ -4,7 +4,7 @@ This specification covers retained ingress and attempt investigation. Use the [O
 
 **Scope:** Frontend route `/observe/requests` and its request-investigation helper cluster
 
-## 1. Overview
+## Overview
 
 The Requests page is Prism's dedicated request-browser and investigation surface for proxied traffic. It is mounted at `/observe/requests`. It provides a Default-profile-pinned view for browsing request history through server-backed filters, a retained-ingress chain view as the default investigation unit, and an overview detail sheet with a unified failure projection. Readable saved request/response content lives on a dedicated request-content page, with explicit capture and retention limits.
 
@@ -12,39 +12,7 @@ The backend request-log and audit APIs remain the source of truth. The frontend 
 
 The request-log route uses split HTTP contracts: a slim v2 row payload for attempt browsing, a chain envelope for the default ingress-chain view, and a v2 detail payload for the sheet. The `priced` boolean alias is not accepted anywhere; pricing filtering uses the four-state `pricing_status` (`priced|unpriced|ineligible|unknown`) and the strict backend rejects unknown query keys with `422 unknown_query_key`.
 
-## 2. Goals
-
-- Provide a dedicated request-history route at `/observe/requests`.
-- Support deep investigation of a single request through URL-addressable state.
-- Keep the retained browse filters server-backed and URL-addressable.
-- Default to the server-side retained ingress chain as the investigation unit.
-- Load saved conversation content only on explicit inspection; explain missing, unsupported, or truncated capture without displaying raw diagnostic data.
-- Support implemented drill-down entry points from dashboard overview and dashboard recent activity.
-- Show requested model identity separately from final target, selected Terminal Target, and endpoint.
-
-## 3. Non-Goals
-
-- Replace dashboard or statistics summaries.
-- Re-derive retained chains client-side from the current page; the chain grouping is server-owned and paged by ingress with signed cursors.
-- Change frozen Default-profile runtime routing behavior for `/v1/*` and `/v1beta/*`.
-
-## 4. Route Responsibilities
-
-The page route should act as a thin orchestration shell with four primary responsibilities:
-
-1. Render page chrome through `OperatorPageShell` and `OperatorPageHeader`.
-2. Own URL-backed state through `useRequestLogPageState()`.
-3. Load request data and filter options through `useRequestLogsPageData()`.
-4. Compose exact-request focus, filters, the shared toolbar, the selected ingress-chain or attempt table, and the overview detail sheet.
-
-The route should also integrate shared application services:
-
-- Default profile id `1` is frozen for management reads; `X-Profile-Id` may still be sent by shared API code but is ignored.
-- `useTimezone()` plus the shared frontend locale boundary for locale-aware timestamp formatting.
-- `useLocale()` for route-shell, filter, empty-state, and detail-sheet copy.
-- `TooltipProvider` for table and filter affordances.
-
-## 5. URL State Contract
+## URL State Contract
 
 `useRequestLogPageState()` should own the complete search-parameter contract and update query state with `replace: true` semantics so frequent filter changes do not spam browser history.
 
@@ -53,7 +21,7 @@ Supported canonical query parameters:
 - Browse filters: `ingress_request_id`, `ingress_model_id`, `endpoint`, `terminal_target_id`, `client_rule_id`, `proxy_api_key_id`, `attempt_target_model_id`, `api_family`, `row_kind`, `status`, `status_code`, `stream_outcome`, `stream_error_kind`, `error_text`, `pricing_status`, `unpriced_reason`, `pricing_card_role`, `pricing_selection_state`, `ingress_final_result`, `confirmed_failover`, `time_range`, paired `from_time`/`to_time`; ingress chains additionally support `cost_segment_key`
 - Signed Observe filters: `query_context` plus repeated/comma-equivalent `final_result`, `outcome_detail`, `final_status_code`, `final_stream_outcome`, `final_stream_error_kind`, `final_target_model_id`, `final_endpoint_id`, `final_terminal_target_id`, `final_pricing_status`, `final_unpriced_reason`, `reporting_currency_epoch`, `attempt_trigger`, and `attempt_result`; server-generated Other links additionally use the bounded, typed `final_exclude` complement selector
 - View: `view` (`ingress_chains` default | `attempts`), `chain_cursor` for chain outer-page continuation
-- Sorting: `sort_by`, `sort_order` (accepted values depend on the view; see the [request query contract](observability-api.md#42-list-request-logs--ingress-chains))
+- Sorting: `sort_by`, `sort_order` (accepted values depend on the view; see the [request query contract](observability-api.md#list-request-logs--ingress-chains))
 - Pagination: `limit`, `cursor` (attempt view)
 - Exact-investigation flow: `request_id`
 - Row selection without exact mode: `selected_request_id`
@@ -69,9 +37,9 @@ Behavioral requirements:
 - Stale `detail_tab` parameters must be ignored and canonicalized away.
 - Chain continuation must never split an ingress identity across pages; the server returns a signed opaque chain cursor.
 
-## 6. Data And API Requirements
+## Data And API Requirements
 
-### 6.1 Request Log Fetch
+### Request Log Fetch
 
 Primary APIs:
 
@@ -91,15 +59,15 @@ Required behavior:
 - Track fetch ordering so stale responses cannot overwrite newer state.
 - CSV export downloads the server-produced full filtered file; the frontend never assembles CSV from the current page.
 
-### 6.2 Filter Option Bootstrap
+### Filter Option Bootstrap
 
 Both attempts and ingress-chain envelopes require non-null `filter_options.ingress_models`, `filter_options.endpoints`, `filter_options.clients`, and `filter_options.attempt_target_models`; empty sets are `[]`, never omitted. The default chain response therefore bootstraps filters without a hidden attempts request.
 
 Response-owned filter options should become ready when the current list response arrives. `filter_options.clients` entries use `{ client_rule_id, client_label }` and represent enabled User-Agent Client Rules. Selecting one sends `client_rule_id` back to the backend, where matching is caller-only against `caller_user_agent`.
 
-### 6.3 Dedicated Audit Resolution
+### Dedicated Audit Resolution
 
-Detailed audit payloads load only on `/observe/requests/:requestId/audit`. The audit route is request-focused: it first loads `/api/stats/requests/{request_id}`. If that request detail is missing or invalid, the page stops and does not issue audit-list or audit-detail calls. The current UI therefore has no standalone orphan-audit browser even though backend audit rows can retain `request_log_missing` metadata after request-log deletion.
+The dedicated audit route at `/observe/requests/:requestId/audit` loads saved payloads on demand. The route is request-focused: it first loads `/api/stats/requests/{request_id}`. If that request detail is missing or invalid, the page stops and does not issue audit-list or audit-detail calls. The current UI therefore has no standalone orphan-audit browser even though backend audit rows can retain `request_log_missing` metadata after request-log deletion.
 
 Audit APIs:
 
@@ -118,9 +86,9 @@ Required behavior:
 - Preserve `cursor` in the audit-page URL. Next uses `next_cursor`; Previous clears `cursor` and returns to the first page.
 - Keep audit loading isolated from the request-list and sheet detail-fetch lifecycle.
 
-## 7. UX Workflow Requirements
+## UX Workflow Requirements
 
-### 7.1 Filter And Triage Workflow
+### Filter And Triage Workflow
 
 The page sends retained browse filters directly to the owning backend read model. Ordinary triage (`ingress_final_result`, `confirmed_failover`) is tokenless; Observe analysis links carry a signed context and explicit final/attempt selectors. The Client dropdown exposes only enabled rule identity and never regex, `client_scope`, or upstream matching language.
 
@@ -133,7 +101,7 @@ Triage chips are canonical-query shortcuts only:
 
 Chip changes must not delete unrelated More Filters conditions. Contradictory conditions return typed `422`; a legal filter with no rows returns a true empty state.
 
-### 7.2 Exact-Request Investigation Workflow
+### Exact-Request Investigation Workflow
 
 When the route opens with `request_id`, it should stop behaving like a normal paginated browser.
 
@@ -151,7 +119,7 @@ Grouped request-tracking workflow:
 - Grouped rows show all attempts for one incoming runtime request together.
 - The overview sheet explains the requested and actual models, service, attempt sequence, and observed results. Internal grouping and provider-correlation identifiers remain available to the route/API contracts rather than becoming diagnostic fields in the product UI.
 
-### 7.3 Table Workflow
+### Table Workflow
 
 `RequestLogsTable` should support dense browsing at high row counts.
 
@@ -170,7 +138,7 @@ Required behavior:
 - CSV export is server-side over the full filtered result set; the frontend downloads the produced file and never assembles CSV from the current page. `GET /api/stats/requests/export` uses RFC 4180 quoting with formula-neutralizing cells, `X-Prism-Export-Row-Count` + `Digest` + exact `Content-Length`, bounded by 100k rows / 128 MiB / 31 days, and `attachment`/`private, no-store`.
 - The successful list response carries a non-null `coverage` projection (`known|legacy_unknown`) from the owning actual-coverage snapshot; Requests attempts/chains and CSV export resolve `time_range=1h|6h|24h|7d|30d|all|custom` on the server. When the requested window reaches before the retention floor or actual retained intersection, the page shows an explicit gap instead of pretending the result is complete, and `legacy_unknown` never enters true-empty. A page-size count is not coverage precision.
 
-### 7.4 Detail Sheet Workflow
+### Detail Sheet Workflow
 
 `RequestLogDetailSheet` exposes an overview-only inspection sheet with request metadata, requested model vs final target model identity, a unified failure projection, token and cost breakdowns, and routing context.
 
@@ -184,11 +152,11 @@ Dense overview requirements:
 - Render a compact summary strip for latency, token, cost, and timestamp context above the grouped sections.
 - Pricing presents known cost and currency, its component breakdown, and plain-language reasons for missing or untrusted amounts. Historical limits remain explicit; raw pricing enums, currency-segment keys, and legacy diagnostic values are not displayed or promoted into canonical cost.
 - Operation names, translation mode, request paths, and provider diagnostics remain backend detail fields; the product sheet presents user-relevant model, service, outcome, and usage information.
-- Keep audit payload loading out of the sheet and scoped to the dedicated full audit page.
+- Keep audit payload loading out of the sheet. The full audit page and the explicit comparison read own their own payload loading.
 
-### 7.5 Payload Views And Copy
+### Payload Views And Copy
 
-The dedicated request-content page uses the existing audit detail API to read saved request and response bodies on demand. Stored bytes still arrive as Base64 with encoding, capture, and observed/stored-byte metadata; the wire and raw-download contracts remain in [Audit Log Detail](observability-api.md#52-get-audit-log-detail).
+The dedicated request-content page uses the existing audit detail API to read saved request and response bodies on demand. Stored bytes still arrive as Base64 with encoding, capture, and observed/stored-byte metadata; the wire and raw-download contracts remain in [Audit Log Detail](observability-api.md#get-audit-log-detail).
 
 - Recognized text formats render user, assistant, and system messages, with natural-language indications of tool activity. Tool arguments/results, headers, raw JSON, JSON events, and raw SSE are not product views or copy targets.
 - Streaming content is reassembled through the operation-aware parser. An incomplete or truncated capture keeps a visible limitation; missing or unsupported content never becomes an empty successful conversation.
@@ -196,27 +164,20 @@ The dedicated request-content page uses the existing audit detail API to read sa
 - Capture-disabled, metadata-only, missing-body, unsupported/binary, and truncated states remain distinct. The page reports the applicable stored-byte limits, ±12-hour query window, and retention gaps without exposing diagnostic payloads.
 - Returning to the request list restores the original filters, paging, and selected request through a validated local `return_to` target. Request comparison uses the same readable-content boundary and states that tool parameters, images, and attachments are outside the comparison.
 
-## 8. Module Boundaries
+### Request Comparison
 
-- `queryParams.ts` owns the canonical URL filter/view/sort contract, the `pricing_status` enum, and the triage cohort filters (`ingress_final_result`, `confirmed_failover`).
-- `useRequestLogAttempts.ts` owns the attempt-list read/replace lifecycle; `useRequestLogIngressChains.ts` owns ingress-chain cursor, replacement, and nested row append state; `useRequestLogsPageData()` only composes the active view.
-- `columns.tsx` owns available columns, the `pricing_state` cell, and scoped status/duration helpers; `requestLogColumnPreferences.ts` selects the default visible set.
-- `requestLogColumnPreferences.ts` owns versioned column-visibility preferences (localStorage).
-- `requestLogSavedViews.ts` owns versioned saved canonical queries (localStorage); `FiltersBar.tsx` renders the triage chips and the saved-views dropdown.
-- `requestLogsCsv.ts` only downloads the server-produced export file with the current filters.
-- `detail/RequestLogOverviewTab.tsx` renders the v2 detail as request outcome, model/service context, usage, and pricing. `detail/RequestFailureRecovery.tsx` shares failure explanation and recovery actions with the request-content page; `requestFailurePresentation.ts` maps observed status/stream facts, and `useRequestRecoveryModel.ts` resolves historical model names against the shared model catalog.
-- `useRequestLogChain.ts` loads the retained ingress chain for the detail sheet; `RequestLogDetailSheet.tsx` renders the chain section (attempt order, triggers, winner/current markers, completeness).
-- `useDedicatedRequestLogAudit.ts` composes the separate request, audit-list, and selected audit-detail read lanes; request-time capture evidence gates the latter two.
-- `detail/sseFraming.ts` owns SSE framing; `detail/streamTranscript.ts` owns operation-aware accumulation; `detail/payloadDocumentViewModel.ts` owns the content-aware projection. `detail/RequestLogPayloadBlock.tsx` renders only readable messages and tool-activity notices. Parser-level protocol data remains internal.
+The Requests comparison feature reuses the existing request-detail and audit-list contracts for metadata and an explicit selected-audit-detail read for payloads. Ordinary list browsing does not fetch audit bodies. It retains the audit source/direction, capture byte ledger and completeness, then compares only readable conversation text extracted from supported retained formats, with a bounded positional display. Tool arguments, images, attachments, and raw protocol envelopes stay outside the comparison. It never invokes runtime execution or manufactures missing content.
 
-## 9. Cross-Route Integrations
+Requests/Audit list, detail, chain, and export responses preserve auth/profile-sensitive `Vary` and send `Cache-Control: private, no-store`. See the [observability API](observability-api.md) for the wire headers and [portable personal preferences](dashboard.md#portable-personal-preferences) for saved-view file transfer.
+
+## Cross-Route Integrations
 
 - Dashboard overview and recent activity deep-link into `/observe/requests` with `request_id` or `ingress_request_id`.
 - The detail sheet links to `/observe/requests/:requestId/audit` with a validated `/observe/requests` return target that preserves the original list state.
 - Routing Health Events and Requests can cross-link with absolute ±15-minute windows and verified objects; neither direction claims a unique trigger relationship, and retention cropping is surfaced.
 - Pricing Templates / Model detail CTAs come only from the pricing action matrix; usage-only unpriced reasons never show a Pricing CTA.
 
-## 10. Required Contracts
+## Required Contracts
 
 The Requests page must remain compatible with the following backend-facing and shared frontend contracts:
 
@@ -229,7 +190,7 @@ The Requests page must remain compatible with the following backend-facing and s
 - dashboard flows that consume request-derived backend responses
 - caller-client and attempt/final-target observability fields such as `client_rule_id`, `filter_options.clients`, `filter_options.attempt_target_models`, and retained `resolved_target_model_id` execution attribution
 
-## 11. Acceptance Criteria
+## Acceptance Criteria
 
 1. Visiting `/observe/requests` loads the ingress-chain view plus filter-reference data for Default profile id `1`.
 2. Server-backed filter changes update URL state with `replace: true` semantics and reset pagination to the first page.

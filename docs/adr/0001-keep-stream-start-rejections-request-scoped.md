@@ -10,7 +10,7 @@ When Prism can identify a provider error in the first SSE event before committin
 
 ## Consequences
 
-A later request can still select the same target, with the usual admission and Ban Policy checks. Request history can distinguish a reroute from a Ban Policy failover. The behavior is limited to the existing bounded first-event inspection. See the [streaming contract](../runtime-routing.md#33-runtime-request-streaming) for the cases where Prism passes the stream through.
+A later request can still select the same target, with the usual admission and Ban Policy checks. Request history can distinguish a reroute from a Ban Policy failover. The behavior is limited to the existing bounded first-event inspection. See the [streaming contract](../runtime-routing.md#runtime-request-streaming) for the cases where Prism passes the stream through.
 
 ## Evidence
 

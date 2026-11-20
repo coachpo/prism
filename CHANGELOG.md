@@ -1,6 +1,6 @@
 # Prism Changelog
 
-This history covers the surviving repository tags from `v1.0.9` through `v1.1.21`. See [STATUS.md](STATUS.md#deployment) for deployment observations and image availability where recorded.
+This history covers the surviving repository tags from `v1.0.9` through `v1.1.21`. See [Operations](docs/operations.md#deployed-instances) for deployment observations and image availability where recorded.
 
 ## v1.1.21
 

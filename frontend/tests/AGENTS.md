@@ -1,6 +1,6 @@
 # Frontend test ownership
 
-Follow the canonical [test ownership policy](../../docs/development-rules.md#test-ownership) for layer selection, fixture/assertion size, scenario and line budgets, and prohibited duplicate/platform checks. This directory only adds runner-specific boundaries.
+Follow the canonical [test ownership policy](../../CONTRIBUTING.md#test-ownership) for layer selection, fixture/assertion size, scenario and line budgets, and prohibited duplicate/platform checks. This directory only adds runner-specific boundaries.
 
 - `../vitest.config.ts` discovers `../src/**/*.test.{ts,tsx}` with jsdom and `../src/test/setup.ts`; run `pnpm exec vitest run` from `frontend/` for a non-watch gate. `pnpm test` starts watch mode.
 - [lib](lib/AGENTS.md) contains Node seam contracts, discovered by `pnpm run test:lib` through `tests/lib/*.test.mjs`. Keep shared TS-loading utilities in `helpers/`.

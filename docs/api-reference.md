@@ -8,7 +8,7 @@ Container and custom deployments use the listener configured in the plaintext bo
 
 Prism does not expose a backend-local `/metrics` operations endpoint or start telemetry exporters. The startup `telemetry` block is parsed for existing `config.json` compatibility only. The retained `/api/stats/*` routes remain product-facing request-history and aggregate APIs.
 
-## 0. Profile Context Semantics
+## Profile Context Semantics
 
 - Prism has three route classes:
   - Global management routes, which omit `X-Profile-Id`.
@@ -21,7 +21,7 @@ Prism does not expose a backend-local `/metrics` operations endpoint or start te
 - Detail endpoints return `404` when a resource exists outside Default profile id `1`.
 - Scope-control failures return structured JSON with `code` and `detail`, where `code` is stable for machine handling and `detail` is safe to show to operators.
 
-## 1.0 Request Boundary
+## Request Boundary
 
 Global CORS handling runs before both management and runtime branches and answers qualifying preflight requests with `204` before route middleware runs.
 
@@ -41,7 +41,7 @@ The wrapper is installed before management authentication, but authentication or
 
 When operator auth is enabled, the exact public management paths are `GET /api/auth/status`, `GET /api/auth/public-bootstrap`, `POST /api/auth/login`, `POST /api/auth/logout`, `POST /api/auth/refresh`, and `GET /api/auth/operations/{operation_id}/status`. Other `/api/*` paths, including `GET /api/auth/session`, require a valid access-token cookie. Auth is bypassed for all management routes while operator auth is disabled. A persisted fail-closed auth transition (`enabling_fail_closed` or `rollback_required`) blocks ordinary management before any domain handler with the registered typed `503`, while the auth-control settings surface and the public auth paths above stay reachable as the repair path.
 
-## 3. Health Check
+## Health Check
 
 ```
 GET /health
@@ -63,7 +63,7 @@ The handler reports process readiness and completed startup. It runs no per-requ
 
 ---
 
-## 8. Error Responses
+## Error Responses
 
 Prism does not have one universal error envelope. Management handlers normally return:
 
@@ -150,7 +150,7 @@ Transport exhaustion returns the fixed `transport_error` shape with a normalized
 
 `last_failure` takes one of `upstream_connect_failed` / `upstream_tls_failed` / `upstream_dns_failed` / `upstream_timeout` / `client_disconnected` / `upstream_http_<status>` / `unknown_upstream_failure` and never contains an upstream address.
 
-The request-size guard is a separate envelope with `error`, `message`, and `limit_bytes`, as documented for [management requests](#10-request-boundary) and [runtime operations](runtime-api.md#22-unsupported-routes-and-methods).
+The request-size guard is a separate envelope with `error`, `message`, and `limit_bytes`, as documented for [management requests](#request-boundary) and [runtime operations](runtime-api.md#unsupported-routes-and-methods).
 
 | Status Code | Meaning |
 | --- | --- |

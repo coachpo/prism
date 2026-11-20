@@ -1,6 +1,6 @@
 # Audit Handler Guidance
 
-`service.go` owns audit list/detail/raw-body reads; `job_routes.go` owns management-job status, evidence, and cancellation. Audit query semantics belong to `../../../domain/audit/`, and job execution belongs to `../../../platform/managementjobs/`.
+Audit query semantics belong to `../../../domain/audit/`, and job execution belongs to `../../../platform/managementjobs/`.
 
 - Keep list query parsing bounded and descending-only, rejecting unsupported filters. Resolve the SQL interval and coverage from the shared actual-coverage owner in the same repeatable-read transaction; a retention floor alone does not prove actual history coverage.
 - Preserve the request-time audit-capture check when a lookup is tied to a request log. Missing capture is distinct from an empty audit result.

@@ -14,5 +14,3 @@
 - `stream_output_evidence.go` owns visible-delivery measurement. Persist one verdict on the final attempt and usage event; unknown historical evidence, bursts, and insufficient samples never become a fabricated measured rate.
 - Preserve typed pricing-card selection and frozen schedule evidence. NULL price components remain missing, and schedule-unresolved pricing is ordinary missing evidence, not a poison event.
 - Keep the telemetry outbox's metadata/artifact identity, idempotent convergence, durable handoff, and joint acknowledgment intact (`telemetry_outbox.go`, `response_write_handoff.go`). Use `feedback_pipeline.go` and `runtime_side_effects.go` for their worker handoffs, and `log_partitions.go` with platform retention for partition ownership.
-
-Run the affected runtime package tests for hook/planning/telemetry seams. The [runtime regression suite](../../../tests/runtime/AGENTS.md) owns operation matrices, native compatibility, rejected-route isolation, and stream/body boundaries; shared backend validation commands remain in [CONTRIBUTING.md](../../../../CONTRIBUTING.md).

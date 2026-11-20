@@ -2,7 +2,7 @@
 
 This document follows a request through the exact operation match, frozen routing plan, target selection, and provider attempt. See the [Runtime API](runtime-api.md) for supported routes and wire behavior.
 
-## 3. Request Flow
+## Request Flow
 
 Prism is proxy-first. It forwards only the provider-native operations registered in the runtime operation catalog, and it is not a full OpenAI, Anthropic, or Gemini API clone.
 
@@ -18,7 +18,7 @@ Runtime pricing ownership is split by responsibility: `backend/internal/httpapi/
 
 Terminal Target `openai_text_capability` remains connection-owned metadata used by strict OpenAI text mode-equality checks. Model-owned capability authoring, context-window preflight filtering, overflow-promotion routing, and sibling-operation translation have been removed; ordinary strategy selection now uses explicit Ban Policy routing families.
 
-### 3.1 Runtime Request With Private Connection Target
+### Runtime Request With Private Connection Target
 
 The canonical durable identity is created by `newRuntimeIngressContext` in `backend/internal/httpapi/runtime/ingress.go` after operation acceptance. Before request-body handling or provider execution, the response writer is bound to that same UUID, so `X-Prism-Ingress-Request-Id` identifies the retained request/usage/audit group when telemetry is recorded. Pre-operation rejection and the local models-list response retain a server-generated branch token and do not create durable request records. A response ID does not itself guarantee that telemetry has materialized; the frontend requires an exact match and labels any broader browsing fallback.
 
@@ -35,7 +35,7 @@ Client -> POST /v1/chat/completions {model: "gpt-4o"}
   -> Gateway returns JSON to client, releases any non-stream lease, commits durable telemetry on the applicable success path, and feeds the outcome back into local runtime routing state
 ```
 
-### 3.2 Runtime Request Through Model Access Targets
+### Runtime Request Through Model Access Targets
 
 ```
 Client -> POST /v1/messages {model: "claude-sonnet-4-5"}
@@ -56,7 +56,7 @@ Client -> POST /v1/messages {model: "claude-sonnet-4-5"}
 
 Model Target rows and Terminal Target rows are type-neutral peers: there is no model-aggregate-first tier and no direct-terminal fallback tier. If at least one effective peer produces compatible attempts, planning succeeds and candidate-local misses are bypassed; otherwise the first compatibility miss in effective order is returned, or the ordinary no-eligible `503` when no peer contributes.
 
-### 3.3 Runtime Request (Streaming)
+### Runtime Request (Streaming)
 
 ```
 Client -> POST /v1/chat/completions {model: "gpt-4o", stream: true}
@@ -78,7 +78,7 @@ Stream-start error reroute (`stream_start_inspection.go`): a provider error firs
 
 Streaming OpenAI usage instrumentation: for `openai.chat_completions` requests whose body sets `stream: true`, the OpenAI adapter injects `stream_options.include_usage = true` into the upstream body before transport. OpenAI-compatible upstreams emit the final usage chunk only when the caller asks for it, so without the injection every streaming attempt persists NULL token components and `pricing_status = unpriced` / `unpriced_reason = MISSING_TOKEN_USAGE`. Caller intent wins: a client-supplied `stream_options` object that already declares `include_usage` is forwarded unchanged; a missing key or an explicit JSON `null` is treated as unset and receives the injected object. The injection is scoped to Chat Completions - `openai.responses` reports usage in its `response.completed` event, and Anthropic and Gemini streams carry usage natively, so none of them are modified. The injected upstream body is what audit body capture stores, and the extra `choices: []` usage chunk is forwarded to the client verbatim.
 
-### 3.4 API Family Routing
+### API Family Routing
 
 | API family            | Canonical operation names                       | Supported Prism operation paths                    | Upstream path                                      | Auth header                                          |
 | --------------------- | ----------------------------------------------- | -------------------------------------------------- | -------------------------------------------------- | ---------------------------------------------------- |
@@ -109,7 +109,7 @@ The Models list data boundary keeps concurrent model/strategy bootstrap, revisio
 
 The client model-export composition root `ModelExportPage.tsx` switches between separately mounted Pi and OpenCode feature trees, defaulting to Pi. The Pi host adapter `useModelExportSource.ts` owns the aggregate source query, batch selection and filters, per-row `PiCatalogModelView` mapping, and authoritative source reconciliation; it performs neither Pi mutations nor per-row single-model reads. Model detail uses `useModelDetailPiSource.ts` for `GET /api/models/{id}/pi` and its reconciliation. Both hosts compose `models/catalog/pi/usePiBindingController.ts`, which owns paged directory search plus bind/refresh/override/unbind mutations and invokes the caller-supplied reconciliation after success. `useModelExportRender.ts` authors Pi render requests. `useOpenCodeExportSource.ts` owns the separate persisted-metadata snapshot and selection; `useOpenCodeExportRender.ts` authors its OpenCode requests. Both render hosts compose `useExportRenderSession.ts` for cancellation, request-generation checks, ephemeral credentials/results and stale-source handling, and reuse `exportDestination.ts` for gateway-origin validation. Target switches unmount the former tree and clear its query entry; closing, switching or leaving aborts work and discards late results. `ExportResultSheet.tsx` owns exact-byte delivery and target-specific provider fragments; `OpenCodeMetadataDetails.tsx` presents the source/override/final metadata projection. The shared dialogs and evidence components live under `models/catalog/pi/`; `PiBindingCell.tsx` and `PiDevCatalogPanel.tsx` are host presentation adapters, while `ModelExportPage.tsx` and `ExternalCatalogSourcesSection.tsx` remain composition roots.
 
-### 3.5 Management API Profile Scoping
+### Management API Profile Scoping
 
 - Prism keeps one route-class matrix:
   - Global management routes omit `X-Profile-Id`.
@@ -146,7 +146,7 @@ Routing-health events use `useRoutingHealthQueryContext.ts` for the signed windo
 
 The Settings shell uses canonical public URLs with `scope=global|instance` and a section allowlist (`billing-currency`, `timezone`, `audit-privacy`, `header-blocklist`, `client-rules`, `authentication`, `retention`, `manual-cleanup`, `retention-jobs`); the legacy `tab` query value is dropped during canonicalization. `frontend/src/pages/settings/settingsNavigation.ts` owns those scope and section facts. The visible `显示与记录` group (`scope=global`) keeps billing and reporting currency, timezone, audit & privacy, and config-rule flows; the visible `访问与数据` group (`scope=instance`) owns authentication and operator account, automatic retention policy with actual coverage, manual cleanup, and the retention job center. Audit resource state is split across API-family audit settings, Header Blocklist, and User-Agent Client Rules owners; retention state is split across policy, manual-cleanup, and job lifecycles, with `retentionProtocol.ts` owning their shared protocol invariants. `costing/costingForm.ts`, `currencyMigrationProtocol.ts`, `manualCleanup.ts`, `sections/authentication/authenticationPassword.ts`, and `frontend/src/lib/timezone.ts` own their respective form, migration, cleanup, password, and timezone projections. Normal log retention applies across all profiles; list and detail APIs are pinned to Default id `1`. `retentionPresentation.ts` maps dataset and warning values into user-facing descriptions, while the job and currency components present outcomes and limitations rather than generation/epoch or internal checkpoint fields. UTC cutoff, irreversible deletion, estimated coverage, delayed reclamation, and the effect on active queries remain visible; auth, retention, and currency-migration protocols are unchanged.
 
-### 3.6 Custom Header Injection
+### Custom Header Injection
 
 When a connection has `custom_headers` configured, they are injected into the upstream request after all other headers:
 
@@ -184,7 +184,7 @@ Withholding a header does not erase it. The audit trail records the headers the 
 
 Custom headers are a power-user feature and the supported way to pin a header for one upstream regardless of what the caller sent. They can override ordinary forwarded headers, but they cannot override Prism-controlled authentication or provider-version headers and cannot re-add headers blocked by the Header Blocklist. This is enforced by skipping proxy-controlled custom header names and applying the blocklist last in the header construction pipeline.
 
-### 3.7 Custom Request Parameter Overlay
+### Custom Request Parameter Overlay
 
 Terminal Targets can carry an optional static top-level JSON object (`connections.custom_request_parameters`). When any planned candidate for a request has a non-empty configuration, Prism must buffer the ingress body, verify it is a JSON object, and materialize a per-attempt upstream body before provider transport:
 
@@ -214,9 +214,9 @@ Buffering decisions:
 
 Fail-closed boundaries: non-object ingress fails with `400` before admission/transport; planning-snapshot compilation fails on invalid persisted data (cold start fails, hot refresh keeps the last-good snapshot); validation errors and logs never echo configuration values. Audit body capture stores each attempt's final merged body; request-log generation parameters are extracted per attempt from its final body.
 
-## 4. Routing Strategies and Runtime Health Signals
+## Routing Strategies and Runtime Health Signals
 
-### 4.1 Routing policy contract
+### Routing policy contract
 
 - Models attach one Default-profile explicit loadbalance strategy.
 - Strategies carry the routing family field `legacy_strategy_type` (`single`, `fill-first`, or `round-robin`).
@@ -227,7 +227,7 @@ Fail-closed boundaries: non-object ingress fails with `400` before admission/tra
 - The loadbalance strategies page exposes a `Create Defaults` action that explicitly creates `Default single routing`, `Default fill-first routing`, and `Default round-robin routing` for Default profile id `1`.
 - Outbound provider requests carry no connection or timeout limits; `runtime.sideEffects.attemptTimeout` applies to scheduler-owned runtime activity handoff work, not to per-strategy timeout fields.
 
-### 4.2 Runtime execution pipeline
+### Runtime execution pipeline
 
 1. The operation registry resolves the exact runtime operation and hook collection before the request body is consumed.
 2. Request setup resolves the frozen Default profile id `1` model by exact direct-entry lookup (`DirectModelsByID`), then uses the all-enabled `ModelsByID` graph index for ordered access targets, recursive Model Targets, the attached strategy, and one immutable effective strategy snapshot for the request.
@@ -235,21 +235,21 @@ Fail-closed boundaries: non-object ingress fails with `400` before admission/tra
 4. The shared execution core claims per-attempt local leases before any client-visible bytes are committed; outbound provider calls use the limit-free runtime HTTP client, while scheduler-owned runtime activity handoff work uses `runtime.sideEffects.attemptTimeout`.
 5. Operation request, response, and stream hooks interpret provider-native payload details by `HookCollectionID`, not necessarily operation name. Token-count and compact operations use their dedicated collections; passive outcomes feed back into process-local connection state while durable `loadbalance_events` retain transition history and model-policy snapshots, including `cycle_retry_attempt_limit` and `ban_cumulative_retry_attempt_threshold` when Ban Policy evaluation produced the event.
 
-Runtime request bodies are capped at `20 MiB`; oversized supported-operation requests return JSON `413` with `error: "request_body_too_large"` and `limit_bytes` as documented in the [request size contract](runtime-api.md#22-unsupported-routes-and-methods). If all eligible candidates are unavailable inside the current retry window, the gateway returns `503` with routing-availability detail. If all otherwise available candidates are blocked by admission limits, runtime returns `503` with `error: "admission_exhausted"` plus route-reason metadata before upstream transport. If every evaluated candidate was excluded solely by its routing schedule, runtime returns `503` with `terminal_target_schedule_closed` or `terminal_target_schedule_unresolvable` (see §14.2.2A). Exact facade routing, context-window preflight filtering, regex matching, capability-metadata expansion, hidden weight or tier semantics, and response-body model rewriting are retired. Request logs and usage events keep the existing requested-model and resolved-target fields.
+Runtime request bodies are capped at `20 MiB`; oversized supported-operation requests return JSON `413` with `error: "request_body_too_large"` and `limit_bytes` as documented in the [request size contract](runtime-api.md#unsupported-routes-and-methods). If all eligible candidates are unavailable inside the current retry window, the gateway returns `503` with routing-availability detail. If all otherwise available candidates are blocked by admission limits, runtime returns `503` with `error: "admission_exhausted"` plus route-reason metadata before upstream transport. If every evaluated candidate was excluded solely by its routing schedule, runtime returns `503` with `terminal_target_schedule_closed` or `terminal_target_schedule_unresolvable` (see [Routing Failures](runtime-api.md#routing-failures)). Exact facade routing, context-window preflight filtering, regex matching, capability-metadata expansion, hidden weight or tier semantics, and response-body model rewriting are retired. Request logs and usage events keep the existing requested-model and resolved-target fields.
 
-### 4.3 Runtime State Residency
+### Runtime State Residency
 
 Production creates a fresh `LocalRuntimeStateStore` for every process. It owns connection-level Ban Policy state, admission counters, in-flight lease counts, connection round-robin cursors, and model-target round-robin cursors. A normal restart resets this hot state safely.
 
 The SQL tables `routing_connection_runtime_state`, `routing_connection_runtime_leases`, and `loadbalance_round_robin_state` remain compatibility schema, not the runtime hot path. Prism does not rely on startup reconciliation or persistent SQL leases for active routing. Durable `loadbalance_events` remain the historical record of routing transitions and incidents.
 
-## 5. Unified Model Access
+## Unified Model Access
 
-### 5.1 Concept
+### Unified Access Concept
 
 Models resolve through ordered access targets. Public target authoring points only to other same-profile, same-`api_family` models. Terminal Targets are the product-facing model-private endpoint bindings. They remain in `model_access_targets` as internal `connection` ownership and terminal routing edges backed by `connections` rows. Model targets can chain until a Terminal Target is reached, and the runtime records requested model, final target model, selected terminal target, and endpoint for observability. The requested model enters planning by exact `model_id`, not by regex, capability metadata, facade policy, or context-window preflight matching.
 
-### 5.2 Rules
+### Unified Access Rules
 
 - Access targets must stay in the same profile and same `api_family`.
 - Compatibility connection targets are terminal and are presented as Terminal Targets in product-facing routing surfaces.
@@ -261,9 +261,9 @@ Models resolve through ordered access targets. Public target authoring points on
 - Model IDs are unique within a profile.
 - The gateway may normalize provider request payloads before forwarding. Every selected Terminal Target carries an explicit persisted `upstream_model_id`, and every upstream attempt rewrites the provider model identity to that target's frozen value instead of the final logical target model ID. Runtime snapshots load only active owner-backed connections; a missing or blank identity on such a row makes the replacement snapshot invalid so hot refresh retains its last-good generation, while orphan connections are excluded. The entry `model_id` the client addressed stays the logical identity for attribution, capability checks, routing, and pricing; only the actual upstream body/path uses the frozen upstream ID. Prism does not rewrite response-body model identity on the client-facing way back out.
 
-Model contracts require `api_family`; OpenAI operations also apply the separate text and image capability gates described in [OpenAI text mode equality](runtime-api.md#22b-openai-native-mode-equality-strict) and [OpenAI image capability](runtime-api.md#22b-img-openai-image-capability-independent-dimension-containment).
+Model contracts require `api_family`; OpenAI operations also apply the separate text and image capability gates described in [OpenAI text mode equality](runtime-api.md#openai-native-mode-equality-strict) and [OpenAI image capability](runtime-api.md#openai-image-capability-independent-dimension-containment).
 
-### 5.3 Resolution
+### Unified Access Resolution
 
 ```
 resolve_access(profile_id, model_id):
@@ -295,13 +295,13 @@ The three strategies act on the same enabled mixed rows: `single` keeps only the
 
 Because eligibility is judged after rotation, a routing schedule shifts which row wins the first attempt rather than removing a cursor slot. A row that is outside its window still consumes its slot, so the first in-window row following a run of `k` consecutive out-of-window rows receives `(k+1)/N` of the first-attempt share for as long as that run lasts. This is a deliberate trade: the alternative filters before rotation, which would change the target-set hash whenever a window opens or closes and restart the cursor from zero each time. The skew matters most under the intended usage of switching upstreams by time of day, where most rows go out of window together — five rows with three of them scheduled for the night leave the remaining two splitting first attempts four to one throughout the day. Availability is unaffected: every in-window row is still attempted in order on failure.
 
-### 5.4 Default profile and active runtime separation
+### Default profile and active runtime separation
 
 Profile-scoped management APIs are frozen to Default id `1`. They accept `X-Profile-Id` for frontend compatibility, but the backend ignores the header value. Runtime proxy traffic ignores that management header and resolves through the frozen Default profile id `1` runtime snapshot.
 
 Connection management keeps its existing ownership seams under `backend/internal/httpapi/management/connections/`: `connection_read_routes.go`, `routes.go`, and the owner mutation route files own HTTP boundaries; `connection_model_store.go`, `connection_endpoint_store.go`, `terminal_target_store.go`, `connection_access_target_store.go`, `connection_reference_store.go`, and `routing_window_store.go` own profile-scoped PostgreSQL records; `terminal_target_projection.go` and `connection_db_arguments.go` own row projection and database values. The HTTP-neutral `writer.go`, `access_targets.go`, `routing_schedule.go`, and `endpointdomain` remain canonical shared seams.
 
-## 6. Request-Derived Metrics
+## Request-Derived Metrics
 
 Prism has no manual Terminal Target probe routes or probe-backed health fields. Retained request history exposes three explicit metric scopes with an authoritative ordered catalog owned by `backend/internal/domain/stats/scope.go`:
 
@@ -311,7 +311,7 @@ Prism has no manual Terminal Target probe routes or probe-backed health fields. 
 
 An omitted `metric` resolves to the scope default before validation; an explicit incompatible metric/group/filter returns typed `422`, never a no-op, alias, or cross-scope substitution. Ingress reads one `usage_request_events` row per finalized ingress and uses requested-model identity. Final execution uses the resolved leaf and actual winning Terminal Target, with latency joined by `final_attempt_number`. Route attempt reads upstream `request_logs`, classifies attempt outcomes, renders `attempts` as a count, and makes no cost claim. Ingress and final-execution cost are non-additive projections of the same `priced` plus `trusted` served-final fact. Latency P50/P95 for `ttft`, `final_attempt_latency`, and `attempt_latency` uses the shared percentile fields while preserving missing, zero, partial-sample, and read-failure states. Top-N series/Errors conserve the full denominator through a real Other bucket, labels resolve through current or retained catalogs with explicit fallbacks, and `truncated` means a remainder actually exists. Every envelope identifies its caliber, datasets, coverage, and observation/latency/cost sample and missing counts; the Models and Observe surfaces never infer health from absent samples.
 
-### 6.1 URL Path Joining
+### URL Path Joining
 
 Endpoint `base_url` values may include an upstream path prefix such as `/v1` or `/v1beta`. On create and update, Prism strips trailing slashes, requires a scheme and host, and rejects query strings or fragments. Runtime joins the normalized endpoint path with the allowlisted operation path for the selected request.
 

@@ -8,9 +8,9 @@ Runtime proxy routes ignore management `X-Profile-Id` overrides and always resol
 
 After global CORS handling, the runtime branch applies HTTP proxy admission, then runtime proxy-key authentication, and only then the exact operation registry. HTTP admission and auth can therefore reject a `/v1` or `/v1beta` request before registry resolution. Registry rejections themselves do not read the request body or invoke planning, terminal-target admission, provider transport, telemetry, audit, feedback, or runtime side effects.
 
-When operator auth is enabled, runtime proxy routes require a valid active, unexpired proxy API key. Prism checks `Authorization: Bearer <key>` first, then `X-API-Key`, then `X-Goog-Api-Key`. Missing keys return `401` with `Proxy API key required`; invalid, inactive, expired, or unknown keys return `401` with `Invalid proxy API key`. When auth is disabled, supported runtime routes continue without proxy-key authentication.
+When operator auth is enabled, runtime proxy routes require a valid active, unexpired proxy API key. Prism checks `Authorization: Bearer <key>` first, then `X-API-Key`, then `X-Goog-Api-Key`. Missing keys return `401` with `Proxy API key required`; invalid, inactive, expired, or unknown keys return `401` with `Invalid proxy API key`. When auth is disabled, supported runtime routes continue without proxy-key authentication. New runtime requests observe published auth and proxy-key changes. Rotation, disabling, and expiry invalidate the corresponding credentials for new requests while key enforcement is enabled. See the [management API](management-api.md#proxy-api-keys) for creation, rotation, and deletion.
 
-## 2.1 Supported Runtime Operations
+## Supported Runtime Operations
 
 | Operation | Canonical operation name | Supported request |
 | --- | --- | --- |
@@ -29,7 +29,7 @@ When operator auth is enabled, runtime proxy routes require a valid active, unex
 
 Each allowlisted row maps to one canonical operation name. Provider-forwarded runtime operations persist that name as `operation_name` in runtime telemetry. Operation names are part of the runtime contract, not aliases for broader vendor route groups. The Gemini `{model}` path binding is one non-empty path segment and cannot contain `/` or `:`. Nested Gemini model paths are not part of this runtime contract.
 
-## 2.2 Unsupported Routes and Methods
+## Unsupported Routes and Methods
 
 Unsupported runtime routes return a Prism JSON `404` response before Prism reads the request body, resolves a model, claims local Terminal Target admission state, contacts a provider, submits runtime side effects, or writes runtime persistence rows. The current error detail is `Runtime operation not found`.
 
@@ -39,17 +39,17 @@ Supported runtime operation request bodies are capped at `20 MiB`. Oversized req
 
 When any planned Terminal Target candidate has custom request parameters configured, the ingress body must be a valid JSON object (otherwise `400` with `Request body must be a JSON object when custom request parameters are configured`), the per-attempt merged body is re-validated against the same `20 MiB` limit (`413 request_body_too_large` before transport), and Gemini path-bound operations reject non-identity `Content-Encoding` with `415` (`Content-Encoding is not supported when custom request parameters are configured`) before buffering. These failures never reach admission, Ban Policy attempt counting, provider transport, or audit body capture.
 
-## 2.2A Routing Failures
+## Routing Failures
 
-Runtime planning keeps two explicit model indexes: all enabled models for recursive graph resolution, and only enabled `direct_request_enabled=true` models for client-bound operation lookup. A non-entry model ID therefore returns the existing `404` before provider transport, telemetry, audit, feedback, admission, or durable side effects; a direct parent may still resolve through that node. Once a direct root is accepted, planning orders its enabled mixed access-target rows once by `(position, id)` and lets the attached strategy shape the effective peer sequence: `single` keeps only the first enabled mixed row, `fill-first` walks the authored mixed order, and `round-robin` rotates the direct mixed rows once per request. A Model Target row recursively resolves through the child model's own strategy and contributes one contiguous block; a Terminal Target row contributes its own attempt. Candidate-local misses (zero-leaf child, unavailable connection, operation incompatibility, routing window closed) skip to the next effective peer, while cycle, depth, and missing-strategy errors fail closed. If no eligible Terminal Target is available inside the current retry window, Prism returns a routing-availability error before opening an upstream request. If all otherwise eligible attempts are blocked by admission counters, Prism returns `503` with `error: "admission_exhausted"` plus route-reason metadata before upstream transport. An OpenAI text request whose requested model does not accept the ingress operation rejects immediately with `400 openai_request_translation_unsupported`. Terminal Target connections that do not natively support the operation are skipped so later native attempts remain eligible; if every otherwise eligible attempt is wire-incompatible, Prism returns the same typed `400` with `translation_mode: "none"` and `unsupported_reason: "operation_translation_unsupported"` before provider transport. Availability failures with no otherwise eligible attempt retain the ordinary `503` no-eligible-target response.
+Runtime planning keeps two explicit model indexes: all enabled models for recursive graph resolution, and only enabled `direct_request_enabled=true` models for client-bound operation lookup. A non-entry model ID therefore returns the existing `404` before provider transport, telemetry, audit, feedback, admission, or durable side effects; a direct parent may still resolve through that node. Once a direct root is accepted, planning orders its enabled mixed access-target rows once by `(position, id)` and lets the attached strategy shape the effective peer sequence: `single` keeps only the first enabled mixed row, `fill-first` walks the authored mixed order, and `round-robin` rotates the direct mixed rows once per request. A Model Target row recursively resolves through the child model's own strategy and contributes one contiguous block; a Terminal Target row contributes its own attempt. Candidate-local misses (zero-leaf child, unavailable connection, operation incompatibility, routing window closed) skip to the next effective peer, while cycle, depth, and missing-strategy errors fail closed. If no eligible Terminal Target is available inside the current retry window, Prism returns a routing-availability error before opening an upstream request. If all otherwise eligible attempts are blocked by admission counters, Prism returns `503` with `error: "admission_exhausted"` plus route-reason metadata before upstream transport. An OpenAI text request whose requested model does not accept the ingress operation rejects immediately with `400 openai_operation_not_supported`. Terminal Target connections that do not natively support the operation are skipped so later native attempts remain eligible; if every otherwise eligible attempt is wire-incompatible, Prism returns `400 openai_request_translation_unsupported` with `translation_mode: "none"` and `unsupported_reason: "operation_translation_unsupported"` before provider transport. Availability failures with no otherwise eligible attempt retain the ordinary `503` no-eligible-target response.
 
 Two family-neutral planning codes describe routing-schedule rejections, and this section is their authoritative definition. `terminal_target_schedule_closed` is returned when every terminal target the request evaluated was excluded solely because it sits outside its configured routing window; `terminal_target_schedule_unresolvable` is returned when they were all excluded solely because their routing timezone could not be resolved. Both are `503`. Neither fires when any other cause contributed to the failure — a mixed failure keeps the ordinary response and appends an `N of M` sentence to the detail instead, so the stable codes never overstate what happened. The closed code carries `schedule_excluded_connection_ids`, `schedule_excluded_connection_ids_truncated`, `schedule_excluded_connection_count`, `schedule_reference_now`, `schedule_earliest_next_open_at`, and `schedule_earliest_next_open_at_known`; the unresolvable code carries the matching `schedule_unresolvable_*` trio plus `schedule_reference_now`. The `_at` keys are absent whenever the matching `_known` flag is false.
 
 Request-log detail keeps flat attribution fields for the ingress model, attempt target model, actual `terminal_target_id`, planned `selected_terminal_target_id`, endpoint, and operation translation mode. Deleted model-owned routing metadata is not exposed on public detail responses.
 
-## 2.2B OpenAI native mode equality (strict)
+## OpenAI native mode equality (strict)
 
-OpenAI text routing is native-only and mode-strict. The requested model's `openai_accepted_format` and each Terminal Target connection's `openai_text_capability` use `responses_only`, `chat_completions_only`, or `dual_native`; both must be **exactly equal** (only the diagonal of the 3×3 mode matrix is legal). A requested model that does not accept the ingress operation returns `400 openai_operation_not_supported` before target resolution. A connection whose mode differs from the requested model is skipped so load balancing can try the next authored target; when every otherwise eligible connection is mode-incompatible, Prism returns the same typed `400` before provider transport. The response detail is `Prism cannot translate this OpenAI request shape for the selected target.`, with `translation_mode: "none"` and `unsupported_reason: "operation_translation_unsupported"`. Responses adjunct operations, `openai.responses.input_tokens` and `openai.responses.compact`, require a responses-capable target, which equality guarantees for `responses_only` and `dual_native`.
+OpenAI text routing is native-only and mode-strict. The requested model's `openai_accepted_format` and each Terminal Target connection's `openai_text_capability` use `responses_only`, `chat_completions_only`, or `dual_native`; both must be **exactly equal** (only the diagonal of the 3×3 mode matrix is legal). A requested model that does not accept the ingress operation returns `400 openai_operation_not_supported` before target resolution. A connection whose mode differs from the requested model is skipped so load balancing can try the next authored target; when every otherwise eligible connection is mode-incompatible, Prism returns `400 openai_request_translation_unsupported` before provider transport. The response detail is `Prism cannot translate this OpenAI request shape for the selected target.`, with `translation_mode: "none"` and `unsupported_reason: "operation_translation_unsupported"`. Responses adjunct operations, `openai.responses.input_tokens` and `openai.responses.compact`, require a responses-capable target, which equality guarantees for `responses_only` and `dual_native`.
 
 Management enforcement mirrors the runtime contract. Authoring any OpenAI relation (model to model, model to Terminal Target, including references to shared connections) whose source mode differs from the target mode is rejected with `422 Unprocessable` and issue code `target_openai_mode_mismatch` inside `routing_plan_issues`; disabled or inactive relations are not exempt. Changing a persisted model `openai_accepted_format` or connection `openai_text_capability` that would break an existing relation returns `409 Conflict`. Non-OpenAI families keep the existing api-family validation channels unchanged.
 
@@ -59,7 +59,7 @@ Static diagnostics classify operation-set overlap as `full`, `partial`, or `none
 
 Prism does not convert requests, non-stream responses, or streams between Chat Completions and Responses. Native attempts use the ingress operation's upstream path and preserve `operation_translation_mode = "none"`. The `operation_translation_mode` columns and request-log fields remain readable for historical rows that recorded the retired translation values.
 
-### 2.2B.1 Application capability matrix
+### Application capability matrix
 
 The following application-spec example assumes these OpenAI text capabilities and matching access-target order:
 
@@ -78,9 +78,9 @@ Native request behavior (strict mode equality: each target shown is authored wit
 | `deepseek-v4-flash` | `/v1/responses` | `chat_completions_only` | No upstream request | N/A | Rejected |
 | `deepseek-v4-flash` | `/v1/chat/completions` | `chat_completions_only` | `/v1/chat/completions` | `none` | Chat Completions |
 
-Cross-mode targets are authoring-rejected before they can be persisted, so a requested `chat_completions_only` model can never reach a `dual_native` connection and a requested `responses_only` model can never reach a `dual_native` connection; such combinations would return the same typed `400` before provider transport with zero upstream calls if they existed in legacy data.
+Cross-mode targets are authoring-rejected before they can be persisted, so a requested `chat_completions_only` model can never reach a `dual_native` connection and a requested `responses_only` model can never reach a `dual_native` connection; such combinations would return `400 openai_request_translation_unsupported` before provider transport with zero upstream calls if they existed in legacy data.
 
-## 2.2B-IMG OpenAI image capability (independent dimension, containment)
+## OpenAI image capability (independent dimension, containment)
 
 OpenAI image support is a second capability dimension that is independent of the text dimension. The requested model's `openai_image_operations` and each Terminal Target connection's `openai_image_capability` use `generations`, `edits`, or `generations_and_edits`; `NULL` means the row does not serve images at all. The two dimensions never answer for each other: a text capability serves no image operation, and an image capability serves no text operation.
 
@@ -94,15 +94,15 @@ The image dimension has no separate startup check. Its authoring gate requires o
 
 At runtime an image request resolves against the image dimension alone: a model that does not accept the ingress image operation returns `400 openai_operation_not_supported` before target resolution, and Terminal Targets that do not serve it are skipped so later eligible attempts remain usable.
 
-## 2.2C Retired Exact OpenAI Facade Routing
+## Retired Exact OpenAI Facade Routing
 
 Exact OpenAI facade routing and its model fields are retired. Runtime planning uses the requested model's ordinary access-target graph, native Terminal Target capability checks, and the attached Ban Policy strategy. Prism no longer performs context-window preflight filtering or returns context-window-exceeded planning errors.
 
-## 2.2D Retired Overflow Replay
+## Retired Overflow Replay
 
 Model-scoped overflow replay and its authoring fields are retired. Runtime planning now uses the ordinary operation registry, access-target graph, strict mode-equality checks, and the attached Ban Policy strategy. Public request-log and usage surfaces keep flat requested model, final target, Terminal Target, endpoint, and operation fields without nested retired routing metadata.
 
-## 2.3 OpenAI Operations
+## OpenAI Operations
 
 ### Models
 
@@ -188,7 +188,7 @@ POST /v1/responses/compact
 Request uses the OpenAI Responses compaction format, including body-bound `model` and `input`.
 Response: Proxied directly from the upstream OpenAI-compatible endpoint. Canonical operation name: `openai.responses.compact`.
 
-## 2.4 Anthropic Operations
+## Anthropic Operations
 
 ### Messages
 
@@ -219,7 +219,7 @@ POST /v1/messages/count_tokens
 Request uses the upstream Anthropic-compatible token-count body, including body-bound `model`.
 Response: Proxied directly from the upstream Anthropic-compatible endpoint. Canonical operation name: `anthropic.count_tokens`.
 
-## 2.5 Gemini Operations
+## Gemini Operations
 
 ### Generate Content
 
@@ -262,12 +262,12 @@ Request uses the upstream Gemini native token-count body with the model bound fr
 Response: Proxied directly from the upstream Gemini-compatible endpoint. Canonical operation name: `gemini.count_tokens`.
 For all Gemini runtime paths in this section, the `{model}` binding must be one non-empty path segment and cannot contain `/` or `:`.
 
-## 2.6 Streaming
+## Streaming
 
 Streaming stays operation-native: `openai.chat_completions`, `openai.responses`, `openai.images.generations`, `openai.images.edits`, and `anthropic.messages` use their upstream-compatible request body flags, while `gemini.stream_generate_content` uses `POST /v1beta/models/{model}:streamGenerateContent`. Streaming responses are proxied from a natively compatible upstream.
 For Gemini, the `gemini.stream_generate_content` path is authoritative: `POST /v1beta/models/{model}:streamGenerateContent` is treated as streaming even when the request body omits `stream: true`. `gemini.generate_content` remains the non-stream generate-content operation.
 
-## 2.7 Token Usage Extraction
+## Token Usage Extraction
 
 The gateway extracts token usage from upstream responses and logs canonical disjoint token components to `request_logs`. Extraction is selected by the resolved canonical operation name and its hook collection. `input_tokens` is base input only, `output_tokens` is base output only, cache-read input, cache-creation input, and reasoning output are separate fields, and `total_tokens` uses the provider total when one is supplied.
 

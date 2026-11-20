@@ -1,6 +1,6 @@
 # Prism
 
-> **Status**: self-hosted for personal home-LAN use. [STATUS.md](STATUS.md) records the current version, lifecycle, deployments, users, retained data, and compatibility policy.
+> **Status**: self-hosted for personal home-LAN use. [Product Scope](CONTRIBUTING.md#product-scope) records the lifecycle and users, [Operations](docs/operations.md#deployed-instances) the deployments, and [CONTRIBUTING.md](CONTRIBUTING.md#retained-data-and-compatibility-policy) the retained-data and compatibility policy.
 
 Prism is a self-hosted gateway that sits between your tools and LLM providers, giving you one endpoint, one place to manage API keys, and a web dashboard to see what every request cost. It is built for developers and power users who juggle several providers and want failover, routing, and usage tracking without running heavy infrastructure.
 
@@ -14,17 +14,19 @@ A single Go binary, a React dashboard, and PostgreSQL are all it needs.
 - Applies *ban policies*: a failing Terminal Target is excluded temporarily or until reset, according to its configured strategy.
 - Records request logs, token usage, latency, and spending in PostgreSQL, with dashboard analysis by entry request, final target, or routing attempt.
 - Prices each request from reusable pricing templates you define per provider, with optional import from the [models.dev](https://models.dev) catalog: model metadata on the model detail page plus one-click source-linked price templates assigned atomically to a Terminal Target.
-- Exports Pi 0.84.3 and OpenCode 1.18.27 client configuration from `/route/models/export`. Pi uses its independent pi.dev bindings; OpenCode uses saved models.dev metadata and overrides. Both use Prism entry IDs, routing and current prices. Review final values and warnings, then copy or download the client file; [the product specification](docs/product-contract.md#420-client-model-configuration-export) describes the workflow.
+- Exports Pi 0.84.3 and OpenCode 1.18.27 client configuration from `/route/models/export`. Pi uses its independent pi.dev bindings; OpenCode uses saved models.dev metadata and overrides. Both use Prism entry IDs, routing and current prices. Review final values and warnings, then copy or download the client file; [the product specification](docs/catalog-and-export.md) describes the workflow.
 - Protects access with optional operator login for the dashboard and optional API keys for proxy callers; provider keys are encrypted at rest.
 - Ships as one Docker image plus PostgreSQL.
 
 ## Client configuration export
 
-Open **路由配置 → 模型配置 → 导出客户端配置** to generate a Pi or OpenCode configuration for your Prism model entries. See the [client setup guide](docs/workflows.md#client-configuration-export-quick-guide) for loading the generated file.
+Open **模型与服务 → 模型 → 导出客户端配置** to generate a Pi or OpenCode configuration for your Prism model entries. See the [client setup guide](docs/operations.md#client-configuration-export-quick-guide) for loading the generated file.
 
 ## Quick start
 
 ### Docker Compose (recommended)
+
+Use Docker with the Compose plugin. Run from the repository root after cloning.
 
 ```bash
 git clone https://github.com/coachpo/prism.git
@@ -53,7 +55,7 @@ The only prebuilt app image is `ghcr.io/coachpo/prism`, published for `linux/arm
 
 ### Local development
 
-Requires Go 1.26.6, Node.js 24+, pnpm, and Docker. Backend and frontend live in this monorepo under `backend/` and `frontend/`.
+Run from the repository root with Go 1.26.6 or newer and Docker with Compose. Full mode also requires Node.js 24 or newer and pnpm 10.30.1. Backend and frontend live in this monorepo under `backend/` and `frontend/`.
 
 ```bash
 ./start.sh full      # backend + frontend dev server + PostgreSQL
@@ -79,11 +81,12 @@ Development setup, tests, checks, builds, and the single-image release workflow 
 ## Documentation
 
 - [Architecture](ARCHITECTURE.md) covers module boundaries, data flow, and the API and persistence references.
-- [Contributing](CONTRIBUTING.md) covers development setup, validation, and release commands.
+- [Contributing](CONTRIBUTING.md) covers development setup, validation, release commands, and product scope.
 - [Changelog](CHANGELOG.md) records tagged versions and user-visible changes.
 - [Operations](docs/operations.md) covers configuration, inspection, backup, upgrades, and recovery.
-- [Status](STATUS.md) records the deployed instances and the retained-data and compatibility commitments.
-- [Product contract](docs/product-contract.md) and [operator workflows](docs/workflows.md) describe product behavior, dashboard tasks, and client setup.
+- [Product scope](CONTRIBUTING.md#product-scope) describes the single-operator scope, requirements, and exclusions; the [retained-data policy](CONTRIBUTING.md#retained-data-and-compatibility-policy) records the compatibility commitments.
+- The topic documents linked from [Architecture](ARCHITECTURE.md#product-data-and-operations-contracts) describe shipped behavior.
+- [Architecture decisions](docs/adr/) record decisions with repository evidence.
 
 ## Security
 

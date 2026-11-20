@@ -1,7 +1,5 @@
 # OpenAI Adapter
 
-`adapter.go` owns native Chat/Responses requests and their adjunct paths; `response.go` owns non-stream usage and overflow classification; `images.go` owns image audit-body redaction for JSON and SSE.
-
 - Keep Chat Completions and Responses native. Runtime checks text-mode equality and operation support before selecting attempts; this adapter must not convert sibling operations, reorder attempts, or provide best-effort fallback.
 - Responses input-token counting and compaction require Responses-capable targets. Keep text and image capability dimensions independent.
 - Native text model rewriting uses the selected Terminal Target's `UpstreamModelID`. Image operations use JSON-body model binding in runtime and do not need a separate adapter-level media request type.

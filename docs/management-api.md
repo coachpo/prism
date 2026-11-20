@@ -4,19 +4,19 @@ The [shared HTTP reference](api-reference.md) defines profile context, request l
 
 ## Resources and Settings
 
-### 1.1 Profiles
+### Profiles
 
 The profile management API is frozen. Prism preserves the `profiles` table and all `profile_id` storage columns, but no longer exposes `/api/profiles*` management routes. Profile-scoped management APIs are pinned to Default profile id `1`.
 
 ---
 
-### 1.2 Catalog Management
+### Catalog Management
 
 Prism exposes no standalone global catalog management surface (no catalog CRUD/navigation page); catalog management lives inside the per-model detail page (models.dev metadata, source-linked pricing, and the pi.dev template panel). Model compatibility is carried by each model's required `api_family`; catalog metadata does not participate in runtime routing.
 
 ---
 
-### 1.3 Model Configurations
+### Model Configurations
 
 #### List Models
 
@@ -149,7 +149,7 @@ Response `200`: `{ "deleted": true }`. Returns `409` if other models still refer
 
 ---
 
-### 1.3A Model Catalog Metadata (models.dev)
+### Model Catalog Metadata (models.dev)
 
 Catalog metadata is management-only projection data sourced from the fixed official models.dev catalog (`https://models.dev/api.json`, MIT License). It never participates in `api_family` compatibility truth, capability gating, routing, or the runtime snapshot; metadata writes never invalidate planning. The backend client is restricted: HTTPS only, same-origin redirects only, a 10-second whole-request timeout, a 16 MiB body budget, ETag/304 revalidation, single-flight fetches, `json.Number` decoding, and fail-closed schema validation. Remote I/O always happens outside database transactions; commits verify the operator's previewed catalog revision so stale source data cannot be written.
 
@@ -208,7 +208,7 @@ Response `200`: `{ items[] (provider_id, provider_name, model_id, name), total, 
 
 ---
 
-### 1.3B Client Model Configuration Export
+### Client Model Configuration Export
 
 The export surface defaults to Pi 0.84.3 `prism-pi-models.json` (Pi `models.json` format) and separately supports OpenCode 1.18.27 `opencode-prism.json`, both from Prism-managed model truth. It is management-authenticated; `source` and `render` are read-only with respect to runtime state (no runtime cache invalidation, `M3` management lane), while the eight model-level Pi source routes below use the `M2` lane and the two additive migrations `000027_model_pi_catalog_bindings.sql`/`000028_model_pi_binding_identity.sql`. `source`, `render`, the model-level Pi routes, and all their error responses carry `Cache-Control: private, no-store`. The pi.dev structured directory (`https://pi.dev/api/models`) is the Pi template source; OpenCode reads only the persisted safe models.dev metadata described below. Upload enhancement, default-model management, `enhancements`/`default_model_config_id`/deprecated candidate wires, `clientConfigExtract` and `jsonc-parser` remain absent.
 
@@ -224,7 +224,7 @@ The pi.dev typed catalog is fetched only outside any DB transaction via restrict
 
 #### Persisted Pi Catalog Binding
 
-`model_pi_catalog_bindings` (`000027_model_pi_catalog_bindings.sql`, purely additive, independent of the models.dev `model_catalog_bindings` table in §1.3A) holds at most one row per model: the frozen coordinate (`provider_id`, `catalog_model_id`, `api`), the frozen Prism identity `prism_model_id_at_bind` added by `000028_model_pi_binding_identity.sql`, `bind_source` (`single_candidate`/`manual`), the trusted `catalog_revision`, `fetched_at`/`updated_at`, `source_*`/`override_*` column pairs for the seven safe leaves `name`/`reasoning`/`input`/`context_window`/`max_tokens`/`thinking_level_map`/`compat`, and sorted `source_dropped_fields` evidence. It is the render authority: `source`/`render` read it directly and never re-derive a selection from a live fetch.
+`model_pi_catalog_bindings` (`000027_model_pi_catalog_bindings.sql`, purely additive, independent of the models.dev `model_catalog_bindings` table in [Model Catalog Metadata](#model-catalog-metadata-modelsdev)) holds at most one row per model: the frozen coordinate (`provider_id`, `catalog_model_id`, `api`), the frozen Prism identity `prism_model_id_at_bind` added by `000028_model_pi_binding_identity.sql`, `bind_source` (`single_candidate`/`manual`), the trusted `catalog_revision`, `fetched_at`/`updated_at`, `source_*`/`override_*` column pairs for the seven safe leaves `name`/`reasoning`/`input`/`context_window`/`max_tokens`/`thinking_level_map`/`compat`, and sorted `source_dropped_fields` evidence. It is the render authority: `source`/`render` read it directly and never re-derive a selection from a live fetch.
 
 ```text
 GET /api/models/{model_config_id}/pi
@@ -315,11 +315,11 @@ The clock-free digest includes the target version, normalized models and reachab
 
 The response is `{target_version, source_digest, content, content_sha256, file_name, mime_type, model_results, warnings?}`. `file_name` is `opencode-prism.json`, MIME is `application/json;charset=utf-8`, and `content` is deterministic UTF-8 JSON with exactly one terminal newline. The hash covers those exact bytes. Because [OpenCode substitutes configuration variables before parsing JSON](https://github.com/anomalyco/opencode/blob/4b7e19e315cca414121ba1d61523fef74bb3ae8b/packages/opencode/src/config/variable.ts), literal `{env:...}` and `{file:...}` in IDs, names or final keys encode the opening brace as `\u007b`; JSON parsing restores the literal value without variable/file expansion. The provider merge fragment preserves the same escaping. Full copy, Blob download and new-tab viewing reuse `content`; closing, replacing, switching or leaving clears the result and revokes Blob URLs. Credentials never enter source responses, URLs, Prism databases, query/HTTP caches, browser storage or logs.
 
-The UI mounts the existing metadata editor in the export context for corrections, preserves valid selections after an authoritative source re-read, and shows all final values, provenance and missing/invalid reasons. OpenCode can apply SDK/model-ID-based inference defaults after loading; the exporter does not claim authored custom reasoning adaptation. [README](../README.md#client-configuration-export) owns loading and provider-merge instructions. Package-local renderer tests, management contract tests and the existing browser journey cover their respective boundaries; `tests/runtime/opencode_*_test.go` provides the separately invoked real-client round-trip boundary documented in [CONTRIBUTING](../CONTRIBUTING.md#real-opencode-export-acceptance).
+The UI mounts the existing metadata editor in the export context for corrections, preserves valid selections after an authoritative source re-read, and shows all final values, provenance and missing/invalid reasons. OpenCode can apply SDK/model-ID-based inference defaults after loading; the exporter does not claim authored custom reasoning adaptation. See [Operations](operations.md#client-configuration-export-quick-guide) for loading and provider-merge instructions. Package-local renderer tests, management contract tests and the existing browser journey cover their respective boundaries; `tests/runtime/opencode_*_test.go` provides the separately invoked real-client round-trip boundary documented in [CONTRIBUTING](../CONTRIBUTING.md#real-opencode-export-acceptance).
 
 ---
 
-### 1.3C Bounded Batch Maintenance
+### Bounded Batch Maintenance
 
 ```text
 POST /api/models/batch/model_limits/preview
@@ -338,7 +338,7 @@ Pricing assignment shares the existing profile serialization lock before model/t
 
 ---
 
-### 1.4 Endpoints (Profile-Scoped Credentials)
+### Endpoints (Profile-Scoped Credentials)
 
 #### List Endpoints
 
@@ -410,7 +410,7 @@ DELETE /api/endpoints/{id}
 Response `200`: `{ "deleted": true }`.
 Returns `409` if any connections still reference this endpoint.
 
-### 1.5 Terminal Targets and Model Access Targets
+### Terminal Targets and Model Access Targets
 
 Terminal Targets are Prism's product term for model-private endpoint bindings within one profile. Terminal Targets are represented as `connections` / `connection_id` in the compatibility API and database schema. A compatibility connection carries its owner model's `api_family`, endpoint reference or inline endpoint create payload, pricing template, and optional admission limits. Endpoints remain reusable, so many Terminal Targets may point at the same endpoint. `model_access_targets.target_type="connection"` is an internal ownership and runtime routing edge, not a public assignment surface for connection IDs.
 
@@ -653,7 +653,7 @@ Valid examples:
 - ❌ `https://api.openai.com/v1?timeout=30`
 - ❌ `https://api.openai.com/v1#runtime`
 
-### 1.5A Static Routing Diagnostics
+### Static Routing Diagnostics
 
 ```
 GET /api/models/{model_config_id}/routing-diagnostics
@@ -703,7 +703,7 @@ fail closed. The frontend preserves this projection and the list's
 authoritative `routing_summary`; model or target mutations refresh both
 diagnostics and the server-computed list/count projection.
 
-### 1.5B Sampled Route Explanation
+### Sampled Route Explanation
 
 `GET /api/models/{model_config_id}/route-explanation?operation={native-operation-name}` is a Default-profile `M1`, `private, no-store` observation. The operation must be a model-bound entry in the runtime operation registry and match the requested model. The handler uses the already-published runtime snapshot without triggering a refresh. `generation` and `published_at` identify that process-local snapshot, not the latest database commit or route-witness generation.
 
@@ -713,7 +713,7 @@ The runtime owner copies existing state under read locks and samples cursor valu
 
 ---
 
-### 1.6 Pricing Templates
+### Pricing Templates
 
 #### List Pricing Templates
 
@@ -811,7 +811,7 @@ GET /api/pricing-templates/{id}/connections
 Response `200`: Usage payload with `template_id` and `items[]` (`connection_id`, `connection_name`, `model_config_id`, `model_id`, `endpoint_id`, `endpoint_name`)
 ---
 
-### 1.7 Settings API
+### Settings API
 
 #### Get Auth Settings
 
@@ -917,7 +917,7 @@ There is no standalone `/api/settings/monitoring` route, `/api/monitoring/*` fam
 
 ---
 
-### 1.9 User-Agent Client Rules (System Global + User Profile-Scoped)
+### User-Agent Client Rules (System Global + User Profile-Scoped)
 
 #### List User-Agent Client Rules
 
@@ -1002,7 +1002,7 @@ Note: Delete is only available for effective-profile user rules. Attempting to d
 
 ---
 
-### 1.10 Header Blocklist Rules (System Global + User Profile-Scoped)
+### Header Blocklist Rules (System Global + User Profile-Scoped)
 
 #### List Header Blocklist Rules
 
@@ -1088,17 +1088,17 @@ Note: Delete is only available for effective-profile user rules. Attempting to d
 
 ---
 
-### 1.11 Removed Management Surface
+### Removed Management Surface
 
 The former CLIProxyAPI management control plane and runtime context-overflow promotion surfaces are not part of the current API.
 
 ---
 
-## 6. Loadbalance API
+## Loadbalance API
 
 Loadbalance APIs are pinned to Default profile id `1`; `X-Profile-Id` is accepted for compatibility and ignored.
 
-### 6.1 List Loadbalance Strategies
+### List Loadbalance Strategies
 
 ```
 GET /api/loadbalance/strategies
@@ -1106,7 +1106,7 @@ GET /api/loadbalance/strategies
 
 Response `200`: Array of strategy objects in the effective profile scope.
 
-### 6.2 Create Loadbalance Strategy Defaults
+### Create Loadbalance Strategy Defaults
 
 ```
 POST /api/loadbalance/strategies/defaults
@@ -1148,7 +1148,7 @@ The response includes the full current strategy list in `items` plus creation me
 
 Returns `409` when one or more canonical default names are already occupied by non-canonical strategies in Default profile id `1`. In that case, `detail` is an object with `message` and `conflicting_names`.
 
-### 6.3 Create Loadbalance Strategy
+### Create Loadbalance Strategy
 
 ```
 POST /api/loadbalance/strategies
@@ -1191,7 +1191,7 @@ Validation rules:
 - Runtime banning is inclusive and explicit: `cumulative_retry_attempts >= ban_cumulative_retry_attempt_threshold`. Prism never derives the ban threshold from `cycle_retry_attempt_limit`.
 - Outbound provider requests carry no connection or timeout limits; `runtime.sideEffects.attemptTimeout` applies to scheduler-owned runtime activity handoff work rather than per-strategy fields.
 
-### 6.4 Get Loadbalance Strategy
+### Get Loadbalance Strategy
 
 ```
 GET /api/loadbalance/strategies/{strategy_id}
@@ -1200,7 +1200,7 @@ GET /api/loadbalance/strategies/{strategy_id}
 Response `200`: Strategy object in the effective profile scope.
 Returns `404` when the strategy does not exist in the effective profile.
 
-### 6.5 Update Loadbalance Strategy
+### Update Loadbalance Strategy
 
 ```
 PUT /api/loadbalance/strategies/{strategy_id}
@@ -1233,7 +1233,7 @@ Strategy responses include the persisted explicit Ban Policy strategy document:
 }
 ```
 
-### 6.6 Delete Loadbalance Strategy
+### Delete Loadbalance Strategy
 
 ```
 DELETE /api/loadbalance/strategies/{strategy_id}
@@ -1242,7 +1242,7 @@ DELETE /api/loadbalance/strategies/{strategy_id}
 Response `200`: `{ "deleted": true }`.
 Returns `409` when the strategy is still attached to one or more models; the response detail includes `attached_model_count`.
 
-### 6.7 List Current Loadbalance State for a Model
+### List Current Loadbalance State for a Model
 
 ```
 GET /api/loadbalance/current-state
@@ -1277,7 +1277,7 @@ The exact field set is fixed by the contract tests in
 `backend/tests/contract/loadbalance_observe_contract_test.go`, which run under CI;
 this section describes intent and does not restate the payload.
 
-### 6.8 Reset Current Loadbalance State for a Connection
+### Reset Current Loadbalance State for a Connection
 
 ```
 POST /api/loadbalance/current-state/{connection_id}/reset
@@ -1293,7 +1293,7 @@ round-robin cursor. This state is ephemeral and is lost on backend restart;
 retained SQL runtime-state tables are compatibility schema, not the production
 hot path.
 
-### 6.9 List Loadbalance Events
+### List Loadbalance Events
 
 ```
 GET /api/loadbalance/events
@@ -1346,7 +1346,7 @@ Response `200`:
 
 Loadbalance event types are `retry_scheduled`, `retry_exhausted`, `banned`, `unbanned`, `recovered`, and `admission_rejected`. They record retry-cycle attempts, cumulative attempts, next retry timing, last retry delay, optional ban metadata, optional success time, and the model, endpoint, and vendor snapshots for operator review. Events produced by Ban Policy evaluation also expose immutable policy snapshots as `cycle_retry_attempt_limit` and `ban_cumulative_retry_attempt_threshold`, so historical event detail explains the threshold that was active when the event was written.
 
-### 6.10 List Loadbalance Incidents
+### List Loadbalance Incidents
 
 ```
 GET /api/loadbalance/incidents
@@ -1398,7 +1398,7 @@ Response `200`:
 
 `active_bans` is the current Ban Policy runtime state for the effective profile. `recent_events` uses the loadbalance event item shape and includes recent `banned`, `unbanned`, `recovered`, and `retry_exhausted` rows without requiring a `model_id` filter.
 
-### 6.11 Get Loadbalance Event Detail
+### Get Loadbalance Event Detail
 
 ```
 GET /api/loadbalance/events/{id}
@@ -1406,7 +1406,7 @@ GET /api/loadbalance/events/{id}
 
 Response `200`: Single event object with the same Ban Policy retry-window metadata, policy snapshot fields, and summary fields as the list item.
 
-### 6.12 Loadbalance Event Retention
+### Loadbalance Event Retention
 
 Loadbalance event list and detail APIs remain pinned to Default profile id `1`. Normal cleanup is global: the stored `loadbalance_events_retention_days` value plans automatic v2 jobs; one-time cleanup uses a manual-cleanup preflight plus sealed job under `/api/maintenance/log-retention/*`.
 
@@ -1414,11 +1414,11 @@ The retired load-balance cleanup endpoint is not part of the current API. Retent
 
 ---
 
-## 7. Auth API
+## Auth API
 
 Auth APIs are global and do not require `X-Profile-Id`. Session enforcement is cookie-based: a valid access-token cookie passes the management pre-handler; `POST /api/auth/refresh` rotates the refresh-token family. The runtime proxy-key 401 on `/v1` and `/v1beta` is a separate credential surface and never triggers management session expiry.
 
-### 7.1 Auth Status
+### Auth Status
 
 ```
 GET /api/auth/status
@@ -1436,13 +1436,13 @@ Returns the tagged `PublicAuthStatus` union. The only legal shapes are `enabled`
 }
 ```
 
-### 7.2 Public Bootstrap
+### Public Bootstrap
 
 ```
 GET /api/auth/public-bootstrap
 ```
 
-Initializes session and returns basic auth state for the login page. A persisted fail-closed/rollback transition is a typed `503` (see [Error Responses](api-reference.md#8-error-responses)), never reported as disabled or unauthenticated. Response `200` uses the strict session shape:
+Initializes session and returns basic auth state for the login page. A persisted fail-closed/rollback transition is a typed `503` (see [Error Responses](api-reference.md#error-responses)), never reported as disabled or unauthenticated. Response `200` uses the strict session shape:
 
 ```json
 {
@@ -1454,7 +1454,7 @@ Initializes session and returns basic auth state for the login page. A persisted
 
 Authenticated responses add the server-authored `subject_key` (e.g. `auth:subject:1`); it never appears in public status or anonymous/disabled payloads.
 
-### 7.3 Login
+### Login
 
 ```
 POST /api/auth/login
@@ -1472,7 +1472,7 @@ Request:
 
 Response `200` returns the authenticated session shape and sets the configured access-token and refresh-token cookies. Errors use the registered flat envelope: `401 auth_invalid_credentials` (generalized, never distinguishes unknown user from wrong password) and `429 auth_login_locked` with `details.retry_at` / `details.retry_after_seconds` plus a same-source `Retry-After` header; no failure counts or subject existence are exposed. A persisted fail-closed transition is the registered typed `503`.
 
-### 7.4 Logout
+### Logout
 
 ```
 POST /api/auth/logout
@@ -1480,7 +1480,7 @@ POST /api/auth/logout
 
 Idempotent strict `204`: valid, missing, expired and revoked cookies all revoke nothing new, always send the canonical clear-cookie headers, and never go through the management pre-handler. Auth-disabled race is a registered typed `400 auth_not_enabled` so the client re-bootstraps to the open-access explainer. A persisted fail-closed transition blocks logout with the typed `503`.
 
-### 7.5 Refresh Session
+### Refresh Session
 
 ```
 POST /api/auth/refresh
@@ -1488,7 +1488,7 @@ POST /api/auth/refresh
 
 Uses the `refresh_token` cookie to issue a new session. Implements token family rotation. Response `200` uses the same authenticated session shape as login; auth-disabled is a live `200 {auth_enabled:false, authenticated:false}` (never a stale `true,false`); a persisted fail-closed transition is the typed `503`; an invalid/revoked refresh token is a `200 {authenticated:false, auth_enabled:true}` with cleared cookies.
 
-### 7.6 Get Session
+### Get Session
 
 ```
 GET /api/auth/session
@@ -1496,7 +1496,7 @@ GET /api/auth/session
 
 Protected route. Returns the current authenticated session state with the strict authenticated shape (including `subject_key`) or `401 auth_not_authenticated`.
 
-### 7.7 Transition Operation Status
+### Transition Operation Status
 
 ```
 GET /api/auth/operations/{operation_id}/status
@@ -1504,7 +1504,7 @@ GET /api/auth/operations/{operation_id}/status
 
 Public auth-operation status used by the coordinator to settle transition waits. The operation id is a lookup selector, not authorization; the fixed bounded projection carries no username, mode, operation id, secret or settings.
 
-### 7.8 Auth Settings
+### Auth Settings
 
 ```
 GET /api/settings/auth
@@ -1513,7 +1513,7 @@ PUT /api/settings/auth
 
 Read/write the operator authentication settings through the v2 desired/effective pointer contract. The auth-control settings surface stays reachable during fail-closed transitions as the repair path. PUT stages an immutable config version, binds the Proxy-owner readiness generation/count at one server-clock instant, and flips the effective pointer only after a fresh conditional publish proof; exact operation replay returns the durable result. Passwords are only slow-hashed at rest and are never included in a response or operation projection. A failed publish proof persists a durable `rollback_required` transition with the initiating operation id.
 
-### 7.9 Proxy API Keys
+### Proxy API Keys
 
 ```
 GET    /api/settings/auth/proxy-keys

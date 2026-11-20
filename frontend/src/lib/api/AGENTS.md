@@ -8,5 +8,3 @@
 - `opencodeExport.ts` owns only OpenCode source/render transport through the static `/api/models/exports/opencode/*` routes. Both calls forward abort signals and use `cache: "no-store"`; generated credentials and content stay outside query caches.
 - `requestStats.ts` owns attempts/chains/detail/CSV; `statistics.ts` owns aggregates, composed through `stats.ts`. Observe reads preserve explicit attribution scope, and model metrics retain their three named scope blocks.
 - Endpoint-specific error guards stay in `endpointErrors.ts`; do not globally specialize `ApiError`. Pricing, costing, retention, and catalog mutations retain their resource-specific preflight/CAS payloads.
-
-Relevant seams include `request.test.ts`, `../../../tests/lib/profile_scope_header_contract.test.mjs`, `../../../tests/lib/model_export_api_contract.test.mjs`, and `../../../tests/lib/observability_api_contract.test.mjs`.

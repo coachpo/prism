@@ -2,7 +2,7 @@
 
 Scope: profile-isolated runtime and management model with pricing templates, profile-scoped explicit Ban Policy routing, retained compatibility hot-state schema, process-local runtime state, endpoint label snapshots, and user-agent client rules.
 
-## 1. Entity Relationship Diagram
+## Entity Relationship Diagram
 
 ```mermaid
 erDiagram
@@ -29,9 +29,9 @@ Each access-target row points to either a Model Target or a Terminal Target. A T
 
 `request_logs`, `usage_request_events`, `audit_logs`, and `loadbalance_events` retain immutable profile attribution in daily partitions. Request/usage model, Terminal Target, endpoint, and proxy-key snapshots do not require the current configuration to exist. Audit-to-request references are weak metadata so their retention lifetimes remain independent. Process-local routing state is separate from these historical tables and from the retained compatibility state/lease tables.
 
-## 2. Table Definitions
+## Table Definitions
 
-### 2.1 `profiles`
+### `profiles`
 
 Profiles are retained storage namespaces. Multi-profile management is frozen: management reads and writes are pinned to Default profile id `1`, while runtime loads the published Default profile id `1` snapshot.
 
@@ -54,7 +54,7 @@ Constraints and lifecycle rules:
 - Startup invariants ensure Default profile id `1` exists and remains editable.
 - Profile create, update, activate, and delete management routes are not exposed while multi-profile management is frozen.
 
-### 2.2 `model_configs` (profile-scoped)
+### `model_configs` (profile-scoped)
 
 Maps a model ID to fixed api family and routing behavior within one profile.
 
@@ -82,7 +82,7 @@ Constraints:
 - Runtime compatibility is checked against `api_family`.
 - Exact facade routing, model-owned context capability, and overflow-promotion authoring fields are retired.
 
-### 2.3 `model_access_targets` (profile-scoped model access metadata)
+### `model_access_targets` (profile-scoped model access metadata)
 
 Ordered access targets. Public authoring creates same-family model targets only. Internal connection targets are terminal ownership and routing edges from one source model to one Terminal Target, while model targets may chain until a Terminal Target is reached.
 
@@ -110,7 +110,7 @@ Constraints:
 - Runtime routing evaluates enabled mixed rows of both types by flat `position` and stable IDs: `single`, `fill-first`, and `round-robin` act on the same mixed peer set, Model Target rows recurse through the child model's own strategy, and direct Terminal rows contribute their own attempt.
 - Go management validation rejects self-reference, cross-profile targets, cross-api-family targets, and cycles; these relationship semantics are not enforced by database triggers.
 
-### 2.2A `model_catalog_bindings` (management-only models.dev metadata)
+### `model_catalog_bindings` (management-only models.dev metadata)
 
 One optional binding row per model carrying the fixed official models.dev offering coordinates plus two independent metadata projections. Catalog metadata is management-only presentation state: it never participates in `api_family` compatibility truth, capability gating, routing, or the runtime snapshot, and writes to this table never invalidate planning.
 
@@ -123,9 +123,9 @@ One optional binding row per model carrying the fixed official models.dev offeri
 
 Constraints: CHECKs restrict statuses to the alpha/beta/deprecated enum, require modalities columns to be JSON arrays when present, and keep limits non-negative.
 
-### 2.2B `model_pi_catalog_bindings` (management-only pi.dev export binding)
+### `model_pi_catalog_bindings` (management-only pi.dev export binding)
 
-One optional binding row per model freezing the selected pi.dev candidate coordinate for the [Pi client export](management-api.md#13b-client-model-configuration-export) plus two independent metadata projections of its seven safe leaves. Independent of `model_catalog_bindings` above: neither table reads, rewrites, or reuses the other. This binding never participates in `api_family` compatibility truth, capability gating, routing, or the runtime snapshot; writes never invalidate planning.
+One optional binding row per model freezing the selected pi.dev candidate coordinate for the [Pi client export](management-api.md#client-model-configuration-export) plus two independent metadata projections of its seven safe leaves. Independent of `model_catalog_bindings` above: neither table reads, rewrites, or reuses the other. This binding never participates in `api_family` compatibility truth, capability gating, routing, or the runtime snapshot; writes never invalidate planning.
 
 | Column group | Contents | Notes |
 | --- | --- | --- |
@@ -136,7 +136,7 @@ One optional binding row per model freezing the selected pi.dev candidate coordi
 
 Constraints: CHECKs restrict `api` to the four Pi API literals and `bind_source` to `single_candidate`/`manual`, require the metadata JSONB columns to be arrays/objects as applicable, require `source_dropped_fields` to be an array, require `prism_model_id_at_bind` to be non-empty, and keep every non-null `context_window`/`max_tokens` value positive as required by Pi 0.84.3. `000028_model_pi_binding_identity.sql` adds that snapshot column, backfills it from `catalog_model_id`, then makes it `NOT NULL`; it adds no unique constraint, so several Prism models may still reference one directory coordinate.
 
-### 2.4 `loadbalance_strategies` (profile-scoped reusable routing behavior)
+### `loadbalance_strategies` (profile-scoped reusable routing behavior)
 
 Reusable explicit Ban Policy strategy objects attached by models within one profile.
 
@@ -172,7 +172,7 @@ Constraints and lifecycle rules:
 - The loadbalance strategies page exposes a `Create Defaults` action that explicitly creates `Default single routing`, `Default fill-first routing`, and `Default round-robin routing` for Default profile id `1`.
 - Strategies cannot be deleted while attached to one or more models.
 
-### 2.5 `endpoints` (profile-scoped credentials)
+### `endpoints` (profile-scoped credentials)
 
 Reusable credential objects scoped to one profile.
 
@@ -194,7 +194,7 @@ Constraints and indexes:
 - `UNIQUE(profile_id, name)`.
 - Endpoint ordering is `lower(name), name, id`; migration `000004_endpoint_reference_metadata` removes the old display-only `position` column and index. Its name narrowing fails closed when a retained name exceeds 128 characters; it never truncates names.
 
-### 2.6 `connections` (profile-scoped Terminal Target storage)
+### `connections` (profile-scoped Terminal Target storage)
 
 Terminal Targets are represented as `connections` / `connection_id` in the compatibility API and database schema. Each compatibility connection row is owned by exactly one model through `model_access_targets.target_connection_id`, while endpoints remain reusable across many Terminal Targets.
 
@@ -245,7 +245,7 @@ Connection invariants:
 - A connection with zero rows in `connection_routing_windows` has no time restriction and routes exactly as it did before routing schedules existed. Existing rows migrated with `routing_schedule_timezone` `NULL` and no window rows, so the feature is inert until configured.
 - `routing_schedule_timezone` and the window rows are written and cleared together. A timezone with no windows, or windows with no timezone, is refused by the write paths and compiles to an unresolvable schedule at runtime, which excludes only that one connection.
 
-### 2.6A `connection_routing_windows` (profile-scoped routing windows)
+### `connection_routing_windows` (profile-scoped routing windows)
 
 Half-open `[start_minute, end_minute)` intervals during which a Terminal Target may be selected. Appended as 2.6A rather than renumbering the sections that follow.
 
@@ -267,13 +267,13 @@ Routing window invariants:
 - `ON DELETE CASCADE` is intentional and follows the runtime-state and lease tables: a window is part of a connection rather than a reference to one, so deleting the connection must take its windows with it.
 - Rows are rewritten whole on every schedule write. A wire window has no stable identity, the row count is bounded at 32, and the PATCH contract is whole-field replacement, so a delete-then-insert matches the contract exactly.
 
-### 2.7 `pricing_templates` (profile-scoped reusable token pricing identity)
+### `pricing_templates` (profile-scoped reusable token pricing identity)
 
 `pricing_templates` is the logical, profile-scoped identity that can be attached to many Terminal Targets. It intentionally contains no price columns: the append-only `pricing_template_revisions` table below is the sole price source. The live logical row stores `id`, `profile_id`, `name`, `description`, `created_at`, `updated_at`, `current_revision_id`, `deleted_at`, and `name_identity`, with `UNIQUE(profile_id, name)` for active names. `current_revision_id` points at the current revision of the same template.
 
 Catalog linkage: optional `catalog_provider_id` + `catalog_model_id` columns record the single models.dev offering a template was imported from. A partial unique index (`uq_pricing_templates_catalog_offering`) allows exactly one live source-linked template per offering, so repeated imports of the same offering reuse that template instead of creating duplicates.
 
-### 2.7A `pricing_template_revisions` (append-only typed revision)
+### `pricing_template_revisions` (append-only typed revision)
 
 A revision is the immutable metadata and selector boundary. `template_kind` is `standard`, `tiered`, or `peak_valley` and is never combined with another kind. Price values live only in `pricing_template_cards`; schedule rows live only in `pricing_template_windows`.
 
@@ -291,7 +291,7 @@ A revision is the immutable metadata and selector boundary. `template_kind` is `
 
 Token costing consumes canonical disjoint token components: input, cache-read input, cache-creation input, output, and reasoning. The selected card is the only price source for all five component calculations.
 
-### 2.8 `header_blocklist_rules` (mixed scope)
+### `header_blocklist_rules` (mixed scope)
 
 Header blocklist is split between global system rules and profile-scoped user rules.
 
@@ -313,7 +313,7 @@ Constraints:
 - User rule: `is_system = FALSE` implies `profile_id IS NOT NULL`.
 - User rule uniqueness: `UNIQUE(profile_id, match_type, pattern)`.
 
-### 2.9 `user_settings` (profile-scoped singleton)
+### `user_settings` (profile-scoped singleton)
 
 Per-profile costing/report display preferences.
 
@@ -334,11 +334,11 @@ Per-profile costing/report display preferences.
 
 The Settings finalizer removes the three duplicated per-profile retention columns after their evidence gates pass. Global policy lives only in `log_retention_settings`; the SQL migration golden snapshot is captured before that startup finalizer.
 
-### 2.10 Retired FX authoring
+### Retired FX authoring
 
 `endpoint_fx_rate_settings` belonged to the historical baseline only. Migration `000009_pricing_cost_trust_finalize` drops that authoring table after classifying its evidence. The live contract has immutable Pricing migration inventories and evidence pages; Settings cannot create, update, or delete FX mappings. Historical request/usage rows retain their own FX snapshot fields and source identity.
 
-### 2.11 `request_logs` (partitioned immutable profile attribution)
+### `request_logs` (partitioned immutable profile attribution)
 
 Telemetry rows have immutable profile attribution captured at request start. Captured upstream attempts in materialized execution envelopes produce one row each. Telemetry-eligible target-resolution or native-compatibility planning failures carrying `PlanningFailure`, plus execution failures accepted by the runtime telemetry path, produce synthetic failure rows without an endpoint or connection. The table is range-partitioned by UTC `created_at` day. The partition-compatible primary key is `(created_at, id)`, with `id` still sequence-backed for lookup convenience.
 
@@ -475,7 +475,7 @@ Request-log semantics:
 - Token usage fields are canonical disjoint components. `input_tokens` is base input only, `output_tokens` is base output only, and cache-read input, cache-creation input, and reasoning output stay in their split fields.
 - A successful priced row persists the five concrete strings from exactly one selected card. Attempt, non-2xx, unresolved, missing-usage, and unpriced rows do not copy any card's prices. Explicit `"0"` is configured free pricing; absent/invalid card data or missing FX stays unpriced with `MISSING_PRICE_DATA`.
 
-### 2.12 `usage_request_events` (partitioned immutable usage attribution)
+### `usage_request_events` (partitioned immutable usage attribution)
 
 Usage-event rows are the finalized source for the unified statistics snapshot. The table is range-partitioned by UTC `created_at` day and uses `(created_at, id)` as its partition-compatible primary key.
 
@@ -597,7 +597,7 @@ Telemetry materialization:
 - The materializer transaction inserts `request_logs`, matching `audit_logs`, one `usage_request_events` row, and proxy-key usage together, then deletes the processed outbox row.
 - Each audit row receives its linked request-log timestamp. The usage event timestamp aligns with the last request-log attempt timestamp; proxy-key `last_used_at` and `last_used_ip` updates are monotonic within that transaction.
 
-### 2.13 `audit_logs` (partitioned immutable profile attribution)
+### `audit_logs` (partitioned immutable profile attribution)
 
 Audit rows for upstream attempts with immutable profile attribution. The table is range-partitioned by UTC `created_at` day and uses `(created_at, id)` as its partition-compatible primary key. Audit-to-request linkage is weak so audit rows can outlive request-log partitions.
 
@@ -648,9 +648,9 @@ Audit-link semantics:
 - Audit retention and request-log retention are independent global jobs.
 - When body capture is enabled, every audit-enabled attempt can store its upstream request body. Only the final attempt can store the captured upstream response body.
 - OpenAI audit capture stores native upstream request and response bodies.
-- Both request and response headers use the fixed safe-diagnostic scrubber plus the effective Header Blocklist. Text bodies can retain sensitive user content; image-operation bodies apply payload redaction before persistence (see [Request Audit Logging](observability-and-retention.md#81-concept)).
+- Both request and response headers use the fixed safe-diagnostic scrubber plus the effective Header Blocklist. Text bodies can retain sensitive user content; image-operation bodies apply payload redaction before persistence (see [Request Audit Logging](audit.md#audit-concept)).
 
-### 2.14 `profile_api_family_audit_settings` (profile-scoped audit policy)
+### `profile_api_family_audit_settings` (profile-scoped audit policy)
 
 One row per profile and API family controls whether runtime attempts create audit metadata and whether bodies may be stored.
 
@@ -671,7 +671,7 @@ Constraints:
 - Management `PUT /api/settings/audit` full-replaces the three supported family rows for Default profile id `1`.
 - Runtime snapshots load policy by profile and model `api_family`; request-time booleans are copied into existing request-log and audit-log provenance fields.
 
-### 2.15 `loadbalance_events` (partitioned immutable profile attribution)
+### `loadbalance_events` (partitioned immutable profile attribution)
 
 Persistent record of retry-window, ban, recovery, and admission transitions. The table is range-partitioned by UTC `created_at` day and uses `(created_at, id)` as its partition-compatible primary key.
 
@@ -705,7 +705,7 @@ Event snapshot semantics:
 - Current-state records do not store strategy threshold fields; policy thresholds belong to immutable event snapshots from the owner model's strategy.
 - Historical events can explain inclusive threshold behavior even after a strategy changes later.
 
-### 2.16 `log_retention_settings` (global singleton)
+### `log_retention_settings` (global singleton)
 
 Global normal-retention policy for partitioned log tables.
 
@@ -772,7 +772,7 @@ When an operator performs manual bounded deletes on the cutoff-overlapping bound
 VACUUM (ANALYZE, PROCESS_TOAST TRUE) public.request_logs_pYYYYMMDD;
 ```
 
-### 2.17 `management_jobs` (durable management work queue)
+### `management_jobs` (durable management work queue)
 
 Durable queue for broad management operations. Log-retention jobs are global and use `profile_id = 0`. Audit-delete jobs retain the requesting profile ID for ownership and API lookup, but execution delegates to global `audit_logs` partition retention without a profile predicate.
 
@@ -812,7 +812,7 @@ Job execution semantics:
 - `audit_delete` stores a requesting profile ID but rewrites its execution scope to `audit_logs` partition retention without applying that profile ID as a row predicate.
 - `rows_deleted` and `management_job_events.rows_deleted` count only rows removed from the cutoff-overlapping boundary partition. Rows removed by dropping whole partitions are represented in `progress_json.dropped_partitions`, not in the row count.
 
-### 2.18 `management_job_events`
+### `management_job_events`
 
 Append-only event stream for management job status and progress.
 
@@ -825,7 +825,7 @@ Append-only event stream for management job status and progress.
 | rows_deleted | BIGINT | NOT NULL, DEFAULT 0 | Rows deleted by the event batch |
 | created_at | TIMESTAMPTZ | NOT NULL, DEFAULT now() | Event timestamp |
 
-### 2.19 `routing_connection_runtime_state` (retained compatibility schema, `UNLOGGED`)
+### `routing_connection_runtime_state` (retained compatibility schema, `UNLOGGED`)
 
 Retained compatibility schema for historical runtime-state rows. The production hot path does not read or write this table. It remains `UNLOGGED` in the baseline migration, but live admission, retry, ban, and latency state is held by `LocalRuntimeStateStore` in the backend process.
 
@@ -859,7 +859,7 @@ Constraints:
 
 The columns document the retained schema only. They do not describe the current production state source.
 
-### 2.20 `routing_connection_runtime_leases` (retained compatibility schema, `UNLOGGED`)
+### `routing_connection_runtime_leases` (retained compatibility schema, `UNLOGGED`)
 
 Retained compatibility schema for historical runtime leases. The production hot path does not read or write lease rows; live in-flight accounting is process-local.
 
@@ -878,7 +878,7 @@ Constraints:
 
 - `lease_kind` is restricted to `stream` or `non_stream`.
 
-### 2.21 `app_auth_settings` (singleton)
+### `app_auth_settings` (singleton)
 
 Global operator authentication identity and version-publication pointers. Effective mode, username, password hash, and session version are read from `auth_config_versions`; the Settings finalizer drops the retired in-place `auth_enabled`, `username`, `password_hash`, and `token_version` columns after their evidence gates pass.
 
@@ -906,7 +906,7 @@ Global operator authentication identity and version-publication pointers. Effect
 
 `auth_config_versions` stores `subject_key`, unique generation identity, desired `enabled|disabled` mode, username, password hash, session version, lifecycle state (`staged|effective|unusable|superseded`), creation-operation identity, and the Proxy readiness proof. Credential content is versioned; publication advances the singleton's effective pointers rather than editing a credential in place. Retained email fields and the earlier `effective_auth_generation`/`auth_transition_*` fields remain compatibility storage, not the active configuration source.
 
-### 2.22 `refresh_tokens`
+### `refresh_tokens`
 
 Cookie-backed management sessions with family rotation and revocation.
 
@@ -924,7 +924,7 @@ Cookie-backed management sessions with family rotation and revocation.
 | ip_address | VARCHAR(100) | NULLABLE | Client IP snapshot |
 | created_at | TIMESTAMPTZ | NOT NULL | Creation timestamp; application-managed |
 
-### 2.23 `proxy_api_keys`
+### `proxy_api_keys`
 
 Runtime data-plane credentials.
 
@@ -954,7 +954,7 @@ Rotation and expiry semantics:
 - Delete is a hard delete. Retained history is unaffected: `request_logs` and `usage_request_events` attribute through the FK-free `proxy_api_key_id_snapshot` and `proxy_api_key_name_snapshot` columns, which are never rewritten by a lifecycle mutation.
 - Proxy-key use updates `last_used_at`, `last_used_ip`, and `updated_at` monotonically, so an older telemetry event cannot overwrite a newer usage observation.
 
-### 2.24 Additional Live Platform Tables
+### Additional Live Platform Tables
 
 These live tables are internal platform state rather than primary product configuration surfaces. They remain part of the active schema and are owned by their platform packages.
 
@@ -968,7 +968,7 @@ These live tables are internal platform state rather than primary product config
 | `alert_webhook_outbox` | durable failover incident webhook delivery | `id`, `event_type`, `payload_json`, unique `idempotency_key`, status `queued | sending | sent | dead`, attempt count, max attempts, next attempt, lock fields, sent/dead-letter timestamps, last error, timestamps; payloads carry`event_type`,`connection_id`,`endpoint_id`,`model_id`, optional`banned_until_at`, and`occurred_at` |
 | `loadbalance_round_robin_state` | retained compatibility schema | `id`, `profile_id`, `model_config_id`, `next_cursor`, timestamps, `next_cursor >= 0`, and unique `(profile_id, model_config_id)`. Production round-robin cursors are process-local and this table is not used by the hot path. |
 
-## 3. Selected Indexes, Constraints, and Foreign Keys
+## Selected Indexes, Constraints, and Foreign Keys
 
 `backend/migrations/000001_initial_schema.sql` is the fresh baseline, with later checked-in migrations completing the live schema. The following DDL is a selected set of high-centrality constraints and indexes; it is intentionally not a complete index or foreign-key listing. Baseline partition-root indexes may use `ON ONLY`; the additive ingress-chain and resolved-target migrations create partitioned indexes without `ONLY` so existing and future partitions receive usable child indexes.
 
@@ -1086,7 +1086,7 @@ Selected foreign-key deletion boundaries:
 | retained runtime-state and lease connection/profile references | `connections(id)`, `profiles(id)` | `CASCADE` |
 | `loadbalance_round_robin_state.model_config_id` | `model_configs(id)` | `CASCADE`; its stored `profile_id` has no separate FK in the baseline |
 
-## 4. Relationship and Ownership Rules
+## Relationship and Ownership Rules
 
 - Profile-scoped entities include `model_configs`, `model_access_targets`, `loadbalance_strategies`, `endpoints`, `connections`, `connection_routing_windows`, `pricing_templates`, `user_settings`, Pricing migration inventories/drafts, `profile_api_family_audit_settings`, `runtime_telemetry_outbox`, requesting-profile `audit_delete` jobs, user `header_blocklist_rules`, and user `user_agent_client_rules`.
 - `routing_connection_runtime_state`, `routing_connection_runtime_leases`, and `loadbalance_round_robin_state` retain profile identifiers as compatibility schema, but they are not the production runtime-state source.
@@ -1097,14 +1097,14 @@ Selected foreign-key deletion boundaries:
 - Cross-profile resource lookups are treated as not found (`404`) because management scope is pinned to Default profile id `1`.
 - Private connection create/update must enforce profile consistency between the connection and endpoint references. The single owner is enforced through `model_access_targets.target_connection_id`.
 
-## 5. Deletion and Retention Semantics
+## Deletion and Retention Semantics
 
 - Profile deletion routes are not exposed while multi-profile management is frozen.
 - Historical telemetry/audit retention is independent; routine profile delete does not erase historical attribution rows.
 - Proxy-key hard deletion clears foreign-key IDs from request and usage history but leaves stored name snapshots intact.
 - Partition retention can drop whole UTC-day child tables and delete only the cutoff-overlapping boundary rows; deletion counts do not estimate rows removed by partition drops.
 
-## 6. Runtime Isolation Notes
+## Runtime Isolation Notes
 
 - Proxy routing always resolves against frozen Default profile id `1`.
 - Production creates a fresh `LocalRuntimeStateStore` on process startup. Connection admission counters, Ban Policy state, latency signals, connection round-robin cursors, and access-target round-robin cursors live in process memory.
@@ -1117,7 +1117,7 @@ Selected foreign-key deletion boundaries:
 - Header blocklist at runtime is resolved as: all enabled system rules + enabled user rules for frozen Default profile id `1`.
 - Routing-window eligibility is a pure function of the stored configuration and the request instant. It reads no process-local state, is not cached, and requires no cache-generation bump: a window opens and closes purely because the clock advanced. Precision is the request arrival instant within one process; across processes it is bounded by clock skew between them and by the timezone database each one resolves against.
 
-## 7. Invariant Notes
+## Invariant Notes
 
 - Runtime hot state is process-local and is reset on every process start.
 - The baseline migration remains the exact source for PostgreSQL column types, sequences, constraints, indexes, and foreign keys.
@@ -1129,7 +1129,7 @@ Selected foreign-key deletion boundaries:
 Upgrade boundaries that affect retained state:
 
 - Pricing trust (`000008`–`000009`) and Requests/Audit observability (`000010`–`000011`) have finalize gates. The observability owner drains legacy outbox work and completes its three-domain backfill; SQL-only schema snapshots are not evidence that all startup finalizers have run.
-- `000023_pricing_template_kind_cards` is fresh-only. It fails before destructive DDL if pricing or currency-migration tables contain retained rows; it does not convert those rows. The data and authorization policy remains in [STATUS.md](../STATUS.md).
+- `000023_pricing_template_kind_cards` is fresh-only. It fails before destructive DDL if pricing or currency-migration tables contain retained rows; it does not convert those rows. The data and authorization policy remains in the [retained-data policy](../CONTRIBUTING.md#retained-data-and-compatibility-policy).
 - Pi binding migrations `000027`–`000028` are additive. The second freezes `prism_model_id_at_bind` from the formerly identity-equal catalog coordinate, preserving an already-renamed model's drift instead of silently rebinding it.
 - `000029` changes only the source-linked pricing-template uniqueness index to exclude soft-deleted templates. Retired template coordinates, cards, revisions and historical references survive; re-import can create a new live template.
 - `000030` adds nullable output-delivery evidence; old rows and outbox payloads without it remain `unknown` in rate reads. `000031` backfills only uniquely owned Terminal Targets' upstream identities and leaves historical request/usage evidence `NULL`. It rejects multiple-owner anomalies before DDL.
