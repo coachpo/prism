@@ -1,6 +1,6 @@
 # Runtime HTTP Guidance
 
-`operations.go` is the executable method/path, hook, streaming, and model-binding registry. Its route-witness projection is read-only input to management diagnostics. Keep provider differences in operation request/response/stream hooks and gateway adapters, sharing the executor in `ingress.go` and `request_execution_loop.go`.
+Its route-witness projection is read-only input to management diagnostics. Keep provider differences in operation request/response/stream hooks and gateway adapters, sharing the executor in `ingress.go` and `request_execution_loop.go`.
 
 - Reject unregistered/wrong-method operations before body reads, runtime admission, transport, and durable side effects. `GET /v1/models` remains a local OpenAI list of enabled direct entries.
 - Resolve client model ids exactly through the direct-entry index while recursive Model Targets use the all-enabled graph. Runtime uses the published snapshot, never management profile headers or session state.

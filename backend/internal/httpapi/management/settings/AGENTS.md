@@ -1,6 +1,6 @@
 # Settings Guidance
 
-Keep global retention policy/preflight/job acceptance here; execution belongs to `../../../platform/managementjobs/`. Costing/timezone and API-family audit settings remain profile-scoped. Auth transitions belong to [auth](../auth/AGENTS.md), and bootstrap files remain platform-owned.
+Keep global retention policy/preflight/job acceptance here; execution belongs to `../../../platform/managementjobs/`. Costing/timezone and API-family audit settings remain profile-scoped. Auth transitions belong to [auth](../auth/AGENTS.md).
 
 - Timezone shares the costing CAS; there is no standalone timezone route. An established reporting-currency epoch changes only through the migration preview/commit flow.
 - Currency migration uses bounded owner snapshots, chunked drafts, signed cursors, complete role-keyed cards, immutable evidence, and one atomic active-epoch cutover (`currency_migration_*.go`). Current cards never come from legacy template evidence. `archive_unused_fx` writes its archive ledger without changing the active epoch, templates, or source FX authoring.

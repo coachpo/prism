@@ -1,7 +1,7 @@
 # Endpoint lifecycles
 
-- `useEndpointsFeatureData.ts` composes the list and resource-specific mutation owners. Keep collection/search/filter/sort in `useEndpointList.ts`; create/update/save-and-verify, delete, orphan cleanup, duplication, and attach navigation have separate named hooks.
-- `useEndpointReferenceSummaries.ts` owns bounded batch hydration and freshness. `useEndpointReferenceDetails.ts` owns lazy snapshot/cursor detail; `useEndpointReferences.ts` shares their generation fence. A successful detail read atomically replaces that Endpoint's batch summary.
+- Keep collection/search/filter/sort in `useEndpointList.ts`; create/update/save-and-verify, delete, orphan cleanup, duplication, and attach navigation have separate named hooks.
+- `useEndpointReferences.ts` shares one generation fence between batch summaries and lazy detail. A successful detail read atomically replaces that Endpoint's batch summary.
 - Unknown/stale reference evidence never becomes zero. Disable reference-derived filters/sorts until summaries are fresh, visibly normalize the filter to `all`, and preserve text search. Cursor/snapshot mismatch restarts detail paging from page one.
 - Delete requires a fresh zero-reference preflight. A lock-time `409 endpoint_in_use` replaces the displayed blocker evidence; do not reuse an eligible result after server state moves.
 - Save-and-verify commits first, then verifies the committed `config_revision`. A failed verification keeps the saved Endpoint and renders its outcome; stale results must not claim the current configuration was verified.

@@ -1,11 +1,11 @@
 # Terminal Targets and model-detail helpers
 
-- `../../features/models/detail/` owns the page; this directory owns Terminal Target forms, models.dev metadata helpers, and model-detail resource lifecycles. Mixed target editor state lives in `../models/accessTargetFormState.ts`/`../models/AccessTargetsEditor.tsx`.
+- Mixed target editor state lives in `../models/accessTargetFormState.ts`/`../models/AccessTargetsEditor.tsx`.
 - `ConnectionDialog.tsx` locks OpenAI text capability to the owner model's accepted mode, including its absence. An image-only owner (`openai_accepted_format=null`) has no text capability section; create/edit drafts and submit payloads preserve `null`. Prefill creates an independent private connection without importing the source text capability or shared mutable target ownership. Backend compatibility/diagnostics remain authoritative.
 - `classifyOpenAICoverage.ts` treats an absent mode as an empty text-operation set. An owner accepting no text operations has no uncovered text requirement; this display classification does not relax backend mode equality or establish image coverage.
 - `upstreamModelIdField.ts` owns required/200-code-point validation and 422 field mapping. Create prefills the entry model ID; edit hydrates the persisted value. `connectionDataSupport.ts` omits unchanged upstream IDs from PATCH while preserving explicit blank for rejection; never infer unknown retained identity from the owner.
 - `connectionSubmitPreparation.ts` parses drafts before mutation, including raw custom-parameter JSON and routing schedules. `customRequestParameters.ts` owns limits/validation, and server field envelopes map back to the input.
-- `useModelDetailConnectionMutations.ts` composes submit, lifecycle, DTO reconciliation, and target mutation owners. Access-target mutations use row IDs, connection mutations use connection IDs, and target moves retain shared mixed ordering.
+- Access-target mutations use row IDs, connection mutations use connection IDs, and target moves retain shared mixed ordering.
 - Pricing-reference changes carry both connection/template CAS fields; unchanged references are omitted. Pricing choices/summaries show template kind and complete-card meaning; pricing authoring remains with the pricing feature.
 - Model Target options include enabled same-family non-entry nodes. Routing mutations refresh diagnostics and the authoritative model list; diagnostics reads keep a real AbortSignal.
 - `modelAccessTargetProjection.ts` derives the readiness identity summary from direct Terminal Targets only: known distinct upstream IDs, exact case-sensitive decoupled count, and unknown evidence. Model Target edges are not recursively followed. `useConnectionFocus.ts` consumes one-shot create/focus state once.

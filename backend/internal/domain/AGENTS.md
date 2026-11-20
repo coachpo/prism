@@ -2,7 +2,6 @@
 
 Keep these packages HTTP-neutral: handlers, authentication, profile selection, and response serialization belong in `../httpapi/`; process composition and lane allocation belong in `../platform/`. Domain stores may use injected query/partition interfaces without owning infrastructure lifecycle.
 
-
 - `modelrouting/` owns graph diagnostics and route witnesses. Keep all configured nodes available for recursive Model Targets; `direct_request_enabled` gates client-entry roots and representative witnesses only.
 - `terminaltarget/upstream_model_id.go` is the shared trim/non-blank/200-rune wire-identity validator. `custom_request_parameters.go` is the shared parser, validator, and shallow overlay; consumers must not fork its protected keys, limits, or canonicalization rules.
 - `terminaltarget/routing_schedule.go` owns eligibility through `DecideAt`; no windows means unrestricted. Keep compiled schedules immutable and methods on value receivers because runtime snapshots share their backing slices. Pricing windows in `pricing_schedule.go` reuse geometry but belong to pricing revisions and the frozen ingress clock.

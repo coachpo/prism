@@ -1,6 +1,6 @@
 # Management Jobs
 
-`scheduler.go` owns worker registration/dispatch; `jobs.go` owns the store facade. Keep profile-scoped `audit_delete` in `audit_delete.go`/`job_queries.go` separate from global `log_retention` work and the Settings job-center API in `retention_api.go`/`retention_dto.go`.
+Keep profile-scoped `audit_delete` in `audit_delete.go`/`job_queries.go` separate from global `log_retention` work and the Settings job-center API in `retention_api.go`/`retention_dto.go`.
 
 - `retention_planning.go`, `retention_create.go`, and `retention_execute.go` own policy-bound claims, checkpoints, fenced physical reclaim through the retention store, and terminal publication. Handlers enqueue work; they do not delete retention rows or drop partitions inline.
 - Keep `log_retention` global (`profile_id = 0`). Automatic cutoffs are UTC-day aligned and claims bind separate policy/fence generations; automatic work waits behind manual reservations. Do not substitute `now - N*24h` or count dropped-partition rows as `rows_deleted`.

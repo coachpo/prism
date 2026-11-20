@@ -9,4 +9,4 @@ Keep management session enforcement in `management_auth_middleware.go` and runti
 - Readiness comes from `proxy_key_readiness_fence.go`, using one server-clock count and the 30-second safe-active horizon. Key mutations acquire the same fence before the auth-control singleton; do not invent another activation predicate.
 - Proxy-key rotation updates the same row so retained attribution keeps a stable logical key id. Preserve serialized capacity, presence-aware expiry (omitted preserves, null clears), and private/no-store one-time create/rotate responses.
 - Auth-off runtime traffic still carries honest `identified|none|unknown` attribution with per-request `AuthEnforced`. Optional lookup failure permits execution with unknown identity; enforcement failure rejects. A proxy-key 401 is never management session expiry.
-- Keep cookies, tokens, request tokens, and key helpers here. Return only metadata or newly generated one-time values and reuse `../../proxykeyusage/` for usage persistence.
+- Keep cookies, tokens, request tokens, and key helpers here. Return only metadata or newly generated one-time values.
